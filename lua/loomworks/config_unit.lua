@@ -47,12 +47,10 @@
 --- @field _targets_stamp string|nil targets_stamp() when `targets` was last set (runtime only)
 --- Test integration (runtime-only):
 --- @field _test_tree table[]|nil cached merged test entries from all TestUnits
---- @field _test_results table[]|nil last parsed test results
 --- @field _test_units loomworks.TestUnit[]|nil lazily created TestUnit array
 ---        (the module's, then core's saved-targets TestUnit, spec §8.9.3)
 --- @field _saved_tests_sig string|nil fingerprint of the saved test-target list
 ---        the cached TestUnits / test tree were built for (spec §1.3.4)
---- @field _last_test_task_id number|nil most recent test overseer task ID
 local notify = require("loomworks.notify").notify
 local ConfigUnit = {}
 ConfigUnit.__index = ConfigUnit
@@ -97,9 +95,7 @@ function ConfigUnit.new(workspace, id, project_key)
     self.targets = nil
     -- Test integration
     self._test_tree = nil
-    self._test_results = nil
     self._test_units = nil
-    self._last_test_task_id = nil
     -- References (resolved during _apply)
     self._project = nil
     self._tool = nil
@@ -1185,67 +1181,6 @@ function ConfigUnit:delete(on_done)
     return self._workspace:execute_deletion(plan, nil, on_done)
 end
 
---- Clean this config: run module clean tasks and reset build state.
---- Returns a Future.
---- @param on_done? function legacy callback (deprecated)
---- @return loomworks.Future
-function ConfigUnit:clean(on_done)
-    -- (A `daemon`-mode editor holds no model, step 6b-α: a model's clean is
-    -- always in-process — the daemon's, the CLI's or the in-process
-    -- editor's.)
-    local f = self:_clean_in_process()
-    if on_done then
-        f:next(function() on_done() end)
-         :catch(function() on_done() end)
-    end
-    return f
-end
-
---- The in-process module clean of this configuration (ConfigUnit:clean).
---- @return loomworks.Future
-function ConfigUnit:_clean_in_process()
-    local ws = self._workspace
-    local items = { { unit = self } }
-
-    ws:cancel_conflicting_operations({ self })
-
-    self:mark_deleting(true, "cleaning")
-    -- The runtime mark is cleared on every exit (success, failed task,
-    -- cancel, refusal, throw) — exactly once. Only the in-memory mark: cache
-    -- state is left as is.
-    -- Clearing on cancel is safe: the clean task holds the exclusive build-dir lock.
-    local clear_mark = ws:_deleting_mark_clearer({ self })
-    local unit = self
-    local ok, f = pcall(function()
-        local refs = unit:referencing_profiles()
-        local profile = refs[1] or nil
-        ws:create_operation(profile, "clean", { unit }, { [unit] = "configured" })
-        -- The built state is recorded per module clean task once it succeeds
-        -- (overseer.record_module_clean); a wipe resets the unit itself.
-
-        local running = ws:find_running_tasks_for_items(items)
-        local task_ids = {}
-        for task_id in pairs(running) do
-            task_ids[#task_ids + 1] = task_id
-        end
-
-        return ws:stop_tasks_then(task_ids):next(function()
-            return require("loomworks.overseer").run_configuration_clean(unit)
-        end):next(function()
-            clear_mark()
-            return true
-        end, function(err)
-            clear_mark()
-            error(err, 0)
-        end)
-    end)
-    if not ok then
-        clear_mark()
-        error(f, 0)
-    end
-    return f
-end
-
 --- Get build options by delegating to the module.
 --- @return (loomworks.OptionGroup | loomworks.Option)[]|nil
 function ConfigUnit:options()
@@ -1354,57 +1289,6 @@ end
 --- @return number|nil
 function ConfigUnit:last_task_id()
     return self._last_task_id
-end
-
---- Open the output of the most recent overseer task in a Snacks.win float.
---- @param win_opts? table Snacks.win overrides from plugin config
---- @param on_close? fun() called when the window is closed
---- @return boolean opened true if a task was found and opened
-function ConfigUnit:open_task_output(win_opts, on_close)
-    if not self._last_task_id then return false end
-    local task = self._workspace._core._deps.get_overseer_task(self._last_task_id)
-    if not task then return false end
-    local bufnr = task:get_bufnr()
-    if not bufnr then return false end
-
-    local Snacks = require("snacks")
-    local config = vim.tbl_deep_extend("force", {
-        position = "float",
-        buf = bufnr,
-        enter = true,
-        width = 0.9,
-        height = 0.85,
-        border = "rounded",
-        title = " " .. (task.name or "Task") .. " ",
-        title_pos = "center",
-        keys = { q = "close" },
-        wo = {
-            number = false,
-            relativenumber = false,
-            signcolumn = "no",
-            wrap = false,
-        },
-    }, win_opts or {})
-
-    if on_close then
-        local orig_on_close = config.on_close
-        config.on_close = function(self_win)
-            if orig_on_close then orig_on_close(self_win) end
-            on_close()
-        end
-    end
-
-    local win = Snacks.win(config)
-
-    -- Scroll to end
-    if win.win and vim.api.nvim_win_is_valid(win.win) then
-        local line_count = vim.api.nvim_buf_line_count(bufnr)
-        if line_count > 0 then
-            vim.api.nvim_win_set_cursor(win.win, { line_count, 0 })
-        end
-    end
-
-    return true
 end
 
 --- Mark this unit as deleting/cleaning (`true`), or end one mark (`false`).
@@ -1693,7 +1577,6 @@ end
 --- Invalidate cached test data (called after build/configure completes).
 function ConfigUnit:invalidate_tests()
     self._test_tree = nil
-    self._test_results = nil
     self._test_units = nil
     self._saved_tests_sig = nil
 end
@@ -1721,27 +1604,6 @@ function ConfigUnit:test_availability()
     end
     if #self:test_units() == 0 then return "no_tests", nil end
     return nil, nil
-end
-
---- Merge test results into the cached test tree.
---- @param results table[]|nil TestResult entries
-function ConfigUnit:_apply_test_results(results)
-    if not results then return end
-    self._test_results = results
-
-    if not self._test_tree then return end
-    local by_id = {}
-    for _, r in ipairs(results) do
-        by_id[r.test_id] = r
-    end
-    for _, entry in ipairs(self._test_tree) do
-        local r = by_id[entry.id]
-        if r then
-            entry.status = r.status
-            entry.message = r.message
-            entry.duration = r.duration
-        end
-    end
 end
 
 --- Find the TestUnit that owns a given test_id.
@@ -1791,195 +1653,6 @@ function ConfigUnit:test_command_for(test_id, opts)
         for _, a in ipairs(target.saved_args) do cmd.cmd[#cmd.cmd + 1] = a end
     end
     return cmd, tu
-end
-
---- The "run all" commands of this unit (spec §8.9.4): one per TestUnit that
---- has `test_command_all`, and one per runnable top-level entry of a TestUnit
---- without it (the saved-targets TestUnit). Each item pairs the command with
---- the TestUnit that parses its results.
---- @param opts? table
---- @return { cmd: table, tu: loomworks.TestUnit, id: string|nil }[]
-function ConfigUnit:test_commands_all(opts)
-    local out = {}
-    for _, tu in ipairs(self:test_units()) do
-        local all = tu.test_command_all and tu:test_command_all(opts) or nil
-        if all then
-            out[#out + 1] = { cmd = all, tu = tu }
-        elseif tu.is_saved_targets then
-            for _, e in ipairs(tu:entries() or {}) do
-                if not e.parent and e.runnable then
-                    local c = tu:test_command(e.id, opts)
-                    if c then out[#out + 1] = { cmd = c, tu = tu, id = e.id } end
-                end
-            end
-        end
-    end
-    return out
-end
-
---- Run a single test. Handles the full prerequisite chain:
---- configure if needed → build if needed → run test.
---- @param test_id string test identifier from discover_tests
---- @param opts? table { strategy?: "run"|"dap", gtest_filter?: string }
---- @return loomworks.Future
-function ConfigUnit:run_test(test_id, opts)
-    opts = opts or {}
-    local overseer_mod = require("loomworks.overseer")
-
-    local unit = self
-    return overseer_mod.run_configuration_action(self, "build"):next(function()
-        return unit:_launch_test(test_id, opts)
-    end)
-end
-
---- Run all tests. Handles the full prerequisite chain.
---- @param opts? table { filter?: string, strategy?: "run"|"dap" }
---- @return loomworks.Future
-function ConfigUnit:run_tests(opts)
-    opts = opts or {}
-    local overseer_mod = require("loomworks.overseer")
-
-    local unit = self
-    return overseer_mod.run_configuration_action(self, "build"):next(function()
-        return unit:_launch_test_all(opts)
-    end)
-end
-
---- Launch a single test task via overseer (after prerequisites are met).
---- @param test_id string
---- @param opts table
---- @return loomworks.Future
-function ConfigUnit:_launch_test(test_id, opts)
-    local future_mod = require("loomworks.future")
-    local test_cmd, tu = self:test_command_for(test_id, opts)
-    if not tu then
-        return future_mod.rejected("no test unit for " .. test_id)
-    end
-    if not test_cmd then
-        return future_mod.rejected("test unit cannot build command for " .. test_id)
-    end
-
-    return self:_run_test_task(
-        "test: " .. (test_id:match("^test:(.+)$") or test_id),
-        test_cmd, tu
-    )
-end
-
---- Launch all tests task via overseer (after prerequisites are met).
---- @param opts table
---- @return loomworks.Future
-function ConfigUnit:_launch_test_all(opts)
-    local future_mod = require("loomworks.future")
-    local units = self:test_units()
-    if #units == 0 then
-        return future_mod.rejected("no test units")
-    end
-
-    -- Every TestUnit (spec §8.9.4), one task after another (TestUnits may
-    -- share a results path).
-    local cmds = self:test_commands_all(opts)
-    if #cmds == 0 then
-        return future_mod.rejected("test unit cannot build command")
-    end
-    local unit = self
-    local failed = false
-    local function step(i)
-        if i > #cmds then
-            if failed then return future_mod.rejected("test failed") end
-            return future_mod.resolved(true)
-        end
-        local c = cmds[i]
-        local label = c.id and ("test: " .. (c.id:match("^target:(.+)$") or c.id)) or "test: all"
-        return unit:_run_test_task(label, c.cmd, c.tu):next(function() return step(i + 1) end,
-            function() failed = true; return step(i + 1) end)
-    end
-    return step(1)
-end
-
---- Run a test step's own preparation (`test_cmd.prepare`, e.g. a saved
---- launch entry's deploy, spec §16.16) — the one place every editor runner
---- (overseer task, neotest) calls it, once, just before the program runs.
---- A failure (`false, err`, or an error raised) marks the step's entry failed
---- and is reported; the caller must then not run the program.
---- @param name string display name for the step
---- @param test_cmd table { prepare?, test_id? }
---- @return boolean ok, string|nil err
-function ConfigUnit:_prepare_test_step(name, test_cmd)
-    if type(test_cmd.prepare) ~= "function" then return true end
-    local ok, pok, perr = pcall(test_cmd.prepare)
-    if ok and pok then return true end
-    local msg = tostring((ok and perr) or (not ok and pok) or "preparation failed")
-    notify("loomworks: " .. name .. ": " .. msg, vim.log.levels.ERROR)
-    if test_cmd.test_id then
-        self:_apply_test_results({ { test_id = test_cmd.test_id, status = "failed", message = msg } })
-        local events = self._workspace and self._workspace._core and self._workspace._core._deps.events
-        if events then events.emit("test_results_changed", self) end
-    end
-    return false, msg
-end
-
---- Run a test task via overseer and parse results on completion.
---- @param name string display name for the task
---- @param test_cmd table { cmd, env, cwd, output_path }
---- @param tu loomworks.TestUnit the test unit for result parsing
---- @return loomworks.Future
-function ConfigUnit:_run_test_task(name, test_cmd, tu)
-    local future_mod = require("loomworks.future")
-    local ok, overseer = pcall(require, "overseer")
-    if not ok then
-        return future_mod.rejected("overseer.nvim not found")
-    end
-
-    -- A step's own preparation (a saved launch entry's deploy, spec §16.16)
-    -- runs now, when the step executes; a failure fails this step without
-    -- running its program, and the entry shows as failed.
-    local pok, perr = ConfigUnit._prepare_test_step(self, name, test_cmd)
-    if not pok then return future_mod.rejected(perr) end
-
-    local f = future_mod.Future.new()
-    local unit = self
-    local project_name = self._project and self._project.key or "?"
-
-    -- Dispose previous test task
-    if self._last_test_task_id then
-        local prev = self._workspace._core._deps.get_overseer_task(self._last_test_task_id)
-        if prev and prev:is_complete() then
-            prev:dispose()
-        end
-    end
-
-    local task = overseer.new_task({
-        name = project_name .. ": " .. name,
-        cmd = test_cmd.cmd,
-        cwd = test_cmd.cwd,
-        env = test_cmd.env,
-        components = { "default" },
-    })
-
-    self._last_test_task_id = task.id
-
-    task:subscribe("on_complete", function(_, status)
-        vim.schedule(function()
-            if test_cmd.output_path then
-                local results = tu:parse_results(test_cmd.output_path)
-                unit:_apply_test_results(results)
-            end
-
-            local events = unit._workspace._core._deps.events
-            events.emit("test_results_changed", unit)
-
-            if status == "SUCCESS" then
-                f:_resolve(true)
-            else
-                f:_reject("test failed")
-            end
-        end)
-    end)
-
-    task:start()
-    overseer.open({ enter = false })
-
-    return f
 end
 
 return ConfigUnit

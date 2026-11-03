@@ -371,11 +371,6 @@ describe("model_commands", function()
       assert.same({ "warn" }, r.note_roles)
       assert.is_truthy(r.notes[1]:find("Dev", 1, true), r.notes[1])
       assert.is_truthy(r.notes[1]:find("no toolchain", 1, true), r.notes[1])
-      -- The editor's add without a toolchain sends its initial mappings; the
-      -- adapter drops them (the dialog hides them until a tool is chosen).
-      local ok, err = require("loomworks.workspace_view").execute_add_project(ws, "D", "cmake", "B",
-        { mappings = { Dev = "Debug" } })
-      assert.is_true(ok, err)
     end)
 
     it("add maps the known sets and warns naming an unknown set", function()
@@ -393,12 +388,6 @@ describe("model_commands", function()
       assert.equals("B", r.project.key)
       assert.same({ "warn" }, r.note_roles)
       assert.is_truthy(r.notes[1]:find("not upgraded to the tool: workspace busy", 1, true), r.notes[1])
-      -- The editor's adapter still reports it as the error it was.
-      local ok, err, project = require("loomworks.workspace_view").execute_add_project(ws, "C", "typescript", "B",
-        { mappings = {}, tool_entry = { tool_key = "t", tool_mod_type = "typescript" } })
-      assert.is_false(ok)
-      assert.equals("C", project.key)
-      assert.is_truthy(err:find("not upgraded to the tool: workspace busy", 1, true), err)
     end)
 
     it("launch_save creates, renames keeping the object, and refuses foreign/removed launches", function()
@@ -545,28 +534,6 @@ describe("model_commands", function()
       assert.equals(declared, find(ws._sdks, "key", declared.key))
       assert_ok(mc.sdk_remove(ws, declared))
       assert.is_true(declared._removed)
-    end)
-
-    it("the editor's add and remove (workspace_view) detect the toolchains again, without waiting", function()
-      fake_provider()
-      local deps = ws._core._deps
-      local saved = deps.detect_tools_async
-      local scans, pending = {}, {}
-      -- Detection never completes here: the editor path must not wait for it.
-      deps.detect_tools_async = function(_, _, cb, opts) scans[#scans + 1] = opts; pending[#pending + 1] = cb end
-      local ok_, err = pcall(function()
-        local wv = require("loomworks.workspace_view")
-        local sdk = assert(wv.add_sdk(ws, "fake_mc", root))
-        assert.equals(1, #scans, "add started a detection")
-        assert.is_true(scans[1].force)
-        assert.equals("scanning", ws._tool_state)
-        local okr, rerr = wv.remove_sdk(ws, sdk)
-        assert(okr, rerr)
-        assert.equals(2, #scans, "remove started a detection")
-        assert.is_true(scans[2].force)
-      end)
-      deps.detect_tools_async = saved
-      assert(ok_, err)
     end)
 
     it("detect names each provider, its path prompt and the installations it finds; an unknown provider is refused", function()

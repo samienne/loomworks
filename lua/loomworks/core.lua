@@ -3,8 +3,8 @@
 --- isolated instance with injectable dependencies and clean state.
 --- Registries and business logic live on the Workspace instance;
 --- Core owns I/O, modules, events, file tracking, and setup.
---- Thin delegation wrappers forward to Workspace so that init.lua callers
---- continue to work via core:method().
+--- Thin delegation wrappers forward to Workspace so that callers (the CLI,
+--- the daemon) work via core:method().
 
 --- @class loomworks.Core
 --- @field _deps table injected dependencies
@@ -82,13 +82,13 @@ local DEFAULT_DEPS = {
     realpath = function(path)
         return (vim.uv or vim.loop).fs_realpath(path)
     end,
-    --- Resolve an overseer task by id. Returns nil if overseer not available.
-    --- @param task_id number
+    --- Resolve a task of the workspace's task registry by id
+    --- (ConfigUnit:register_task). The lw process spawns no such task — its
+    --- runners (build_run, the daemon's runner) track their own steps — so
+    --- there is none to resolve. Tests inject one.
     --- @return table|nil task
-    get_overseer_task = function(task_id)
-        local ok, task_list = pcall(require, "overseer.task_list")
-        if not ok then return nil end
-        return task_list.get(task_id)
+    get_overseer_task = function()
+        return nil
     end,
     --- Get the file path for a buffer.
     --- @param bufnr number
@@ -1244,36 +1244,6 @@ function Core:project_for_buf(bufnr)
     return best_project
 end
 
---- `loomworks.view.Header/1`'s state built from the in-process model (spec
---- §19.13 "Two sources, one shape"): the daemon's builder, without the
---- session fields and ids only the daemon fills (`in-process` mode only: in
---- `daemon` mode the editor has no model and loomworks.views builds nothing,
---- step 6b-α). A failed load reports as the daemon's `error_state` does
---- (cli.lua).
---- @return loomworks.ViewHeader
-function Core:view_header()
-    local ws = self._workspace
-    -- `version` is the running loomworks version, not model state.
-    local version = require("loomworks.save_guard").version()
-    local e = not ws and self._setup_error or nil
-    local err
-    if e then
-        local kind = type(e.trust) == "table" and e.trust.kind or nil
-        err = { message = e.message, refused = (e.trust or e.newer or e.journal) and true or nil,
-            trust = (kind == "user" or kind == "cache") and kind or nil }
-    end
-    return require("loomworks.view_state").header(ws, err,
-        { root = (ws and ws.root) or (e and e.root) or nil, version = version })
-end
-
---- `loomworks.view.ProjectsIndex/1`'s state built from the in-process model
---- (no ids; no projects when no workspace is loaded; `in-process` mode only).
---- @return loomworks.ViewProjectsIndex
-function Core:view_projects_index()
-    local ws = self._workspace
-    return require("loomworks.view_state").projects_index(ws)
-end
-
 --- Detach the active workspace fully. Called on VimLeave-style shutdown.
 --- `workspace_closed` is emitted only for a shutdown with no successor
 --- (§9.7): a caller that loads another workspace right after passes
@@ -1299,8 +1269,8 @@ end
 -- ===========================================================================
 -- Thin delegation wrappers (forward to Workspace)
 -- ===========================================================================
--- These keep the init.lua -> core:method() calling convention working
--- without requiring changes to init.lua or any external callers.
+-- These keep the core:method() calling convention of the CLI and the
+-- daemon.
 
 --- @see loomworks.Workspace.remerge
 function Core:remerge()

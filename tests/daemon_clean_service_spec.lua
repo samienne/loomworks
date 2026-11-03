@@ -148,7 +148,7 @@ describe("lw clean in the daemon's build service (§19.15 Clean)", function()
     after_each(function()
         lio.rm_rf_async = real_rm
         if srv and not srv.stopped then srv:stop("test end", 0) end
-        pcall(function() require("loomworks")._core():shutdown() end)
+        pcall(function() require("loomworks.app").core():shutdown() end)
         trust._set_key_path(nil)
     end)
 

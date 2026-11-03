@@ -1,5 +1,5 @@
 -- The status page's tool picker: a profile made of an SDK's entry
--- (Workspace:get_tool_entries → workspace_view.execute_create_profile) stores
+-- (Workspace:get_tool_entries → model_commands.profile_create) stores
 -- the SDK's kit toolchains as its tool keys (spec §1.6: tool keys carry the
 -- SDK; a profile has no separate `sdk` field), so it keeps its SDK across a
 -- reload and its key never clashes with the set's toolless profile.
@@ -68,12 +68,12 @@ describe("tool picker: a profile made of an SDK", function()
     after_each(function()
         local shell = require("loomworks.modules").get("shell")
         for k, v in pairs(shell_saved or {}) do shell[k] = v ~= false and v or nil end
-        pcall(function() require("loomworks")._core():shutdown() end)
+        pcall(function() require("loomworks.app").core():shutdown() end)
         trust._set_key_path(nil)
     end)
 
     local function load()
-        pcall(function() require("loomworks")._core():shutdown() end)
+        pcall(function() require("loomworks.app").core():shutdown() end)
         return assert(cli._load_workspace(root, true))
     end
 
@@ -87,7 +87,7 @@ describe("tool picker: a profile made of an SDK", function()
         end
         assert.is_not_nil(entry, "the picker offers the SDK")
         local cs = find(ws._config_sets, "name", "dev")
-        local profile, err = require("loomworks.workspace_view").execute_create_profile(cs, entry, false)
+        local profile, err = require("loomworks.model_commands").profile_create(cs._workspace, cs, entry, false).profile
         assert.is_not_nil(profile, err)
         assert.are_not.equal("dev", profile.key)
         assert.same({ "fake-kit" }, profile._tool_keys)
@@ -107,7 +107,7 @@ describe("tool picker: a profile made of an SDK", function()
         end
         cs = find(ws._config_sets, "name", "dev")
         local count = #ws._profiles
-        assert.equals(profile, require("loomworks.workspace_view").execute_create_profile(cs, entry, false))
+        assert.equals(profile, require("loomworks.model_commands").profile_create(cs._workspace, cs, entry, false).profile)
         assert.equals(count, #ws._profiles)
     end)
 
@@ -119,7 +119,7 @@ describe("tool picker: a profile made of an SDK", function()
             if e.sdk == sdk then entry = e end
         end
         local cs = find(ws._config_sets, "name", "dev")
-        return assert(require("loomworks.workspace_view").execute_create_profile(cs, entry, false))
+        return assert(require("loomworks.model_commands").profile_create(cs._workspace, cs, entry, false).profile)
     end
 
     it("derives its SDK in a single refresh of a workspace with no modules yet", function()

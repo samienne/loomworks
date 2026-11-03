@@ -71,7 +71,7 @@ describe("daemon build service (§19.15)", function()
     end)
     after_each(function()
         if not srv.stopped then srv:stop("test end", 0) end
-        pcall(function() require("loomworks")._core():shutdown() end)
+        pcall(function() require("loomworks.app").core():shutdown() end)
         trust._set_key_path(nil)
     end)
 
@@ -335,7 +335,7 @@ describe("daemon build service (§19.15)", function()
         assert.truthy(r.text("output"):find("ARGS=changed", 1, true), r.text("output"))
         r.conn:close()
         -- Both edits are applied, and the working copy on disk keeps the other one.
-        local ws = require("loomworks")._core()._workspace
+        local ws = require("loomworks.app").core()._workspace
         local desc = {}
         for _, p in pairs(ws:get_profiles()) do desc[#desc + 1] = p.description end
         assert.same({ "edited elsewhere" }, desc)
@@ -353,7 +353,7 @@ describe("daemon build service (§19.15)", function()
         r = build(srv)
         assert.is_true(r.wait_reply())
         assert.equals("refused", r.reply.outcome)
-        assert.equals(cli._setup_failure(require("loomworks")._core()).message, r.reply.message)
+        assert.equals(cli._setup_failure(require("loomworks.app").core()).message, r.reply.message)
         assert.truthy(r.reply.message:find("lw trust", 1, true))
         r.conn:close()
     end)

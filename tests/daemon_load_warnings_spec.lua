@@ -91,7 +91,7 @@ describe("load warnings reach daemon clients (§19.13 Load warnings)", function(
     end)
     after_each(function()
         if not srv.stopped then srv:stop("test end", 0) end
-        pcall(function() require("loomworks")._core():shutdown() end)
+        pcall(function() require("loomworks.app").core():shutdown() end)
         trust._set_key_path(nil)
     end)
 
@@ -296,17 +296,17 @@ describe("once-per-load plugin rejections (§19.13 Load warnings)", function()
         f = assert(io.open(dir .. "/lua/loomworks/sdks/lwbadsdk.lua", "wb"))
         f:write("return { id = 'lwbadsdk', api_version = 999 }"); f:close()
         vim.opt.rtp:append(dir)
-        saved = require("loomworks")._core()._deps.notify
+        saved = require("loomworks.app").core()._deps.notify
     end)
     after_each(function()
-        require("loomworks")._core()._deps.notify = saved
+        require("loomworks.app").core()._deps.notify = saved
         vim.opt.rtp:remove(dir)
     end)
 
     for _, case in ipairs({ { "modules", "lwbadmod" }, { "sdks", "lwbadsdk" } }) do
         it(case[1] .. ": a rejection is reported once per load, again on the next load", function()
             local seen = {}
-            require("loomworks")._core()._deps.notify = function(msg) seen[#seen + 1] = msg end
+            require("loomworks.app").core()._deps.notify = function(msg) seen[#seen + 1] = msg end
             local reg = require("loomworks." .. case[1])
             require("loomworks.notify").new_load()
             assert.is_nil(reg.get(case[2]))
@@ -322,7 +322,7 @@ end)
 
 describe("the notification seam (§16.7 Highlighting)", function()
     it("a load warning of the config parser goes through the host's core notify, not vim.notify", function()
-        local core = require("loomworks")._core()
+        local core = require("loomworks.app").core()
         local saved, saved_vim = core._deps.notify, vim.notify
         local seen, direct = {}, {}
         core._deps.notify = function(msg, level) seen[#seen + 1] = { msg, level } end

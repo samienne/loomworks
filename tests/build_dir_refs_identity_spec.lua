@@ -96,12 +96,10 @@ end
 
 describe("shared build dir protection by real path (spec 4.6)", function()
   local io_mod = require("loomworks.io")
-  local real_rm_rf_async, real_rm_rf, real_overseer
+  local real_rm_rf_async, real_rm_rf
 
   before_each(function()
     real_rm_rf_async, real_rm_rf = io_mod.rm_rf_async, io_mod.rm_rf
-    real_overseer = package.loaded["overseer"]
-    package.loaded["overseer"] = real_overseer or {}
     io_mod.rm_rf_async = function(dir, cb)
       vim.fn.delete(dir, "rf")
       if cb then vim.schedule(function() cb(true, nil) end) end
@@ -112,7 +110,6 @@ describe("shared build dir protection by real path (spec 4.6)", function()
 
   after_each(function()
     io_mod.rm_rf_async, io_mod.rm_rf = real_rm_rf_async, real_rm_rf
-    package.loaded["overseer"] = real_overseer
   end)
 
   local function keeps_aliased_dir(dir, alias, root)
@@ -125,7 +122,9 @@ describe("shared build dir protection by real path (spec 4.6)", function()
     assert.equals(2, #ws:get_build_dir_refs(dir), "both spellings index one directory")
     assert.equals(2, #ws:get_build_dir_refs(alias), "looked up by either spelling")
 
-    local ok, done = wait(by.Dev:clean())
+    local f, shared = ws:clean_wipe_build_dir({ dev }, dir)
+    assert.is_true(shared, "the dir is reported shared with the other unit")
+    local ok, done = wait(f)
     assert.is_true(done, "clean settles")
     assert.is_true(ok, "clean succeeds (the shared dir is kept)")
     assert.is_not_nil(uv.fs_stat(dir .. "/marker.txt"),

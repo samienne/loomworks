@@ -382,22 +382,6 @@ describe("run_prep.resolve_debug (one spec for run and debug, §8.9.6, step 5k C
         assert.same({ { language = "c++", adapter = "codelldb" } }, spec.adapters)
     end)
 
-    it("the multi-adapter path reads the same spec (a target-backed program is resolved)", function()
-        local orig = expand.launch_context
-        expand.launch_context = function() return {} end
-        local t = Target.new(stub_unit("/b", "app"), "app", { type = "executable", artifact = "app.exe" })
-        local target_lt = lt({
-            _workspace = { root = "/ws" }, _project = { key = "app", path = "src/app" },
-            _launch_name = "tool", _config_target = t,
-            _launch = { target = "app", debug = { "c++", "typescript" } },
-        })
-        local ok, adapters, data = pcall(target_lt.multi_adapter_specs, target_lt)
-        expand.launch_context = orig
-        assert.is_true(ok, adapters)
-        assert.same({ { adapter = "codelldb" }, { adapter = "pwa-node" } }, adapters)
-        assert.equals("/b/app.exe", data.program)
-    end)
-
     it("a target-backed launch config whose target is unknown is refused", function()
         local orig = expand.launch_context
         expand.launch_context = function() return {} end

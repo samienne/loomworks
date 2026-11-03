@@ -289,7 +289,7 @@ describe("daemon run preparation (§19.15 Run)", function()
     -- ---- build_scope = "target" (§19.15 "Build scope of a launch") ----------
 
     it("builds the dependencies, deploys around the launch's own unit, then prepares; not the profile", function()
-        local overseer = require("loomworks.overseer")
+        local overseer = require("loomworks.task_plan")
         local calls = {}
         local lib_unit, app_unit = { name = "lib", config_key = ck }, { name = "app", config_key = ck }
         local planned_for = {}
@@ -321,7 +321,7 @@ describe("daemon run preparation (§19.15 Run)", function()
     end)
 
     it("builds a module target's one target, and with no_build neither builds nor deploys", function()
-        local overseer = require("loomworks.overseer")
+        local overseer = require("loomworks.task_plan")
         local calls = {}
         with(overseer, "plan_unit_build", function(_, unit, o)
             calls[#calls + 1] = unit.name .. ":" .. tostring(o.target_id)
@@ -344,7 +344,7 @@ describe("daemon run preparation (§19.15 Run)", function()
     end)
 
     it("ends at the first failing phase with the in-process message, the later phases not run", function()
-        local overseer = require("loomworks.overseer")
+        local overseer = require("loomworks.task_plan")
         local planned = false
         with(overseer, "plan_unit_build", function() planned = true; return {} end)
         local lt = launch_target({
@@ -365,7 +365,7 @@ describe("daemon run preparation (§19.15 Run)", function()
     --- A target-scoped launch whose artifact is found foreign only by probing
     --- once its own unit has built.
     local function probed_foreign_target(calls)
-        local overseer = require("loomworks.overseer")
+        local overseer = require("loomworks.task_plan")
         local built = false
         with(overseer, "plan_unit_build", function(_, unit)
             calls[#calls + 1] = "build " .. unit.name
@@ -413,7 +413,7 @@ describe("daemon run preparation (§19.15 Run)", function()
     end)
 
     it("reports a target-scoped build's progress monotonically, unit steps inside their phase", function()
-        local overseer = require("loomworks.overseer")
+        local overseer = require("loomworks.task_plan")
         with(overseer, "plan_unit_build", function(_, unit)
             local steps = {}
             for n = 1, unit.steps do steps[n] = { kind = "build", name = unit.name .. n, cmd = { "x" } } end

@@ -13,7 +13,7 @@ local Core = require("loomworks.core")
 local h = require("tests.helpers")
 local cpp = require("loomworks.cpp_compilers")
 local cmake = require("loomworks.modules.cmake")
-local overseer = require("loomworks.overseer")
+local overseer = require("loomworks.task_plan")
 local real_modules = require("loomworks.modules")
 
 local orig_lookup = cpp.lookup_path
@@ -67,7 +67,7 @@ local function make_core(fills, active)
 end
 
 local function with_ws(ws, fn)
-    local loomworks = require("loomworks")
+    local loomworks = require("loomworks.app")
     local orig = loomworks.get_workspace
     loomworks.get_workspace = function() return ws end
     local ok, res = pcall(fn)

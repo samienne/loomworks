@@ -79,12 +79,12 @@ describe("env.PATH", function()
   local notified
   before_each(function()
     notified = {}
-    local core = require("loomworks")._core()
+    local core = require("loomworks.app").core()
     orig_notify = core._deps.notify
     core._deps.notify = function(msg, level) notified[#notified + 1] = { msg = msg, level = level } end
     config_env._warned = {}
   end)
-  after_each(function() require("loomworks")._core()._deps.notify = orig_notify end)
+  after_each(function() require("loomworks.app").core()._deps.notify = orig_notify end)
 
   it("is accepted with a clear warning at set time, any case", function()
     local root = make_ws()

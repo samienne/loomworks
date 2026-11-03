@@ -61,7 +61,7 @@ describe("daemon launch-target build (§19.15 Build of a launch target)", functi
         end)
         with(run_prep, "env_overrides", function() return {} end)
         local rec = { calls = {}, steps = {}, lines = {}, force = {} }
-        local overseer = require("loomworks.overseer")
+        local overseer = require("loomworks.task_plan")
         with(overseer, "plan_unit_build", function(_, u)
             rec.calls[#rec.calls + 1] = "build " .. u.name
             if opts.on_build then opts.on_build(u) end

@@ -286,13 +286,13 @@ describe("a refused nuke prints only the refusal (field report)", function()
         local root, dir = L.make_ws()
         local _ = cli._load_workspace(root, false)
         local h = L.hold(bl.lock_path(dir), "build")
-        local ok, msg = require("loomworks").nuke_check(root)
+        local ok, msg = require("loomworks.app").core():nuke_check(root, { skip_own = true })
         assert.is_nil(ok)
         assert.is_truthy(tostring(msg):find("^cannot nuke: a build is running in %.nvim/build/App/Debug %(pid "
             .. h.pid .. "%)"), tostring(msg))
         assert.is_nil(op_lock.read(root), "the check left the operation lock behind")
         L.cleanup()
-        assert.is_true(require("loomworks").nuke_check(root))
+        assert.is_true(require("loomworks.app").core():nuke_check(root, { skip_own = true }))
         assert.is_nil(op_lock.read(root))
         assert.is_nil(bl.read(dir))
     end)
@@ -301,7 +301,7 @@ describe("a refused nuke prints only the refusal (field report)", function()
         local root, dir = L.make_ws()
         local ws = cli._load_workspace(root, false)
         assert.is_true(ws:_acquire_file_lock(ws._core._deps.normalize(dir), "build"))
-        assert.is_true(require("loomworks").nuke_check(root))
+        assert.is_true(require("loomworks.app").core():nuke_check(root, { skip_own = true }))
         assert.is_not_nil(bl.read(dir), "the check released the editor's own build lock")
     end)
 end)
@@ -631,10 +631,13 @@ describe("re-review fixes (§19.3)", function()
         ws._core._deps.notify = function() end
         L.hold(op_lock.path(root), "publish")
         vim.fn.mkdir(root .. "/B", "p")
-        local wv = require("loomworks.workspace_view")
-        local ok, err = wv.execute_add_project(ws, "B", "typescript", "B",
-            { mappings = {}, tool_entry = { type = "typescript", key = "t" } }, false)
-        assert.equals(false, ok)
-        assert.is_truthy(tostring(err):find("workspace busy", 1, true), tostring(err))
+        local r = require("loomworks.model_commands").project_add(ws, "B", "typescript", "B",
+            {}, { type = "typescript", key = "t" })
+        -- (A composite's later failure is `ok` with a `warn` note, D1.)
+        local warned
+        for i, role in ipairs(r.note_roles or {}) do
+            if role == "warn" and r.notes[i]:find("workspace busy", 1, true) then warned = true end
+        end
+        assert.is_true(warned, vim.inspect(r))
     end)
 end)

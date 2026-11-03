@@ -438,10 +438,9 @@ end
 --- field needed; the cost is one regex per output line.
 ---
 --- Subtle: this method must return a string, not the parser function.
---- Returning the function directly causes `progress.get(<function>)`
---- to fail with a string-concat error inside `start_one_task`, which
---- leaves the overseer task wedged in PENDING because the lifecycle
---- subscriptions haven't been wired yet by the time the throw lands.
+--- Returning the function directly makes `progress.get(<function>)`
+--- fail with a string-concat error in the runner that tracks the step's
+--- progress.
 function M.progress_parser()
     return "ninja"
 end

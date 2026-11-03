@@ -120,7 +120,7 @@ describe("lw build routed through an in-process daemon (§19.15)", function()
         pcall(uv.os_unsetenv, "PROMPT")
         require("loomworks.lock_break").requested = nil
         if not srv.stopped then srv:stop("test end", 0) end
-        pcall(function() require("loomworks")._core():shutdown() end)
+        pcall(function() require("loomworks.app").core():shutdown() end)
         trust._set_key_path(nil)
     end)
 

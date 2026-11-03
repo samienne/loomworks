@@ -346,7 +346,7 @@ describe("both hosts use the fingerprint check (§16.43 'Reuse')", function()
         vim.env.XDG_CACHE_HOME = cache_base
     end)
     after_each(function()
-        pcall(function() require("loomworks")._core():shutdown() end)
+        pcall(function() require("loomworks.app").core():shutdown() end)
         for _, k in ipairs({ "LOCALAPPDATA", "XDG_CACHE_HOME", "PATH" }) do vim.env[k] = saved[k] end
         cli._reset_modes()
         trust._set_key_path(nil)
@@ -355,7 +355,7 @@ describe("both hosts use the fingerprint check (§16.43 'Reuse')", function()
     --- Load through `load` with a counting detector behind the wrapper.
     local function load_counting(load)
         local calls = {}
-        local core = require("loomworks")._core()
+        local core = require("loomworks.app").core()
         core._deps.detect_tools_async = function(config, _, cb)
             for t in pairs(config.projects or {}) do calls[#calls + 1] = t end
             cb({})

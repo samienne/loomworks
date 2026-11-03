@@ -2,8 +2,8 @@
 ---
 --- One function per user action that changes the model (spec §19.14 "As
 --- interfaces", §19.16 "Model writes"; API.md §6, §11, §19–§21): the
---- in-process editor (through workspace_view) and the daemon's interface
---- handlers (step 5o parts B) call the same function. Each takes resolved
+--- CLI and the daemon's interface handlers (step 5o parts B) call the same
+--- function. Each takes resolved
 --- domain objects — never keys: a caller resolves a reference (an id, or a
 --- name a user or a file supplied) once at its input boundary — plus plain
 --- arguments, and answers an outcome (API.md §4.1):
@@ -1156,7 +1156,7 @@ function M.keyed_tools_needed(ws, mod_type, key)
     local mod = mod_type and require("loomworks.modules").get(mod_type) or nil
     if not (mod and mod.has_keyed_tools and mod.detect_tools_async) then return false end
     if ws._tools_by_type and ws._tools_by_type[mod_type] then return false end
-    local inherited = require("loomworks.workspace_view").compute_add_project_context(ws, mod_type).inherited_tool
+    local inherited = ws:inherited_tool(mod_type)
     if inherited and (key == nil or inherited.tool_key == key) then return false end
     return true
 end
@@ -1197,6 +1197,89 @@ function M.detect_keyed_tools_async(mod_type, cb)
     if not started then vim.schedule(function() finish(nil, tostring(serr)) end) end
 end
 
+--- The initial configuration-set mappings of a project being added: per set
+--- (sorted names), the configuration the module maps the set's lowercased
+--- name to (`map_variant`), or nil.
+--- @param mod table module with map_variant
+--- @param set_names string[] sorted config set names
+--- @param available_configs string[] project's configuration names
+--- @return table<string, string|nil> set_name -> configuration
+local function initial_mappings(mod, set_names, available_configs)
+    local mappings = {}
+    for _, set_name in ipairs(set_names) do
+        mappings[set_name] = mod.map_variant and mod.map_variant(set_name:lower(), available_configs) or nil
+    end
+    return mappings
+end
+
+--- Whether a profile with a configuration set has no tool at all, so adding
+--- a keyed module's project with a toolchain would upgrade it.
+--- @param ws loomworks.Workspace
+--- @param mod_type string
+--- @return boolean
+local function has_toolless_profiles(ws, mod_type)
+    for _, profile in ipairs(ws._profiles) do
+        if profile._configuration_set_name and not profile:tool_for(mod_type)
+            and not profile:tools_data() then
+            return true
+        end
+    end
+    return false
+end
+
+--- The profile renames adding toolchain `tool_entry` would make
+--- (Workspace:compute_profile_renames), only of profiles whose configuration
+--- set `mappings` maps.
+--- @param ws loomworks.Workspace
+--- @param tool_entry table { tool_key, tool_data, tool_label, tool_mod_type }
+--- @param mappings table<string, string|nil> set name -> configuration
+--- @return { old_key: string, new_key: string }[]
+local function upgrade_preview(ws, tool_entry, mappings)
+    local renames = ws:compute_profile_renames(function(tools)
+        local t = tools and vim.deepcopy(tools) or {}
+        t[tool_entry.tool_mod_type] = {
+            key = tool_entry.tool_key,
+            data = tool_entry.tool_data,
+            label = tool_entry.tool_label,
+        }
+        return t
+    end)
+    local sets_with_mapping = {}
+    for set_name, variant in pairs(mappings) do
+        if variant then sets_with_mapping[set_name] = true end
+    end
+    local profiles_by_key = {}
+    for _, p in ipairs(ws._profiles) do profiles_by_key[p.key] = p end
+    local result = {}
+    for _, r in ipairs(renames) do
+        local profile = profiles_by_key[r.old_key]
+        if profile and sets_with_mapping[profile._configuration_set_name] then
+            result[#result + 1] = r
+        end
+    end
+    return result
+end
+
+
+--- The key and declared path of a project at `abs_path` (`name` its
+--- basename): at the root, the basename and path "."; directly under the
+--- root, the basename and no path; deeper, the relative path with "/" as "_"
+--- and the relative path.
+--- @param root string workspace root
+--- @param abs_path string absolute path of the project directory
+--- @param name string its basename
+--- @return string key, string|nil path
+function M.project_key_and_path(root, abs_path, name)
+    local rel = abs_path:sub(#root + 2) -- strip root + "/"
+    if rel == "" then
+        return name, "."
+    elseif rel == name then
+        return name, nil
+    else
+        return (rel:gsub("/", "_")), rel
+    end
+end
+
 --- `candidates { path, type? }` — what adding the directory as a project
 --- would declare (the project browser's add context): the derived key and
 --- path, the module types that detect it, the configurations the module
@@ -1214,12 +1297,11 @@ end
 --- @return loomworks.CommandOutcome
 function M.project_candidates(ws, path, mod_type, detected)
     local modules = require("loomworks.modules")
-    local wv = require("loomworks.workspace_view")
     local rel, r = M.project_dir(ws.root, path)
     if not rel then return r end
     local root = ws.root:gsub("\\", "/")
     local abs = rel == "" and root or (root .. "/" .. rel)
-    local key, ppath = wv.derive_key_and_path(root, abs, vim.fn.fnamemodify(abs, ":t"))
+    local key, ppath = M.project_key_and_path(root, abs, vim.fn.fnamemodify(abs, ":t"))
     local types = modules.detect_all_types(abs)
     mod_type = mod_type or (types[1] and types[1].type)
     local mod = mod_type and modules.get(mod_type) or nil
@@ -1240,23 +1322,23 @@ function M.project_candidates(ws, path, mod_type, detected)
     table.sort(set_names)
     local mappings = {}
     if #set_names > 0 and #out.configurations > 0 then
-        mappings = wv.compute_initial_mappings(mod, set_names, out.configurations)
+        mappings = initial_mappings(mod, set_names, out.configurations)
         for set, cfg in pairs(mappings) do out.mappings[set] = cfg end
     end
 
     if mod.has_keyed_tools then
-        local ctx = wv.compute_add_project_context(ws, mod_type)
+        local inherited = ws:inherited_tool(mod_type)
         out.tools, out.upgrade_preview = {}, {}
-        if ctx.inherited_tool then
-            out.tools[1] = { key = ctx.inherited_tool.tool_key, label = ctx.inherited_tool.tool_label,
-                inherited = true }
+        if inherited then
+            out.tools[1] = { key = inherited.tool_key, label = inherited.tool_label, inherited = true }
         else
+            local toolless = has_toolless_profiles(ws, mod_type)
             for _, t in ipairs(keyed_tools(ws, mod_type, detected)) do
                 out.tools[#out.tools + 1] = { key = t.tool_key, label = t.tool_label }
-                if #ctx.no_tool_profiles > 0 then
+                if toolless then
                     local entry = { tool_key = t.tool_key, tool_data = t.tool_data, tool_label = t.tool_label,
                         tool_mod_type = mod_type }
-                    for _, rn in ipairs(wv.compute_upgrade_preview(ws, entry, mappings)) do
+                    for _, rn in ipairs(upgrade_preview(ws, entry, mappings)) do
                         out.upgrade_preview[#out.upgrade_preview + 1] = { tool = t.tool_key, from = rn.old_key,
                             to = rn.new_key }
                     end
@@ -1279,7 +1361,7 @@ end
 function M.project_tool_entry(ws, mod_type, key, detected)
     local mod = require("loomworks.modules").get(mod_type)
     if mod and mod.has_keyed_tools then
-        local inherited = require("loomworks.workspace_view").compute_add_project_context(ws, mod_type).inherited_tool
+        local inherited = ws:inherited_tool(mod_type)
         if inherited and inherited.tool_key == key then return inherited end
         for _, t in ipairs(keyed_tools(ws, mod_type, detected)) do
             if t.tool_key == key then

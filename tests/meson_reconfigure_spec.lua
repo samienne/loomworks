@@ -15,7 +15,7 @@
 
 local Core = require("loomworks.core")
 local h = require("tests.helpers")
-local overseer = require("loomworks.overseer")
+local overseer = require("loomworks.task_plan")
 local real_modules = require("loomworks.modules")
 
 --- Real module registry get(), guarded against nil ids (the test-deps mock
@@ -319,7 +319,7 @@ describe("plan_profile_build after reload (real planner)", function()
         assert.equals("built", unit2:state())
 
         -- Drive the real planner through the singleton seam.
-        local loomworks = require("loomworks")
+        local loomworks = require("loomworks.app")
         local orig = loomworks.get_workspace
         loomworks.get_workspace = function() return core2:get_workspace() end
         local ok_a, steps = pcall(overseer.plan_profile_build, profile2)

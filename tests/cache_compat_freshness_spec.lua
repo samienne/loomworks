@@ -246,7 +246,7 @@ describe("cache_compat follows the build's current compile data", function()
         write_reply(bd, "index-2026-09-25T06-43-16-0773.json", "/Z7")
         configure(core, unit)
         local cli = require("loomworks.cli")
-        local overseer = require("loomworks.overseer")
+        local overseer = require("loomworks.task_plan")
         local profile = ws._profiles[1]
         local orig_plan, orig_spawn = overseer.plan_profile_build, cli._run_spec
         overseer.plan_profile_build = function()
