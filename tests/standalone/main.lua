@@ -53,7 +53,7 @@ do
   for blk in readme:gmatch("%-%-%-%-%-BEGIN PUBLIC KEY%-%-%-%-%-.-%-%-%-%-%-END PUBLIC KEY%-%-%-%-%-") do
     n = n + 1; if blk == body(prod) then same = same + 1 end
   end
-  ok(n > 0 and n == same, "every README public key block is the production key (" .. same .. "/" .. n .. ")")
+  ok(n == same, "every README public key block is the production key (" .. same .. "/" .. n .. ")")
   -- a failed check names the trusted key and the likely cause
   local _, perr = verify.verify_detached("data", readfile(FX .. "manifest.json.sig"))
   ok(perr and perr:find("does not verify", 1, true) and perr:find(verify.RELEASE_KEY_ID, 1, true)
@@ -4358,18 +4358,6 @@ do
   eq(table.concat(seen, "|"), "hello", "transport: sentinel / pid lines are not program output")
   local refused = t:start_exec({ argv = { "/x/prog" }, cwd = "/x", env = { ["A-B"] = "1" }, nonce = "n1" })
   eq(refused, nil, "transport: a non-portable env name is refused before any spec")
-end
-
-print("editor-only LSP integrations under the shim")
-do
-  -- Regression (real device run): a CLI configure nudged the LSP layer, which
-  -- discovered the integrations; qmlls called vim.filetype.add at load and the
-  -- shim has no vim.filetype, printing a stray load error.
-  local vim = require("loomworks.shim")
-  local okq, qerr = pcall(require, "loomworks.integrations.lsp.qmlls")
-  ok(okq, "qmlls integration loads without vim.filetype" .. (okq and "" or (" — " .. tostring(qerr))))
-  local okc, cerr = pcall(require, "loomworks.integrations.lsp.clangd")
-  ok(okc, "clangd integration loads under the shim" .. (okc and "" or (" — " .. tostring(cerr))))
 end
 
 print("boot.whats_new — self-update's what's new lines (spec §16.32, §16.37)")

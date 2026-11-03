@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [master, unstable]
+    branches: [main]
   pull_request:
 
 jobs:
@@ -172,5 +172,6 @@ jobs:
       - name: Run the bundle under v0.1.2 / v0.1.28 / v0.1.33 / v0.1.37 / v0.1.42 hosts
         shell: bash
         env:
-          REPO_SLUG: ${{ github.repository }}
+          # every old lw release lives in loomworks.nvim, not this repo
+          REPO_SLUG: samienne/loomworks.nvim
         run: bash scripts/ci/old-host-compat.sh
