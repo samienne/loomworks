@@ -254,13 +254,13 @@ function M._check_owner(path, kind, may_miss)
     end
     if type(st.uid) ~= "number" or st.uid ~= me then
         return nil, "refusing the trust key: " .. path .. " is owned by uid " .. tostring(st.uid)
-            .. ", not this process's effective uid " .. me .. " (spec formats.md §2.1)"
+            .. ", not this process's effective uid " .. me
     end
     local perm = (st.mode or 0) % 512
     -- group-write 0020, other-write 0002
     if not st.mode or math.floor(perm / 16) % 2 == 1 or math.floor(perm / 2) % 2 == 1 then
         return nil, "refusing the trust key: " .. path .. " is writable by group or others (mode "
-            .. string.format("%03o", perm) .. "; spec formats.md §2.1)"
+            .. string.format("%03o", perm) .. ")"
     end
     return true
 end

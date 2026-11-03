@@ -48,7 +48,7 @@ M.SUN_PATH_MAX = 100
 local function uid()
     if is_win() then return 0 end
     local e, err = require("loomworks.daemon.identity").euid()
-    if not e then error("cannot determine the effective uid (spec §19.7): " .. tostring(err), 0) end
+    if not e then error("cannot determine the effective uid: " .. tostring(err), 0) end
     return e
 end
 
@@ -321,7 +321,7 @@ function M.peer_check(pipe, side)
     end
     if theirs ~= mine then
         return false, "the pipe's " .. side .. " process " .. tostring(pid)
-            .. " runs as another user or elevation (another daemon slot, spec §19.7.1)"
+            .. " runs as another user or elevation (another daemon slot)"
     end
     return true
 end
