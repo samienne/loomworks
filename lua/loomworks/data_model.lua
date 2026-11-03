@@ -15,10 +15,10 @@ local Tool = require("loomworks.tool")
 local Module = require("loomworks.module")
 
 --- Cache-side state names that reset to `unconfigured` when their build
---- directory is absent on disk (spec §3.1 rule 7). Deliberately EXCLUDES
+--- directory is absent on disk. Deliberately EXCLUDES
 --- `unknown` and `deleting`: those sit above `cached` in the state-derivation
 --- priority and mark an in-flight deletion whose directory is *expected* to be
---- gone (§4.6, crash-safe sequence), so a missing directory there must never
+--- gone (crash-safe sequence), so a missing directory there must never
 --- be downgraded — that could let a build run into a directory being deleted.
 --- `unconfigured`/nil already carry no build state.
 local RESETTABLE_ON_MISSING_DIR = {
@@ -159,7 +159,7 @@ local function sync_tools(ctx, modules_arr, tools_by_type, cache, modules_regist
             local tool = get_or_create_tool(
                 ctx, modules_arr, modules_registry,
                 mod_type, dt.tool_key, dt.tool_data, dt.tool_label)
-            -- Execution platform (spec §18.1): set from detection every sync,
+            -- Execution platform: set from detection every sync,
             -- so a kit that stops declaring a token becomes host-runnable.
             tool:_set_platform(dt.target_platform, dt.sdk)
             seen[tool] = true
@@ -167,7 +167,7 @@ local function sync_tools(ctx, modules_arr, tools_by_type, cache, modules_regist
     end
 
     -- From cache: tool_data stored inline in build_dirs. A record, never a
-    -- source of executable paths (spec §17.7): a key detection produced keeps
+    -- source of executable paths: a key detection produced keeps
     -- the DETECTED data (detection wins); a key only the cache knows becomes a
     -- not-detected tool whose data is display-only (`Tool:exec_data()` = nil).
     if cache.build_dirs then
@@ -182,7 +182,7 @@ local function sync_tools(ctx, modules_arr, tools_by_type, cache, modules_regist
                         ctx, modules_arr, modules_registry,
                         cc.type, cc.tool_key, cc.tool_data or {}, nil, false)
                     -- A cache record carries no execution platform (it is not
-                    -- detection on this machine, §17.7); the probe still guards.
+                    -- detection on this machine); the probe still guards.
                     tool:_set_platform(nil, nil)
                     seen[tool] = true
                 end
@@ -258,7 +258,7 @@ end
 --- @return table[] config_sets array
 local function sync_config_sets(ctx, workspace, config)
     local defs = config.configuration_sets or {}
-    -- Set descriptions come from the top-level sidecar (spec §1.10).
+    -- Set descriptions come from the top-level sidecar.
     local descs = type(config.configuration_set_descriptions) == "table"
         and config.configuration_set_descriptions or {}
 
@@ -417,8 +417,8 @@ local function sync_build_dirs(ctx, workspace, cache)
     local dir_exists = ctx.dir_exists
     local seen = {}
     -- entry key → true for entries whose cached state must reset because
-    -- their directory is gone from disk (spec §3.1 rule 7). Populated here,
-    -- one stat per entry — each sibling of a shared tree (spec §1.7) is its
+    -- their directory is gone from disk. Populated here,
+    -- one stat per entry — each sibling of a shared tree is its
     -- own entry on the same directory, so every one of them is reset — then
     -- reused by sync_profile_projects_and_config_units without a second stat.
     ctx.missing_build_dirs = {}
@@ -427,9 +427,8 @@ local function sync_build_dirs(ctx, workspace, cache)
         for rel_path, entry in pairs(cache.build_dirs) do
             if entry.state and entry.state ~= "unconfigured" then
                 -- The entry's directory is its `build_dir`; a path is never
-                -- derived from a key, which may be a unit id (`<dir>#<config_key>`,
-                -- spec §1.7). Only a version 8 file keys every entry by its
-                -- directory.
+                -- derived from a key, which may be a unit id (`<dir>#<config_key>`).
+                -- Only a version 8 file keys every entry by its directory.
                 local abs_path = entry.build_dir
                 if not abs_path and cache._v8_moved then
                     abs_path = cache_mod.absolute_build_dir(rel_path, workspace.root)
@@ -483,8 +482,7 @@ local function sync_build_dirs(ctx, workspace, cache)
     return arr
 end
 
---- Version 8 → 9 cache migration of one matched entry (three-file-model
---- §2.3 "Version 9; migration from 8"). A version 8 cache kept one entry per
+--- Version 8 → 9 cache migration of one matched entry. A version 8 cache kept one entry per
 --- directory, so a shared tree's entry holds whichever configuration
 --- resolved first, with build results of every configuration built into the
 --- tree. The entry matched by a shared-tree unit moves to that unit's id
@@ -548,8 +546,8 @@ local function sync_profile_projects_and_config_units(ctx, workspace, cache, dep
     local expected_pps = {}    -- reg_key → pp_data
 
     -- Resolve every profile's ProfileProjects first: their build directories
-    -- are compared before any ConfigUnit is made (spec §1.7 "One build
-    -- directory per configuration").
+    -- are compared before any ConfigUnit is made (one build directory per
+    -- configuration).
     local records = {}
     for _, profile in pairs(ctx.profiles) do
         if profile.mappings then
@@ -578,12 +576,12 @@ local function sync_profile_projects_and_config_units(ctx, workspace, cache, dep
                 -- can't orphan a built entry. Only mint a fresh path when
                 -- nothing was ever built for this identity.
                 -- The id is the directory, plus the config_key in a module's
-                -- shared tree (spec §1.7 "Unit identity").
+                -- shared tree.
                 local build_dir_id = nil
                 local abs_path = nil
                 local matched_entry = nil
-                -- A configuration the module reported an `error` for (spec
-                -- §8 `info`) has no build directory and no ConfigUnit, not
+                -- A configuration the module reported an `error` for (in
+                -- `info`) has no build directory and no ConfigUnit, not
                 -- even one adopted from the cache.
                 if project and not (configuration and configuration:module_error()) then
                     -- Pass the effective tools list when we have one
@@ -618,11 +616,11 @@ local function sync_profile_projects_and_config_units(ctx, workspace, cache, dep
                         build_dir_id, abs_path = deps.compute_unit_id(project, variant, arg, tool_key)
                     end
                 end
-                -- The directory the configuration resolves to (§8.4); the
+                -- The directory the configuration resolves to; the
                 -- claims resolver compares each configuration's effective
-                -- directory — its cache entry's anchor, else this one (§1.7).
+                -- directory — its cache entry's anchor, else this one.
                 -- A shared-tree unit never adopts an entry keyed by the plain
-                -- directory (§1.7).
+                -- directory.
                 local claim = nil
                 if project and configuration and deps.compute_unit_id then
                     local arg = effective_tools and #effective_tools > 0
@@ -671,7 +669,7 @@ local function sync_profile_projects_and_config_units(ctx, workspace, cache, dep
         end
     end
 
-    -- Collisions, after cache matching and on effective directories (§1.7):
+    -- Collisions, after cache matching and on effective directories:
     -- the owner keeps the directory, every other configuration is refused —
     -- no ConfigUnit, an invalid ProfileProject, a load error.
     local claims = {}
@@ -712,7 +710,7 @@ local function sync_profile_projects_and_config_units(ctx, workspace, cache, dep
                             enriched = vim.tbl_extend("keep", matched_entry, {
                                 build_dir = abs_path,
                             })
-                            -- Build directory vanished (spec §3.1 rule 7): reset
+                            -- Build directory vanished: reset
                             -- to unconfigured so ConfigUnit:state() reports
                             -- unconfigured and the planner reconfigures from
                             -- scratch. The stat was done once in sync_build_dirs.
@@ -828,7 +826,7 @@ end
 --- Maps build-dir identity -> array of ConfigUnits that reference it.
 --- @param config_units table[] array of ConfigUnit objects
 --- @param key_of fun(dir: string): string the key of a build dir path (the workspace's
----   `_build_dir_identity`: resolved real path, spec §4.6; plain path
+---   `_build_dir_identity`: resolved real path; plain path
 ---   normalization when none is given)
 --- @return table<string, table[]> build_dir_refs
 function M.sync_build_dir_refs(config_units, key_of)
@@ -844,7 +842,7 @@ function M.sync_build_dir_refs(config_units, key_of)
     return refs
 end
 
---- Rebuild the output-artifact reverse index from ConfigUnit objects (§5.9).
+--- Rebuild the output-artifact reverse index from ConfigUnit objects.
 --- Maps normalized_absolute_artifact_path -> array of ConfigUnits that
 --- produce it. Built from the resolved artifact sets of configured units
 --- only — a unit with no artifact set contributes nothing. Paths are
@@ -946,7 +944,7 @@ end
 --- @return table result { modules, projects, config_sets, profiles, config_units, profile_projects, build_dir_refs }
 function M.refresh(workspace, config, cache, active_set, all_profile_defs, current, deps)
     local ctx = build_ctx(current)
-    -- Injected directory-existence probe (spec §3.1 rule 7). Defaulted here so
+    -- Injected directory-existence probe. Defaulted here so
     -- the sync helpers never have to guard for a missing dep.
     ctx.dir_exists = deps.dir_exists
         or function(p) return (vim.uv or vim.loop).fs_stat(p) ~= nil end
@@ -1060,7 +1058,7 @@ function M.refresh(workspace, config, cache, active_set, all_profile_defs, curre
     }
 end
 
--- Test seam: the tool sync (execution platform plumbing, spec §18.1).
+-- Test seam: the tool sync (execution platform plumbing).
 M._sync_tools = sync_tools
 
 return M

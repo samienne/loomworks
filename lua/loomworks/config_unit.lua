@@ -19,7 +19,7 @@
 --- @field build_dir_value string|nil
 --- @field last_configured string|nil ISO 8601 timestamp
 --- @field last_built string|nil ISO 8601 timestamp
---- @field module_info table|nil opaque module-specific cached data (e.g. cmake generator/compiler), plus core-owned keys `cache_launcher`, `configure_env`, `cache_compat`, `record_version` (spec §8.1)
+--- @field module_info table|nil opaque module-specific cached data (e.g. cmake generator/compiler), plus core-owned keys `cache_launcher`, `configure_env`, `cache_compat`, `record_version`
 --- @field _config_key string|nil opaque cache key
 --- @field _variant string|nil configuration variant name
 --- @field _tool_key string|nil tool identifier
@@ -27,14 +27,14 @@
 --- Cached configuration snapshot (for stale detection):
 --- @field _cached_options table|nil options snapshot from last configure
 --- @field _cached_module_config table|nil module_config snapshot from last configure
---- Output-artifact conflict detection (spec §1.7, §5.9):
+--- Output-artifact conflict detection:
 --- @field _artifacts string[]|nil resolved artifact set (absolute, display casing) from last configure
 --- @field _overwritten_by string|nil id of the ConfigUnit that most recently built over a shared artifact
 --- Runtime state (never touched by _apply):
 --- @field _task_id number|nil current overseer task ID
 --- @field _last_task_id number|nil most recent overseer task ID
 --- @field _action string|nil "configure" or "build" while running
---- @field _remote_task loomworks.RemoteTask|nil a task running in the workspace daemon on this unit (`lw status`, spec §16.18); runtime only
+--- @field _remote_task loomworks.RemoteTask|nil a task running in the workspace daemon on this unit (`lw status`); runtime only
 --- @field _progress loomworks.ProgressUpdate|nil
 --- @field _start_time number|nil clock() value when task started
 --- @field _last_progress_notify number|nil clock() value of last progress notify
@@ -48,16 +48,16 @@
 --- Test integration (runtime-only):
 --- @field _test_tree table[]|nil cached merged test entries from all TestUnits
 --- @field _test_units loomworks.TestUnit[]|nil lazily created TestUnit array
----        (the module's, then core's saved-targets TestUnit, spec §8.9.3)
+---        (the module's, then core's saved-targets TestUnit)
 --- @field _saved_tests_sig string|nil fingerprint of the saved test-target list
----        the cached TestUnits / test tree were built for (spec §1.3.4)
+---        the cached TestUnits / test tree were built for
 local notify = require("loomworks.notify").notify
 local ConfigUnit = {}
 ConfigUnit.__index = ConfigUnit
 
 --- A module-configuration snapshot (`_cached_module_config`) as compared for
 --- staleness: without core-owned keys an older loomworks recorded as module
---- fields — `tests` (spec §1.3.4) — so moving between versions never forces a
+--- fields — `tests` — so moving between versions never forces a
 --- reconfigure. Returns `{}` for nil.
 --- @param snap table|nil
 --- @return table
@@ -186,7 +186,7 @@ function ConfigUnit:_apply(data)
         self._tool_data = c.tool_data
         self._cached_options = c.options
         self._cached_module_config = c.module_config
-        -- Resolved artifact set + overwritten marker (spec §1.7, §2.3).
+        -- Resolved artifact set + overwritten marker.
         -- Both are optional/additive: absence reads back as prior behavior.
         -- A dangling `overwritten_by` (points at a missing entry) is treated
         -- as clear by the accessor, not scrubbed here.
@@ -215,7 +215,7 @@ function ConfigUnit:_apply(data)
         self._cached_options = nil
         self._cached_module_config = nil
         -- No cache entry ⇒ nothing was configured for this identity, so no
-        -- resolved artifact set (unknown-until-configure, spec §1.7).
+        -- resolved artifact set (unknown-until-configure).
         self._artifacts = nil
         self._overwritten_by = nil
     end
@@ -240,7 +240,7 @@ function ConfigUnit:serialize()
         last_built = self.last_built,
     }
     if self.module_info then entry.module_info = self.module_info end
-    -- Resolved artifact set + overwritten marker (spec §1.7, §2.3). Both are
+    -- Resolved artifact set + overwritten marker. Both are
     -- success-path, additive-optional fields: present only when known.
     if self._artifacts and #self._artifacts > 0 then
         entry.artifacts = self._artifacts
@@ -304,7 +304,7 @@ end
 -- ---------------------------------------------------------------------------
 
 --- Whether this machine recorded a successful configure of this unit's build
---- directory — state from the signed cache (spec §17.8). Only such build
+--- directory — state from the signed cache. Only such build
 --- directories are read or executed from passively (target introspection,
 --- test discovery); a directory that merely exists on disk (it came with a
 --- copy of the workspace) never is.
@@ -317,13 +317,13 @@ end
 --- Get the derived state for this unit, as shown.
 --- Priority: deleting > running (this editor's task, else a task observed in
 --- the workspace daemon) > first-class field. For display: a remote task never
---- blocks an editor operation (spec §19.16), so readiness and gating decisions
+--- blocks an editor operation, so readiness and gating decisions
 --- use `local_state()`.
 --- @return loomworks.ConfigUnitState
 function ConfigUnit:state()
     if not self._deleting and not self._action
             and self._remote_task and not self._remote_task.finished then
-        -- A build another client runs in the workspace daemon (spec §19.16);
+        -- A build another client runs in the workspace daemon;
         -- a clean shows as a local clean does (`deleting`, reason `cleaning`),
         -- a reset as the in-process reset's deletion (`deleting`).
         local a = self._remote_task.action
@@ -334,9 +334,9 @@ function ConfigUnit:state()
 end
 
 --- The unit's state as this process knows it, ignoring a task observed in
---- the workspace daemon (spec §19.16). What every decision (task readiness,
+--- the workspace daemon. What every decision (task readiness,
 --- the build gate, operation progress) reads: the cross-process build-dir
---- locks (§16.6), not a remote task, serialize the editor behind `lw`.
+--- locks, not a remote task, serialize the editor behind `lw`.
 --- @return loomworks.ConfigUnitState
 function ConfigUnit:local_state()
     if self._deleting then return "deleting" end
@@ -365,7 +365,7 @@ function ConfigUnit:running_action()
 end
 
 --- The action this unit is shown running: its own task's, else that of a task
---- observed in the workspace daemon (spec §19.16). Display only — never a
+--- observed in the workspace daemon. Display only — never a
 --- reason to block or cancel anything (`running_action` is).
 --- A remote clean is shown as a local clean is (`state()` "deleting",
 --- `deleting_reason()` "cleaning"), a remote reset as a deletion (`state()`
@@ -379,7 +379,7 @@ function ConfigUnit:shown_action()
 end
 
 --- Mark this unit as run by a task running in the workspace daemon (`lw
---- status`, spec §16.18: cli.mark_daemon_tasks; one invocation, so never
+--- status`: cli.mark_daemon_tasks; one invocation, so never
 --- cleared). Reporting only: it never blocks an operation (the
 --- cross-process build-directory locks do).
 --- @param task loomworks.RemoteTask
@@ -408,7 +408,7 @@ function ConfigUnit:build_dir()
     return self.build_dir_value
 end
 
---- Resolve the injected directory-existence probe (spec §3.1 rule 7), with a
+--- Resolve the injected directory-existence probe, with a
 --- real-filesystem fallback when the workspace carries no dep (defensive; the
 --- production Core and the test mocks both wire one).
 --- @return fun(path: string): boolean
@@ -421,7 +421,7 @@ end
 
 --- Whether this unit's build directory is present on disk. A unit with no
 --- resolved build directory reports present (nothing to reconfigure into yet).
---- A plain stat — no module-specific probing (spec §3.1 rule 7).
+--- A plain stat — no module-specific probing.
 --- @return boolean
 function ConfigUnit:build_dir_present()
     local dir = self:build_dir()
@@ -430,10 +430,10 @@ function ConfigUnit:build_dir_present()
 end
 
 --- Whether this unit must reconfigure because its build directory was removed
---- out of band (spec §3.1 rule 7). The load/remerge already resets a vanished
+--- out of band. The load/remerge already resets a vanished
 --- unit to `unconfigured`; this is the build-gate re-check for a directory that
 --- disappears *after* the last remerge. Excludes `unknown` / `deleting` (async
---- deletion crash safety, §4.6), the running states, and states that carry no
+--- deletion crash safety), the running states, and states that carry no
 --- build directory to lose.
 --- @return boolean
 function ConfigUnit:missing_build_dir_needs_reconfigure()
@@ -445,11 +445,11 @@ function ConfigUnit:missing_build_dir_needs_reconfigure()
     return not self:build_dir_present()
 end
 
---- Get this unit's resolved artifact set (spec §1.7): the absolute on-disk
+--- Get this unit's resolved artifact set: the absolute on-disk
 --- output paths its last successful configure resolved, in display casing.
 --- Nil/empty until the first successful configure, or when the module does
 --- not implement `resolve_artifacts` — such units take no part in conflict
---- detection (spec §5.9). The compare-normalized form is derived at runtime
+--- detection. The compare-normalized form is derived at runtime
 --- by the Workspace artifact index, never stored here.
 --- @return string[]|nil
 function ConfigUnit:artifacts()
@@ -469,10 +469,10 @@ function ConfigUnit:set_artifacts(artifacts)
 end
 
 --- Resolve the ConfigUnit that most recently built over one of this unit's
---- shared artifacts (spec §1.7, §5.9). The overwriting unit is referenced by
+--- shared artifacts. The overwriting unit is referenced by
 --- its stable `id`; a dangling reference (the referenced entry no longer
 --- exists) resolves to nil — i.e. is treated as clear, per the cache's
---- orphan-tolerant stance (spec §2.3).
+--- orphan-tolerant stance.
 --- @return loomworks.ConfigUnit|nil
 function ConfigUnit:overwritten_by()
     local ref = self._overwritten_by
@@ -486,7 +486,7 @@ function ConfigUnit:overwritten_by()
 end
 
 --- Whether this unit's built output has been overwritten by another unit
---- (spec §1.7). A dangling overwritten-by reference reports false.
+--- A dangling overwritten-by reference reports false.
 --- @return boolean
 function ConfigUnit:is_overwritten()
     return self:overwritten_by() ~= nil
@@ -565,7 +565,7 @@ end
 
 --- The active compiler family for this unit's resolved tool (`clang`, `gcc`,
 --- `msvc`), or nil when undetermined. Selects compiler-specific variable
---- `overrides` (core §1.3.1) during option resolution.
+--- `overrides` during option resolution.
 --- @return "clang"|"gcc"|"msvc"|nil
 function ConfigUnit:active_compiler_family()
     if self._tool and self._tool.compiler_family then
@@ -576,13 +576,13 @@ function ConfigUnit:active_compiler_family()
     return require("loomworks.cpp_compilers").family_from_tool_data(td)
 end
 
---- The profile whose context (blank-variable fills, including a `cache` fill —
---- core §1.3.1 / §1.3.2) a resolution of this unit uses: `profile` when the
+--- The profile whose context (blank-variable fills, including a `cache` fill)
+--- a resolution of this unit uses: `profile` when the
 --- caller names one, else the workspace's active profile. A ConfigUnit can be
 --- shared by several profiles (same project + configuration), so "the" profile
 --- is the caller's call — the build gate and profile status pass the profile
 --- they are building / showing, so staleness is judged against the same
---- context the configure ran with (§5.1). Unit-scoped callers with no profile
+--- context the configure ran with. Unit-scoped callers with no profile
 --- in play (per-unit editor actions, test runners) fall back to the active
 --- profile, which is also what their task context resolves against.
 --- @param profile? loomworks.Profile
@@ -595,11 +595,11 @@ end
 --- Compute the RESOLVED option values that would land on this unit's configure
 --- command: options merged across the inheritance chain (project-wide → bases
 --- → own) with every value expanded through the built-in + project-variable
---- context (spec §5c / core §1.3.1). Compiler-specific `overrides` are applied
+--- context. Compiler-specific `overrides` are applied
 --- via the active tool's family. This is the fingerprint `is_stale` compares,
 --- so a change to a variable `default` or a compiler `override` that alters a
 --- `-D` value is caught even though the raw `${…}` template is unchanged
---- (cmake §11). Returns a name → expanded-string dict. `profile` (default: the
+--- Returns a name → expanded-string dict. `profile` (default: the
 --- active profile, `context_profile`) supplies blank-variable fills.
 --- @param profile? loomworks.Profile the profile whose context to resolve in
 --- @return table<string, string>
@@ -628,7 +628,7 @@ function ConfigUnit:resolved_option_fingerprint(profile)
 
     -- 2. Expansion context: built-ins + resolved project variables (family-
     --    aware), shared with the configuration environment (config_env). The
-    --    context profile is included so a blank variable's fill value (§1.3.1)
+    --    context profile is included so a blank variable's fill value
     --    participates in the fingerprint — changing it makes the unit stale
     --    and forces a reconfigure. A still-blank value is skipped.
     local expand = require("loomworks.expand")
@@ -647,8 +647,8 @@ end
 
 --- Whether this unit carries a configure at all — a configure snapshot
 --- (options / module_config fingerprint) or a cached state that a successful
---- configure produced. Used by the configure-record check (§5.1 *Configure
---- record migration*), which must catch a legacy unit whose cache entry kept
+--- configure produced. Used by the configure-record check, which must catch
+--- a legacy unit whose cache entry kept
 --- only its state.
 --- @return boolean
 function ConfigUnit:_was_configured()
@@ -658,8 +658,7 @@ function ConfigUnit:_was_configured()
 end
 
 --- Whether this configured unit's configure record predates its module's
---- current record format (core §5.1 *Configure record migration*, §8.1
---- `configure_record_version`): the module declares
+--- current record format (`configure_record_version`): the module declares
 --- `configure_record_version = N` and core stamps `module_info.record_version`
 --- after every SUCCESSFUL configure, so a record with a different (or no)
 --- version was written by an older lw — e.g. an empty `module_info` from a
@@ -706,7 +705,7 @@ local function describe_option_change(old, new)
     return table.concat(parts, ", ")
 end
 
---- Why this unit is stale (core §5.1), or nil when it is not: a short phrase
+--- Why this unit is stale, or nil when it is not: a short phrase
 --- the headless runner prints when the build gate reconfigures it
 --- (`configure record from an older lw`, `options changed (FOO removed)`,
 --- `module configuration changed`, `configuration environment changed`,
@@ -718,7 +717,7 @@ end
 --- @return string|nil
 function ConfigUnit:stale_reason(profile)
     if not self._configuration or self._configuration._removed then return nil end
-    -- A configure record from an older lw (§5.1 *Configure record migration*):
+    -- A configure record from an older lw:
     -- checked first — nothing else in the record can be trusted.
     if self:record_outdated() then return "configure record from an older lw" end
     -- No cached snapshot means never configured — not stale
@@ -732,10 +731,10 @@ function ConfigUnit:stale_reason(profile)
             self._configuration.module_config or {}) then
         return "module configuration changed"
     end
-    -- Configuration environment change (spec §1.3.3): a configure input like
-    -- the options — the module takes a full reconfigure for it (§5.1).
+    -- Configuration environment change: a configure input like
+    -- the options — the module takes a full reconfigure for it.
     if self:env_changed(profile) then return "configuration environment changed" end
-    -- Compiler-cache launcher change (§5.1 / module §11): recompute the launcher
+    -- Compiler-cache launcher change: recompute the launcher
     -- core would resolve now (current `cache` policy + compiler family + live
     -- toolchain-path presence) and compare to the one recorded at configure.
     -- A launcher that appears, disappears, or changes value marks the unit stale
@@ -746,15 +745,15 @@ function ConfigUnit:stale_reason(profile)
 end
 
 --- The configure reason of an unconfigured unit whose build directory already
---- holds configure state (spec §5.1 *Configure record missing*).
+--- holds configure state.
 ConfigUnit.ORPHAN_STATE_REASON = "configure record missing (existing build directory)"
 
 --- Whether this unit has no configure record (it is `unconfigured`) while its
 --- build directory already holds the module's configure state — e.g. the
 --- cache was discarded or rebuilt (an unsigned cache, `lw nuke`) but the build
 --- tree was not. Such a configure cannot be classified against a record, so
---- it takes the module's FULL reconfigure (spec §5.1). Asks the module's
---- optional `has_configure_state(build_dir)` (§8.4); false without one.
+--- it takes the module's FULL reconfigure. Asks the module's
+--- optional `has_configure_state(build_dir)`; false without one.
 --- @param build_dir? string the unit's build directory (default: its own)
 --- @return boolean
 function ConfigUnit:has_orphan_configure_state(build_dir)
@@ -767,13 +766,13 @@ function ConfigUnit:has_orphan_configure_state(build_dir)
     return ok and res == true
 end
 
---- Why the build gate (§5.2) must configure this unit, or nil when it need
+--- Why the build gate must configure this unit, or nil when it need
 --- not: `first configure`, `previous configure failed`, `forced
 --- (--reconfigure)` (when `forced` and the unit was configured before), the
 --- `stale_reason()`, `project files changed` (the module's `inspect` flagged
---- the project), or `build directory missing` (§3.1 rule 7). The same
+--- the project), or `build directory missing`. The same
 --- conditions the gate has always used; the string is what the headless
---- runner prints (§16.4).
+--- runner prints.
 --- An unconfigured unit whose build directory nevertheless holds configure
 --- state (`orphan_state`, see `has_orphan_configure_state`) reports
 --- `configure record missing (existing build directory)` instead of a first
@@ -800,7 +799,7 @@ end
 --- current record format, or the RESOLVED option values (post-expansion), the
 --- Configuration's module_config, the resolved configuration environment or
 --- the applied compiler-cache launcher have changed since the last configure.
---- The fingerprint is taken over resolved values (§5c / cmake §11), so editing
+--- The fingerprint is taken over resolved values, so editing
 --- a variable `default` or a compiler `override` that changes a `-D` value
 --- makes the unit stale, while a change with no resolved effect does not.
 --- Returns false when the unit has never been configured. `stale_reason()`
@@ -811,7 +810,7 @@ function ConfigUnit:is_stale(profile)
     return self:stale_reason(profile) ~= nil
 end
 
---- The resolved configuration environment (spec §1.3.3) for this unit: the
+--- The resolved configuration environment for this unit: the
 --- configuration's `env` across its inheritance chain and matching
 --- compiler-family `overrides`, values expanded (built-ins + resolved project
 --- variables incl. the context profile's fill — `profile`, default the active
@@ -830,7 +829,7 @@ function ConfigUnit:configuration_env(profile)
 end
 
 --- The context the post-configure compatibility scan and its freshness stamp
---- (core §8 `cache_compat_scan` / `cache_compat_stamp`) read for this unit,
+--- (`cache_compat_scan` / `cache_compat_stamp`) read for this unit,
 --- from its RECORDED state — the build dir, tool and configuration
 --- environment of the last configure — so a re-scan sees what a build of this
 --- unit compiles with.
@@ -849,7 +848,7 @@ function ConfigUnit:_compat_scan_ctx()
 end
 
 --- The module's CURRENT stamp of the compile data behind this unit's recorded
---- compatibility result (core §8 `cache_compat_stamp`), or nil when there is
+--- compatibility result, or nil when there is
 --- no record, the module declares no stamp hook, or there is no data. Cheap
 --- (a stat / one directory listing) — health's passive key reads it.
 --- @return string|nil
@@ -861,7 +860,7 @@ function ConfigUnit:cache_compat_stamp()
 end
 
 --- Bring the recorded post-configure compatibility result
---- (`module_info.cache_compat`, core §5.1) up to date with the build's CURRENT
+--- (`module_info.cache_compat`) up to date with the build's CURRENT
 --- compile data. The build tool can re-run the generator on its own (Ninja
 --- after a CMakeLists / `meson.build` edit) and rewrite that data without an
 --- lw configure; when the module's current stamp differs from the recorded
@@ -924,8 +923,8 @@ end
 --- support). A module that DOES record one always records a path or the
 --- sentinel `"none"` and declares a `configure_record_version`, so a unit of
 --- such a module with no recorded launcher carries a record from an older lw
---- and is already stale through `record_outdated()` (core §5.1 *Configure
---- record migration*) — its one full reconfigure then records the launcher.
+--- and is already stale through `record_outdated()` — its one full
+--- reconfigure then records the launcher.
 --- A unit configured with no cache records `"none"`, so a later-installed
 --- cache (resolved `"/…"`) ≠ `"none"` fires (install-after-configure), and a
 --- removed cache (recorded `"/…"`, resolved `"none"`) fires too.
@@ -960,8 +959,8 @@ end
 
 --- Whether this unit's module can apply a compiler-cache launcher to this
 --- configuration at all. Delegates to the module's optional
---- `cache_launcher_applicable({ configuration, tool_data })` hook (module
---- interface §8); absent hook, or a hook that errors, means applicable.
+--- `cache_launcher_applicable({ configuration, tool_data })` hook; absent
+--- hook, or a hook that errors, means applicable.
 --- @param tool_data table|nil resolved tool_data for this unit
 --- @return boolean
 function ConfigUnit:_cache_launcher_applicable(tool_data)
@@ -986,7 +985,7 @@ end
 --- @return number|nil seconds
 function ConfigUnit:elapsed()
     if not self._start_time then
-        -- A task observed in the workspace daemon (spec §19.16).
+        -- A task observed in the workspace daemon.
         local t = self:remote_task()
         if t then return t:elapsed(self._workspace._core._deps.clock()) end
         return nil
@@ -1025,7 +1024,7 @@ function ConfigUnit:targets_stamp()
 end
 
 --- Are this unit's targets due a parse: the module parses targets, the unit
---- has a build directory this machine configured (spec §17.8), and its
+--- has a build directory this machine configured, and its
 --- targets are unknown or were set before its last configure or build
 --- (targets_stamp)?
 --- @return boolean
@@ -1055,7 +1054,7 @@ end
 
 --- Parse this unit's build targets when they are not known yet (the passive
 --- equivalent of the post-configure scan): only for a build directory this
---- machine configured (spec §17.8), through the module's `parse_targets`.
+--- machine configured, through the module's `parse_targets`.
 --- Returns `self.targets` (nil = unknown).
 --- @return table<string, loomworks.Target>|nil
 function ConfigUnit:ensure_targets()
@@ -1195,7 +1194,7 @@ function ConfigUnit:options()
     return impl.get_options(bd, self._project.type_config)
 end
 
---- Get build options without blocking (spec §8 `get_options_async`): the
+--- Get build options without blocking: the
 --- module's async companion when it has one, else its `get_options`.
 --- `callback(tree|nil)` runs exactly once, after this returns.
 --- @param callback fun(tree: (loomworks.OptionGroup | loomworks.Option)[]|nil)
@@ -1324,7 +1323,7 @@ end
 
 --- Get the reason this unit is being deleted/cleaned — its own, else
 --- "cleaning" while a clean observed in the workspace daemon runs it,
---- "deleting" while a reset does (spec §19.16; display only, `state()`).
+--- "deleting" while a reset does (display only, `state()`).
 --- @return "deleting"|"cleaning"|nil
 function ConfigUnit:deleting_reason()
     if self._deleting_reason then return self._deleting_reason end
@@ -1382,9 +1381,9 @@ function ConfigUnit:test_units()
     self:_check_saved_tests()
     if self._test_units then return self._test_units end
     -- Discovery runs binaries from the build dir: only one this machine
-    -- configured (spec §17.8). Not cached, so it appears once configured.
+    -- configured. Not cached, so it appears once configured.
     if not self:configured_here() then return {} end
-    -- A cross kit's tests cannot run on the host (spec §18.1, §18.6): no
+    -- A cross kit's tests cannot run on the host: no
     -- discovery probe, no host batch runner. Named test executables run on a
     -- device through `lw test --target` instead.
     if require("loomworks.remote.foreign").unit_platform(self) then return {} end
@@ -1395,7 +1394,7 @@ function ConfigUnit:test_units()
         local tu = impl.create_test_unit(self)
         if tu then units[#units + 1] = tu end
     end
-    -- Core's saved-targets TestUnit (spec §8.9.1–§8.9.3), after the module's,
+    -- Core's saved-targets TestUnit, after the module's,
     -- when the saved list resolves non-empty and the module can resolve names
     -- to targets (`parse_targets`).
     local saved = self:saved_test_targets()
@@ -1407,8 +1406,8 @@ function ConfigUnit:test_units()
     return self._test_units
 end
 
---- The configuration's effective saved test-target list (spec §1.3.4,
---- §8.9.3) and its source (a Configuration or the Project), or nil when none
+--- The configuration's effective saved test-target list and its source (a
+--- Configuration or the Project), or nil when none
 --- is declared along the chain (an explicit `[]` gives an empty `entries`).
 --- Pure model data — no build directory is read — so it is safe before
 --- configure and on an unconfigured unit.
@@ -1428,7 +1427,7 @@ function ConfigUnit:_saved_tests_fingerprint()
 end
 
 --- Drop the cached TestUnits / test tree when the saved list changed since
---- they were built (spec §8.9.3: changing the list invalidates the tree).
+--- they were built (changing the list invalidates the tree).
 function ConfigUnit:_check_saved_tests()
     if (self._test_units or self._test_tree)
             and self._saved_tests_sig ~= self:_saved_tests_fingerprint() then
@@ -1437,15 +1436,15 @@ function ConfigUnit:_check_saved_tests()
 end
 
 --- TestUnits for answering static questions about this unit's native batch
---- runner — whether one exists and whether it rebuilds its own targets
---- (spec §8.9.2) — without discovery. Module TestUnits only — never the
---- saved-targets TestUnit (spec §8.9.3). A configured unit returns the module
+--- runner (whether one exists and whether it rebuilds its own targets)
+--- without discovery. Module TestUnits only — never the
+--- saved-targets TestUnit. A configured unit returns the module
 --- TestUnits of `test_units()`. An unconfigured one (e.g. a fresh clone, where the plan's
 --- configure step has not run yet) gets TestUnits constructed passively through
 --- the module factory: the constructors only store fields, and callers must ask
 --- only `run_command_all` presence / `run_command_all_rebuilds()`, never
---- discover or run. They are not cached, so `test_units()` keeps its §17.8 gate.
---- A cross kit gets no host batch runner either way (spec §18.1).
+--- discover or run. They are not cached, so `test_units()` keeps its configured-here gate.
+--- A cross kit gets no host batch runner either way.
 --- @return loomworks.TestUnit[]
 function ConfigUnit:batch_runner_test_units()
     if self._test_units or self:configured_here() then
@@ -1490,7 +1489,7 @@ local function exe_key(p)
     return k
 end
 
---- Merge the TestUnits' entries in unit order (spec §8.9.3). When a module
+--- Merge the TestUnits' entries in unit order. When a module
 --- TestUnit and the saved-targets TestUnit expose the SAME executable, one
 --- entry is kept — the module's (it carries the runner's cwd / env /
 --- timeout); the saved entry contributes only its `args` (`saved_args`), and
@@ -1533,7 +1532,7 @@ function ConfigUnit._merge_test_entries(units, per_unit)
 end
 
 --- Discover tests asynchronously. Delegates to TestUnits.
---- `opts.system` (the workspace daemon's discovery, spec §19.15 "Tests")
+--- `opts.system` (the workspace daemon's discovery)
 --- replaces `vim.system` for every program the TestUnits spawn while
 --- discovering (`TestUnit._system`): the daemon spawns them in the client's
 --- environment and kills them on a cancel.
@@ -1588,10 +1587,10 @@ function ConfigUnit:test_tree()
     return self._test_tree
 end
 
---- Why this unit has no test tree to discover (the tests view's unit state,
---- daemon.md §19.13 "The tests view"): `not_configured` (not configured on
---- this machine, §17.8), `foreign` (its kit builds for another platform,
---- §18.1) or `no_tests` (no TestUnit and no saved test targets), with the
+--- Why this unit has no test tree to discover (the tests view's unit
+--- state): `not_configured` (not configured on
+--- this machine), `foreign` (its kit builds for another platform) or
+--- `no_tests` (no TestUnit and no saved test targets), with the
 --- message shown for it; nil when its TestUnits can discover.
 --- @return "not_configured"|"foreign"|"no_tests"|nil state, string|nil message
 function ConfigUnit:test_availability()
@@ -1623,7 +1622,7 @@ function ConfigUnit:_find_test_unit(test_id)
     return units[1]
 end
 
---- The merged-tree entry for an id (spec §8.9.3), or nil.
+--- The merged-tree entry for an id, or nil.
 --- @param test_id string
 --- @return table|nil
 function ConfigUnit:_tree_entry(test_id)
@@ -1634,7 +1633,7 @@ function ConfigUnit:_tree_entry(test_id)
 end
 
 --- Build the command for one test, suite or target through the TestUnit that
---- OWNS the id (spec §8.9.4 owning-unit dispatch). When the id (or its target)
+--- OWNS the id. When the id (or its target)
 --- is a module entry that a saved target de-duplicated into, the saved entry's
 --- `args` are appended. Returns the command and the owning TestUnit (which
 --- parses the results).

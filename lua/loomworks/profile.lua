@@ -14,7 +14,7 @@ local description_mod = require("loomworks.description")
 --- @field _configuration loomworks.Configuration|nil resolved configuration
 --- @field _config_unit loomworks.ConfigUnit|nil resolved config unit
 --- @field _tool_compat_error string|nil tool/configuration compatibility error for this (profile, configuration) pair, or nil when compatible. Recomputed every sync.
---- @field _build_dir_error string|nil the configuration's build directory is another configuration's (spec §1.7 "One build directory per configuration"): the refusal, or nil. Recomputed every sync; a refused ProfileProject has no ConfigUnit.
+--- @field _build_dir_error string|nil the configuration's build directory is another configuration's: the refusal, or nil. Recomputed every sync; a refused ProfileProject has no ConfigUnit.
 --- @field _removed boolean
 local ProfileProject = {}
 ProfileProject.__index = ProfileProject
@@ -57,7 +57,7 @@ function ProfileProject:tool_compat_error()
 end
 
 --- The refusal of this configuration's build directory, which another
---- configuration keeps (spec §1.7 "One build directory per configuration"),
+--- configuration keeps,
 --- or nil. A refused ProfileProject has no ConfigUnit: build, rebuild,
 --- configure, clean, deploy, launch, debug and test are refused with it.
 --- @return string|nil reason
@@ -65,11 +65,10 @@ function ProfileProject:build_dir_error()
     return self._build_dir_error
 end
 
---- Why this ProfileProject is invalid (invariant 11), else nil: the one
---- check behind every profile-level gate (core §5.4 "Invalid
---- ProfileProjects": build, configure, test, clean, rebuild) and the status
---- marks. A configuration the module reported an `error` for (§8 `info`),
---- a refused build directory (§1.7) or a tool compat error (§8.4); a new
+--- Why this ProfileProject is invalid, else nil: the one check behind every
+--- profile-level gate (build, configure, test, clean, rebuild) and the status
+--- marks. A configuration the module reported an `error` for,
+--- a refused build directory or a tool compat error; a new
 --- reason a configuration is invalid is added here.
 --- @return string|nil reason
 --- @return string|nil remedy what the user changes to clear it, when the
@@ -176,8 +175,8 @@ function ProfileProject:config_key()
 end
 
 --- Whether this project-in-profile's ConfigUnit is configured on this machine
---- (signed cache state, spec §17.8). False when no unit is mapped. Language
---- servers get a compilation database only from such a unit (spec §9.1).
+--- (signed cache state). False when no unit is mapped. Language
+--- servers get a compilation database only from such a unit.
 --- @return boolean
 function ProfileProject:configured_here()
     return self._config_unit ~= nil and self._config_unit:configured_here()
@@ -212,12 +211,12 @@ end
 --- @field _sdk_key string|nil cached SDK key for runtime queries
 --- @field _default_target_descriptor table|nil user.json default target for this profile
 --- @field _device_serial string|nil selected device serial for this profile
---- @field description string|nil normalised description (spec §1.10), stored at
+--- @field description string|nil normalised description, stored at
 ---        `profiles.<key>.description`; never part of the key
 --- @field _description_invalid any a non-string `description` value, ignored but
 ---        written back unchanged until the description is set or cleared
 --- @field _profile_variables table<string, table<string, string>>|nil per-machine
----        fill values for blank project variables (§1.3.1), keyed
+---        fill values for blank project variables, keyed
 ---        project_key → (variable name → value). user.json only; never published.
 --- Resolved references (set during _apply):
 --- @field _tool_objects table<loomworks.Module, loomworks.Tool>|nil
@@ -232,7 +231,7 @@ end
 --- Runtime state:
 --- @field _operations loomworks.Operation[] active operations
 --- @field _last_operation loomworks.ProfileLastResult|nil the last finished operation's outcome
---- @field _remote_tasks loomworks.RemoteTask[]|nil tasks running in the workspace daemon on this profile (`lw status`, spec §16.18); runtime only
+--- @field _remote_tasks loomworks.RemoteTask[]|nil tasks running in the workspace daemon on this profile (`lw status`); runtime only
 --- @field _intent? "local"|"shared"|"local+shared" intended publish state; nil before data_model.refresh's first sync
 local Profile = {}
 Profile.__index = Profile
@@ -327,7 +326,7 @@ function Profile:_apply(data)
     self._tool_objects = data._tool_objects
 
     -- SDK domain object resolved during _sync_profiles or set_sdk(); without
-    -- a legacy `sdk` in the data, the SDK its tool keys carry (spec §1.6).
+    -- a legacy `sdk` in the data, the SDK its tool keys carry.
     if data._sdk then
         self._sdk = data._sdk
         self._sdk_key = data._sdk.key
@@ -445,7 +444,7 @@ function Profile:set_sdk(sdk)
     self._sdk_key = sdk and sdk.key or nil
 end
 
---- The SDK the profile's tool keys carry (spec §1.6): the one SDK every
+--- The SDK the profile's tool keys carry: the one SDK every
 --- tool key stands for. Nil when a key resolves to no tool or to a tool no
 --- SDK produced (host-detected or cache-only), or when the tools come from
 --- different SDKs — an SDK is never inferred for a mix, so a module type no
@@ -565,14 +564,14 @@ function Profile:to_config_def()
 end
 
 --- The value to write as this profile's `description`: the description, or
---- a preserved non-string value (spec §1.10), or nil (no key).
+--- a preserved non-string value, or nil (no key).
 --- @return any
 function Profile:description_for_file()
     if self.description ~= nil then return self.description end
     return self._description_invalid
 end
 
---- Set or clear (nil / blank) the profile's description (spec §1.10). The
+--- Set or clear (nil / blank) the profile's description. The
 --- key is unaffected. Editing is use: a `shared` profile is materialised
 --- into the working copy. Writes nothing when the normalised text is
 --- unchanged.
@@ -758,7 +757,7 @@ end
 --- The `Cache:` row text of a compiler-cache status (`Profile:compiler_cache_status`
 --- fields `policy`, `applicable`, `not_applied_reason`, `tool`,
 --- `msvc_auto_off`). Pure: also formats the structured result of the daemon's
---- `profile_cache` query (spec §19.14).
+--- `profile_cache` query.
 --- @param st { policy: string, applicable: boolean, not_applied_reason?: string, tool?: string, msvc_auto_off?: boolean }
 --- @return string
 local function compiler_cache_text(st)
@@ -777,8 +776,8 @@ local function compiler_cache_text(st)
     return "Cache: " .. policy .. " (not found)"
 end
 
---- Profile-level compiler-cache status (spec/ui.md profile Cache row, headless
---- §16.18). Returns nil when the profile contains no C/C++-caching module.
+--- Profile-level compiler-cache status (the profile's Cache row). Returns nil
+--- when the profile contains no C/C++-caching module.
 --- Otherwise a display-ready descriptor: the effective `cache` policy, the
 --- resolved launcher (or nil), whether one is present, and whether any of the
 --- profile's configured units were built with a different launcher (stale).
@@ -786,10 +785,10 @@ end
 --- single profile-level row — and goes through `compiler_cache.resolve_for`,
 --- the same resolver the build context uses, so the reported tool is the one a
 --- build applies. `auto` on an MSVC-style compiler (msvc, clang-cl) resolves to
---- no launcher by design (spec §1.3.2) and is reported as
+--- no launcher by design and is reported as
 --- `Cache: auto (off for MSVC-style)` with `msvc_auto_off = true`, distinct from
 --- `auto (none found)`. A configuration the module cannot apply a launcher to
---- at all (its `cache_launcher_applicable` hook, module interface §8 — e.g. a
+--- at all (its `cache_launcher_applicable` hook — e.g. a
 --- preset, or a generator that ignores launchers) reads
 --- `Cache: not applied (<reason>)` with `applicable = false`, never naming a
 --- launcher the build does not use (policy `off` still reads `Cache: off`).
@@ -797,7 +796,7 @@ end
 ---
 --- With `pp` (one of this profile's ProfileProjects), the status is resolved
 --- for that project instead of the first caching one — the per-`(profile,
---- project)` fact `lw profile query … cache` reports (§16.18) — and nil when
+--- project)` fact `lw profile query … cache` reports — and nil when
 --- that project's module does not cache C/C++; `stale` then covers only that
 --- project's unit.
 --- @param pp? loomworks.ProfileProject
@@ -1011,7 +1010,7 @@ function Profile:device()
 end
 
 -- ---------------------------------------------------------------------------
--- Profile variable fill values (blank-variable machine-local fill, §1.3.1)
+-- Profile variable fill values (blank-variable machine-local fill)
 -- ---------------------------------------------------------------------------
 
 --- Get this profile's stored fill value for a blank project variable.
@@ -1072,7 +1071,7 @@ function Profile:variables_data()
     return vim.deepcopy(self._profile_variables)
 end
 
---- Enumerate this profile's **blank** declared variables (§1.3.1) across the
+--- Enumerate this profile's **blank** declared variables across the
 --- projects its configuration set maps — declared variables left with no
 --- value by the config chain, compiler overrides, or this profile's own fill
 --- values. Drives the build gate and the profile-scoped diagnostic.
@@ -1260,8 +1259,8 @@ function Profile:active_operations()
 end
 
 --- Register a task running in the workspace daemon on this profile (`lw
---- status`, spec §16.18: cli.mark_daemon_tasks): it counts as an active
---- operation (spec/ui.md §1.5). Runtime only; it never blocks an operation.
+--- status`: cli.mark_daemon_tasks): it counts as an active
+--- operation. Runtime only; it never blocks an operation.
 --- @param task loomworks.RemoteTask
 function Profile:add_remote_task(task)
     self._remote_tasks = self._remote_tasks or {}
@@ -1278,7 +1277,7 @@ function Profile:remote_tasks()
 end
 
 --- Check if this profile has any active operations — local, or a task
---- observed in the workspace daemon (spec §19.16).
+--- observed in the workspace daemon.
 --- @return boolean
 function Profile:has_active_operation()
     return (self._operations ~= nil and #self._operations > 0)
@@ -1292,7 +1291,7 @@ function Profile:operation()
 end
 
 --- Record the outcome of an operation that finished on this profile (the
---- view's `last_result`, API.md §14.4): an Operation's, a task observed in
+--- view's `last_result`): an Operation's, a task observed in
 --- the workspace daemon, or — in the daemon — its own run's
 --- (Service:on_run_done). Kept until the next one ends. Runtime only.
 --- @param status "ok"|"failed"|"cancelled" the final status, as a Tasks/1 step's
@@ -1304,8 +1303,7 @@ end
 --- The percent of the running operation: the weighted progress of the
 --- units shown configuring (10%) or building (90%) that report a count,
 --- else the last tick of a task observed in the workspace daemon; nil when
---- none reports one. In-process task tracking, never view state (API.md
---- §14.4 "Progress is not in the view").
+--- none reports one. In-process task tracking, never view state.
 --- @return integer|nil
 function Profile:operation_pct()
     local has_any, total_pct, count = false, 0, 0
@@ -1500,7 +1498,7 @@ function Profile:is_valid()
             .. table.concat(legacy_missing, ", ")
     end
 
-    -- A tool known only from the cache is not available (spec §17.7): its
+    -- A tool known only from the cache is not available: its
     -- recorded data is never run. Judged once detection has finished AND
     -- produced results for the tool's module type — a host that served no
     -- tool list at all (a CLI read with no machine tool cache) did not
@@ -1584,7 +1582,7 @@ end
 --- @return boolean ok, string|nil err human-readable reason
 function Profile:assert_buildable()
     local ok, reasons = self:is_valid()
-    -- Blank-variable gate (§1.3.1 / §15): a declared variable left blank after
+    -- Blank-variable gate: a declared variable left blank after
     -- config resolution must be filled by this profile before configure/build.
     -- Folded in here (rather than into is_valid) so the profile's structural
     -- :diagnostic() stays about tool/config validity, while blanks get their
@@ -1618,7 +1616,7 @@ end
 
 --- Check if this profile has any running tasks of this editor (the ones it
 --- can cancel). A task observed in the workspace daemon is not one
---- (`has_active_operation` covers it, spec §19.16).
+--- (`has_active_operation` covers it).
 --- @return boolean
 function Profile:is_running()
     if not self.mappings then return false end
@@ -1776,7 +1774,7 @@ function Profile:delete(on_done)
     return self._workspace:execute_deletion(plan, { deactivate_profile = self }, on_done)
 end
 
---- Plan a hard reset of this profile's cached configs (spec §16.30). Unlike
+--- Plan a hard reset of this profile's cached configs. Unlike
 --- `plan_deletion`, the plan carries NO `profile` field, so executing it removes
 --- the build directories and clears build state to `unconfigured` while leaving
 --- the profile (and its set / tool pins) intact and buildable. A config unit
@@ -1819,9 +1817,9 @@ end
 
 --- Hard-reset this profile (plan + execute, no UI confirmation): rm -rf the
 --- build directories and drop the config units back to `unconfigured`, keeping
---- the profile itself (spec §16.30). Returns a Future (`true` when every
---- removal succeeded). `opts.stop` (the daemon's cancellation, §19.15
---- "Reset") is asked before each entry of the removal; a stopped reset
+--- the profile itself. Returns a Future (`true` when every
+--- removal succeeded). `opts.stop` (the daemon's cancellation) is asked
+--- before each entry of the removal; a stopped reset
 --- resolves `false` with the cache left `unknown` (never reset after a
 --- partial removal).
 --- @param on_done? function

@@ -9,8 +9,8 @@
 --- @class loomworks.Core
 --- @field _deps table injected dependencies
 --- @field _workspace loomworks.Workspace|nil
---- @field _refused_watch? loomworks.FileTracker watch on a file refused for trust (spec §17.4), reloading once it verifies
---- @field _setup_error { root: string, message: string, trust?: { kind: "user"|"cache", status: string, path: string }, user_untrusted?: string, cache_untrusted?: boolean, user_version_mismatch?: boolean, newer?: boolean }|nil set when setup fails (`trust`: a refused `.nvim` file, spec §17.4; `newer`: a file with a newer schema, spec §2.7)
+--- @field _refused_watch? loomworks.FileTracker watch on a file refused for trust, reloading once it verifies
+--- @field _setup_error { root: string, message: string, trust?: { kind: "user"|"cache", status: string, path: string }, user_untrusted?: string, cache_untrusted?: boolean, user_version_mismatch?: boolean, newer?: boolean }|nil set when setup fails (`trust`: a refused `.nvim` file; `newer`: a file with a newer schema)
 --- @field _state "uninitialized"|"initializing"|"initialized"
 --- @field _pending_root string|nil root passed to setup(), known before async init resolves
 --- @field _load_capture { list: loomworks.LoadNote[], inner: function, fn: function, quiet: boolean|nil }|nil the running load's notification capture (`_begin_load_notes`); `quiet` records without passing on to the host's notifier
@@ -27,17 +27,17 @@ local DEFAULT_DEPS = {
     user      = require("loomworks.user"),
     cache     = require("loomworks.cache"),
     config    = require("loomworks.config"),
-    --- Machine signatures on `.nvim` state (spec §17). Tests inject a stub.
+    --- Machine signatures on `.nvim` state. Tests inject a stub.
     trust     = require("loomworks.trust"),
     --- How this host tells the user to resolve a refused `.nvim` file
-    --- (spec §17.10). The CLI replaces these with its commands.
+    --- The CLI replaces these with its commands.
     trust_actions = {
         trust = ":LoomworksTrust (or T on the status page)",
         discard = "U on the status page",
         nuke = "<C-n> on the status page",
     },
     io        = require("loomworks.io"),
-    -- Cross-process locks (spec §19.3): `locks = { op, build }` may be injected;
+    -- Cross-process locks: `locks = { op, build }` may be injected;
     -- by default loomworks.op_lock.locks(deps, root) picks the real modules,
     -- or inert ones for a root that does not exist (a test's fake root).
     read_file_async = require("loomworks.io").read_file_async,
@@ -65,7 +65,7 @@ local DEFAULT_DEPS = {
     schedule  = vim.schedule,
     --- Whether a filesystem path exists. Used to detect a build directory that
     --- was removed out of band, so a cached built/configured unit resets to
-    --- unconfigured (spec §3.1 rule 7). A plain `stat` — no module-specific
+    --- unconfigured. A plain `stat` — no module-specific
     --- probing. Injectable so tests can simulate a present/absent directory.
     --- @param path string
     --- @return boolean
@@ -141,7 +141,7 @@ end
 
 --- Whether the active profile's owned LSP databases are ready — the active
 --- profile's configured build directories have had their compilation databases
---- generated (or there was nothing to generate). The deferred-LSP gate (§9.7)
+--- generated (or there was nothing to generate). The deferred-LSP gate
 --- releases held server starts once this is true, so a server starts once with
 --- the resolved binary and a populated compile-commands directory.
 ---
@@ -158,7 +158,7 @@ function Core:lsp_ready()
 end
 
 --- The configured workspace root, known synchronously even during async init
---- (spec §9.7). Falls back to the last root passed to `setup()` before a
+--- Falls back to the last root passed to `setup()` before a
 --- workspace object exists. nil when setup was never called.
 --- @return string|nil
 function Core:workspace_root()
@@ -167,7 +167,7 @@ function Core:workspace_root()
 end
 
 --- Record the configured workspace root synchronously, BEFORE the async
---- `setup()` runs (spec §9.7 / FIX A). LSP server installation resolves
+--- `setup()` runs. LSP server installation resolves
 --- `root_dir` synchronously for already-open buffers the moment
 --- `vim.lsp.enable` runs; if that happens before `setup()` set the pending
 --- root, the gate would see no root and resolve immediately (an ungated
@@ -189,20 +189,20 @@ function Core:setup(opts)
     self:_stop_refused_watch()
     self._setup_error = nil
     self._state = "initializing"
-    -- What this load raises is kept as its load diagnostics (core daemon.md
-    -- §19.13 "Load warnings"), from here to the end of `_on_files_read`.
+    -- What this load raises is kept as its load diagnostics, from here to
+    -- the end of `_on_files_read`.
     self:_begin_load_notes()
     self._deps.events.emit("workspace_initializing")
 
     local ws_mod = self._deps.workspace
     local root = ws_mod.resolve_root(opts and opts.root or nil)
     -- Remember the configured root synchronously, before async init resolves,
-    -- so the deferred-LSP gate (spec §9.7) can decide whether a buffer is under
+    -- so the deferred-LSP gate can decide whether a buffer is under
     -- the workspace root while the workspace is still initializing.
     self._pending_root = root
     local paths = ws_mod.paths(root)
 
-    -- A commit journal left by a crashed multi-file operation (spec §19.4) is
+    -- A commit journal left by a crashed multi-file operation is
     -- completed before the files are read — or the workspace is refused. (A
     -- host whose refusal hook raises — the CLI's `die` — leaves the state as
     -- it found it.)
@@ -231,7 +231,7 @@ function Core:setup(opts)
     -- The live workspace is being replaced: until this load completes (it
     -- reads the files itself) the old one applies no file change — applying
     -- one would save the working copy under the bytes this load read, leaving
-    -- the new workspace a stale baseline (spec §2.7). Resumed if the load fails
+    -- the new workspace a stale baseline. Resumed if the load fails
     -- and the old workspace stays.
     if self._workspace and self._workspace._tracker then
         self._workspace._tracker:pause()
@@ -246,8 +246,8 @@ function Core:setup(opts)
     )
 end
 
---- Start capturing the running load's warnings and errors (core daemon.md
---- §19.13 "Load warnings"): until `_end_load_notes`, every notification of
+--- Start capturing the running load's warnings and errors: until
+--- `_end_load_notes`, every notification of
 --- level WARN or above (or none: the hosts print it as a warning) through
 --- `_deps.notify` is recorded, then passed on to the host's notifier. A
 --- capture still open (a load that never completed) is ended first. What
@@ -283,8 +283,8 @@ function Core:_end_load_notes()
     if self._deps.notify == c.fn then self._deps.notify = c.inner end
 end
 
---- Complete (or refuse) a commit journal of `root` before loading (spec
---- §19.4). While the journal's writer still holds the workspace operation
+--- Complete (or refuse) a commit journal of `root` before loading. While
+--- the journal's writer still holds the workspace operation
 --- lock the commit is in progress: wait for it (bounded), then report the
 --- workspace busy (the CLI dies; the editor loads what is there and its file
 --- tracker reloads when the commit lands). Returns the refusal message, or nil.
@@ -362,7 +362,7 @@ function Core:_load_files(root, paths, results)
         if not (setup_error and setup_error.trust and self._deps.quiet_trust_errors) then
             self._deps.notify("loomworks: " .. msg, vim.log.levels.ERROR)
         end
-        -- A refused file (spec §17.4, or a newer schema, §2.7) unloads a
+        -- A refused file (untrusted, or a newer schema) unloads a
         -- live workspace too (a file changed under it): nothing may keep
         -- running on — or saving — the old state.
         if setup_error and (setup_error.trust or setup_error.newer) and self._workspace then
@@ -400,12 +400,12 @@ function Core:_load_files(root, paths, results)
         return
     end
 
-    -- Machine signatures (spec §17.4): a working copy that is not signed by
+    -- Machine signatures: a working copy that is not signed by
     -- this machine, or a cache with a foreign/modified signature, refuses the
     -- load. Nothing in the file was read, and nothing overwrites it.
     local trust_err = self:_trust_error(root, data)
-    -- A configuration import replaces a refused working copy unread (spec
-    -- §16.39): the host asks for that with `replace_untrusted_user`. The
+    -- A configuration import replaces a refused working copy unread: the
+    -- host asks for that with `replace_untrusted_user`. The
     -- file's content was never decoded (assemble dropped it); the workspace
     -- loads as if it were absent and remembers why (`_user_unread`). Any other
     -- refusal (an invalid cache) still applies.
@@ -423,7 +423,7 @@ function Core:_load_files(root, paths, results)
 
     -- A file written with a NEWER schema than this version understands is
     -- valid, only newer: refuse the load, never rewrite it, and point at the
-    -- update — not at reset / discard (spec §2.7).
+    -- update — not at reset / discard.
     if data.cache_newer or data.user_newer then
         local sg = require("loomworks.save_guard")
         local msg = data.cache_newer
@@ -486,11 +486,11 @@ function Core:_load_files(root, paths, results)
 
     self._workspace:_cleanup_orphaned_skeletons(data.cache)
     self._workspace:remerge(data.config, data.cache, data.user)
-    -- Disk baselines for the stale-save guard (spec §2.7): the exact bytes
+    -- Disk baselines for the stale-save guard: the exact bytes
     -- this load read.
     self._workspace:_adopt_disk("user", user_content)
     self._workspace:_adopt_disk("cache", cache_content)
-    -- Same schema, newer writer: load, but say so once (spec §2.7).
+    -- Same schema, newer writer: load, but say so once.
     do
         local sg = require("loomworks.save_guard")
         for _, f in ipairs({
@@ -504,7 +504,7 @@ function Core:_load_files(root, paths, results)
     self._state = "initialized"
     self._deps.events.emit("workspace_changed", self._workspace)
 
-    -- Migration (spec §17.4): a cache written before signatures existed is
+    -- Migration: a cache written before signatures existed is
     -- ignored unread — this load holds no build state from it. Loading never
     -- writes: the file is replaced by the first command that writes the cache
     -- (the disk baseline above is its exact bytes, so that save neither merges
@@ -538,7 +538,7 @@ function Core:_load_files(root, paths, results)
 end
 
 -- ===========================================================================
--- Trust (spec §17)
+-- Trust
 -- ===========================================================================
 
 --- Build the setup error for a refused `.nvim` file, or nil when the loaded
@@ -573,7 +573,7 @@ function Core:_trust_error(root, data)
     return nil
 end
 
---- Watch a file refused for trust (spec §17.4): when it becomes valid on
+--- Watch a file refused for trust: when it becomes valid on
 --- disk (restored with its signature, or re-signed by `lw trust`), load the
 --- workspace again. A change that still does not verify is ignored, so an
 --- invalid file is never re-refused (and re-notified) in a loop. Only a host
@@ -614,7 +614,7 @@ function Core:_stop_refused_watch()
     if tracker then tracker:stop() end
 end
 
---- Read the working copy for review (spec §17.4 "trust"): its verification
+--- Read the working copy for review: its verification
 --- status, the exact content that trusting would sign, and the decoded data.
 --- @param root string
 --- @return table|nil review `{ path, status, content, data }`, string|nil err
@@ -703,7 +703,7 @@ end
 --- @return boolean ran the removal ran (false: refused)
 --- @return string|nil message the refusal (no `loomworks:` prefix)
 function Core:nuke_cache(root, opts)
-    -- The live workspace goes first (spec §19.3): its tasks are stopped (an
+    -- The live workspace goes first: its tasks are stopped (an
     -- editor build would keep writing into the tree, and hold its lock) and
     -- it can no longer save — a callback that ran while the removal pumps the
     -- event loop must not recreate the cache with stale `built` states. The
@@ -737,7 +737,7 @@ end
 --- build cache (+ backup), the health cache (+ backup) and the owned LSP
 --- database areas (`_nuke_lsp_db_areas`; a failed area check refuses the whole
 --- nuke in `_nuke_begin`), each checked to be
---- under `root/.nvim/`. Shared by the editor's nuke and `lw nuke` (spec §17.4).
+--- under `root/.nvim/`. Shared by the editor's nuke and `lw nuke`.
 --- Returns the normalized root when it ran (a failed rm is reported, and the
 --- reload shows what is left), nil + the refusal when refused (notified
 --- unless `opts.quiet`). `opts` as `nuke_cache`'s.
@@ -774,7 +774,7 @@ end
 --- `{ skip_own = true }`: its own builds are stopped by `nuke_cache` before
 --- the real acquisition. Returns true, or nil + the refusal message (no
 --- `loomworks:` prefix). When it would run, the third value lists the owned
---- LSP database areas it would remove (spec §4.6), for the host's listing.
+--- LSP database areas it would remove, for the host's listing.
 --- @param root string
 --- @param opts? { skip_own?: boolean }
 --- @return boolean|nil ok, string|nil message, string[]|nil areas
@@ -814,7 +814,7 @@ function Core:_nuke_release(st)
 end
 
 --- The first half of a nuke: the safety checks, then the locks in lock
---- order (spec §19.3). Nothing is removed. Returns the state `_nuke_run`
+--- order. Nothing is removed. Returns the state `_nuke_run`
 --- deletes under (the caller must run or release it), or nil + the refusal
 --- message (no `loomworks:` prefix; nothing held).
 --- `opts.unit_dirs` as `_nuke_lock_dirs`'s (kept as `state.unit_dirs`).
@@ -829,7 +829,7 @@ function Core:_nuke_begin(root, opts)
     end
 
     -- Safety: loomworks.json or the working copy must exist at root (confirms
-    -- this is a real workspace — a user.json-only workspace is one, §2.2).
+    -- this is a real workspace — a user.json-only workspace is one).
     local config_path = norm_root .. "/loomworks.json"
     if not self._deps.io.read_file(config_path)
             and not self._deps.io.read_file(self._deps.user.filepath(norm_root)) then
@@ -840,7 +840,7 @@ function Core:_nuke_begin(root, opts)
     local cache_path = self._deps.cache.filepath(norm_root)
     local health_path = norm_root .. "/.nvim/loomworks.health.json"
 
-    -- Owned LSP database areas (spec §4.6, ui §1.11 check 4). A failed area
+    -- Owned LSP database areas. A failed area
     -- check aborts the WHOLE nuke before anything is deleted.
     local areas, area_err = self:_nuke_lsp_db_areas(norm_root)
     if not areas then return nil, area_err .. ", aborting nuke" end
@@ -854,7 +854,7 @@ function Core:_nuke_begin(root, opts)
         end
     end
 
-    -- Lock order (spec §19.3): the workspace operation lock, then the build
+    -- Lock order: the workspace operation lock, then the build
     -- lock of every build directory it removes — so a nuke refuses while a
     -- build runs instead of deleting under it. Nothing is removed on refusal.
     local locks = require("loomworks.op_lock").locks(self._deps, norm_root)
@@ -881,14 +881,14 @@ function Core:_nuke_run(st)
     local areas = st.areas or {}
     local cache_bak = cache_path .. ".bak"
 
-    -- 1. The caches first (§15 invariant 1, deletion safety 4): once they are
+    -- 1. The caches first: once they are
     --    gone nothing claims a configured or built tree, whatever happens to
     --    the removal below.
     self._deps.io.rm_rf(cache_path)
     self._deps.io.rm_rf(cache_bak)
     self._deps.io.rm_rf(health_path)
     self._deps.io.rm_rf(health_path .. ".bak")
-    -- The owned LSP database areas (spec §4.6) go with the caches: derived
+    -- The owned LSP database areas go with the caches: derived
     -- data, regenerated on the next configure.
     for _, a in ipairs(areas) do
         local aok, aerr = self._deps.io.rm_rf(a)
@@ -1026,7 +1026,7 @@ function Core:_nuke_lock_dirs(build_dir, unit_dirs)
         local raw = tostring(dir):gsub("\\", "/")
         local k = normalize(raw)
         -- One folder spelled two ways (a scanned lockfile vs a unit's
-        -- build_dir) is one lock (spec §4.6): de-duplicate by identity.
+        -- build_dir) is one lock: de-duplicate by identity.
         local id = normalize(require("loomworks.dir_identity").resolve(raw, self._deps.realpath))
         if (k:sub(1, #build_dir + 1) == build_dir .. "/") and not seen[id] then
             seen[id] = true
@@ -1113,8 +1113,8 @@ function Core:_nuke_build_locks(root, build_dir, build_lock, opts)
     return held
 end
 
---- The owned LSP database areas the nuke removes (spec §4.6 last paragraph,
---- ui §1.11): `<root>/.nvim/cache/<lsp_database_root>` for every registered
+--- The owned LSP database areas the nuke removes:
+--- `<root>/.nvim/cache/<lsp_database_root>` for every registered
 --- module declaring one, present on disk, and passing
 --- `lsp_db_cleanup.check_area` (exact direct child of `.nvim/cache`, no link or
 --- junction at `.nvim`, `.nvim/cache` or the area, realpath inside `.nvim`).
@@ -1161,7 +1161,7 @@ end
 function Core:delete_user_prefs(root, expected_content)
     local norm_root = self._deps.normalize(root)
     -- The working copy and its backup go together, under the workspace
-    -- operation lock (spec §19.3).
+    -- operation lock.
     local op_lock = require("loomworks.op_lock").locks(self._deps, norm_root).op
     local tok, lmsg = op_lock.acquire(norm_root, "trust --discard")
     if not tok then
@@ -1196,7 +1196,7 @@ function Core:_delete_user_prefs_locked(norm_root, expected_content)
         self._deps.notify("loomworks: " .. msg, vim.log.levels.ERROR)
         return false, msg
     end
-    -- The backup of a discarded working copy goes too (spec §17.4 discard).
+    -- The backup of a discarded working copy goes too.
     self._deps.io.rm_rf(user_path .. ".bak")
 
     self._deps.notify("loomworks: user preferences deleted, reloading", vim.log.levels.INFO)
@@ -1245,8 +1245,8 @@ function Core:project_for_buf(bufnr)
 end
 
 --- Detach the active workspace fully. Called on VimLeave-style shutdown.
---- `workspace_closed` is emitted only for a shutdown with no successor
---- (§9.7): a caller that loads another workspace right after passes
+--- `workspace_closed` is emitted only for a shutdown with no successor:
+--- a caller that loads another workspace right after passes
 --- `{ successor = true }`, so the deferred-LSP gate keeps holding its
 --- buffers instead of draining them to the stock server in between.
 --- @param opts? { successor?: boolean }
@@ -1257,7 +1257,7 @@ function Core:shutdown(opts)
         self._workspace:teardown()
         self._workspace = nil
     end
-    -- Nothing is loaded or pending any more: the deferred-LSP gate (§9.7)
+    -- Nothing is loaded or pending any more: the deferred-LSP gate
     -- must not keep holding buffers under the old root.
     self._pending_root = nil
     self._state = "uninitialized"

@@ -1,5 +1,5 @@
 --- loomworks/build_dir.lua — BuildDir: one cache entry's build state.
---- One per unit (cache entry): siblings in a module's shared tree (spec §1.7)
+--- One per unit (cache entry): siblings in a module's shared tree
 --- each have their own BuildDir with the same `path`, so directory-level
 --- state (refs, locks, deletion, the missing-directory stat) keys by
 --- `Workspace:_build_dir_identity(path)`, never by `rel_path`.
@@ -7,7 +7,7 @@
 --- Orphaned BuildDirs have state but no ConfigUnit pointing to them.
 
 --- @class loomworks.BuildDir
---- @field rel_path string the unit id keying its cache entry (spec §1.7): the relative
+--- @field rel_path string the unit id keying its cache entry: the relative
 ---   build dir ("build/App/Debug"), or in a shared tree `<dir>#<config_key>`
 ---   ("build/App/ninja-mc#Debug:ninja-mc"). Never parsed, never a path.
 --- @field path string|nil absolute build directory path (shared by a tree's siblings);
@@ -25,7 +25,7 @@
 --- @field variant string|nil variant name when last configured
 --- @field config_key string|nil opaque cache key for display
 --- @field mod_type string|nil module type (e.g., "cmake")
---- Output-artifact conflict detection (spec §1.7, §5.9):
+--- Output-artifact conflict detection:
 --- @field artifacts string[]|nil resolved artifact set (absolute, display casing) from last configure
 --- @field overwritten_by string|nil id of the ConfigUnit that most recently built over a shared artifact
 --- Lifecycle:
@@ -95,8 +95,7 @@ function BuildDir:serialize()
     if self.module_info then entry.module_info = self.module_info end
     if self.options_snapshot then entry.options = self.options_snapshot end
     if self.module_config_snapshot then entry.module_config = self.module_config_snapshot end
-    -- Resolved artifact set + overwritten marker (spec §1.7, §2.3): additive,
-    -- optional, success-path fields written only when known.
+    -- Optional fields, written only when known.
     if self.artifacts and #self.artifacts > 0 then entry.artifacts = self.artifacts end
     if self.overwritten_by then entry.overwritten_by = self.overwritten_by end
     return entry

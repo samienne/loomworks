@@ -12,19 +12,19 @@ local test_targets_mod = require("loomworks.test_targets")
 --- @field path? string relative path from workspace root
 --- @field type_config? table module-specific configuration (options, configurations, etc.)
 --- @field _launches table<string, loomworks.LaunchConfiguration> launch
----        configurations (spec §1.2.1), name → object; reach them through
+---        configurations, name → object; reach them through
 ---        `launch_configs()` / `find_launch(name)`
 --- @field _launch_empty_decl table|nil the empty `launch` table the files
 ---        declared, written back as declared while the project has no launch
 --- @field deploy? table<string, table|table[]> project-level deploy steps
---- @field device? { stage?: string[], archive?: string[], env?: table<string,string>, working_dir?: string } remote-execution block (spec §18.9); stored in the module section of the files (`projects.<p>.<type>.device`), never in `type_config`
+--- @field device? { stage?: string[], archive?: string[], env?: table<string,string>, working_dir?: string } remote-execution block; stored in the module section of the files (`projects.<p>.<type>.device`), never in `type_config`
 --- @field variables? table<string, { type: string, default: string }> user-defined variable declarations
---- @field description string|nil normalised description (spec §1.10); stored in the
+--- @field description string|nil normalised description; stored in the
 ---        module section of the files (`projects.<p>.<type>.description`), never in `type_config`
 --- @field _description_invalid any a non-string `description` value, ignored but
 ---        written back unchanged until the description is set or cleared
---- @field _tests loomworks.SavedTestDecl|nil the project-wide saved test targets
----        (spec §1.3.4); stored in the module section of the files
+--- @field _tests loomworks.SavedTestDecl|nil the project-wide saved test targets;
+---        stored in the module section of the files
 ---        (`projects.<p>.<type>.tests`), never in `type_config`
 --- @field _tests_invalid any the raw value of an invalid `tests` declaration (not an array), written back unchanged
 --- @field configuration? string active configuration name
@@ -82,7 +82,7 @@ function Project:_update(data)
     self.path = data.path
     -- Store type_config without .configurations — that data lives on
     -- Configuration domain objects and is reconstructed for serialization.
-    -- Without a module (type missing or rejected, spec §8.0) no Configuration
+    -- Without a module (type missing or rejected) no Configuration
     -- objects are built, so the declared configurations stay on type_config
     -- verbatim and the serializers write them back unchanged.
     if data.type_config then
@@ -199,7 +199,7 @@ function Project:_sync_configurations()
         cfg:_resolve_inherits()
     end
 
-    -- A configuration the module reported an `error` for (spec §8 `info`)
+    -- A configuration the module reported an `error` for
     -- is a load error, once per load. The configuration's structural
     -- diagnostic (`Configuration:diagnostic`, error severity) shows it in
     -- the views, so the load note is left out there.
@@ -215,8 +215,8 @@ function Project:_sync_configurations()
     end
 end
 
---- Sync the LaunchConfiguration registry with the merged `launch` dict
---- (spec §1.2.1): an existing object is updated in place (matched by name
+--- Sync the LaunchConfiguration registry with the merged `launch` dict:
+--- an existing object is updated in place (matched by name
 --- within this project), a new name gets a new object, and an object whose
 --- declaration is gone is marked `_removed` and dropped.
 --- @param decls table<string, any>|nil
@@ -241,7 +241,7 @@ function Project:_sync_launches(decls)
 end
 
 --- Mark this project removed (its declaration is gone from the model), and
---- with it every launch configuration it owns (spec §1.2.1).
+--- with it every launch configuration it owns.
 function Project:_mark_removed()
     self._removed = true
     for _, launch in pairs(self._launches) do launch._removed = true end
@@ -347,7 +347,7 @@ function Project:config_units_for_configuration(configuration)
 end
 
 --- The compiler family of the active profile's tool for this project's
---- module (spec §1.3.1): the family whose configuration `overrides` apply.
+--- module: the family whose configuration `overrides` apply.
 --- nil with no active profile, or a tool with no family.
 --- @return string|nil
 function Project:active_compiler_family()
@@ -358,7 +358,7 @@ function Project:active_compiler_family()
 end
 
 --- Get the running action shown for this project (any config) — its own
---- tasks' or a task observed in the workspace daemon (spec §19.16). Display only.
+--- tasks' or a task observed in the workspace daemon. Display only.
 --- @return string|nil action ("configure" or "build")
 function Project:running_action()
     for _, unit in pairs(self._workspace._config_units) do
@@ -415,7 +415,7 @@ end
 --- @return loomworks.ModuleContext
 function Project:to_module_context(ws_root)
     local tool_key = self._tool and self._tool.key or nil
-    -- Detected data only (spec §17.7): a cache-only tool runs nothing.
+    -- Detected data only: a cache-only tool runs nothing.
     local tool_data = self._tool and self._tool:exec_data() or nil
     return {
         name = self.key,
@@ -465,7 +465,7 @@ function Project:_type_config_for_module()
     else
         tc.configurations = nil
     end
-    -- Saved test targets are core-owned (spec §1.3.4): a module never sees them.
+    -- Saved test targets are core-owned: a module never sees them.
     tc = test_targets_mod.strip_from_type_config(tc)
     return tc
 end
@@ -494,7 +494,7 @@ end
 --- empty-aware handling; every other key is a module-specific field (cmake:
 --- variant/toolchain/generator; other modules define their own) and is
 --- forwarded generically — no hardcoded field list, so every field the caller
---- declares survives (save and rename share this, spec §16.9).
+--- declares survives (save and rename share this).
 --- @param config_data table
 --- @return table
 local function user_update_data(config_data)
@@ -574,7 +574,7 @@ function Project:save_configuration(config_name, config_data)
     end
 
     -- The profile's tool owns the compiler — a configuration may not select
-    -- one through its own options/env (spec §15). Reject reserved keys here
+    -- one through its own options/env. Reject reserved keys here
     -- so they never reach the working copy; the strip-at-build path is only a
     -- defence for hand-edited files. The CMAKE_<LANG>_COMPILER option rule is
     -- cmake-only in practice (other modules carry no cmake cache vars) but the
@@ -588,7 +588,7 @@ function Project:save_configuration(config_name, config_data)
             end
         end
     end
-    -- The configuration environment (spec §1.3.3) — its own `env` and any
+    -- The configuration environment — its own `env` and any
     -- compiler-family `overrides.<family>.env` sub-block.
     local env_maps = { config_data.env }
     if type(config_data.overrides) == "table" then
@@ -611,7 +611,7 @@ function Project:save_configuration(config_name, config_data)
         end
     end
 
-    -- Compiler-family variable `overrides` (core §1.3.1): every overridden
+    -- Compiler-family variable `overrides`: every overridden
     -- name must be declared in the project `variables`. Reject an undeclared
     -- name at edit time (mirrors the reserved-key rule) so the bad block never
     -- reaches the working copy. Unknown family keys are permitted here and
@@ -625,7 +625,7 @@ function Project:save_configuration(config_name, config_data)
         end
     end
 
-    -- The pre-declared `cache` policy (core §1.3.2) must name something
+    -- The pre-declared `cache` policy must name something
     -- loomworks can apply — an unknown launcher would otherwise build
     -- uncached without a word. Checked wherever a configuration carries it:
     -- `variables.cache` and each `overrides.<family>.cache`.
@@ -689,7 +689,7 @@ function Project:save_configuration(config_name, config_data)
     end
 
     -- A change that would refuse another configuration's build directory is
-    -- refused, writing nothing (spec §1.7 "Commands refuse to create one").
+    -- refused, writing nothing.
     if not self.type_config then self.type_config = {} end
 
     local ok, err = false, ws:_new_build_dir_collision()
@@ -820,7 +820,7 @@ function Project:rename_configuration(old_name, new_name, config_data)
 
     -- Step 2: Rename the Configuration object and update its data
     target_cfg.name = new_name
-    -- Every declared field survives a rename (spec §16.9) — the same builder
+    -- Every declared field survives a rename — the same builder
     -- save_configuration uses, never a fixed field list.
     target_cfg:_update(user_update_data(config_data))
     target_cfg:_resolve_inherits()
@@ -835,7 +835,7 @@ function Project:rename_configuration(old_name, new_name, config_data)
     end
 
     -- A change that would refuse another configuration's build directory is
-    -- refused, writing nothing (spec §1.7 "Commands refuse to create one").
+    -- refused, writing nothing.
     -- Save config + cache to disk. The module resolves the renamed
     -- configuration first (a template naming the configuration moves it).
     self:_refresh_configurations()
@@ -892,10 +892,10 @@ function Project:rename_configuration(old_name, new_name, config_data)
                 -- noop: Configuration ref auto-sees new name
             elseif not new_rel then
                 -- noop: no build directory resolves for the new name (a
-                -- module `error`, §8 `info`) — the unit keeps its id and
+                -- module `error`) — the unit keeps its id and
                 -- directory rather than taking a nil one.
             elseif new_shared then
-                -- Shared tree (spec §4.8 step 2): the unit stays in its
+                -- Shared tree: the unit stays in its
                 -- directory with its state; its id and cache entry move to
                 -- `<dir>#<new config_key>`, and every reference follows.
                 local old_id = unit.id
@@ -915,7 +915,7 @@ function Project:rename_configuration(old_name, new_name, config_data)
                 -- nothing on disk is touched). The references naming it
                 -- (`overwritten_by`, deploy records) described that deleted
                 -- configuration, not the renamed unit: they are dropped too
-                -- rather than silently passing to it (spec §4.8).
+                -- rather than silently passing to it.
                 local superseded = false
                 for i = #ws._build_dirs, 1, -1 do
                     local other = ws._build_dirs[i]
@@ -1019,8 +1019,8 @@ function Project:save_type_config_field(field, value)
     self.type_config[field] = value
 
     -- A build-directory field (shell `build_dir`) moves configurations: the
-    -- configurations see the new value before the collision check (spec §1.7
-    -- "Commands refuse to create one"), which refuses it writing nothing.
+    -- configurations see the new value before the collision check, which
+    -- refuses it writing nothing.
     self:_refresh_configurations()
     local ok, err = false, ws:_new_build_dir_collision()
     if not err then ok, err = ws:_save_user() end
@@ -1079,9 +1079,9 @@ function Project:save_variable(var_name, declaration)
     return true
 end
 
---- Replace the project's `device` block (spec §18.9) in the working copy;
+--- Replace the project's `device` block in the working copy;
 --- nil or an empty table removes it. Validated like a loaded block; a denied
---- device environment variable (§17.9) is refused.
+--- device environment variable is refused.
 --- @param block table|nil
 --- @return boolean ok, string|nil err
 function Project:save_device(block)
@@ -1112,14 +1112,14 @@ function Project:save_device(block)
 end
 
 --- The value to write as the module section's `description`: the
---- description, or a preserved non-string value (spec §1.10), or nil.
+--- description, or a preserved non-string value, or nil.
 --- @return any
 function Project:description_for_file()
     if self.description ~= nil then return self.description end
     return self._description_invalid
 end
 
---- Set or clear (nil / blank) the project's description (spec §1.10) in the
+--- Set or clear (nil / blank) the project's description in the
 --- working copy. Editing is use: a `shared` project is materialised. Writes
 --- nothing when the normalised text is unchanged.
 --- @param text string|nil
@@ -1149,7 +1149,7 @@ function Project:set_description(text)
     return true
 end
 
---- The project-wide saved test-target list (spec §1.3.4), or nil when none is
+--- The project-wide saved test-target list, or nil when none is
 --- declared (an explicit `[]` returns an empty array).
 --- @return loomworks.SavedTestEntry[]|nil
 function Project:own_test_targets()
@@ -1158,7 +1158,7 @@ end
 
 --- Whether a saved entry naming launch `name` of this project is missing
 --- because the trust filter ignored the shared launch and the working copy
---- does not supply it (spec §17.6, §1.3.4).
+--- does not supply it.
 --- @param name string
 --- @return boolean
 function Project:launch_ignored(name)
@@ -1166,8 +1166,8 @@ function Project:launch_ignored(name)
     return test_targets_mod.launch_ignored(ws and ws._shared_ignored, self, name)
 end
 
---- The read-only saved test-targets line's data (spec/ui.md "Saved test
---- targets line", core §1.3.4) for an effective list `eff` of `item` (one of
+--- The status page's read-only saved test-targets line's data for an
+--- effective list `eff` of `item` (one of
 --- this project's configurations, or the project itself), resolved here so
 --- the status page only formats it. `source` is nil when the list is
 --- `item`'s own. With `targets` (the unit's parsed build targets — known
@@ -1201,7 +1201,7 @@ function Project:saved_tests_view(eff, item, targets)
     return view
 end
 
---- The value to write as the module section's `tests` (spec §1.3.4), or nil.
+--- The value to write as the module section's `tests`, or nil.
 --- @return any
 function Project:tests_for_file()
     return test_targets_mod.serialize(self._tests, self._tests_invalid)
@@ -1294,7 +1294,7 @@ function Project:save_launch_config(launch_name, config)
     if self._removed then
         return false, "project '" .. self.key .. "' has been removed"
     end
-    -- Loader/interpreter-hijack variables are refused (spec §17.9).
+    -- Loader/interpreter-hijack variables are refused.
     if type(config) == "table" and type(config.env) == "table" then
         for k in pairs(config.env) do
             if require("loomworks.env_policy").is_denied(k) then
@@ -1360,7 +1360,7 @@ function Project:save_deploy(deploy)
     return true
 end
 
---- Is `name` a valid NEW launch configuration name (spec §8.7)? Non-empty, no
+--- Is `name` a valid NEW launch configuration name? Non-empty, no
 --- whitespace anywhere, no control character, no `/` or `\`, no leading `-`
 --- (it would read as a command-line flag). Other punctuation, including `:`,
 --- is allowed. Existing names that break the rule keep working (they can be
@@ -1389,7 +1389,7 @@ function Project.validate_launch_name(name)
     return true, nil
 end
 
---- Rename a launch configuration in place (spec §8.7): the object keeps its
+--- Rename a launch configuration in place: the object keeps its
 --- identity (so its id) and its whole declaration (every field, known or
 --- not), every profile's default-target descriptor
 --- `{ project = <this>, launch = old }` follows (other descriptor fields kept),
@@ -1448,7 +1448,7 @@ function Project:rename_launch_config(launch, new_name)
         end
     end
 
-    -- Saved test entries naming this launch (§8.7): they resolved to it (a
+    -- Saved test entries naming this launch: they resolved to it (a
     -- launch wins over a same-named target), so they follow the rename.
     local retests = {}
     local function rename_tests(holder)
@@ -1532,7 +1532,7 @@ end
 
 
 -- A configuration rename propagates into the cache (working copy + cache):
--- it runs holding the workspace operation lock (spec §19.3). A failed commit
+-- it runs holding the workspace operation lock. A failed commit
 -- puts the configurations' names (and the inherits naming them) back in place
 -- so the reload from disk the guard then runs matches each by its on-disk
 -- name: the renamed configuration keeps its identity.

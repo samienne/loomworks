@@ -62,11 +62,11 @@ end
 --- @field variables table<string, string>|nil variable overrides (name → value)
 --- @field env table<string, string>|nil configuration environment (name →
 ---        value) for configure/build/clean/test tasks — a generic field, inherited
----        along the chain and resolved by `config_env` (spec §1.3.3)
+---        along the chain and resolved by `config_env`
 --- @field _overrides table<string, table>|nil compiler-family overrides
 ---        (family → { name → value, env? = { NAME → value } }); variable
 ---        entries and the `env` sub-block apply only when the active tool's
----        compiler family matches (core §1.3.1, §1.3.3)
+---        compiler family matches
 --- @field _derived table|nil module fields inherited from a base rather than
 ---        declared here; kept at runtime but skipped by serialization
 --- @field languages string[]|nil explicit list of languages this
@@ -75,16 +75,16 @@ end
 ---        Determines which tools in `profile.tools` are "in scope"
 ---        for ConfigUnits derived from this configuration.
 --- @field role string|nil special role (e.g., "compile_commands")
---- @field description string|nil normalised description (spec §1.10). A generic
+--- @field description string|nil normalised description. A generic
 ---        field — never part of `module_config`, so it never enters the
 ---        staleness fingerprint or the module's task context
 --- @field _description_from_module boolean|nil true when `description` is a
----        module's read-only default for a generated configuration (§8.1);
+---        module's read-only default for a generated configuration;
 ---        never written to either file
 --- @field _description_invalid any a non-string `description` in a declared
 ---        configuration, ignored but written back unchanged until set or cleared
 --- @field _tests loomworks.SavedTestDecl|nil this configuration's OWN saved test
----        targets (spec §1.3.4) — a generic field, never part of `module_config`
+---        targets — a generic field, never part of `module_config`
 ---        (so never a configure input). Only a user configuration has one.
 --- @field _tests_invalid any the raw value of an invalid `tests` declaration (not an
 ---        array), kept to write back unchanged
@@ -95,7 +95,7 @@ end
 ---        "language declared vs enabled" diagnostic.
 --- @field _removed boolean
 --- @field _module_error string|nil the module's `error` for this configuration
----        (spec §8 `info`): invalid while set; see `module_error()`
+---        (from `info`): invalid while set; see `module_error()`
 --- @field _source_missing boolean true when this Configuration exists as
 ---        a skeleton — created because a config_set mapping,
 ---        inherits reference, or similar pointed at its name, but
@@ -203,7 +203,7 @@ function Configuration.canonicalize(auto_configs, user_overrides, module_id)
 end
 
 --- Make the description of every user-declared configuration in a module's
---- `info().configurations` the declared one (spec §8.1: a user
+--- `info().configurations` the declared one (a user
 --- configuration's description is core-owned; whatever the module echoed is
 --- ignored). Generated entries keep the module's read-only default.
 --- @param configurations table<string, table>|nil info().configurations (mutated)
@@ -227,8 +227,8 @@ function Configuration:_update(data)
     self.from_preset = data.from_preset or false
     self.role = data.role or nil
 
-    -- Description (generic, spec §1.10). A generated configuration's comes
-    -- from the module (read-only default, §8.1); a user configuration's from
+    -- Description (generic). A generated configuration's comes
+    -- from the module (read-only default); a user configuration's from
     -- the workspace files.
     self.description, self._description_invalid = description_mod.from_file(data.description)
     if self.is_user then
@@ -251,7 +251,7 @@ function Configuration:_update(data)
         self.inherits_names = {}
     end
 
-    -- Saved test targets (generic, spec §1.3.4): only a user configuration
+    -- Saved test targets (generic): only a user configuration
     -- has a persisted table; a generated one only inherits.
     if self.is_user then
         self._tests, self._tests_invalid = test_targets_mod.parse(data.tests,
@@ -266,7 +266,7 @@ function Configuration:_update(data)
     -- Variable overrides (generic, not module-specific)
     self.variables = data.variables or nil
 
-    -- Configuration environment (generic, spec §1.3.3): name → value for the
+    -- Configuration environment (generic): name → value for the
     -- configure/build/clean/test tasks. Resolved (chain + family overrides +
     -- expansion) by `loomworks.config_env`, never read raw by modules.
     if type(data.env) == "table" and next(data.env) then
@@ -277,7 +277,7 @@ function Configuration:_update(data)
 
     -- Compiler-family variable overrides (family → { name → value }). Applied
     -- during variable resolution only when the active tool's compiler family
-    -- matches (core §1.3.1). Kept as an opaque nested table.
+    -- matches. Kept as an opaque nested table.
     if type(data.overrides) == "table" and next(data.overrides) then
         self._overrides = data.overrides
     else
@@ -307,7 +307,7 @@ function Configuration:_update(data)
     -- silently. Runtime keeps it; `serialize_user_override` skips it.
     self._derived = type(data._derived) == "table" and data._derived or nil
 
-    -- Module-reported error (generic, core-reserved, spec §8 `info`): the
+    -- Module-reported error (generic, core-reserved): the
     -- module cannot use this configuration as declared. Invalid while set
     -- (`is_valid`); each refresh replaces it, so a load without it clears it.
     self._module_error = type(data.error) == "string" and data.error ~= "" and data.error or nil
@@ -468,8 +468,8 @@ function Configuration:is_valid()
 end
 
 --- The module's reason this configuration cannot be used as declared
---- (spec §8 `info` `error`), or nil. While set the configuration is invalid
---- (§15 invariant 11): no build directory is resolved for it, no ConfigUnit
+--- (its `info` `error`), or nil. While set the configuration is invalid:
+--- no build directory is resolved for it, no ConfigUnit
 --- exists for it, every operation on it is refused.
 --- @return string|nil
 function Configuration:module_error()
@@ -540,7 +540,7 @@ function Configuration:diagnostic()
     end
 
     return {
-        -- A module-reported error (spec §8 `info`) is error severity.
+        -- A module-reported error is error severity.
         severity = self._module_error and "error" or "warn",
         source = "Project/" .. proj_key .. "/" .. self.name,
         message = "configuration '" .. self.name .. "' on project '"
@@ -551,7 +551,7 @@ end
 
 --- Reserved compiler-selection keys this configuration carries in its own
 --- `options`/`env` (including a compiler-family `overrides.<family>.env`).
---- The profile's tool owns the compiler (spec §15 / cmake.md §5b), so such keys are rejected at edit time; a hand-edited
+--- The profile's tool owns the compiler, so such keys are rejected at edit time; a hand-edited
 --- file can still smuggle them in, where they are stripped at build time.
 --- This surfaces the corresponding NON-blocking inline warning (the config
 --- stays buildable — the tool's compiler is used). Returns a sorted list of
@@ -596,7 +596,7 @@ function Configuration:serialize_user_override()
     for k, v in pairs(self.module_config) do
         -- Skip values propagated from a base (see `_derived` in `_apply`) —
         -- they are the base's, and persisting them would freeze a copy.
-        -- Skip `compile_commands_generated` (cmake §12): it is a computed
+        -- Skip `compile_commands_generated`: it is a computed
         -- default derived from the generator, not user-authored data —
         -- persisting it would freeze a stale copy and bloat user.json.
         if not (self._derived and self._derived[k])
@@ -617,7 +617,7 @@ function Configuration:serialize_user_override()
     local tests = test_targets_mod.serialize(self._tests, self._tests_invalid)
     if tests ~= nil then entry.tests = tests end
     -- A user configuration's own description; a generated configuration's
-    -- default comes from the module and is never persisted (spec §1.10).
+    -- default comes from the module and is never persisted.
     if not self._description_from_module then
         local desc = self:description_for_file()
         if desc ~= nil then entry.description = desc end
@@ -664,15 +664,15 @@ function Configuration:declared_data()
 end
 
 --- The value to write as this configuration's `description`: the
---- description, or a preserved non-string value (spec §1.10), or nil.
+--- description, or a preserved non-string value, or nil.
 --- @return any
 function Configuration:description_for_file()
     if self.description ~= nil then return self.description end
     return self._description_invalid
 end
 
---- Set or clear (nil / blank) a user configuration's description (spec
---- §1.10). A generated configuration is never persisted, so it is refused
+--- Set or clear (nil / blank) a user configuration's description. A
+--- generated configuration is never persisted, so it is refused
 --- with a pointer at declaring a user configuration that inherits it.
 --- Editing is use: a `shared` configuration (and its project) is
 --- materialised. Writes nothing when the normalised text is unchanged. Never
@@ -714,14 +714,14 @@ function Configuration:set_description(text)
     return true
 end
 
---- This configuration's OWN saved test-target list (spec §1.3.4), or nil when
+--- This configuration's OWN saved test-target list, or nil when
 --- it declares none (an explicit `[]` returns an empty array).
 --- @return loomworks.SavedTestEntry[]|nil
 function Configuration:own_test_targets()
     return self._tests and self._tests.entries or nil
 end
 
---- The effective saved test-target list (spec §1.3.4): the nearest
+--- The effective saved test-target list: the nearest
 --- declaration wins the WHOLE list — this configuration's own, then its bases
 --- depth-first left-to-right (the order `options` / `env` use), then the
 --- project-wide list. An explicit `[]` is a declaration and stops the walk.

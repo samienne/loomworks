@@ -1,10 +1,10 @@
 --- loomworks/view_state.lua — the one builder of the editor views'
---- state (spec §19.13 "Views", "Two sources, one shape"):
+--- state:
 ---
 ---   header(ws, err, opts)          loomworks.view.Header/1
 ---   projects_index(ws, opts)       loomworks.view.ProjectsIndex/1
----   workspace(ws, opts)            loomworks.view.Workspace/1 (step 5n; the
----                                  status page body, in-process only so far)
+---   workspace(ws, opts)            loomworks.view.Workspace/1 (the status
+---                                  page body, in-process only so far)
 ---
 --- Pure over the domain model: the daemon builds the views it serves on
 --- `/views` with it (loomworks.daemon.views, which passes the session fields
@@ -24,7 +24,7 @@ local M = {}
 --- @field config_set? string the active profile's configuration set
 --- @field config_set_id? string daemon only
 --- @field error? string the load failure (state error / refused)
---- @field diagnostics? "error"|"warn" the highest diagnostic of the workspace view (structural and the load's, §19.13 "Load warnings")
+--- @field diagnostics? "error"|"warn" the highest diagnostic of the workspace view (structural and the load's)
 --- @field trust? "user"|"cache" the file a trust refusal refused
 --- @field pid? integer daemon only
 --- @field lw_version? string daemon only
@@ -35,7 +35,7 @@ local M = {}
 --- @field configuration string
 --- @field unit_id? string daemon only
 --- @field tool_key? string
---- @field state string a ConfigUnitState (state-lifecycle.md §3.4)
+--- @field state string a ConfigUnitState
 
 --- @class loomworks.ViewProjectRecord
 --- @field id? string daemon only
@@ -60,8 +60,8 @@ local M = {}
 --- @field id? fun(obj: table): string the opaque id of an entity (daemon only)
 --- @field version? string the running loomworks version (header; save_guard.version())
 
---- The model fields every header carries (the welcome header's, §19.13
---- "Header"): the loaded workspace's name and active profile, or its load
+--- The model fields every header carries (the welcome header's): the
+--- loaded workspace's name and active profile, or its load
 --- failure. Also `welcome.header`'s and `Workspace/1.header`'s
 --- (loomworks.daemon.snapshot.header).
 --- @param ws table|nil the live workspace (nil: not loaded)
@@ -87,8 +87,7 @@ local function active_profile(ws)
 end
 
 --- The workspace view's diagnostics: the structural ones, then the load's
---- warnings and errors (`source = "load"`, core daemon.md §19.13 "Load
---- warnings").
+--- warnings and errors (`source = "load"`).
 --- @param ws table
 --- @return loomworks.Diagnostic[]
 local function view_diagnostics(ws)
@@ -131,7 +130,7 @@ function M.header(ws, err, opts)
     if h.state == "loaded" then
         -- The view names the active profile and its configuration set only
         -- when the object resolves (live, not removed), so the daemon always
-        -- sends their ids with them (§19.13 "Views": `active_profile_id` /
+        -- sends their ids with them (`active_profile_id` /
         -- `config_set_id` present exactly when the name is). A dangling key
         -- (base_header's fallback, kept for Workspace/1.header) is left out.
         local ap = active_profile(ws)
@@ -178,8 +177,7 @@ function M.projects_index(ws, opts)
             local pp = ap and p._module and ap:project(p.key) or nil
             local config = pp and pp:variant_name() or nil
             if type(config) == "string" then
-                -- A removed unit is no unit: no `unit_id`, state `unconfigured`
-                -- (§19.13: both describe "no unit for the project yet").
+                -- A removed unit is no unit: no `unit_id`, state `unconfigured`.
                 local unit = pp._config_unit
                 if unit and unit._removed then unit = nil end
                 local tool = pp:tool_object()
@@ -195,7 +193,7 @@ function M.projects_index(ws, opts)
 end
 
 -- ---------------------------------------------------------------------------
--- loomworks.view.Workspace/1 (step 5n part A: the builder, in-process only)
+-- loomworks.view.Workspace/1 (the builder, in-process only)
 -- ---------------------------------------------------------------------------
 
 --- @alias loomworks.ViewIntent "local"|"shared"|"local+shared"
@@ -212,7 +210,7 @@ end
 --- @field dependencies? string[]
 
 --- @class loomworks.ViewUnit
---- @field state string a ConfigUnitState (state-lifecycle.md §3.4), "unconfigured" without a unit
+--- @field state string a ConfigUnitState, "unconfigured" without a unit
 --- @field deleting_reason? string
 --- @field unit_id? string daemon only
 --- @field project? string project key
@@ -222,7 +220,7 @@ end
 --- @field compat_error? string
 --- @field overwritten boolean
 --- @field launcher_changed boolean
---- @field artifact_block? { profile: string, path?: string } daemon only: a build now would overwrite that built profile's artifact (spec §5.9)
+--- @field artifact_block? { profile: string, path?: string } daemon only: a build now would overwrite that built profile's artifact
 --- @field tools? string[] the labels of the unit's tools
 --- @field build_dir? string
 --- @field targets? table<string, loomworks.ViewTarget> target name -> target
@@ -245,7 +243,7 @@ end
 --- @field state "online"|"offline"
 --- @field provider? string
 
---- The outcome of a profile's last finished operation (API.md §14.4):
+--- The outcome of a profile's last finished operation:
 --- `status` a Tasks/1 final status (`ok`, `failed`, `cancelled`), `message`
 --- its end message.
 --- @class loomworks.ViewLastResult
@@ -345,7 +343,7 @@ end
 --- @field variables? loomworks.ViewVariableValue[] sorted by name
 
 --- A launch configuration: no publish state of its own (it publishes with
---- its project, spec §2.4).
+--- its project).
 --- @class loomworks.ViewLaunch
 --- @field key string the launch's name
 --- @field label string
@@ -424,7 +422,7 @@ end
 
 --- A unit's live state: `state` (ConfigUnitState) and the deleting reason.
 --- No unit: unconfigured. A running step's progress is not state but the
---- task's (API.md §14.4 "Progress is not in the view").
+--- task's.
 --- @param unit loomworks.ConfigUnit|nil
 --- @return table
 local function unit_state(unit)
@@ -468,14 +466,14 @@ local function profile_row(ws, profile, active, opts)
     local pps = profile:projects()
     for _, pp in ipairs(pps) do
         -- An invalid ProfileProject (a module error, a tool compat error or a refused build
-        -- directory, spec §1.7) marks the profile ✗ (invariant 11).
+        -- directory) marks the profile ✗.
         local reason = pp:invalid_reason()
         if reason then row.compat_error = reason; break end
     end
     row.artifact_conflict = ws.profile_has_artifact_conflict
         and ws:profile_has_artifact_conflict(profile) and true or false
     -- A task observed in the workspace daemon counts as the profile's active
-    -- operation (spec/ui.md §1.5), with its origin.
+    -- operation, with its origin.
     local remote = profile:remote_tasks()[1]
     if remote and #profile:active_operations() == 0 then row.origin = remote:origin_label() end
     -- The last finished operation's outcome: state, kept while the next one
@@ -546,9 +544,8 @@ local function profile_row(ws, profile, active, opts)
         if unit and opts.id then
             u.unit_id = opts.id(unit)
             -- Whether a build of the unit now would overwrite another
-            -- profile's built artifact (spec §5.9 gate, without `force`;
-            -- API.md §14.4): the editor asks before a build from this, never
-            -- from its own model (daemon.md §19.16 "Model writes").
+            -- profile's built artifact (without `force`): the editor asks
+            -- before a build from this, never from its own model.
             local block = ws.artifact_conflict_block and ws:artifact_conflict_block(unit, false) or nil
             if block then u.artifact_block = { profile = block.profile, path = block.path } end
         end
@@ -654,7 +651,7 @@ local function configuration_row(ws, proj, cname, cdata, opts)
     table.sort(list, function(a, b) return a.key < b.key end)
     row.options = list
     -- Resolved variables under the active profile and its compiler family
-    -- (spec §1.3.1: the family's `overrides` apply; a blank variable's fill
+    -- (the family's `overrides` apply; a blank variable's fill
     -- value shows; an unfilled blank has no `value`), as the configuration
     -- editor shows them (Projects/1.declaration).
     if proj.variables and next(proj.variables) and cfg then
@@ -710,7 +707,7 @@ local function project_row(ws, proj, opts)
     row.launches = {}
     for _, launch in ipairs(proj:launch_configs()) do
         -- Launch configurations carry no publish state of their own in the
-        -- model (they publish with their project, spec §2.4).
+        -- model (they publish with their project).
         local name = launch.name
         local l = { key = name, label = name }
         if opts.id then l.id = opts.id(launch) end
@@ -731,7 +728,7 @@ local function project_row(ws, proj, opts)
         end
         table.sort(row.deploy, function(a, b) return a.destination < b.destination end)
     end
-    -- The build targets its configured units parsed, by name (step 6b-α):
+    -- The build targets its configured units parsed, by name:
     -- the union over every unit of the project, in a profile or not.
     for _, u in pairs(ws._config_units or {}) do
         if u._project == proj and not u._removed and type(u.targets) == "table" then
@@ -757,9 +754,9 @@ local function project_row(ws, proj, opts)
     return row
 end
 
---- `loomworks.view.Workspace/1`'s state: the status page's body (spec/ui.md
---- §1.1: Diagnostics, Suggestions, Profiles, Orphaned Build Dirs,
---- Configuration Sets, Projects, SDKs). Pure over the model: the host passes
+--- `loomworks.view.Workspace/1`'s state: the status page's body (Diagnostics,
+--- Suggestions, Profiles, Orphaned Build Dirs, Configuration Sets, Projects,
+--- SDKs). Pure over the model: the host passes
 --- what needs the file system (`published`, `stray_dirs`).
 --- @param ws table|nil the live workspace (nil: not loaded, every array empty)
 --- @param opts? loomworks.ViewWorkspaceOpts
@@ -779,7 +776,7 @@ function M.workspace(ws, opts)
         out.diagnostics[#out.diagnostics + 1] = { severity = d.severity, source = d.source,
             message = d.message, target_fold_key = d.target_fold_key }
     end
-    -- Only actionable suggestions count (headless §16.31).
+    -- Only actionable suggestions count.
     local ok_s, n = pcall(function() return require("loomworks.suggestions").count_actionable(ws) end)
     out.suggestions = ok_s and type(n) == "number" and n or 0
 

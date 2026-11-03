@@ -1,16 +1,15 @@
---- loomworks/inventory.lua — environment inventory framework (headless §16.33).
+--- loomworks/inventory.lua — environment inventory framework.
 ---
 --- `lw health` answers "is this machine ready?" with an inventory of every
 --- external thing loomworks knows how to use. Core owns NO knowledge of any
 --- particular tool: the inventory is the union of **declarations** contributed
 --- by
----   * modules            — `impl.health_inventory(ctx)` (§8.4);
+---   * modules            — `impl.health_inventory(ctx)`;
 ---   * inventory companions — `lua/loomworks/integrations/inventory/*.lua`, the
----     host-neutral half of a language-server / debug-adapter integration
----     (§9.3, §8.9.6), each a table with `health_inventory(ctx)`;
+---     host-neutral half of a language-server / debug-adapter integration,
+---     each a table with `health_inventory(ctx)`;
 ---   * SDK providers      — core lists `detect_all()` + the installations
----     profiles pin, plus the provider's optional `health_inventory(ctx)`
----     (§10.1);
+---     profiles pin, plus the provider's optional `health_inventory(ctx)`;
 ---   * core itself        — the running `lw`, the compiler-cache launchers and
 ---     the plugin registry (incl. rejected plugins + reason).
 ---
@@ -40,7 +39,7 @@ M.CATEGORIES = {
 local CATEGORY_RANK = {}
 for i, c in ipairs(M.CATEGORIES) do CATEGORY_RANK[c] = i end
 
---- The health report's **areas** (headless §16.36), in report order. Every
+--- The health report's **areas**, in report order. Every
 --- health item — suggestion or inventory result — belongs to one; an
 --- unrecognized one renders under a trailing "other". CLI surface: adding an
 --- area is additive, renaming or removing one is not.
@@ -63,7 +62,7 @@ local AREA_RANK = {}
 for i, a in ipairs(M.AREAS) do AREA_RANK[a] = i end
 AREA_RANK.other = #M.AREAS + 1
 
---- Default area of each inventory category (§16.36).
+--- Default area of each inventory category.
 M.CATEGORY_AREA = {
     ["build tools"] = "toolchains", compilers = "toolchains",
     ["compiler caches"] = "cache", ["language servers"] = "editor",
@@ -109,8 +108,8 @@ M.JSON_SCHEMA = 1
 --- @field category string one of `M.CATEGORIES`
 --- @field label string
 --- @field probe fun(ctx: loomworks.InventoryContext, done: fun(res: loomworks.InventoryResult|loomworks.InventoryResult[]))
---- @field area? string report area overriding the category's default (§16.36)
---- @field languages? string[] relevant only in a workspace with one of these languages (§16.36)
+--- @field area? string report area overriding the category's default
+--- @field languages? string[] relevant only in a workspace with one of these languages
 --- @field contributors? string[] keys of every contributor declaring this id (filled by `declarations`)
 
 --- @class loomworks.InventoryRequirement
@@ -301,7 +300,7 @@ function M.exe_declaration(spec)
     }
 end
 
---- The editor data directory Mason installs under (clangd §14): the editor's
+--- The editor data directory Mason installs under: the editor's
 --- `stdpath("data")` when running inside Neovim; headless, the same directory
 --- from the platform rules and `NVIM_APPNAME` (`%LOCALAPPDATA%\<app>-data` on
 --- Windows, `$XDG_DATA_HOME/<app>` or `~/.local/share/<app>` elsewhere).
@@ -374,7 +373,7 @@ function M.under_mason(ctx, path)
 end
 
 --- A declaration for a language server / debug adapter found on the search path
---- and/or in Mason's install directory (clangd §14). One result per location
+--- and/or in Mason's install directory. One result per location
 --- found; a single `missing` result when neither has it.
 ---   * `names`       — search-path names (version via `version_args`, nil = no spawn);
 ---   * `mason`       — `{ package, bin?, file? }`: the receipt's `bin` link
@@ -588,7 +587,7 @@ end
 local function core_declarations(ctx, contributors)
     local decls = {}
 
-    -- Compiler caches (§1.3.2) — informational only, never required here.
+    -- Compiler caches — informational only, never required here.
     for _, tool in ipairs(require("loomworks.compiler_cache").KNOWN_LAUNCHERS) do
         decls[#decls + 1] = M.exe_declaration({
             id = "exe:" .. tool, category = "compiler caches", label = tool,
@@ -596,7 +595,7 @@ local function core_declarations(ctx, contributors)
         })
     end
 
-    -- SDK providers: detected + pinned installations (§10.1 default).
+    -- SDK providers: detected + pinned installations.
     for _, c in ipairs(contributors) do
         if c.kind == "sdk" and c.impl then
             local provider = c.impl
@@ -670,7 +669,7 @@ local function core_declarations(ctx, contributors)
         end,
     }
 
-    -- The running lw release (§16.32 facts).
+    -- The running lw release.
     decls[#decls + 1] = {
         id = "lw",
         category = "lw",
@@ -712,7 +711,7 @@ function M.declarations(ctx)
     local contributors = M.contributors()
     local out, seen = {}, {}
     -- Each kept declaration records the keys of EVERY contributor that declared
-    -- its id (`contributors`), so the health scope (§16.36) treats a shared
+    -- its id (`contributors`), so the health scope treats a shared
     -- executable as relevant when any of its declarers is.
     local function add(list, ckey)
         for _, d in ipairs(type(list) == "table" and list or {}) do
@@ -748,7 +747,7 @@ function M.contributor_key(kind, id)
 end
 
 -- ---------------------------------------------------------------------------
--- Health scope (§16.36): relevance of contributors, declarations and results
+-- Health scope: relevance of contributors, declarations and results
 -- ---------------------------------------------------------------------------
 
 --- @class loomworks.InventoryRelevance
@@ -761,7 +760,7 @@ end
 --- @field declares_lsp boolean some workspace module declares `lsp_servers`
 --- @field cxx boolean some project's module takes part in C/C++ compiler caching
 
---- What the workspace makes relevant (§16.36) — pure: reads projects,
+--- What the workspace makes relevant — pure: reads projects,
 --- configurations and profiles only (no spawn, no filesystem).
 --- @param workspace loomworks.Workspace|nil
 --- @return loomworks.InventoryRelevance
@@ -824,7 +823,7 @@ local function meets_languages(rel, langs)
     return false
 end
 
---- Whether an inventory companion is relevant (§16.36): a language-server
+--- Whether an inventory companion is relevant: a language-server
 --- companion when a workspace module names it in `lsp_servers` — or, when no
 --- workspace module declares `lsp_servers`, when its `languages` meet the
 --- workspace's; any other companion when its `languages` do. `is_lsp`
@@ -841,7 +840,7 @@ function M.companion_relevant(rel, c, is_lsp)
     return meets_languages(rel, impl.languages)
 end
 
---- Whether a declaration is relevant (§16.36) — it is probed by a plain
+--- Whether a declaration is relevant — it is probed by a plain
 --- `lw health` — and whether ALL its results are (`whole`: the lw entry, a
 --- matched companion's results, the compiler-cache launchers). A declaration
 --- shared by several contributors is relevant when any of them makes it so.
@@ -963,12 +962,12 @@ end
 
 --- Version of the inventory's declaration/result shapes as the environment key
 --- sees them. The key identifies the environment, not the running loomworks
---- build (the editor and the CLI must agree on it, §16.33), so a change to core
+--- build (the editor and the CLI must agree on it), so a change to core
 --- declaration ids or to how results are recorded bumps this instead.
---- 2: partial (relevant-scope) tiers with a `contributors` list (§16.36).
+--- 2: partial (relevant-scope) tiers with a `contributors` list.
 M.KEY_VERSION = 2
 
---- The executable search path as the environment key sees it (§16.33): the
+--- The executable search path as the environment key sees it: the
 --- host-injected directories removed, so the editor and the CLI on the same
 --- machine produce the same list. Entries are split on the platform separator,
 --- unquoted (Windows), separator-normalized and lower-cased on Windows
@@ -1006,7 +1005,7 @@ function M.search_path_entries(ctx)
     return out
 end
 
---- The environment key (§16.33): a digest of the executable search path (host-
+--- The environment key: a digest of the executable search path (host-
 --- injected entries removed — `search_path_entries`), PATHEXT, the platform, the
 --- contributors (with interface version or rejection), the core plugin-interface
 --- versions and `KEY_VERSION`, and the SDK installations profiles pin. Nothing
@@ -1041,7 +1040,7 @@ end
 --- cache: `{ results, declared, key, computed_at, contributors?, skipped? }`.
 --- Always re-probes: the search-path index is rebuilt first.
 ---
---- Health scope (§16.36): `opts.scope == "relevant"` probes only the
+--- Health scope: `opts.scope == "relevant"` probes only the
 --- declarations the workspace makes relevant (`declaration_relevant`) and
 --- records the contributors it probed (`contributors` — a PARTIAL tier; a tier
 --- without it came from a full probe). `opts.areas` (a set of area names)
@@ -1097,7 +1096,7 @@ end
 
 --- Profiles in scope: the active one, else every profile (sorted by key).
 --- `all` takes every profile even with an active one (the health scope's
---- relevance, §16.36).
+--- relevance).
 --- @param workspace loomworks.Workspace
 --- @param all? boolean
 --- @return loomworks.Profile[]
@@ -1109,10 +1108,10 @@ local function scope_profiles(workspace, all)
     return out
 end
 
---- What the workspace requires (§16.33 "Required vs other"), merged by id, in
+--- What the workspace requires, merged by id, in
 --- first-appearance order. Pure: evaluates modules' `health_requirements` and
 --- the profiles — no spawn, no filesystem access. `opts.all_profiles`
---- evaluates every profile even when one is active (relevance, §16.36). Each
+--- evaluates every profile even when one is active (relevance). Each
 --- requirement records the contributors whose projects need it
 --- (`contributors`), for the not-checked rule of a partial tier.
 --- @param workspace loomworks.Workspace|nil
@@ -1218,7 +1217,7 @@ function M.classify(tier, reqs)
     for _, d in ipairs(type(tier) == "table" and tier.declared or {}) do
         if type(d) == "table" and d.id then declared[d.id] = d.category or "other" end
     end
-    -- A PARTIAL tier (relevant scope, §16.36) lists the contributors it probed.
+    -- A PARTIAL tier (relevant scope) lists the contributors it probed.
     local probed = nil
     if type(tier) == "table" and type(tier.contributors) == "table" then
         probed = {}
@@ -1250,7 +1249,7 @@ function M.classify(tier, reqs)
                     status = "unknown"
                 end
             end
-            -- Not checked (§16.36): a partial tier that probed neither this id
+            -- Not checked: a partial tier that probed neither this id
             -- nor any contributor needing it cannot say it is missing.
             local unchecked = false
             if probed and status == "missing" and not declared[req.id] then
@@ -1289,9 +1288,9 @@ function M.classify(tier, reqs)
     return entries
 end
 
---- Entries for a health run's report (§16.36): `classify` against the
+--- Entries for a health run's report: `classify` against the
 --- requirements of EVERY profile (relevance) with `required` / `required_by`
---- taken from the active-profile scope (§16.33, unchanged). Each entry gains
+--- taken from the active-profile scope (unchanged). Each entry gains
 --- `area`, `relevant` and — when relevant only through non-active profiles —
 --- `used_by`. A result is relevant when any profile requires it, when its
 --- declaration is relevant as a whole (`whole`: the lw entry, a matched
@@ -1367,7 +1366,7 @@ function M.names_phrase(names, opts)
 end
 
 --- The actionable suggestions for classified entries: one per MISSING REQUIRED
---- entry (§16.33); everything else is information.
+--- entry; everything else is information.
 --- @param entries table[]
 --- @return loomworks.Suggestion[]
 function M.suggestions_for(entries)

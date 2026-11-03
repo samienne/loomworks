@@ -34,7 +34,7 @@
 
 --- A warning or error a workspace load raised through the host's notifier
 --- (core `_deps.notify`, captured by `Core:_begin_load_notes`): the load's
---- persistent diagnostics (core daemon.md §19.13 "Load warnings").
+--- persistent diagnostics.
 --- `text` is the notification exactly as the hosts print it.
 --- @class loomworks.LoadNote
 --- @field severity loomworks.DiagnosticSeverity
@@ -71,7 +71,7 @@
 --- @field projects table<string, loomworks.ConfigProject>
 --- @field configuration_sets? table<string, table<string, string>> set_name -> { project_key -> variant }
 --- @field configuration_set_descriptions? table<string, string> set_name -> description
----     (top-level sidecar, spec §1.10; a non-string entry is kept as read)
+---     (top-level sidecar; a non-string entry is kept as read)
 --- @field profiles? table<string, loomworks.ConfigProfileDef>
 
 --- Project entry in loomworks.json.
@@ -80,41 +80,41 @@
 --- @field type string module type ("cmake", "typescript")
 --- @field type_config table module-specific configuration from loomworks.json (without `device`, `description` and `tests`)
 --- @field depends_on? string[]
---- @field device? table remote-execution block (spec §18.9), lifted out of the module section
---- @field description? any project description (spec §1.10), lifted out of the module section as read
---- @field tests? any project-wide saved test targets (spec §1.3.4), lifted out of the module section as read
+--- @field device? table remote-execution block, lifted out of the module section
+--- @field description? any project description, lifted out of the module section as read
+--- @field tests? any project-wide saved test targets, lifted out of the module section as read
 
 --- Explicit profile definition in loomworks.json.
 --- @class loomworks.ConfigProfileDef
 --- @field configuration_set string
---- @field description? string profile description (spec §1.10)
+--- @field description? string profile description
 --- @field module_info? table opaque module-specific project-level info
 --- @field default_target? table
 
 --- Parsed loomworks.user.json structure.
 --- @class loomworks.UserData
---- @field _meta { version: number, written_by?: string } schema + writing loomworks version (spec §2.7)
+--- @field _meta { version: number, written_by?: string } schema + writing loomworks version
 --- @field name? string workspace name override (working copy wins)
 --- @field active_profile? string
 --- @field default_target? table<string, table> profile_key -> descriptor
 --- @field lsp? table<string, table> per-server option overrides
 ---     (server name -> options; schema is server-specific).
 --- @field configuration_set_descriptions? table<string, string> set_name -> description
----     (sidecar, spec §1.10), for the sets this file holds
+---     (sidecar), for the sets this file holds
 
 --- Parsed loomworks.cache.json structure.
 --- @class loomworks.CacheData
 --- @field _meta loomworks.CacheMeta
 --- @field configurations table<string, loomworks.CachedConfig> flat dict keyed by "project_key/config_key"
 --- @field profiles? table<string, loomworks.CachedProfile>
---- @field device_sync? table<string, table<string, table>> serial -> device staging root -> incremental-sync record (spec §18.4; compacted on load)
+--- @field device_sync? table<string, table<string, table>> serial -> device staging root -> incremental-sync record (compacted on load)
 
 --- Cache metadata.
 --- @class loomworks.CacheMeta
 --- @field version number
 --- @field loomworks_hash string
 --- @field cached_at string ISO 8601 timestamp
---- @field written_by? string loomworks version that wrote the file (spec §2.7; absent = before it)
+--- @field written_by? string loomworks version that wrote the file (absent = before it)
 
 --- Cached profile entry in cache.json.
 --- @class loomworks.CachedProfile
@@ -147,7 +147,7 @@
 --- configuration entry (loomworks.json / user.json `configurations.<name>.overrides`):
 --- compiler family (`clang` | `gcc` | `msvc`) → { variable name → value }.
 --- Applied during variable resolution only when the active tool's compiler
---- family matches (core §1.3.1). The domain-object field is
+--- family matches. The domain-object field is
 --- `Configuration._overrides` (see configuration.lua).
 --- @alias loomworks.CompilerOverrides table<string, table<string, string>>
 
@@ -168,7 +168,7 @@
 --- @field label? string display label (e.g. "Ninja + GCC 12")
 --- @field mod_type? string which module type owns this tool (e.g. "cmake")
 --- @field detected? boolean false when the tool is known only from the cache — its
----        data is never used to run anything (spec §17.7)
+---        data is never used to run anything
 
 --- Detected tool from async tool scanning.
 --- @class loomworks.DetectedTool
@@ -176,7 +176,7 @@
 --- @field tool_key? string unique key for cache (nil for single-tool modules)
 --- @field tool_label? string display label (nil for single-tool modules)
 --- @field target_platform? string opaque execution-platform token of an
----   SDK-derived kit (spec §10.7, §18.1); nil = host-runnable
+---   SDK-derived kit; nil = host-runnable
 --- @field sdk? loomworks.SDK the SDK that produced an SDK-derived kit
 
 -- ========================== Merge Results ==========================
@@ -191,7 +191,7 @@
 --- @class loomworks.ProfileDef
 --- @field configuration_set? string nil for pinned profiles
 --- @field tools? table<string, { key: string, data?: table, label?: string }>
---- @field description? string profile description as read (spec §1.10)
+--- @field description? string profile description as read
 --- @field _tool_objects? table<loomworks.Module, loomworks.Tool> pre-resolved tools
 --- @field _config_set_ref? loomworks.ConfigurationSet pre-resolved reference
 
@@ -218,8 +218,8 @@
 --- @class loomworks.LspConfigEntry
 --- @field server string                server name (e.g. "clangd")
 --- @field root_dir? string             absolute project-root path for client scoping
---- @field db_state? "ready"|"unconfigured" whether the unit supplying build-dir-derived inputs (the compile DB) is configured on this machine (spec §8.4, §9.1). Derived by core from the active ConfigUnit when a module omits it
---- @field db_dir? string               the build directory whose owned database (§8.4 `refresh_lsp_database`) the entry reads; set by a module that redirects its database to another unit, else filled by core with the project's active build dir (spec §8.4, daemon.md §19.20)
+--- @field db_state? "ready"|"unconfigured" whether the unit supplying build-dir-derived inputs (the compile DB) is configured on this machine. Derived by core from the active ConfigUnit when a module omits it
+--- @field db_dir? string               the build directory whose owned database the entry reads; set by a module that redirects its database to another unit, else filled by core with the project's active build dir
 --- @field binary? string               override server executable (env expansion supported)
 --- @field binary_required? boolean     refuse to start when `binary` is missing — use when stock PATH server would be actively wrong
 --- @field compile_commands_dir? string (clangd) directory containing compile_commands.json
@@ -231,9 +231,9 @@
 --- @field type string module type
 --- @field path? string relative path
 --- @field type_config? table module-specific configuration
---- @field device? table remote-execution block (spec §18.9)
---- @field description? any project description as read (spec §1.10)
---- @field tests? any project-wide saved test targets as read (spec §1.3.4)
+--- @field device? table remote-execution block
+--- @field description? any project description as read
+--- @field tests? any project-wide saved test targets as read
 --- @field configuration? string active configuration name
 --- @field configuration_key? string cache key for active configuration
 --- @field tool_key? string cache key suffix
@@ -261,9 +261,9 @@
 --- @field toolchain? string toolchain file path
 --- @field from_preset? boolean derived from CMakePresets.json
 --- @field role? string e.g. "compile_commands"
---- @field description? string generic field (spec §1.10): a generated configuration's read-only module default (§8.1); a user configuration's declared description (core-owned)
---- @field tests? table generic field (spec §1.3.4): a user configuration's saved test targets, grafted from the declared table (a module never sees it)
---- @field compile_commands_generated? boolean cmake §12: effective flag for whether loomworks reconstructs compile_commands.json (Visual Studio / Xcode generators, which CMake doesn't emit one for). Computed default, not user-authored — not serialized.
+--- @field description? string generic field: a generated configuration's read-only module default; a user configuration's declared description (core-owned)
+--- @field tests? table generic field: a user configuration's saved test targets, grafted from the declared table (a module never sees it)
+--- @field compile_commands_generated? boolean effective flag for whether loomworks reconstructs compile_commands.json (Visual Studio / Xcode generators, which CMake doesn't emit one for). Computed default, not user-authored — not serialized.
 
 --- Cmake's project-level module_info shape (documented as an example; core treats it as opaque).
 --- @class loomworks.CmakeProjectModuleInfo
@@ -282,18 +282,18 @@
 --- @field configurations table<string, loomworks.ConfigurationInfo> regular + preset configurations, keyed by canonical name (presets under `preset:<name>`)
 --- @field tool_data? table opaque module-specific tool data
 --- @field workspace_root string absolute path
---- @field env table<string, string> task environment: the tool's `env` with `configuration_env` layered on top (core §8.1)
---- @field configuration_env? table<string, string> the configuration's resolved `env` alone (chain + family overrides, expanded, reserved names stripped; core §1.3.3) — compared with `recorded_module_info.configure_env` to detect an env change
+--- @field env table<string, string> task environment: the tool's `env` with `configuration_env` layered on top
+--- @field configuration_env? table<string, string> the configuration's resolved `env` alone (chain + family overrides, expanded, reserved names stripped) — compared with `recorded_module_info.configure_env` to detect an env change
 --- @field cached_build_dir? string cached build directory, if known
 --- @field type_config? table raw type_config from loomworks.json
 --- @field resolved_variables? table<string, { value: string, type: string }> user-declared project variables resolved for the active configuration
---- @field compiler_cache? { tool: string, path: string } core-resolved compiler-cache launcher (nil = policy off / `auto` on an MSVC-style compiler / launcher not found); module applies it (core §8.1, §1.3.2)
---- @field recorded_cache_launcher? string launcher path this build dir was last configured with (from cached module_info), or the sentinel `"none"` when that configure applied no launcher (nil = never recorded) — lets a module detect a launcher change (§11)
---- @field recorded_module_info? table the unit's `module_info` as recorded by its last configure (module-owned, e.g. cmake/meson `passed_options`; plus core-owned keys such as `configure_env`) — lets a module classify a reconfigure as full or in-place (core §5.1 faithful reconfigure, §8.1)
---- @field recorded_options? table<string, any> core's resolved-option snapshot from the last configure (the staleness fingerprint); its presence also marks a unit as configured-before (a unit with no module record takes the full reconfigure, §8.1)
---- @field force_full_reconfigure? boolean the caller forced a full reconfigure (`lw build --reconfigure`, §8.1)
---- @field build_args? string[] build request: raw build-tool args (`lw build -- <args>`); a module puts them on its native build command before wrapping and sets `applied_build_args` on the build task (§8.1)
---- @field build_targets? string[] build request: targets to build instead of the default set (`lw build --target <t>`); honored by a module that sets `applied_build_targets` on the build task (§8.1)
+--- @field compiler_cache? { tool: string, path: string } core-resolved compiler-cache launcher (nil = policy off / `auto` on an MSVC-style compiler / launcher not found); module applies it
+--- @field recorded_cache_launcher? string launcher path this build dir was last configured with (from cached module_info), or the sentinel `"none"` when that configure applied no launcher (nil = never recorded) — lets a module detect a launcher change
+--- @field recorded_module_info? table the unit's `module_info` as recorded by its last configure (module-owned, e.g. cmake/meson `passed_options`; plus core-owned keys such as `configure_env`) — lets a module classify a reconfigure as full or in-place (faithful reconfigure)
+--- @field recorded_options? table<string, any> core's resolved-option snapshot from the last configure (the staleness fingerprint); its presence also marks a unit as configured-before (a unit with no module record takes the full reconfigure)
+--- @field force_full_reconfigure? boolean the caller forced a full reconfigure (`lw build --reconfigure`)
+--- @field build_args? string[] build request: raw build-tool args (`lw build -- <args>`); a module puts them on its native build command before wrapping and sets `applied_build_args` on the build task
+--- @field build_targets? string[] build request: targets to build instead of the default set (`lw build --target <t>`); honored by a module that sets `applied_build_targets` on the build task
 
 --- Loomworks metadata carried on a module task_def (`task_def.loomworks`).
 --- @class loomworks.TaskMeta
@@ -303,11 +303,11 @@
 --- @field build_dir? string
 --- @field tool_data? table
 --- @field module_info? table module-owned record that replaces the unit's `module_info` after a configure (core-owned keys re-added by core)
---- @field pre_configure_reset? string[] configure only: build-dir-relative paths core removes (validated, under the exclusive lock) before the configure runs — a full reconfigure the build system has no flag for (core §5.1, §8.1)
+--- @field pre_configure_reset? string[] configure only: build-dir-relative paths core removes (validated, under the exclusive lock) before the configure runs — a full reconfigure the build system has no flag for
 --- @field stripped_compiler_keys? { options?: string[], env?: string[] }
---- @field wipe_build_dir? boolean clean only: no builder — core removes `build_dir` itself (validated, never the workspace root, in-process; core §8.1)
---- @field applied_build_args? boolean build only: the module put the context's `build_args` on its native command (else core appends them, or refuses for a batch-wrapped command; core §8.1)
---- @field applied_build_targets? boolean build only: the module applied the context's `build_targets` (else a target request is refused; core §8.1)
+--- @field wipe_build_dir? boolean clean only: no builder — core removes `build_dir` itself (validated, never the workspace root, in-process)
+--- @field applied_build_args? boolean build only: the module put the context's `build_args` on its native command (else core appends them, or refuses for a batch-wrapped command)
+--- @field applied_build_targets? boolean build only: the module applied the context's `build_targets` (else a target request is refused)
 
 --- Module info() return value.
 --- @class loomworks.ModuleInfo
@@ -392,7 +392,7 @@
 -- ========================== UI Data ==========================
 
 --- Buffer status info for statusline/LSP integration.
---- Per-buffer LSP status of a managed language server (spec §9.8).
+--- Per-buffer LSP status of a managed language server.
 --- @alias loomworks.LspBufState "none"|"held"|"ok"|"withheld_unconfigured"|"withheld_no_db"|"withheld_error"|"withheld_daemon"
 
 --- @class loomworks.BufStatus
@@ -409,7 +409,7 @@
 --- @field diagnostic_severity? "warn"|"error" highest severity active in
 ---     the workspace, nil when there are no diagnostics. Workspace-level
 ---     (not buffer-scoped) — same value for every buffer in the workspace.
---- @field lsp loomworks.LspBufState per-buffer LSP status (spec §9.8):
+--- @field lsp loomworks.LspBufState per-buffer LSP status:
 ---     none, held, ok, withheld_unconfigured, withheld_no_db, withheld_error,
 ---     withheld_daemon.
 
@@ -453,9 +453,9 @@
 --- @field cache_version_mismatch boolean
 --- @field cache_inconsistent boolean
 --- @field user_version_mismatch boolean
---- @field user_newer table|nil the working copy's `_meta` when its schema is newer than this version's (spec §2.7)
---- @field cache_newer table|nil the cache's `_meta` when its schema is newer than this version's (spec §2.7)
+--- @field user_newer table|nil the working copy's `_meta` when its schema is newer than this version's
+--- @field cache_newer table|nil the cache's `_meta` when its schema is newer than this version's
 --- @field user_projects_invalid string|nil structural error message, if any
---- @field user_trust "valid"|"unsigned"|"invalid"|nil working-copy signature status (spec §17.4; nil = absent)
+--- @field user_trust "valid"|"unsigned"|"invalid"|nil working-copy signature status (nil = absent)
 --- @field cache_trust "valid"|"unsigned"|"invalid"|nil build-cache signature status (nil = absent)
---- @field shared_ignored table[] program-bearing fields stripped from loomworks.json (spec §17.6)
+--- @field shared_ignored table[] program-bearing fields stripped from loomworks.json
