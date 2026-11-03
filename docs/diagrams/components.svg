@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="610" viewBox="0 0 900 610" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#202124">
+  <title>lw components</title>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#5f6368"/>
+    </marker>
+  </defs>
+  <rect width="900" height="610" fill="#ffffff"/>
+  <g stroke="#5f6368" stroke-width="1.2">
+    <!-- clients -->
+    <rect x="40" y="40" width="240" height="50" rx="8" fill="#e8f0fe"/>
+    <rect x="330" y="40" width="240" height="50" rx="8" fill="#e8f0fe"/>
+    <rect x="620" y="40" width="240" height="50" rx="8" fill="#e8f0fe"/>
+    <!-- protocol -->
+    <rect x="40" y="125" width="820" height="34" rx="6" fill="#fff4d6"/>
+    <!-- daemon -->
+    <rect x="40" y="190" width="820" height="72" rx="8" fill="#e6f4ea"/>
+    <!-- core -->
+    <rect x="40" y="300" width="250" height="92" rx="8" fill="#f1f3f4"/>
+    <rect x="325" y="300" width="250" height="92" rx="8" fill="#f1f3f4"/>
+    <rect x="610" y="300" width="250" height="92" rx="8" fill="#f1f3f4"/>
+    <rect x="40" y="420" width="250" height="60" rx="8" fill="#f1f3f4"/>
+    <rect x="325" y="420" width="250" height="60" rx="8" fill="#f1f3f4"/>
+    <rect x="610" y="420" width="250" height="60" rx="8" fill="#f1f3f4"/>
+    <!-- outside world -->
+    <rect x="40" y="520" width="250" height="56" rx="8" fill="#fce8e6"/>
+    <rect x="325" y="520" width="250" height="56" rx="8" fill="#fce8e6"/>
+    <rect x="610" y="520" width="250" height="56" rx="8" fill="#fce8e6"/>
+  </g>
+  <g stroke="#5f6368" stroke-width="1.4" fill="none" marker-end="url(#a)">
+    <path d="M160 90 V123"/>
+    <path d="M450 90 V123"/>
+    <path d="M740 90 V123"/>
+    <path d="M450 159 V188"/>
+    <path d="M165 262 V298"/>
+    <path d="M450 262 V298"/>
+    <path d="M735 262 V298"/>
+    <path d="M165 392 V418"/>
+    <path d="M450 392 V418"/>
+    <path d="M290 540 L340 482"/>
+    <path d="M450 480 V518"/>
+    <path d="M735 392 V418"/>
+    <path d="M735 480 V518"/>
+    <path d="M290 346 H323"/>
+    <path d="M575 346 H608"/>
+  </g>
+  <g text-anchor="middle">
+    <text x="450" y="24" font-size="15" font-weight="bold">lw: major components</text>
+    <text x="160" y="62" font-weight="bold">lw CLI</text>
+    <text x="160" y="79" font-size="11">main.lua, cli.lua</text>
+    <text x="450" y="62" font-weight="bold">Editor plugin</text>
+    <text x="450" y="79" font-size="11">loomworks.nvim (a client)</text>
+    <text x="740" y="62" font-weight="bold">Other clients</text>
+    <text x="740" y="79" font-size="11">any program speaking the protocol</text>
+    <text x="450" y="147">Workspace protocol: spec/protocol (PROTOCOL.md, API.md, interface schemas)</text>
+    <text x="450" y="216" font-weight="bold">Workspace daemon (lua/loomworks/daemon)</text>
+    <text x="450" y="236" font-size="12">server, interfaces, service, runner, tasks, views</text>
+    <text x="450" y="253" font-size="11">in-process mode: the CLI runs the same layers below without a daemon</text>
+    <text x="165" y="322" font-weight="bold">Domain model</text>
+    <text x="165" y="341" font-size="12">Workspace, Project, Configuration</text>
+    <text x="165" y="357" font-size="12">ConfigurationSet, Profile</text>
+    <text x="165" y="373" font-size="12">ConfigUnit, BuildDir, Module, Tool</text>
+    <text x="450" y="322" font-weight="bold">Task planning and execution</text>
+    <text x="450" y="341" font-size="12">task_plan, test_plan, run_prep</text>
+    <text x="450" y="357" font-size="12">build_run, model_commands</text>
+    <text x="450" y="373" font-size="12">locks, transactions</text>
+    <text x="735" y="322" font-weight="bold">Modules and SDKs</text>
+    <text x="735" y="341" font-size="12">modules/: cmake, meson, shell, typescript</text>
+    <text x="735" y="357" font-size="12">sdks/: cpp_compiler, providers</text>
+    <text x="735" y="373" font-size="12">progress parsers, test units</text>
+    <text x="165" y="444" font-weight="bold">Workspace files</text>
+    <text x="165" y="463" font-size="12">loomworks.json, .nvim/*.json</text>
+    <text x="450" y="444" font-weight="bold">Runtime</text>
+    <text x="450" y="463" font-size="12">luvi + vim shim, or headless Neovim</text>
+    <text x="735" y="444" font-weight="bold">Remote execution</text>
+    <text x="735" y="463" font-size="12">remote/: staging, runners, device lock</text>
+    <text x="165" y="543" font-weight="bold">Host binary</text>
+    <text x="165" y="561" font-size="12">luvi + main.lua + boot/ (verifies bundle)</text>
+    <text x="450" y="543" font-weight="bold">Build tools and programs</text>
+    <text x="450" y="561" font-size="12">cmake, meson, ninja, compilers, tests</text>
+    <text x="735" y="543" font-weight="bold">Devices</text>
+    <text x="735" y="561" font-size="12">reached through an SDK's device runner</text>
+  </g>
+</svg>
