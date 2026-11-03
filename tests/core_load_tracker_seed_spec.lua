@@ -4,6 +4,7 @@
 _G.LOOMWORKS_CLI_NO_AUTORUN = true
 local cli = require("loomworks.cli")
 local trust = require("loomworks.trust")
+local ws_mod = require("loomworks.workspace")
 local H = require("tests.daemon_helpers")
 
 local function read(path)
@@ -17,6 +18,15 @@ local function write(path, content)
     local f = assert(io.open(path, "wb"))
     f:write(content)
     f:close()
+end
+
+--- A shell workspace under a long directory name, spelled by its 8.3 short
+--- name where the volume has one (as a Windows runner's temp dir is).
+local function short_root()
+    local root = H.shell_workspace({ profile = true })
+    local long = root .. "_long_directory_name"
+    assert(vim.uv.fs_rename(root, long))
+    return vim.fn.fnamemodify(long, ":8")
 end
 
 describe("a write between the load's read and its tracking", function()
@@ -51,7 +61,7 @@ describe("a write between the load's read and its tracking", function()
 
     it("to the working copy is applied by the next sync", function()
         trust._set_key_path(H.tmp() .. "/trust.key")
-        local root = H.shell_workspace({ profile = true })
+        local root = short_root()
         local user = root .. "/.nvim/loomworks.user.json"
         local old_user = read(user)
         local new_user = trust.sign("user", trust.encode({ _meta = { version = 2 }, debug = { adapters = { ["c++"] = "cppdbg" } },
@@ -65,12 +75,12 @@ describe("a write between the load's read and its tracking", function()
         ws:sync_light()
         assert.same({ adapters = { ["c++"] = "cppdbg" } }, ws._debug_settings,
             "the working copy written after the load's read was lost")
-        assert.equals(new_user, ws._tracker:content(user))
+        assert.equals(new_user, ws._tracker:content(ws_mod.paths(ws.root).user))
     end)
 
     it("to loomworks.json or the cache leaves the tracker at the bytes the load read", function()
         trust._set_key_path(H.tmp() .. "/trust.key")
-        local root = H.shell_workspace({ profile = true })
+        local root = short_root()
         local config, cache = root .. "/loomworks.json", root .. "/.nvim/loomworks.cache.json"
         local old_config = read(config)
 
@@ -78,8 +88,10 @@ describe("a write between the load's read and its tracking", function()
             write(config, old_config .. "\n")
             write(cache, "{}")
         end)
-        assert.equals(old_config, ws._tracker:content(config))
+        local paths = ws_mod.paths(ws.root)
+        assert.equals(old_config, ws._tracker:content(paths.config))
         -- (The cache did not exist when the load read it.)
-        assert.is_nil(ws._tracker:content(cache))
+        assert.is_true(ws._tracker._watches[paths.cache] ~= nil)
+        assert.is_nil(ws._tracker:content(paths.cache))
     end)
 end)
