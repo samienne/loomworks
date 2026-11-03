@@ -27,17 +27,17 @@ local is_win = vim.fn.has("win32") == 1
 
 M.id = "meson"
 M.api_version = 1
---- Current format of this module's configure record (`module_info`, core
---- §8.1 `configure_record_version`). Core stamps it into the record after a
+--- Current format of this module's configure record (`module_info`).
+--- Core stamps it into the record after a
 --- successful configure; a configured unit whose record carries a different
 --- (or no) version was written by an older lw, so core marks it stale and
---- this module classifies its next configure as a full reconfigure (core
---- §5.1 *Configure record migration*). Bump when the record gains a key the
+--- this module classifies its next configure as a full reconfigure.
+--- Bump when the record gains a key the
 --- reconfigure classification depends on.
 M.configure_record_version = 1
 
---- Does `build_dir` already hold this module's configure state (core §8.4
---- `has_configure_state`)? Core asks it for a unit with no configure record:
+--- Does `build_dir` already hold this module's configure state
+--- (`has_configure_state`)? Core asks it for a unit with no configure record:
 --- an existing tree is then configured with the full reconfigure, not as a
 --- first configure. A stat only.
 --- @param build_dir string
@@ -50,10 +50,10 @@ M.has_options = true
 M.languages = { "c++", "c" }
 
 --- Language-server integrations whose configurations `lsp_configs` can emit
---- (core §8.4) — health lists these servers in a workspace using this module.
+--- — health lists these servers in a workspace using this module.
 M.lsp_servers = { "clangd" }
 
---- Program-bearing type_config keys (core §8.4 / §17.6; meson spec §13).
+--- Program-bearing type_config keys.
 M.trust_fields = { type_config = { "clangd" } }
 
 --- Map loomworks configuration name → meson buildtype.
@@ -515,7 +515,7 @@ function M.detect_tools_async(callback)
 end
 
 -- ---------------------------------------------------------------------------
--- Environment inventory (meson §12, core §16.33)
+-- Environment inventory
 -- ---------------------------------------------------------------------------
 
 --- Declarations: meson (the same lookup the module runs it through — PATH,
@@ -560,7 +560,7 @@ function M.health_inventory(_ctx)
     return decls
 end
 
---- What a project needs under a tool (meson §12) — pure, from the tool data:
+--- What a project needs under a tool — pure, from the tool data:
 --- meson, ninja (its backend) and the tool's compiler.
 --- @param ctx { project: loomworks.Project, tool: loomworks.Tool|nil, configuration: loomworks.Configuration|nil }
 --- @return { id: string, label: string, hint?: string, via?: string }[]
@@ -737,8 +737,8 @@ local function build_option_args(project, active_config)
         project_path = project.path or project.name,
     }
 
-    -- Fold user-declared project variables into the expansion context
-    -- (core §1.3.1). Values are resolved upstream with the active compiler
+    -- Fold user-declared project variables into the expansion context.
+    -- Values are resolved upstream with the active compiler
     -- family's overrides already applied (overseer's resolve_project_variables),
     -- so a compiler-conditional flag such as `${warn_flags}` reaches the
     -- `-D…` args without editing project files. Two-pass: a variable value may
@@ -807,7 +807,7 @@ end
 --- native runner rebuilds, so it needs the same toolchain env a build
 --- gets (notably MSVC's vcvars) or the rebuild cannot find the compiler.
 ---
---- The tool owns the compiler (spec §15 / meson.md §5): reserved
+--- The tool owns the compiler: reserved
 --- compiler-driver vars (CC/CXX/…) from the config-sourced `base_env` are
 --- stripped BEFORE the tool pins its own CC/CXX, so a hand-edited override
 --- never shadows the tool's compiler. Stripped names are returned for a
@@ -883,7 +883,7 @@ end
 --- sanctioned way to pin a compiler+launcher: unlike the `CC`/`CXX` env string,
 --- meson does NOT shell-split a list, so a compiler path (or launcher) with a
 --- space survives intact. Returns nil when no compiler command is known (let
---- meson auto-detect). §5a.
+--- meson auto-detect).
 --- @param c_cmd string|nil resolved C compiler command
 --- @param cxx_cmd string|nil resolved C++ compiler command
 --- @param launcher string|nil compiler-cache launcher to prepend (or nil)
@@ -923,7 +923,7 @@ function M.tasks(project, active_config)
     local env, stripped_env = compose_task_env(project.env or {}, project.tool_data)
     local meson_prefix = resolve_meson(project.tool_data)
 
-    -- Compiler pinning via a generated **native file** (§5a). meson `shlex`-
+    -- Compiler pinning via a generated **native file**. meson `shlex`-
     -- splits the `CC`/`CXX` env string on spaces, so a compiler path (or a
     -- `<launcher> <path>` wrapper) that contains a space — e.g.
     -- `C:/Program Files/LLVM/bin/clang++.exe` — shatters into broken tokens.
@@ -961,7 +961,7 @@ function M.tasks(project, active_config)
     configure_cmd[#configure_cmd + 1] = "--buildtype=" .. buildtype
 
     -- Optional cross-compilation machine file (recorded: a change is a
-    -- configure input change → full reconfigure, §5a).
+    -- configure input change → full reconfigure).
     local cross_file
     if config_info and config_info.machine_file then
         cross_file = expand_str(tostring(config_info.machine_file), {
@@ -980,7 +980,7 @@ function M.tasks(project, active_config)
     end
 
     -- User -D options (project-wide + config-specific). Also recorded
-    -- (name → value) so the next setup can tell any option changed (§5a).
+    -- (name → value) so the next setup can tell any option changed.
     local passed_options = {}
     for _, opt in ipairs(build_option_args(project, active_config)) do
         configure_cmd[#configure_cmd + 1] = opt
@@ -996,7 +996,7 @@ function M.tasks(project, active_config)
     local wipe_cmd = vim.list_extend({}, configure_cmd)
     table.insert(wipe_cmd, insert_at + 2, "--wipe")
 
-    -- Full reconfigure for EVERY changed configure input (§5a, core §5.1).
+    -- Full reconfigure for EVERY changed configure input.
     -- meson fixes the compiler command (launcher included), env-derived
     -- compiler/linker args and machine files at the first setup, keeps a
     -- no-longer-passed -D on `--reconfigure`, and `--wipe` REPLAYS the stored
@@ -1006,8 +1006,8 @@ function M.tasks(project, active_config)
     -- (core's `configure_env` record vs `configuration_env`) — or for a
     -- configured unit with no `passed_options` record or a record that
     -- predates `configure_record_version` (cannot be classified with
-    -- certainty, core §5.1 *Configure record migration*), or when forced
-    -- (`force_full_reconfigure`, core §8.1) — core clears the stored command line
+    -- certainty), or when forced
+    -- (`force_full_reconfigure`) — core clears the stored command line
     -- (`pre_configure_reset`) and the setup runs `--wipe`, rebuilding the tree
     -- from exactly the inputs passed now. No in-place set is declared: meson
     -- read-only built-in options make "value change applies in place"
@@ -1042,7 +1042,7 @@ function M.tasks(project, active_config)
         builder = function()
             -- Pick first-time setup, an in-place `--reconfigure` (nothing
             -- changed), or the full `--wipe` reconfigure (any configure input
-            -- changed, §5a) based on whether the dir is already set up.
+            -- changed) based on whether the dir is already set up.
             local uv2 = vim.uv or vim.loop
             local cmd
             if uv2.fs_stat(build_dir .. "/meson-info") then
@@ -1071,9 +1071,9 @@ function M.tasks(project, active_config)
             stripped_compiler_keys = (#stripped_env > 0)
                 and { env = stripped_env } or nil,
             -- Full reconfigure → core clears the stored command line before
-            -- the `--wipe` setup, so meson cannot replay old options (§5a).
+            -- the `--wipe` setup, so meson cannot replay old options.
             pre_configure_reset = pre_configure_reset,
-            -- How this setup runs, for core's one-line "why" report (§8.1).
+            -- How this setup runs, for core's one-line "why" report.
             -- A dir without meson-info runs a plain first setup regardless.
             reconfigure = full and "full" or (configured and "in_place" or "initial"),
             reconfigure_detail = full and "--wipe" or (configured and "--reconfigure" or nil),
@@ -1085,10 +1085,10 @@ function M.tasks(project, active_config)
                 -- compiler / launcher not found) — always recorded, so
                 -- is_stale can compare it ("none" → install-after-configure
                 -- fires); a record without it is from an older lw and is
-                -- caught by the record version (core §5.1) (§11).
+                -- caught by the record version.
                 cache_launcher = resolved_launcher or "none",
                 -- The `-D` options (name → value) and cross file this setup
-                -- passed, so the next setup can detect any change (§5a).
+                -- passed, so the next setup can detect any change.
                 passed_options = passed_options,
                 cross_file = cross_file,
             },
@@ -1102,7 +1102,7 @@ function M.tasks(project, active_config)
             cmd[#cmd + 1] = "compile"
             cmd[#cmd + 1] = "-C"
             cmd[#cmd + 1] = build_dir
-            -- The caller's build request (core §8.1): target names are
+            -- The caller's build request: target names are
             -- `meson compile` positionals, raw build args follow them.
             for _, t in ipairs(project.build_targets or {}) do cmd[#cmd + 1] = t end
             for _, a in ipairs(project.build_args or {}) do cmd[#cmd + 1] = a end
@@ -1260,8 +1260,8 @@ function M.parse_targets(ctx)
     return next(result) and result or nil
 end
 
---- Freshness stamp of the compile data `cache_compat_scan` reads (core §8
---- `cache_compat_stamp`, meson §5a): the modification time (with sub-second
+--- Freshness stamp of the compile data `cache_compat_scan` reads
+--- (`cache_compat_stamp`): the modification time (with sub-second
 --- part) and size of `meson-info/intro-targets.json`, which meson rewrites on
 --- every setup — including the regeneration ninja triggers itself after a
 --- `meson.build` edit. One stat. An MSVC-style tool only: a gcc/clang tool's
@@ -1276,8 +1276,8 @@ function M.cache_compat_stamp(ctx)
     return string.format("%d.%09d:%d", st.mtime.sec, st.mtime.nsec or 0, st.size or 0)
 end
 
---- Post-configure compiler-cache compatibility scan (core §8
---- `cache_compat_scan`, meson §5a). After a setup that applied a launcher to
+--- Post-configure compiler-cache compatibility scan
+--- (`cache_compat_scan`). After a setup that applied a launcher to
 --- an MSVC-style tool, scan each target's per-source compile `parameters` in
 --- meson's own introspection file (`<build_dir>/meson-info/intro-targets.json`
 --- — read directly, nothing is spawned) for PDB-writing debug flags (/Zi, /ZI,
@@ -1286,7 +1286,7 @@ end
 --- debug-format adjustment of its own; a subproject/user option requesting
 --- /Zi is surfaced here, never rewritten. A gcc/clang tool reports clean.
 --- Also reports a /Zi-style token in the configuration environment's `CL` /
---- `_CL_` (group "environment", §5a) — flags no introspection data shows.
+--- `_CL_` (group "environment") — flags no introspection data shows.
 --- Returns the scanned build's `totals` (compiled units / targets) and the
 --- meson-specific `advice` wording, like cmake.
 --- @param ctx { build_dir: string, tool_data?: table, compiler_cache?: { tool: string, path: string }, configuration_env?: table<string, string> }
@@ -1297,7 +1297,7 @@ function M.cache_compat_scan(ctx)
         return { scanned = true, findings = {} }
     end
     -- `CL` / `_CL_` in the configuration environment reach every compile but
-    -- no compile-command data shows them (§5d / §5a): checked separately.
+    -- no compile-command data shows them: checked separately.
     local tool = ctx.compiler_cache and ctx.compiler_cache.tool
     local env_findings = cpp.pdb_env_findings(ctx.configuration_env, tool)
     local path = ctx.build_dir and (ctx.build_dir .. "/meson-info/intro-targets.json") or nil
@@ -1454,7 +1454,7 @@ end
 --- Extract build options via `meson introspect --buildoptions`.
 --- Groups by `section` (core, base, compiler, directory, user, test).
 --- Blocks while meson runs: the in-process options float's read. The
---- workspace daemon reads through `get_options_async` (spec §8).
+--- workspace daemon reads through `get_options_async`.
 --- @param build_dir string
 --- @param config table|nil unused
 --- @return table|nil options tree
@@ -1465,7 +1465,7 @@ function M.get_options(build_dir, config)
     return options_tree(run_introspect(meson_prefix, build_dir, "--buildoptions"))
 end
 
---- Async companion of `get_options` (spec §8): `callback(tree|nil)` exactly
+--- Async companion of `get_options`: `callback(tree|nil)` exactly
 --- once, later and on the main loop. Every program (the meson lookup's Python
 --- probe, `meson introspect`) is spawned through `opts.system` when set — the
 --- workspace daemon's spawner, in the client's environment — else
@@ -1517,7 +1517,7 @@ end
 --- Emits a single clangd entry rooted at the project source path. Meson
 --- generates compile_commands.json at the build dir root automatically —
 --- the directory is offered only when the active ConfigUnit is configured on
---- this machine (spec §9.1); otherwise the entry reports
+--- this machine; otherwise the entry reports
 --- `db_state = "unconfigured"` and carries no `compile_commands_dir`, so a
 --- stale database left in that build dir is never used.
 --- @param project loomworks.Project
@@ -1528,7 +1528,7 @@ function M.lsp_configs(project)
     local root_dir = ws.root .. "/" .. (project.path or project.key)
 
     -- The active profile's ProfileProject decides both the build dir and
-    -- whether it may be read at all (configured here, spec §9.1).
+    -- whether it may be read at all (configured here).
     local build_dir = nil
     local active_profile = ws.get_active_profile and ws:get_active_profile()
     local pp = active_profile and active_profile:project(project.key) or nil

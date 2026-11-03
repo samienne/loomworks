@@ -200,8 +200,8 @@ local function encode_value(v)
 end
 
 --- Canonical, readable JSON: object keys sorted, two-space indent, `": "`
---- after a key — the shape of `lw version --json` (§16.41), so a document
---- printed by the release query (§16.42) reads like the descriptor it carries.
+--- after a key — the shape of `lw version --json`, so a document
+--- printed by the release query reads like the descriptor it carries.
 local function encode_canonical(v, indent)
   if type(v) ~= "table" or v == M.null then return encode_value(v) end
   local pad, inner = string.rep("  ", indent), string.rep("  ", indent + 1)

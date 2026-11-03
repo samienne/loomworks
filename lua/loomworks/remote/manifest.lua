@@ -1,5 +1,5 @@
 --- loomworks/remote/manifest.lua — the staging manifest of a remote run
---- (spec §18.4) and the `device` block helpers (spec §18.9).
+--- and the `device` block helpers.
 ---
 --- The manifest is the union of: the artifact; the shared/module-library
 --- artifacts of project targets the artifact's target depends on
@@ -13,7 +13,7 @@ local M = {}
 
 local function uv() return vim.uv or vim.loop end
 
---- Directory never staged: the host-side run folders (§18.5).
+--- Directory never staged: the host-side run folders.
 M.RUNS_DIR = ".device-runs"
 
 local function norm(p) return (tostring(p):gsub("\\", "/"):gsub("/+$", "")) end
@@ -43,7 +43,7 @@ function M.clean_rel(rel)
     return true
 end
 
---- Validate one stage/archive pattern (spec §18.4): relative, never absolute,
+--- Validate one stage/archive pattern: relative, never absolute,
 --- no "." / ".." segment (so its fixed prefix cannot escape the build dir).
 --- @param pat any
 --- @return boolean ok, string|nil err
@@ -103,7 +103,7 @@ function M.validate_block(block, label)
     return true
 end
 
---- Validate a launch configuration's `device_log` table (spec §18.13): an
+--- Validate a launch configuration's `device_log` table: an
 --- opaque option map; core only checks it is a flat map of scalars.
 --- @return boolean ok, string|nil err
 function M.validate_log_options(opts, label)
@@ -120,7 +120,7 @@ function M.validate_log_options(opts, label)
 end
 
 --- The effective device block: the launch-level block replaces the
---- project-level one field by field (spec §18.9).
+--- project-level one field by field.
 --- @param project_block table|nil
 --- @param launch_block table|nil
 --- @return table
@@ -241,7 +241,7 @@ end
 -- ---------------------------------------------------------------------------
 
 --- File names treated as shared libraries when collecting the loader search
---- directories (`library_dirs`, spec §18.5).
+--- directories (`library_dirs`).
 function M.is_shared_library(rel)
     local base = rel:match("([^/]+)$") or rel
     return base:match("%.so$") ~= nil or base:match("%.so%.[%d%.]+$") ~= nil
@@ -402,7 +402,7 @@ end
 --- prefix + a hash of the name.
 M.WS_SEGMENT_MAX = 24
 
---- The workspace segment of the device roots (spec §18.4): the sanitized name
+--- The workspace segment of the device roots: the sanitized name
 --- when short, else its first 15 characters + "-" + 8 hex digits of its hash.
 --- @param name string
 --- @return string
@@ -412,7 +412,7 @@ function M.workspace_segment(name)
     return s:sub(1, 15) .. "-" .. vim.fn.sha256(tostring(name)):sub(1, 8)
 end
 
---- The unit segment of the device roots (spec §18.4): a short readable prefix
+--- The unit segment of the device roots: a short readable prefix
 --- (the unit identity's last path component, sanitized, at most 12 characters)
 --- + "-" + the first 10 hex digits of the identity's hash. Deterministic (the
 --- sync record and digest checks key on it) and short: devices truncate a
@@ -428,7 +428,7 @@ function M.unit_segment(unit_id)
 end
 
 --- The device-side roots for a workspace + unit: the workspace prefix (the
---- only tree core ever asks a device to delete in, §18.12) and the unit's
+--- only tree core ever asks a device to delete in) and the unit's
 --- staging root.
 --- @param staging_base string
 --- @param ws_name string
@@ -441,7 +441,7 @@ function M.device_roots(staging_base, ws_name, unit_id)
 end
 
 --- Is a device path inside `prefix` (separator boundary, after normalising
---- "//", and never containing "." / ".." segments)? (§18.12)
+--- "//", and never containing "." / ".." segments)?
 --- @param path string
 --- @param prefix string
 --- @return boolean

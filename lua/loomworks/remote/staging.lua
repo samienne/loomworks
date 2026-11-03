@@ -1,6 +1,6 @@
 --- loomworks/remote/staging.lua — mirror a manifest onto a device with
---- digest-based incremental sync (spec §18.4) and remove a workspace's staging
---- tree (`lw device clean`, spec §16.34 / §18.12).
+--- digest-based incremental sync and remove a workspace's staging
+--- tree (`lw device clean`).
 ---
 --- The sync record (per device serial and device staging root, kept in the
 --- build cache as runtime state) remembers, per individually staged file, the
@@ -17,7 +17,7 @@
 --- set digest) plus a sample of the unpacked members stand in for it.
 --- Files that left the manifest are removed from the device staging root.
 ---
---- Remote deletion safety (§18.12): every path core asks a device to remove is
+--- Remote deletion safety: every path core asks a device to remove is
 --- checked to lie under `<staging_base>/<workspace>/` with a separator
 --- boundary; nothing assembled from unchecked cache content is ever sent.
 
@@ -160,7 +160,7 @@ local function device_digests(transport, paths)
     return out
 end
 
---- Ask the device to remove paths — only ones under `ws_prefix` (§18.12).
+--- Ask the device to remove paths — only ones under `ws_prefix`.
 local function device_remove(transport, paths, ws_prefix, recursive)
     if #paths == 0 then return true end
     local argv = { "rm", recursive and "-rf" or "-f" }
@@ -474,7 +474,7 @@ function M.stage(o)
     return new, report
 end
 
---- One-line staging summary (spec §16.34 example).
+--- One-line staging summary.
 --- @param serial string
 --- @param r loomworks.StageReport
 --- @return string

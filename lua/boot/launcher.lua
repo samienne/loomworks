@@ -1,5 +1,5 @@
 -- Repo-local launcher templates (lw.sh / lw.cmd) and the catalogue of every
--- launcher generation a release has written (spec §16.24).
+-- launcher generation a release has written.
 --
 -- Pure and dependency-free — no openssl, no vim shim, no I/O — so both the
 -- host's pin management (boot.bootstrap, luvi) and the health provider
@@ -490,7 +490,7 @@ M.CACHE_DIR = ".nvim/cache"
 --- The committed files, in report order.
 M.FILES = { "lw.sh", "lw.cmd", "lw.pin" }
 
---- The line ending each committed file needs (spec §16.21).
+--- The line ending each committed file needs.
 M.EOL = { ["lw.sh"] = "lf", ["lw.cmd"] = "crlf", ["lw.pin"] = "lf" }
 
 --- The attribute lines pin management appends, per file.

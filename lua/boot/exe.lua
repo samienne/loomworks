@@ -83,11 +83,11 @@ end
 M.INTERRUPT_SIGNALS = { "sigint", "sigbreak", "sighup", "sigterm" }
 
 --- Run `bin` with `args` in this process's place — the redirect's re-exec
---- (spec §16.23) — sharing standard input/output/error, and wait for it.
+--- — sharing standard input/output/error, and wait for it.
 --- Returns its exit status (128 + signal when a signal ended it), or nil + err
 --- when it cannot be started.
 ---
---- The child is the one that handles an interrupt (spec §16.6: it releases its
+--- The child is the one that handles an interrupt (it releases its
 --- locks, stops a remote run, exits 130), so this process must neither die on
 --- one nor end first: libuv puts spawned children in a kill-on-close job on
 --- Windows, so an early exit would kill the child mid-cleanup, and a shell would

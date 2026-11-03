@@ -1,4 +1,4 @@
--- Pin management (spec §16.24): `lw bootstrap` (the read-only status page),
+-- Pin management: `lw bootstrap` (the read-only status page),
 -- `lw bootstrap install` (converge: first install, repair, bump), and the
 -- `upgrade` alias, which only presets install's options. (`lw update`, the
 -- deprecated alias, is removed; main.lua only points at its replacements.)
@@ -47,8 +47,8 @@ end
 
 --- Fetch + verify a release's SHA256SUMS for `version`, returning { name -> hex }.
 --- Verifies SHA256SUMS.sig against the embedded release key before trusting any
---- hash (spec §16.24). `opts.fetch` (curl limits, see `download.fetch`) bounds
---- both fetches (the release query, §16.42). Returns map or nil, err.
+--- hash. `opts.fetch` (curl limits, see `download.fetch`) bounds both
+--- fetches. Returns map or nil, err.
 function M.fetch_hashes(version, opts)
   if not pin.valid_version(version) then
     return nil, "unsafe release version '" .. tostring(version) .. "'"
@@ -119,7 +119,7 @@ end
 
 --- Write one launcher unless it is already exactly what this host writes.
 --- Refuses to overwrite content that is not a known launcher generation (a
---- hand edit, or a newer host's) unless `force` (spec §16.24).
+--- hand edit, or a newer host's) unless `force`.
 --- @param root string
 --- @param kind "sh"|"cmd"
 --- @param force boolean|nil
@@ -215,7 +215,7 @@ local function apply(root, version, hashes, opts)
 
   local created_launcher = false
   if opts.pin_only then
-    -- --pin-only never writes, refreshes or deletes a launcher (spec §16.24).
+    -- --pin-only never writes, refreshes or deletes a launcher.
     local present = {}
     for _, kind in ipairs({ "sh", "cmd" }) do
       if uv.fs_stat(root .. "/" .. launcher.KINDS[kind]) then present[#present + 1] = launcher.KINDS[kind] end
@@ -269,7 +269,7 @@ local function apply(root, version, hashes, opts)
 end
 
 --- The hint when a host older than the target wrote the launchers: it can only
---- write its own generation (spec §16.24 "Upgrading through the launcher").
+--- write its own generation.
 local function older_host_hint(version, opts, st)
   local self = opts.self_version
   if opts.pin_only then return nil end
@@ -287,7 +287,7 @@ function M.launcher_cmd(invoked, rest)
 end
 
 --- The one-line usage error of the removed `lw update`, naming what replaced
---- it in the invoked form (spec §16.24): the pin bump it used to do, and the
+--- it in the invoked form: the pin bump it used to do, and the
 --- installation update it is easily mistaken for.
 function M.removed_update_line(invoked)
   local cmd = require("boot.launcher_check").cmd
@@ -295,11 +295,11 @@ function M.removed_update_line(invoked)
     cmd(invoked, "bootstrap upgrade") .. "`; to update lw itself run `lw self-update`"
 end
 
--- One flat clause, no nested parentheses (spec §16.24 "Reporting").
+-- One flat clause, no nested parentheses.
 local SIGNED = "hashes from the signed SHA256SUMS, signature verified"
 
 --- The first release that carries release notes and the release-notes command
---- (spec §16.37). A pin moved up to it or later names the command that shows
+--- A pin moved up to it or later names the command that shows
 --- what changed; an older target release could not run it.
 M.RELEASE_NOTES_SINCE = "0.1.41-0"
 
@@ -307,7 +307,7 @@ M.RELEASE_NOTES_SINCE = "0.1.41-0"
 -- Operations
 -- ---------------------------------------------------------------------------
 
---- The directory pin management works on (spec §16.24 "Which directory"): the
+--- The directory pin management works on: the
 --- pin root found upward from `start`, else `start` itself.
 --- @return string dir, boolean has_pin
 function M.target(start)
@@ -316,7 +316,7 @@ function M.target(start)
   return (tostring(start):gsub("\\", "/"):gsub("/+$", "")), false
 end
 
---- The newest release on the resolved channel (spec §16.29). `opts.resolve_newest`
+--- The newest release on the resolved channel. `opts.resolve_newest`
 --- is a test seam; `opts.fetch` bounds the probe (the status page).
 --- @return string|nil version, string|nil err, string|nil channel
 function M.newest(opts)
@@ -330,7 +330,7 @@ function M.newest(opts)
 end
 
 --- `lw bootstrap install` — converge the repository to a correct pin (+
---- launchers unless `opts.pin_only`) and metadata (spec §16.24).
+--- launchers unless `opts.pin_only`) and metadata.
 --- opts: version?, latest?, channel?, pin_only?, force?, host_version? (the
 --- running host's release version: the default for a new pin), self_version?
 --- (the release whose launcher templates this host writes), running_exe?,
@@ -398,7 +398,7 @@ function M.install(start, opts)
     out[#out + 1] = "lw.pin kept at " .. version .. "; " .. SIGNED
   elseif old_v and old_v ~= version then
     out[#out + 1] = "lw.pin: " .. old_v .. " -> " .. version .. "; " .. SIGNED
-    -- A pointer, not the notes: the new bundle is not acquired here (§16.24).
+    -- A pointer, not the notes: the new bundle is not acquired here.
     if pin.valid_version(old_v) and paths.version_gt(version, old_v)
         and not paths.version_gt(M.RELEASE_NOTES_SINCE, version) then
       out[#out + 1] = "what's new: " .. cmd(opts.invoked, "release-notes --since " .. old_v)
@@ -443,12 +443,12 @@ end
 
 M.STATUS_SCHEMA = 1
 
---- The fetch limits of the status page's release probe: health's (§16.31).
+--- The fetch limits of the status page's release probe (health's).
 M.STATUS_FETCH = { connect_timeout = 5, max_time = 10, attempts = 1 }
 
 local GEN_WORDS = { current = "current", unknown = "not a launcher lw wrote", absent = "missing" }
 
---- `lw bootstrap` — the read-only status page (spec §16.24).
+--- `lw bootstrap` — the read-only status page.
 --- opts: invoked ("launcher"|"global"), host_version?, self_version?,
 --- channel?, check?, resolve_newest? / offline? (test seams), git? (test seam).
 --- @param start string

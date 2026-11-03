@@ -1,5 +1,4 @@
--- The repo launcher / pin checks (spec §16.24 "Checks: one source of truth",
--- §16.31 provider #4) — ONE implementation, consumed by the `lw bootstrap`
+-- The repo launcher / pin checks — ONE implementation, consumed by the `lw bootstrap`
 -- status page (boot.bootstrap, luvi host, no system Lua) and by the health
 -- provider (loomworks.launcher_health, system Lua, either host).
 --
@@ -15,7 +14,7 @@
 --                      "lw.sh" | "lw.cmd" (the launcher named itself),
 --                      "launcher" (pinned context, launcher unknown), "global"
 --
--- ASCII only: the status page prints before system Lua (§16.7).
+-- ASCII only: the status page prints before system Lua sets the console encoding.
 
 local launcher = require("boot.launcher")
 local pin = require("boot.pin")
@@ -104,7 +103,7 @@ function M.cache_ignored_by_repo(root, top, git)
   return false, rel
 end
 
---- The command prefix of an invoked form (spec §16.24 "Invoked form").
+--- The command prefix of an invoked form.
 M.PREFIX = { ["lw.sh"] = "./lw.sh", ["lw.cmd"] = ".\\lw.cmd", launcher = "./lw.sh", global = "lw" }
 
 --- A command spelled in the invoked form.

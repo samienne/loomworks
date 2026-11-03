@@ -1,9 +1,9 @@
 --- loomworks/remote/run.lua — remote execution of a foreign build-target
---- artifact on a device (spec §18.5, §18.8, §18.13).
+--- artifact on a device.
 ---
---- Under the device lock (§18.7): open the runner's log session (invalid log
+--- Under the device lock: open the runner's log session (invalid log
 --- options fail here, before any device-side effect) → stage the manifest
---- (§18.4) → clear the log (best-effort) + crash snapshot → execute with live
+--- → clear the log (best-effort) + crash snapshot → execute with live
 --- output, the exit status recovered from the runner's nonce-tagged sentinel →
 --- pull declared result files and new crash reports into the run folder
 --- `<build dir>/.device-runs/<UTC>-<serial>/` (the 10 newest per unit are
@@ -26,9 +26,9 @@ local M = {}
 
 local function uv() return vim.uv or vim.loop end
 
---- Run folders kept per ConfigUnit (spec §18.5).
+--- Run folders kept per ConfigUnit.
 M.KEEP_RUNS = 10
---- Device re-list cadence while a program runs (liveness, §18.8).
+--- Device re-list cadence while a program runs (liveness).
 M.LIVENESS_MS = 15000
 --- How long the log stream is drained after the sentinel.
 M.LOG_DRAIN_MS = 500
@@ -64,7 +64,7 @@ end
 
 --- Keep the `keep` newest run folders of a build directory; remove older ones.
 ---
---- Deletion safety (CLAUDE.md): the runs directory is the canonical
+--- Deletion safety: the runs directory is the canonical
 --- `<canonical build dir>/.device-runs` and must lie strictly inside the
 --- canonical build dir (separator boundary); only entries whose NAME matches
 --- the run-folder pattern (no separators) are candidates, each re-checked to
@@ -164,8 +164,8 @@ function M.plan(o)
     }
 end
 
---- Render the `--print` report of a foreign run (spec §16.17 "Command
---- inspection"): the device-side invocation plus the staging manifest.
+--- Render the `--print` report of a foreign run: the device-side
+--- invocation plus the staging manifest.
 --- @param plan table
 --- @param man loomworks.Manifest
 --- @param device { serial?: string, runner: string, error?: string }
@@ -232,11 +232,11 @@ end
 --- @field exit_code integer
 
 --- A "gone" leftover is reported only while its record is younger than this
---- (seconds); an older one is dropped silently (§18.7).
+--- (seconds); an older one is dropped silently.
 M.LEFTOVER_REPORT_AGE = 86400
 
---- Stop a program an interrupted run left on the device (spec §18.7), through
---- the runner's `reap` (§18.2) — which verifies on the device that the pid is
+--- Stop a program an interrupted run left on the device, through
+--- the runner's `reap` — which verifies on the device that the pid is
 --- still that program. Never a run failure: an unknown outcome, a failing
 --- reap, or a runner without one is a warning on the status channel.
 --- @param runner loomworks.Runner
@@ -281,7 +281,7 @@ function M.reap_leftover(runner, serial, leftover, o)
     return "unknown"
 end
 
---- Reap every leftover known when a device lock is acquired (spec §18.7): the
+--- Reap every leftover known when a device lock is acquired: the
 --- record of a reclaimed stale lock (`lock.leftover`) and the device's
 --- leftover file. The same run (nonce) is reaped once. The leftover file is
 --- removed after stopped / gone / unsupported, when invalid, and when its
@@ -327,13 +327,13 @@ end
 ---   extra_args_fn    fun(plan) → string[] appended to argv (e.g. results option)
 ---   backend, liveness_ms, write_out, write_err, note, on_cleanup
 ---   on_command       fun(c: { cmd, cwd?, env? })|nil: hears each device
----                    command the run issues (`lw -v`, headless §16.4
----                    *Verbose*) — the listing, leftover reap, staging,
+---                    command the run issues (`lw -v`)
+---                    — the listing, leftover reap, staging,
 ---                    log clear / stream, crash snapshots, the program
 ---                    invocation, result pulls and the stop (except a
 ---                    stop sent from a signal handler, which may print
 ---                    nothing); never the periodic liveness listing
----   (`note(s, role)`: `role` is the line's highlighting role, spec §16.7 —
+---   (`note(s, role)`: `role` is the line's highlighting role —
 ---   phase, ok, warn or plain; a caller that does not color ignores it)
 --- @param o table
 --- @return loomworks.RemoteRunResult|nil result, string|nil err (setup failure: nothing ran)
@@ -347,7 +347,7 @@ function M.execute(o)
     local result = { crashes = {}, results = {}, missing_results = {}, warnings = {},
         timed_out = false, failed = false }
 
-    -- Device selection (§18.3).
+    -- Device selection.
     local on_command = o.on_command
     local list, lerr = devices_mod.list(runner, { backend = o.backend, timeouts = o.timeouts,
         on_command = on_command })
@@ -365,7 +365,7 @@ function M.execute(o)
         for _, a in ipairs(o.extra_args_fn(plan) or {}) do plan.argv[#plan.argv + 1] = a end
     end
 
-    -- Device lock for the whole run (§18.7).
+    -- Device lock for the whole run.
     local device_lock = require("loomworks.remote.device_lock")
     local lock, lock_err = device_lock.acquire(serial, {
         wait = not o.no_wait, action = "run", workspace = o.ws.name,
@@ -437,7 +437,7 @@ function M.execute(o)
         if live_job and not live_job.done then live_job:kill("cancel") end
         -- The program's pid is known, it reported no exit status and no stop
         -- completed: it may still be running. Keep it for the next
-        -- acquisition before the lock (and its record) goes (§18.7).
+        -- acquisition before the lock (and its record) goes.
         if state and state.pid and state.status == nil and not stop_done and plan.nonce then
             if device_lock.save_leftover(serial, { pid = state.pid, nonce = plan.nonce, program = plan.program }) then
                 note(plan.name .. " (pid " .. tostring(state.pid) .. ") may still be running on " .. serial
@@ -453,7 +453,7 @@ function M.execute(o)
         return nil, err
     end
 
-    -- (1) Log session (§18.13): invalid options fail before any device effect.
+    -- (1) Log session: invalid options fail before any device effect.
     local session
     local log_opts = o.log_options or {}
     if runner.log_session then
@@ -467,12 +467,12 @@ function M.execute(o)
     end
     local show = session and type(session.show) == "table" and session.show or { program = "live", log = "off" }
 
-    -- A program an interrupted run left on this device (§18.7): reaped
+    -- A program an interrupted run left on this device: reaped
     -- before staging, still holding the new lock.
     M.reap_on_acquire(runner, serial, lock, { backend = o.backend, timeout = t.timeouts.query, note = note,
         on_command = on_command })
 
-    -- (2) Stage (§18.4).
+    -- (2) Stage.
     o.ws._device_sync = o.ws._device_sync or {}
     local by_serial = o.ws._device_sync[serial] or {}
     local record, report = staging.stage({
@@ -493,7 +493,7 @@ function M.execute(o)
     if o.ws._save_cache then pcall(o.ws._save_cache, o.ws) end
     note(staging.summary(serial, report), "plain")
 
-    -- Optional pre-execution step (spec §18.6 framework detection): the
+    -- Optional pre-execution step (framework detection): the
     -- caller may probe the staged program (same cwd / env / loader path) and
     -- remove stale device files, then declare the result files to pull.
     if o.before_exec then
@@ -598,7 +598,7 @@ function M.execute(o)
         label = "run " .. plan.name .. " on " .. serial,
         on_pid = function(pid)
             -- Recorded so a run that loses its cleanup leaves the next run a
-            -- program to reap (§18.7).
+            -- program to reap.
             device_lock.set_program(lock, { pid = pid, nonce = plan.nonce, program = plan.program })
             note("running " .. plan.name .. " on " .. serial .. " (pid " .. tostring(pid) .. ")", "phase")
             start_log(pid)
@@ -615,7 +615,7 @@ function M.execute(o)
         return fail_setup(state)
     end
 
-    -- Liveness (§18.8): re-list devices; missing from two consecutive
+    -- Liveness: re-list devices; missing from two consecutive
     -- listings ends the run as a transport failure.
     local misses = 0
     local interval = o.liveness_ms or M.LIVENESS_MS
@@ -666,7 +666,7 @@ function M.execute(o)
     elseif state.status == nil or exec_job.spawn_error or exec_job.killed_reason then
         result.transport_error = t:exec_failure(exec_job, state)
             or ("the connector ended without reporting the program's exit status")
-        -- No exit status: the program may still be running (§18.8). Stop it
+        -- No exit status: the program may still be running. Stop it
         -- once, bounded; an interrupt has already done so in its cleanup.
         if state.pid and state.status == nil and not exec_job.cancelled then
             if terminate(t.timeouts.query) == "stopped" then
@@ -699,8 +699,8 @@ function M.execute(o)
         local ok = t:pull(remote, local_path)
         if ok then
             result.results[r.name] = local_path
-            -- Cleared from the device once pulled (§18.5 step 6); only a clean
-            -- staging-root-relative path under the workspace prefix (§18.12).
+            -- Cleared from the device once pulled; only a clean
+            -- staging-root-relative path under the workspace prefix.
             if manifest_mod.clean_rel(r.device_rel) and manifest_mod.device_path_under(remote, plan.ws_prefix) then
                 pulled_results[#pulled_results + 1] = remote
             end
@@ -720,7 +720,7 @@ function M.execute(o)
             -- `rmdir` only — it refuses a non-empty directory, so a directory
             -- still holding anything is left alone (not a warning). Each one
             -- must be strictly below the unit's staging root, never the root
-            -- itself (§18.12).
+            -- itself.
             local dirs, seen = {}, {}
             for _, r in ipairs(o.results or {}) do
                 local rel = r.device_rel:gsub("\\", "/")
@@ -785,11 +785,11 @@ function M.execute(o)
     return result
 end
 
---- Print the post-run summary (spec §18.5 steps 5–7, §18.13 show policy).
+--- Print the post-run summary.
 --- `extra_failed` marks a failure the caller judged (e.g. failed tests).
 --- @param result loomworks.RemoteRunResult
 --- @param write fun(s: string, role?: string) summary writer (stderr); `role` is
----   the line's highlighting role (spec §16.7), nil for relayed device log lines
+---   the line's highlighting role, nil for relayed device log lines
 --- @param extra_failed? boolean
 function M.report(result, write, extra_failed)
     local failed = result.failed or extra_failed

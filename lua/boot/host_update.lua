@@ -1,4 +1,4 @@
--- Host self-update (spec §16.32): replace the running `lw` host binary with the
+-- Host self-update: replace the running `lw` host binary with the
 -- target release's, after `self-update` has handled the bundle.
 --
 -- Flow: decide (skip for --no-host / pinned / dev / source runs / a running
@@ -114,7 +114,7 @@ function M.decide(o)
   local dev_reason = M.dev_build(o)
   if dev_reason then return "skip", dev_reason end
   if o.dev then return "skip", "running a development source" end
-  -- Upgrade-only (§16.32): replace only an unknown host (nil — released before
+  -- Upgrade-only: replace only an unknown host (nil — released before
   -- version identity existed) or one strictly older than the target. The
   -- bundle never downgrades either (the newest installed release runs), so a
   -- channel switch that resolves an older release leaves the host alone.
@@ -181,7 +181,7 @@ function M.swap(exe, new, opts)
   return nil, "move new host into place: " .. tostring(e2)
 end
 
---- Replace the running host with `o.target_version`'s host binary (§16.32).
+--- Replace the running host with `o.target_version`'s host binary.
 ---
 --- Result `status`:
 ---   "replaced" — swapped in; `from`/`to` set.

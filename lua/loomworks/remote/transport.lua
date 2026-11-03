@@ -1,5 +1,5 @@
 --- loomworks/remote/transport.lua — one device, one runner: core's typed
---- operations over the runner's command-spec builders (spec §18.2).
+--- operations over the runner's command-spec builders.
 ---
 --- Every operation builds a spec with the runner and executes it through
 --- remote/spec_exec (hard timeouts: query for listing / device commands,
@@ -10,8 +10,8 @@
 --- Device-side housekeeping (create directories, mark the program executable,
 --- remove staged files, unpack an archive, digest files) runs through the
 --- runner's `exec` with POSIX utility argv: `mkdir -p`, `chmod 755`, `rm -f` /
---- `rm -rf`, `tar -xf <archive> -C <dir>`, and the runner's `digest` prefix
---- (spec §18.4). The exit status of every exec comes from the runner's
+--- `rm -rf`, `tar -xf <archive> -C <dir>`, and the runner's `digest` prefix.
+--- The exit status of every exec comes from the runner's
 --- nonce-tagged sentinel (`parse_exit`), never from the connector.
 
 local spec_exec = require("loomworks.remote.spec_exec")
@@ -21,7 +21,7 @@ local M = {}
 local Transport = {}
 Transport.__index = Transport
 
---- `o.on_command` (optional, `lw -v`, headless §16.4 *Verbose*) hears every
+--- `o.on_command` (optional, `lw -v`) hears every
 --- device command: a transfer as the connector command that runs it, an
 --- execution as the device-side invocation `{ cmd = argv, cwd, env }`.
 --- @param o { runner: loomworks.Runner, serial: string, backend?: table, timeouts?: table, on_command?: fun(c: table) }
@@ -55,7 +55,7 @@ local function bad_text(s)
     return type(s) ~= "string" or s:find("[%z\r\n]") ~= nil
 end
 
---- Validate an exec request (spec §18.2). Returns true or nil + reason.
+--- Validate an exec request. Returns true or nil + reason.
 --- @param req table
 --- @return boolean|nil ok, string|nil err
 function M.validate_request(req)
@@ -127,7 +127,7 @@ end
 --- Classify one exec output line: "pid", "exit" or nil (program output).
 --- For "exit", the third value is the program text that preceded the
 --- sentinel on the same line (a program whose last output did not end in a
---- line break), as reported by the runner's `parse_exit` (spec §18.2).
+--- line break), as reported by the runner's `parse_exit`.
 --- @return string|nil kind, integer|nil value, string|nil preceding
 function Transport:classify_line(line, nonce)
     local r = self.runner
@@ -142,7 +142,7 @@ function Transport:classify_line(line, nonce)
     return nil
 end
 
---- Start an execution (spec §18.2 `exec`). Lines are classified: the pid and
+--- Start an execution. Lines are classified: the pid and
 --- sentinel lines are consumed (never program output); `handlers.on_output`
 --- receives program lines as (stream, line); `handlers.on_pid(pid)` and
 --- `handlers.on_exit_status(status)` fire when recognised. Returns the job

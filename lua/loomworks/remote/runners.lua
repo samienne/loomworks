@@ -1,4 +1,4 @@
---- loomworks/remote/runners.lua — device-runner registry (spec §18.2).
+--- loomworks/remote/runners.lua — device-runner registry.
 ---
 --- A device runner is supplied by an SDK provider through the optional hook
 --- `device_runner(sdk) → Runner|nil`. This module obtains a provider's runner
@@ -7,7 +7,7 @@
 --- artifact's kit, when its `platforms` contain the kit's token). Core never
 --- knows any runner by name.
 ---
---- Runner shape (spec §18.2) — identity and capabilities:
+--- Runner shape — identity and capabilities:
 ---   id string, platforms string[], staging_base string (absolute POSIX path),
 ---   archive boolean, digest string[]|nil, combined_output boolean|nil,
 ---   timeouts { query?, transfer? }|nil (seconds)
@@ -144,7 +144,7 @@ end
 function M._reset() cache = setmetatable({}, { __mode = "k" }) end
 
 --- The runner that serves a foreign artifact's platform: the runner of the
---- SDK that produced its kit, when it lists the kit's token (spec §18.1).
+--- SDK that produced its kit, when it lists the kit's token.
 --- @param foreign table from remote.foreign.classify
 --- @return loomworks.Runner|nil runner, string|nil err
 function M.for_foreign(foreign)
@@ -159,7 +159,7 @@ function M.for_foreign(foreign)
     return runner
 end
 
---- Runners in scope for device commands (spec §16.34): the given profile's
+--- Runners in scope for device commands: the given profile's
 --- SDK (or the SDKs that produced its tools) when one resolves, otherwise every
 --- declared SDK whose provider supplies a device runner. Deduplicated by
 --- runner id (first wins).
