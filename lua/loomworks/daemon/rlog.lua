@@ -1,10 +1,10 @@
---- loomworks/daemon/rlog.lua — the runtime log (spec §19.10, §19.5).
+--- loomworks/daemon/rlog.lua — the runtime log.
 ---
---- One file per workspace, inside it: `<root>/.nvim/loomworks.daemon-<S>.log`
---- (spec §16.40), capped at `MAX_BYTES` with one rotated predecessor
---- (`.log.1`). The daemon writes its lifecycle there (start,
---- reclaimed locks, refused connections, stop reason); every client records
---- the launches it makes or fails, and every kill and forced unlock (§19.5).
+--- One file per workspace, inside it: `<root>/.nvim/loomworks.daemon-<S>.log`,
+--- capped at `MAX_BYTES` with one rotated predecessor (`.log.1`). The daemon
+--- writes its lifecycle there (start, reclaimed locks, refused connections,
+--- stop reason); every client records the launches it makes or fails, and
+--- every kill and forced unlock.
 ---
 --- Append-only, one whole line per write (opened and closed again, so no
 --- process holds the file); several processes may append at once. A write

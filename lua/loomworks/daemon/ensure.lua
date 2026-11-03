@@ -1,14 +1,14 @@
 --- loomworks/daemon/ensure.lua — a client meets the workspace daemon: the
---- version handshake (spec §19.9).
+--- version handshake.
 ---
---- After authenticating, a CLI client applies its version policy (`policy`,
---- step 5g.3): an agreed transport, and over transport 11 the daemon's
+--- After authenticating, a CLI client applies its version policy (`policy`):
+--- an agreed transport, and over transport 11 the daemon's
 --- `describe().binary.lw_version` and schemas equal to its own (before 11:
 --- protocol, host version and schemas of the challenge,
 --- loomworks.daemon.version.matches). On a mismatch:
 ---   * idle daemon (no running task, no other connection that owns a task or
 ---     has a command in flight — observers and subscribers never count,
----     §19.9 "Busy") — the client stops it
+---     a command in flight; observers and subscribers never count) — the client stops it
 ---     (`stop`, frozen) and launches its own binary in its place;
 ---   * busy daemon — the client sends `retire` (frozen): the daemon keeps
 ---     serving its clients and exits once idle; this command runs as a
@@ -19,7 +19,7 @@
 --- A client never stops a busy daemon and never drives one it does not match.
 ---
 --- Finding, launching and connecting to the daemon is
---- loomworks.daemon.connect's (§19.10 "Connect or start", shared with the
+--- loomworks.daemon.connect's (shared with the
 --- `--stdio` relay); this module adds the CLI's policy: its bounds, its one
 --- line per outcome, `--break-locks` recovery and the version reconcile.
 
@@ -31,15 +31,15 @@ local connect = require("loomworks.daemon.connect")
 
 local M = {}
 
---- The latency budget of the ensure path (§19.10 keeps read-only commands
---- fast): each step with a daemon (connect + handshake, `status`, `ping`)
+--- The latency budget of the ensure path (read-only commands stay fast):
+--- each step with a daemon (connect + handshake, `status`, `ping`)
 --- waits at most this long, and a daemon still starting is waited for at
 --- most this long, once per command. `LW_TEST_DAEMON_STEP_MS` lengthens it
 --- for test suites that run real `lw` processes on a heavily loaded machine
 --- (as `LW_TEST_DAEMON_READY_MS` does the launch's readiness wait).
 M.STEP_MS = tonumber(os.getenv("LW_TEST_DAEMON_STEP_MS") or "") or 1000
 
---- The longer bound of a command the daemon would run (§19.10: a routed
+--- The longer bound of a command the daemon would run (a routed
 --- `lw build`): under machine load a healthy daemon can miss the 1 s, and the
 --- build would then run in-process exactly when the daemon helps most. A hung
 --- daemon (stale heartbeat) is still reported at once — this only gives a
@@ -59,7 +59,7 @@ end
 --- gives up on replacing it.
 M.STOP_WAIT_MS = 10000
 
---- The one line of a version-bypass run (§19.9).
+--- The one line of a version-bypass run.
 --- @param daemon_version string
 --- @return string
 function M.bypass_line(daemon_version)
@@ -67,7 +67,7 @@ function M.bypass_line(daemon_version)
         .. "it restarts when idle", tostring(daemon_version))
 end
 
---- The refusal for a daemon with newer schemas (§19.9 → §2.7).
+--- The refusal for a daemon with newer schemas.
 --- @param info table the daemon's challenge
 --- @return string
 function M.newer_line(info)
@@ -77,10 +77,9 @@ function M.newer_line(info)
         tostring(info.lw_version), tostring(s.user), tostring(s.cache), own.user, own.cache)
 end
 
---- The CLI's version policy against an authenticated connection (spec §19.9
---- "From protocol 11", step 5g.3): with no agreed transport a mismatch; over
---- transport 11 or later the daemon's `describe().binary.lw_version`
---- (§19.20) and the challenge's schemas must equal ours
+--- The CLI's version policy against an authenticated connection: with no
+--- agreed transport a mismatch; over transport 11 or later the daemon's
+--- `describe().binary.lw_version` and the challenge's schemas must equal ours
 --- (version.cli_policy_matches); over transport 10 (a daemon before protocol
 --- 11) — or when `describe` gets no answer — the challenge's versions as
 --- before (version.matches). Returns match, the daemon's version.
@@ -111,7 +110,7 @@ end
 ---                was launched in its place
 ---   "failed"     replacing the idle daemon failed (reason in second value)
 --- `opts.launch(root)` → ok, state|reason (default loomworks.daemon.launch).
---- `opts.no_launch`: an attached selection (§19.1) stops an idle mismatched
+--- `opts.no_launch`: an attached selection stops an idle mismatched
 --- daemon but launches none — it then runs attached itself.
 --- @param root string
 --- @param conn loomworks.daemon.Conn
@@ -128,10 +127,10 @@ function M.reconcile(root, conn, opts)
         return "newer", M.newer_line(info)
     end
     local st = client.request(conn, { kind = "status" }, step)
-    -- Busy (§19.9 "Busy"): protocol.status_busy, the rule the editor's
+    -- Busy: protocol.status_busy, the rule the editor's
     -- retirement shares.
     if require("loomworks.daemon.protocol").status_busy(st) then
-        -- `retire` is in the frozen control subset (§19.8): sent whatever
+        -- `retire` is in the frozen control subset: sent whatever
         -- the transports, so also to a busy daemon whose range does not
         -- overlap ours.
         client.request(conn, { kind = "retire" }, step)
@@ -153,7 +152,7 @@ function M.reconcile(root, conn, opts)
     return "restarted"
 end
 
---- The launch-failure line (§19.10).
+--- The launch-failure line.
 --- @param reason string
 --- @return string
 function M.launch_failed_line(reason)
@@ -216,10 +215,10 @@ local function meet_conn(root, conn, opts)
 end
 
 --- Meet the live workspace daemon `st` (loomworks.daemon.inspect, kind
---- "live"; spec §19.9): the endpoint check, connect + handshake
+--- "live"): the endpoint check, connect + handshake
 --- (loomworks.daemon.connect.open), the version reconcile, `ping`. The one
 --- path both a shared selection (`ensure`) and an attached selection that
---- finds a live daemon (§19.2; cli._delegate_attached, `no_launch`) take.
+--- finds a live daemon (cli._delegate_attached, `no_launch`) take.
 --- Returns "used" | "restarted" | "stopped" | "bypass" | "newer" |
 --- "failed"; every outcome but "used", "restarted" and "stopped" has
 --- printed its one line.
@@ -240,7 +239,7 @@ function M.meet(root, st, opts)
 end
 
 --- In `runtime-mode daemon`, make sure the workspace daemon runs before a
---- workspace command (spec §19.1, §19.10, §19.19 step 2): connect to a live
+--- workspace command: connect to a live
 --- one (handshake, version reconcile, `ping` — which also restarts its idle
 --- clock), or launch one. Nothing is routed yet; the command then runs on the
 --- in-process path whatever happened here. Never fails the command: problems
@@ -258,7 +257,7 @@ end
 ---   step_ms  (tests) replaces the step bound
 ---   foreign_pin  the version the workspace's lw.pin names when this lw is
 ---            not it (boot.pin.foreign_pin; main.lua sets it for a command
----            the invoked host runs itself, spec §16.23): the workspace daemon
+---            the invoked host runs itself): the workspace daemon
 ---            is the pinned lw's, so this one neither launches, stops nor
 ---            retires one — "pinned", and the command runs without it
 --- Returns what happened: "off" | "used" | "launched" | "restarted" |
@@ -281,7 +280,7 @@ function M.ensure(root, opts)
     end
     local launch = opts.launch or require("loomworks.daemon.launch").launch
     local step = opts.step_ms or M.step_ms(opts.routed)
-    -- Connect or start (§19.10, loomworks.daemon.connect): at most one short
+    -- Connect or start (loomworks.daemon.connect): at most one short
     -- wait for a daemon still starting — one stuck starting must not cost
     -- every command the launch's readiness timeout.
     local r = connect.connect_or_start(root, {
@@ -293,7 +292,7 @@ function M.ensure(root, opts)
                     .. "lw daemon stop --force", tostring(st.lock.pid)))
                 return nil
             end
-            -- `--break-locks` (§19.5): recover the hung daemon (ask unless
+            -- `--break-locks`: recover the hung daemon (ask unless
             -- =now, kill, verify, reclaim), then start a fresh one.
             local rok, rerr = require("loomworks.daemon.command").recover(root, st, lb.requested ~= "now", {
                 note = note, ctx = { what = "the workspace runtime", command = lb.command },

@@ -1,27 +1,26 @@
 --- loomworks/daemon/remote_task.lua — a task the editor OBSERVES in the
---- workspace daemon (spec §19.16): an operation another client started (e.g.
---- `lw build` in a terminal).
+--- workspace daemon: an operation another client started (e.g. `lw build`
+--- in a terminal).
 ---
---- Display and matching data only (step 6b-α): in `daemon` mode the editor
---- holds no workspace model (spec §19.16 "End state"), so nothing is resolved
---- to domain objects. Its `start` meta carries semantic keys (§19.15), kept
---- for display, and from step 5o C2d the ids `profile_id` and `units[].id`
---- (API.md §4.2), kept as they came: a status-page row is matched to its
+--- Display and matching data only: in `daemon` mode the editor holds no
+--- workspace model, so nothing is resolved to domain objects. Its `start`
+--- meta carries semantic keys, kept for display, and the ids `profile_id`
+--- and `units[].id`, kept as they came: a status-page row is matched to its
 --- tasks by those, never by key. Runtime only — nothing is written to the
 --- cache or the working copy.
 --- (`lw status`, a host with its own model, puts an adopted task's running
---- state on its profiles and units itself: cli.mark_daemon_tasks, §16.18.)
+--- state on its profiles and units itself: cli.mark_daemon_tasks.)
 
 local M = {}
 
---- Output bytes kept per task in the editor (spec §19.16), then one
+--- Output bytes kept per task in the editor, then one
 --- truncation notice.
 M.OUTPUT_CAP_BYTES = 1024 * 1024
 
 --- @class loomworks.RemoteTaskUnit
 --- @field project string the project key the daemon sent (display)
 --- @field configuration string|nil the configuration-unit key the daemon sent (display)
---- @field id string|nil the unit's id the daemon sent (API.md §4.2 `units[].id`; step 5o C2d): what a
+--- @field id string|nil the unit's id the daemon sent (`units[].id`): what a
 ---   view's unit row (`unit_id`) is matched by
 
 --- @class loomworks.RemoteTaskStep
@@ -40,21 +39,21 @@ M.OUTPUT_CAP_BYTES = 1024 * 1024
 --- @field name string
 --- @field kind string the operation: "build", "test", "run", …
 --- @field origin string|nil who started it: "cli" or "editor" (`meta.origin`, protocol 7)
---- @field owned boolean|nil the editor itself started it through a call (step 5k, §19.15 "The editor as
----   owner"): no origin marker, cancelled from the editor
+--- @field owned boolean|nil the editor itself started it through a call: no origin marker,
+---   cancelled from the editor
 --- @field cancelling boolean|nil the editor asked to cancel it (an owned task; its task-runner task ends CANCELED)
---- @field _runner loomworks.daemon.RunnerStrategy|nil its task in the editor's task runner (step 5k C1b)
+--- @field _runner loomworks.daemon.RunnerStrategy|nil its task in the editor's task runner
 --- @field scope string|nil "all" for a workspace-wide task (no profile)
 --- @field profile_name string|nil the profile key the daemon sent (display)
---- @field profile_id string|nil the profile's id the daemon sent (`meta.profile_id`, API.md §4.2; step 5o
----   C2d): what a view's profile row (`id`) is matched by
+--- @field profile_id string|nil the profile's id the daemon sent (`meta.profile_id`):
+---   what a view's profile row (`id`) is matched by
 --- @field units loomworks.RemoteTaskUnit[]
 --- @field action string "build", "configure", "clean" or "reset" — what its units report
 --- while it runs (a test or a run builds: "build")
 --- @field start_time number clock seconds (uv.hrtime based, like local tasks)
 --- @field pct integer|nil last progress tick
 --- @field steps loomworks.RemoteTaskStep[]|nil a target-scoped task's steps with their current states
----   (§19.15 "Steps of a task", step 5t): `start.meta.steps`, moved by `Tasks/1.step`
+---   (`start.meta.steps`, moved by `Tasks/1.step`)
 --- @field finished boolean
 --- @field exit_code integer|nil
 --- @field error string|nil
@@ -98,7 +97,7 @@ function M.new(id, meta, clock)
 end
 
 --- A task's steps as the daemon sent them (`start.meta.steps`,
---- `TaskInfo.steps`; §19.15 "Steps of a task"), kept as display data: the
+--- `TaskInfo.steps`), kept as display data: the
 --- well-formed entries, copied; nil when it has none.
 --- @param raw any
 --- @return loomworks.RemoteTaskStep[]|nil
@@ -122,8 +121,8 @@ function M.steps_of(raw)
     return #out > 0 and out or nil
 end
 
---- A task already running when the observer connected (spec §19.16,
---- "Joining late"): one entry of the `status` reply's `tasks` (§19.11). Its
+--- A task already running when the observer connected: one entry of the
+--- `status` reply's `tasks`. Its
 --- start time is taken from `started_at` (wall clock), its percent from
 --- `percent`; its output starts now.
 --- @param entry table { task_id, name, kind, profile, units, origin, started_at, percent? }
@@ -140,7 +139,7 @@ function M.adopt(entry, clock, now_wall)
     return self
 end
 
---- The origin marker (spec/ui.md §1.9): `lw` for the CLI, `editor` for
+--- The origin marker: `lw` for the CLI, `editor` for
 --- another editor; nil when the daemon did not say.
 --- @return string|nil
 function RemoteTask:origin_label()
@@ -157,7 +156,7 @@ function RemoteTask:elapsed(clock)
     return math.max(0, clock - (self.start_time or clock))
 end
 
---- The unit ids its meta names (API.md §4.2 `units[].id`; a unit the daemon
+--- The unit ids its meta names (`units[].id`; a unit the daemon
 --- has no id for is absent).
 --- @return string[]
 function RemoteTask:unit_ids()
@@ -169,7 +168,7 @@ function RemoteTask:unit_ids()
 end
 
 --- Whether its meta names the profile `profile_id` or one of the units
---- `unit_ids` (view row ids; step 5o C2d — never by key).
+--- `unit_ids` (view row ids — never by key).
 --- @param profile_id string|nil
 --- @param unit_ids string[]|nil
 --- @return boolean
@@ -183,7 +182,7 @@ function RemoteTask:names_ids(profile_id, unit_ids)
     return false
 end
 
---- A `Tasks/1.step` delta (§19.15 "Steps of a task"): step `index` (1-based)
+--- A `Tasks/1.step` delta: step `index` (1-based)
 --- is now `state` (`err`: a failed step's failure line). True when it
 --- changed; an index outside its steps is ignored.
 --- @param index integer|nil

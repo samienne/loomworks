@@ -1,17 +1,15 @@
---- loomworks/daemon/descriptor.lua — the binary descriptor (spec §16.41):
---- what this lw implements, as `lw version --json` prints it and each release
---- publishes it (`lw-<version>-descriptor.json`, listed in the signed
---- SHA256SUMS).
+--- loomworks/daemon/descriptor.lua — the binary descriptor: what this lw
+--- implements, as `lw version --json` prints it and each release publishes it
+--- (`lw-<version>-descriptor.json`, listed in the signed SHA256SUMS).
 ---
---- It is the binary half of `Root.describe` (§19.20), computed without a
---- workspace and without a daemon: the same `binary` and `transport` fields,
---- the working-copy and cache `schemas` of the handshake (§19.9), the core
---- objects with their interface versions and schema digests exactly as a
---- daemon of this build mounts them (loomworks.daemon.core_interfaces on a
---- registry of loomworks.daemon.interfaces — nothing is listed twice), and
---- the root's methods. Interfaces a module mounts depend on the workspace and
---- are not part of it. The document's schema is
---- spec/protocol/meta/descriptor.schema.json.
+--- It is the binary half of `Root.describe`, computed without a workspace and
+--- without a daemon: the same `binary` and `transport` fields, the
+--- working-copy and cache `schemas` of the handshake, the core objects with
+--- their interface versions and schema digests exactly as a daemon of this
+--- build mounts them (loomworks.daemon.core_interfaces on a registry of
+--- loomworks.daemon.interfaces — nothing is listed twice), and the root's
+--- methods. Interfaces a module mounts depend on the workspace and are not
+--- part of it.
 
 local M = {}
 

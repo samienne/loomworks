@@ -1,19 +1,18 @@
---- loomworks/daemon/runner.lua — run a profile build in the daemon (spec
---- §19.15), streaming it on the task stream — or a test run (`lw test`,
---- §16.16): the same locks and for-test build, then the test plan (loomworks.test_plan) —
---- or the preparation of `lw run` (§19.15 "Run"): the same locks and build
---- (unless `no_build`), the locks released, then the launch target selected,
+--- loomworks/daemon/runner.lua — run a profile build in the daemon,
+--- streaming it on the task stream — or a test run (`lw test`): the same
+--- locks and for-test build, then the test plan (loomworks.test_plan) — or
+--- the preparation of `lw run`: the same locks and build (unless
+--- `no_build`), the locks released, then the launch target selected,
 --- deployed and its launch spec resolved (loomworks.run_prep), returned in
 --- the task's `done` for the client to execute — or the preparation of a
---- debug launch (`Launch/1.prepare_debug`, §19.15 "Debug"): the same steps,
---- ending with the debug spec for the client's debugger instead — either
---- preparation with `build_scope = "target"` building the launch flow's
---- units instead of the profile (§19.15 "Build scope of a launch") — or an
---- editor test run or test debug preparation (`op = "cases"`, `Tests/1`,
---- §19.15 "Tests"): the units' locks after the Tests/1 queue (`ctx.cases.wait`),
---- the build `ctx.cases.plan()` plans, then `ctx.cases.after_build`
---- (loomworks.daemon.test_runs) — or a clean (`lw clean`,
---- §19.15 "Clean"): the same locks, then each project's clean step — a module
+--- debug launch (`Launch/1.prepare_debug`): the same steps, ending with the
+--- debug spec for the client's debugger instead — either preparation with
+--- `build_scope = "target"` building the launch flow's units instead of the
+--- profile — or an editor test run or test debug preparation (`op =
+--- "cases"`, `Tests/1`): the units' locks after the Tests/1 queue
+--- (`ctx.cases.wait`), the build `ctx.cases.plan()` plans, then
+--- `ctx.cases.after_build` (loomworks.daemon.test_runs) — or a clean (`lw
+--- clean`): the same locks, then each project's clean step — a module
 --- clean spawned like a build step, or a core-performed wipe
 --- (loomworks.build_run.wipe_step: the in-process build-directory deletion,
 --- Workspace:clean_wipe_build_dir — asynchronous, so the endpoint keeps
@@ -23,7 +22,7 @@
 --- (`cli.run_build_steps` over `loomworks.build_run`):
 ---
 ---   take every build-directory lock (canonical order, fail-fast, a dead
----   holder reclaimed with its state recovered, §19.3 / §19.5)
+---   holder reclaimed with its state recovered)
 ---   → plan (gate, module plan, build request)
 ---   → per step: before_step (lock record names the step, conflict gate,
 ---               full-reconfigure reset) → step_lines → spawn_spec → run
@@ -39,8 +38,8 @@
 --- in the service's serialized model segments (`svc:with_model`), inside the
 --- client's environment; only the child processes run in between.
 ---
---- **Cancellation** (§19.15): `cancel(reason)` kills the running step's
---- process tree (the identity-verified kill of §19.5: the child's pid AND
+--- **Cancellation**: `cancel(reason)` kills the running step's process tree
+--- (an identity-verified kill: the child's pid AND
 --- start time), records nothing for that step, releases the locks and ends
 --- the task nonzero.
 
@@ -128,7 +127,7 @@ function M.spawn(spec, sink)
     }, function(code, signal)
         pcall(function() handle:close() end)
         -- A process a signal ended (POSIX: code 0 + the signal) fails with
-        -- 128 + signal (§16.7).
+        -- 128 + signal.
         exit_code, exit_signal = build_run.exit_status(code, signal)
         maybe_finish()
     end)
@@ -188,8 +187,8 @@ function M.kill(child)
 end
 
 --- Take the build-directory lock of every directory of `dirs` exclusively,
---- exactly like the in-process with_build_dir_locks: canonical order
---- (§19.3), fail-fast, a hung or dead holder handled by lock_break (§19.5),
+--- exactly like the in-process with_build_dir_locks: canonical order,
+--- fail-fast, a hung or dead holder handled by lock_break,
 --- a dead holder's state recovered as for a build. Each handle is appended
 --- to `run.held` as it is taken (the caller releases them, also on failure).
 --- @param run table
@@ -238,20 +237,20 @@ end
 --- @field ctx table|nil the service request that started it
 --- @field cancel fun(reason?: string, code?: integer)
 
---- Run a build, or a test run (`ctx.op == "test"`, spec §16.16, §19.15):
+--- Run a build, or a test run (`ctx.op == "test"`):
 --- the same locks and build steps (in their for-test form), then — the locks
 --- still held — the test plan (loomworks.test_plan: native runners, saved test targets), every step even after one failed; or
---- the preparation of a run (`ctx.op == "run"`, §19.15 "Run"): the build (not
+--- the preparation of a run (`ctx.op == "run"`): the build (not
 --- under `args.no_build`), the locks released, then `prepare` (target, gate,
 --- deploy, launch spec), ending the task with `launch` or `device`; or the
---- preparation of a debug launch (`ctx.op == "debug"`, §19.15 "Debug"): the
+--- preparation of a debug launch (`ctx.op == "debug"`): the
 --- same, a device or foreign target refused (before the build when its kit
 --- tells, else before any deploy), ending the task with `result.debug`; for
 --- either, `args.build_scope == "target"` replaces the profile's build and
 --- deploy with the launch flow (`target_scope`); or a clean (`ctx.op ==
---- "clean"`, §19.15 "Clean"): the locks, then `ctx.clean_steps` (planned by
+--- "clean"`): the locks, then `ctx.clean_steps` (planned by
 --- the service before any lock, build_run.plan_clean); or a configure
---- (`ctx.op == "configure"`, §19.15 "Editor scopes and configure"): the locks
+--- (`ctx.op == "configure"`): the locks
 --- taken exclusive, then the configure step of every unit, also one already
 --- configured, and no build.
 ---
@@ -274,21 +273,21 @@ function M.run(svc, ctx)
     local op = (ctx.op == "test" or ctx.op == "run" or ctx.op == "debug" or ctx.op == "clean"
         or ctx.op == "configure" or ctx.op == "cases") and ctx.op or "build"
     -- An editor test run or test debug preparation (`Tests/1.run_cases` /
-    -- `prepare_debug`, §19.15 "Tests"): `ctx.cases` plans its build and
+    -- `prepare_debug`): `ctx.cases` plans its build and
     -- runs what follows it (loomworks.daemon.test_runs).
     local cases = op == "cases" and ctx.cases or nil
-    -- The build of a launch target (`Launch/1.build`, §19.15 "Build of a
-    -- launch target"): a build (`meta.kind`, its lines) of the target
+    -- The build of a launch target (`Launch/1.build`): a build (`meta.kind`,
+    -- its lines) of the target
     -- scope's phases up to the launch target's own unit.
     local target_build = ctx.op == "target_build"
     -- What the lines name: the profile's key, or the units' names.
     local label = (units_scope and #units_scope > 0) and build_run.units_label(units_scope) or profile.key
     local scope_line = (units_scope and #units_scope > 0) and label or ("profile: " .. label)
     local testing = op == "test"
-    -- A debug launch is prepared as a run is (§19.15 "Debug").
+    -- A debug launch is prepared as a run is.
     local debugging = op == "debug"
     local running = op == "run" or debugging
-    -- `lw run --print` / `--dry-run` keep the build's lines off stdout (§16.17).
+    -- `lw run --print` / `--dry-run` keep the build's lines off stdout.
     local out_stream = (running and args.quiet) and "note" or "out"
     local build_lock = require("loomworks.build_lock")
     local run = { task = task, op = op, cancelled = false, held = {}, profile = profile }
@@ -305,7 +304,7 @@ function M.run(svc, ctx)
         end
     end
     run.release_all = release_all
-    -- A target-scoped task's step states (§19.15 "Steps of a task"), by
+    -- A target-scoped task's step states, by
     -- index into its plan; nil for other tasks.
     local step_states
     local function set_step(index, state, err)
@@ -405,7 +404,7 @@ function M.run(svc, ctx)
                 if parse and stream == "stdout" and type(text) == "string" then pcall(scan, text) end
             end,
             done = function(code, signal)
-                -- Its output ended: held bytes are this process's (§14.2).
+                -- Its output ended: held bytes are this process's.
                 task:end_output()
                 svc:with_model(ctx, function() on_exit(code, signal) end)
             end,
@@ -446,12 +445,12 @@ function M.run(svc, ctx)
     end
 
     -- ---- the test phase (op == "test"), after the build steps -------------
-    -- The in-process test plan (loomworks.test_plan, §16.16), its host this
+    -- The in-process test plan (loomworks.test_plan), its host this
     -- task: the same steps, lines, JUnit files, summary and failure. Each
     -- program is spawned like a build step (streamed, cancellable); the
     -- plan goes on in a model segment once it exited. A device step is not
     -- run here: the service declined a plan whose kit runs on a device.
-    -- With `verbose` (`lw test -v`, §16.4 *Verbose*) each runner and program
+    -- With `verbose` (`lw test -v`) each runner and program
     -- invocation streams its command lines first and a launch's deploy its
     -- steps, as the in-process host prints them (cli._test_host).
     local test_plan = require("loomworks.test_plan")
@@ -544,9 +543,9 @@ function M.run(svc, ctx)
         local topts = { junit = args.junit, extra = args.extra or {}, no_build = args.no_build }
         local prepared, perr = test_plan.prepare(ws, profile, ctx.test_pre, topts)
         if not prepared then return finish(1, perr) end
-        -- (`no_build`: a possibly stale build's notes, §16.16.)
+        -- (`no_build`: a possibly stale build's notes.)
         for _, n in ipairs(prepared.notes or {}) do task:line("note", n, "plain") end
-        -- Invalid ProfileProjects (core §5.4): not tested; the run fails
+        -- Invalid ProfileProjects: not tested; the run fails
         -- naming them once the others' tests ran.
         if #prepared.steps == 0 then
             release_all()
@@ -555,7 +554,7 @@ function M.run(svc, ctx)
             return finish(rcode, rerr, { result = { steps = {}, junit = {} } })
         end
         test_plan.run(ws, profile, prepared, topts, test_host, function(code, err, results)
-            -- (The structured results: Tests/1.run's task result, §19.15.)
+            -- (The structured results: Tests/1.run's task result.)
             code, err = test_plan.with_refused(ctx.test_pre, code, err)
             finish(code, err, { result = results })
         end)
@@ -576,7 +575,7 @@ function M.run(svc, ctx)
         if not lt then return finish(1, serr) end
         local verr = rp.validity_error(lt)
         if verr then return finish(1, verr) end
-        -- No device debug (§18.11): refused before any deploy, never declined.
+        -- No device debug: refused before any deploy, never declined.
         -- (A target-scoped build already probed the artifact, before its
         -- post-build deploy: these checks then pass.)
         local drefusal = debugging and rp.debug_refusal(lt) or nil
@@ -592,7 +591,7 @@ function M.run(svc, ctx)
             return finish(2, "--cwd does not apply to a device run ('" .. lt:display_name()
                 .. "') — set the project's device.working_dir instead")
         end
-        -- A foreign artifact runs on a device, in the client (§19.15): before
+        -- A foreign artifact runs on a device, in the client: before
         -- any deploy, which the client then does itself.
         if rp.foreign_of(lt) then return finish(0, nil, { device = true }) end
         -- (A target-scoped build deployed in its own phases.)
@@ -631,7 +630,7 @@ function M.run(svc, ctx)
         build_run.after_clean_step(ws, step, code)
         if code ~= 0 then
             local msg = build_run.failure_message(step, code, nil, signal)
-            -- The invalid ProfileProjects (core §5.4) are named too.
+            -- The invalid ProfileProjects are named too.
             if ctx.clean_refused then msg = msg .. "\n" .. build_run.refused_message(ctx.clean_refused) end
             return finish(code, msg)
         end
@@ -645,7 +644,7 @@ function M.run(svc, ctx)
         ci = ci + 1
         if ci > #csteps then
             release_all()
-            -- Invalid ProfileProjects (core §5.4): failed once the others are cleaned.
+            -- Invalid ProfileProjects: failed once the others are cleaned.
             -- Its task result names them as `not_run` (Build/1 clean): the
             -- editor's rebuild goes on to build the others.
             if ctx.clean_refused then
@@ -689,7 +688,7 @@ function M.run(svc, ctx)
 
     -- ---- the build steps ---------------------------------------------------
     local steps, i = nil, 0
-    -- The profile's ProfileProjects not run as invalid (core §5.4): the task
+    -- The profile's ProfileProjects not run as invalid: the task
     -- fails naming them once the other projects' steps ran.
     local refused
     local case_api
@@ -702,7 +701,7 @@ function M.run(svc, ctx)
         -- (Idempotent: a step a signal ended fails with 128 + signal.)
         code, signal = build_run.exit_status(code, signal)
         build_run.after_step(ws, step, code)
-        -- A refused save (§2.7) ends the build as the in-process host's `die`
+        -- A refused save ends the build as the in-process host's `die`
         -- does, before anything else runs.
         if ctx.refused then return finish(1, ctx.refused) end
         if code ~= 0 then
@@ -739,7 +738,7 @@ function M.run(svc, ctx)
         progress((i - 1) / #steps)
         local ok_g, g_err = build_run.before_step(ws, step, { force = args.force })
         if not ok_g then return finish(1, g_err) end
-        -- (`-v`: the env line against the client's environment, §19.15.)
+        -- (`-v`: the env line against the client's environment.)
         local lines, roles = build_run.step_lines(ws, step, { verbose = args.verbose, env = ctx.env })
         for k, line in ipairs(lines) do task:line(out_stream, line, roles[k]) end
         -- Within the step, its build tool's progress lines move the percent.
@@ -748,17 +747,16 @@ function M.run(svc, ctx)
             function(f) if i == base + 1 then progress((base + f) / #steps) end end)
     end
 
-    -- ---- a target-scoped launch build (§19.15 "Build scope of a launch",
-    -- "Build of a launch target") ---------------------------------------------
-    -- The launch flow the editor runs in-process before a launch (§8.8.4
-    -- steps 3-6, LaunchTarget:build + deploy): each dependency's unit, the
+    -- ---- a target-scoped launch build ---------------------------------------
+    -- The launch flow the editor runs in-process before a launch
+    -- (LaunchTarget:build + deploy): each dependency's unit, the
     -- pre-build deploy steps, the launch target's own unit (its one target
     -- where the module builds single targets), then — a preparation only —
     -- the artifact probe and the post-build deploy steps. Each unit's build
     -- takes that unit's build-directory lock for that build only; the deploy
     -- steps run asynchronously, without locks, a cancel stopping them between
     -- two copies; the first failure ends the task, the later phases not run.
-    -- Each phase is one step of the task (§19.15 "Steps of a task").
+    -- Each phase is one step of the task.
 
     --- The launch target and its phases, each with its step (`{ id, kind,
     --- label, project?, configuration?, target?, phase?, state = "pending"
@@ -805,10 +803,9 @@ function M.run(svc, ctx)
                 target = tid })
         end
         -- The artifact is probed once the target's own unit built, before the
-        -- post-build deploy (§19.15 "Debug"; "Run": a foreign artifact runs
-        -- on a device, in the client, which then deploys itself). A device
-        -- target's build ends with its post-build deploy: its install and
-        -- launch are Devices/1's (§19.16 "Devices", API.md §9.4).
+        -- post-build deploy (a foreign artifact runs on a device, in the
+        -- client, which then deploys itself). A device target's build ends
+        -- with its post-build deploy: its install and launch are Devices/1's.
         if not target_build then
             add({ probe = true }, { kind = "probe", label = "probe " .. lt:display_name(), project = pkey })
             deploy("post_build")
@@ -915,9 +912,8 @@ function M.run(svc, ctx)
         next_phase()
     end
 
-    -- The profile and its units by key and by id (API.md §4.2): a client
-    -- matches the task to its records by the ids (step 5o C2d); the keys are
-    -- for display (spec §19.15, §19.16).
+    -- The profile and its units by key and by id: a client matches the task
+    -- to its records by the ids; the keys are for display.
     local tasks_mod = require("loomworks.daemon.tasks")
     local units = {}
     if units_scope then
@@ -931,7 +927,7 @@ function M.run(svc, ctx)
         end
     end
     -- A target-scoped task's phases are planned before it starts: its steps
-    -- are its start meta's (§19.15 "Steps of a task").
+    -- are its start meta's.
     local scope_plan, scope_err
     if target_scoped then
         -- (A throw while planning ends the task, once started, as a
@@ -969,7 +965,7 @@ function M.run(svc, ctx)
         return run
     end
     -- A debug of a target its kit already tells is foreign (or a device
-    -- target) is refused before the build (§19.15 "Debug"); one found by
+    -- target) is refused before the build; one found by
     -- probing its artifact, once the build probed it (prepare).
     if debugging then
         local rp = require("loomworks.run_prep")
@@ -978,7 +974,7 @@ function M.run(svc, ctx)
         if drefusal then finish(1, drefusal); return run end
     end
     -- A clean that wipes performs a deletion: the workspace operation lock
-    -- first (spec §19.3 lock order, as in-process cli.cmd_clean).
+    -- first (lock order, as in-process cli.cmd_clean).
     if op == "clean" and build_run.has_wipe(csteps) then
         local tok, omsg = ws:_op_lock("clean")
         if not tok then finish(1, omsg or "clean refused: the workspace operation lock is held"); return run end
@@ -1003,7 +999,7 @@ function M.run(svc, ctx)
             return run
         end
 
-        -- `lw test --no-build` (§16.16 "Skipping the build"): no build steps;
+        -- `lw test --no-build`: no build steps;
         -- the locks stay held across the plan's checks and its steps.
         if testing and args.no_build then test_phase(); return run end
 
@@ -1046,18 +1042,18 @@ function M.run(svc, ctx)
             finish(1, build_run.nothing_to_build_message(profile, units_scope and label or nil)); return run
         end
         task:line(out_stream, build_run.lead_line(op == "configure" and "configure" or "build", scope_line))
-        -- The same trust notice as the in-process build (spec §17.10, §19.15).
+        -- The same trust notice as the in-process build.
         local tn, tn_role = build_run.trust_notice(ws, profile, units_scope)
         if tn then task:line("note", tn, tn_role) end
         next_step()
     end
     -- An editor test run waits for the Tests/1 tasks of its directories
-    -- (FIFO, §19.15 "Tests") before it takes their locks.
+    -- (FIFO) before it takes their locks.
     if cases then cases.wait(dirs, locked, case_api) else locked() end
     return run
 end
 
---- Run an accepted reset (`lw reset`, spec §19.15 "Reset", §16.30): exactly
+--- Run an accepted reset (`lw reset`): exactly
 --- what the in-process cli.cmd_reset does after its confirmation, over
 --- loomworks.reset_plan — the listing (only for `-y`: a confirmed reset's
 --- client printed it), the workspace operation lock (operation `reset`), then
@@ -1125,7 +1121,7 @@ function M.reset(svc, ctx)
         svc:with_model(ctx, function() finish(run.cancel_code, stopped()) end)
     end
 
-    -- The planned units by key and by id (API.md §4.2, §19.16); `--all`
+    -- The planned units by key and by id; `--all`
     -- has no profile (`scope = "all"`).
     local tasks_mod = require("loomworks.daemon.tasks")
     local units = {}
@@ -1141,7 +1137,7 @@ function M.reset(svc, ctx)
         for _, line in ipairs(reset_plan.listing(plan)) do task:line("out", line, "plain") end
     end
 
-    -- Lock order (spec §19.3): the workspace operation lock first, then every
+    -- Lock order: the workspace operation lock first, then every
     -- build directory's; the workspace's own deletion re-enters both.
     local tok, omsg = ws:_op_lock("reset")
     if not tok then
@@ -1152,7 +1148,7 @@ function M.reset(svc, ctx)
     local lok, lmsg = take_locks(run, ws, task, plan.lock_dirs, "reset", ctx.command or "lw reset")
     if not lok then finish(1, lmsg); return run end
     -- Under the locks, before anything is removed: the plan must still be the
-    -- one listed (§16.30; the same check as the in-process host).
+    -- one listed (the same check as the in-process host).
     local vok, vmsg = reset_plan.verify(ws, plan)
     if not vok then finish(1, vmsg); return run end
 

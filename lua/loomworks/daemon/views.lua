@@ -1,25 +1,24 @@
 --- loomworks/daemon/views.lua — the editor views the build service serves
---- on `/views` (spec §19.13 "Views", §19.20 "Interface catalogue", step 5j
---- part B):
+--- on `/views`:
 ---
 ---   /views   loomworks.view.Header/1          get (update)
 ---   /views   loomworks.view.ProjectsIndex/1   get (update)
----   /views   loomworks.view.Tests/1           get (update; loomworks.daemon.tests_view, step 5m)
----   /views   loomworks.view.Workspace/1       get (update; the status page's body, step 5n)
+---   /views   loomworks.view.Tests/1           get (update; loomworks.daemon.tests_view)
+---   /views   loomworks.view.Workspace/1       get (update; the status page's body)
 ---
 --- Each view has one method, `get` (its full state; never loads the
 --- workspace: an unloaded one is the unloaded state), and one signal,
 --- `update`, declared `initial`: subscribing returns the full state, and every
 --- `update` carries the full state again, never a delta. The state is built by
 --- loomworks.view_state — the builder the editor uses in-process — with the
---- session fields and the opaque ids (§19.12) only the daemon fills.
+--- session fields and the opaque ids only the daemon fills.
 ---
 --- `check` runs where `Workspace.header_changed` is checked
 --- (core_interfaces.header_check: after every model segment and every
 --- committed write, and before the acknowledgement of a request answered
 --- inside its segment) and sends `update` to a subscription only when the
 --- view's state differs from the one last sent on it (`initial` included).
---- The views are fresh (§19.13 "Freshness of views"): the header check first
+--- The views are fresh: the header check first
 --- applies the file changes another process made (Service:check_files; no
 --- load, no tool detection), and a view's `get` runs the header check before
 --- building (`initial` only applies the changes). The tests view compares
@@ -64,7 +63,7 @@ function M.projects_index(service)
     return view_state.projects_index(ws, opts(service))
 end
 
---- `loomworks.view.Tests/1`'s state (§19.13 "The tests view"). Never loads,
+--- `loomworks.view.Tests/1`'s state. Never loads,
 --- never discovers.
 --- @param service loomworks.daemon.BuildService
 --- @return loomworks.TestsView
@@ -72,11 +71,10 @@ function M.tests(service)
     return require("loomworks.daemon.tests_view").state(service)
 end
 
---- `loomworks.view.Workspace/1`'s state (§19.13 "The workspace view"): the
---- status page's body, with the daemon's ids (a row's `id`, a unit's
---- `unit_id`, a device's `id`). Never loads: an unloaded workspace has
---- every array empty. No progress (API.md §14.4): a build's progress never
---- changes it, a unit's state or a profile's `last_result` does.
+--- `loomworks.view.Workspace/1`'s state: the status page's body, with the
+--- daemon's ids (a row's `id`, a unit's `unit_id`, a device's `id`). Never
+--- loads: an unloaded workspace has every array empty. A build's progress
+--- never changes it; a unit's state or a profile's `last_result` does.
 --- @param service loomworks.daemon.BuildService
 --- @return loomworks.ViewWorkspace
 function M.workspace(service)
@@ -104,7 +102,7 @@ end
 --- @param sig? fun(service: loomworks.daemon.BuildService): string
 --- @return loomworks.daemon.InterfaceImpl
 local function impl(where, build, service, sig)
-    -- Freshness (§19.13): another process's file changes are applied first.
+    -- Another process's file changes are applied first.
     -- A `get` runs the header check, so the `update`s of the subscriptions
     -- follow from it (the editor's `get` after a write of its own); `initial`
     -- only applies them (its subscription has no baseline yet: the next

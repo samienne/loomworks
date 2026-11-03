@@ -1,11 +1,10 @@
---- loomworks/daemon/stdio.lua — the private standard-I/O transport (spec
---- §19.8, §19.10 "Tests", §19.20 "Schemas and conformance"):
+--- loomworks/daemon/stdio.lua — the private standard-I/O transport:
 --- `lw daemon run --root <root> --stdio --private`, admitted only with
 --- LOOMWORKS_TEST_PRIVATE_STDIO=1 (loomworks.daemon.relay.parse). Without the
 --- flag `--stdio` is the relay to the shared daemon (loomworks.daemon.relay).
 ---
 --- The daemon's server and build service run in this process as an attached
---- runtime (R held in `attached` mode, §19.1, §19.2), with exactly one
+--- runtime (R held in `attached` mode), with exactly one
 --- connection: this process's standard input and output, a private pipe
 --- that needs no authentication. Its first frame is the client's `hello`,
 --- answered by `welcome` (Server:adopt_pipe); then the protocol is the same

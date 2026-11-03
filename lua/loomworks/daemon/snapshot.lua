@@ -1,6 +1,5 @@
 --- loomworks/daemon/snapshot.lua — scope snapshots, the client's read-only
---- projection, the welcome header and the host-probing queries (spec §19.13,
---- §19.14).
+--- projection, the welcome header and the host-probing queries.
 ---
 --- **Snapshot** (daemon side, `build`): the file-shaped tables the loaded model
 --- already serializes — `config` the published baseline as loaded
@@ -9,7 +8,7 @@
 --- each stamped with its schema `_meta` exactly as a save stamps it — plus the
 --- resolved toolchain detection (`tools`, tool rows: `tool_rows`), the
 --- stripped program-bearing fields (`shared_ignored`) and the semantic-key →
---- opaque-id index (§19.12). It is served from the model as loaded, whatever
+--- opaque-id index. It is served from the model as loaded, whatever
 --- the requester's environment (service.lua `live` with `as_is`).
 ---
 --- **Projection** (client side, `project`): the same deserializer the on-disk
@@ -34,14 +33,13 @@ M.READ_ONLY = "a read-only projection of the workspace daemon's model (spec §19
 -- ========================== opaque-id registry ==========================
 
 --- @class loomworks.daemon.IdRegistry
---- Session-local opaque ids keyed by object identity (spec §19.12): assigned
+--- Session-local opaque ids keyed by object identity: assigned
 --- once, never reused within the session; weak keys, so a dropped object
 --- frees its entry (its id is still never handed out again). An id is a
 --- string on the wire (loomworks.Common/1 `Id`): opaque to clients, which
 --- only compare it and send it back. It carries the session generation
 --- (`protocol.session_id`), so an id of an earlier session never resolves
---- in this one: it is a stale reference, refused (§19.20 "Errors and domain
---- results").
+--- in this one: it is a stale reference, refused.
 --- @field next integer the last id handed out
 --- @field generation integer|string|nil the session generation ids carry
 --- @field by_obj table<table, string> object → id (weak keys)
@@ -69,7 +67,7 @@ function Registry:id(obj)
 end
 
 --- Give `obj`, which has no id yet, the id `id` issued for the entity it
---- replaces (an environment reload, spec §19.12, §19.15 "Environment"):
+--- replaces (an environment reload):
 --- the id stays the same entity's, never a new one's. An object that
 --- already has an id keeps it.
 --- @param obj table
@@ -91,7 +89,7 @@ function Registry:find(id, candidates)
     return nil
 end
 
---- The semantic-key → id index of a workspace's keyed objects (spec §19.13):
+--- The semantic-key → id index of a workspace's keyed objects:
 --- `projects` (project key → id), `config_sets` (name → id), `profiles`
 --- (profile key → id), and `config_units`, a list of
 --- `{ project = <project key>, configuration = <configuration key>, id }`.
@@ -154,7 +152,7 @@ local function each_keyed(ws, fn)
 end
 
 --- The ids `reg` issued for `ws`'s entities, by kind-and-key — taken before
---- an environment reload drops `ws` (spec §19.15 "Environment"), for
+--- an environment reload drops `ws`, for
 --- `carry_ids` to hand on to the reloaded model.
 --- @param ws table
 --- @param reg loomworks.daemon.IdRegistry
@@ -169,7 +167,7 @@ function M.ids_by_key(ws, reg)
 end
 
 --- Give each entity of the reloaded `ws` the id of the one it replaces
---- (`ids_by_key` of the model before the reload; API.md §1.2): ids issued
+--- (`ids_by_key` of the model before the reload): ids issued
 --- before an environment reload keep naming their entities. An entity the
 --- reload no longer has leaves its id unmatched, so it resolves to nothing —
 --- a stale reference.
@@ -193,7 +191,7 @@ function M.valid_scope(scope)
     return vim.tbl_contains(M.SCOPES, scope)
 end
 
---- The tool rows of the wire (spec §19.13, §19.14), one shape for the
+--- The tool rows of the wire, one shape for the
 --- snapshot's `tools` and the `tools` query: module type → list of
 --- `{ key, label, tool_data }` (`key` absent for a module whose single tool
 --- has none), from a detection (`tools_by_type`: module type → list of
@@ -256,7 +254,7 @@ function M.build(ws, scope, reg)
     return snap
 end
 
---- The `welcome` header's model fields (spec §19.13): the loaded workspace's
+--- The `welcome` header's model fields: the loaded workspace's
 --- name and active profile, or its error state (loomworks.view_state, the
 --- views' builder, owns the one implementation).
 --- @param ws table|nil the live workspace (nil: not loaded)
@@ -266,7 +264,7 @@ function M.header(ws, err)
     return require("loomworks.view_state").base_header(ws, err)
 end
 
---- Host-probing queries (spec §19.14): name → fn(ws, args) → result table or
+--- Host-probing queries: name → fn(ws, args) → result table or
 --- nil, error. Each runs in a model segment inside the client's environment.
 M.QUERIES = {
     --- The toolchains detected in the client's environment, per module type
@@ -280,13 +278,13 @@ M.QUERIES = {
     --- (`lw profile query <profile> <project> cache`, which formats it with
     --- profile.lua `compiler_cache_text`): `args.profile` and `args.project`,
     --- each a key (the v0 query, the CLI) or the live object an interface
-    --- call's id resolved to (never matched again by its key, step 5o part 0)
+    --- call's id resolved to (never matched again by its key)
     --- → `{ cache = { policy, tool?, path?, present, stale,
     --- msvc_auto_off, applicable, not_applied_reason?, not_applied_hint? } }`;
     --- `cache` absent for a module that does not cache C/C++. Probes the
     --- client's PATH.
     profile_cache = function(ws, args)
-        -- (Wire keys are resolved to objects here, at the boundary, §19.14.)
+        -- (Wire keys are resolved to objects here, at the boundary.)
         local profile = type(args.profile) == "table" and args.profile or nil
         if not profile then
             for _, p in pairs(ws._profiles or {}) do

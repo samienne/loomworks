@@ -1,6 +1,5 @@
 --- loomworks/daemon/test_runs.lua — the editor's test runs and test debug
---- preparations in the workspace daemon (spec §19.15 "Tests", §19.20
---- `Tests/1`; step 5m part B2):
+--- preparations in the workspace daemon:
 ---
 ---   run_cases { select?, no_build?, extra? }   T  build the selection's targets, run it,
 ---                                                 `{ exit_code, error?, cases, counts }`
@@ -29,9 +28,9 @@
 --- selected `target` node runs it whole, its selected `suite` and `test`
 --- nodes are combined into one filtered invocation where its TestUnit
 --- filters (a gtest program), else it runs whole. Each step's command is the
---- TestUnit's structured harness (`test_command` through the owning unit,
---- §8.9.4) with its own results file `<root>/.nvim/tmp/lw-test-<hex>.xml`
---- (§16.40; removed once parsed). Run-all (no `select`) runs every runnable
+--- TestUnit's structured harness (`test_command` through the owning unit)
+--- with its own results file `<root>/.nvim/tmp/lw-test-<hex>.xml` (removed
+--- once parsed). Run-all (no `select`) runs every runnable
 --- top-level node of every covered unit, each its own step (never a
 --- TestUnit's `test_command_all`).
 ---
@@ -403,10 +402,10 @@ local function accept(service, ctx, kind)
         recs, rerr = resolve(idx, kind == "debug" and { a.select } or a.select)
         if not recs then return refuse(rerr) end
     end
-    -- (Tests/1 acts on the active profile, §19.15 "Tests".)
+    -- (Tests/1 acts on the active profile.)
     local profile = idx.profile
     if not profile then return refuse(require("loomworks.daemon.test_discover").NO_PROFILE) end
-    -- The units the run covers (§19.15 "Tests"): the selection's, or for
+    -- The units the run covers: the selection's, or for
     -- run-all every unit of the profile with tests to discover.
     local covered, units, picked = {}, {}, {}
     for _, rec in ipairs(recs or {}) do picked[rec.unit] = true end
@@ -493,7 +492,7 @@ local function progress_line(line)
 end
 M._progress_line = progress_line
 
---- Does a covered unit need discovering before the run (§19.15 "Tests"):
+--- Does a covered unit need discovering before the run:
 --- its tree not current (never discovered, stale, failed), or its TestUnits
 --- no longer holding the entries its tree came from?
 --- @param store loomworks.daemon.TestStore
@@ -647,7 +646,7 @@ function M.phase(service, ctx, store, sel, kind)
         return plan_build(steps)
     end
 
-    --- Wait for the directories (§19.15 "Tests"): the Tests/1 queue (FIFO),
+    --- Wait for the directories: the Tests/1 queue (FIFO),
     --- then a build or other task of this daemon holding one of them (as
     --- discovery waits); then discover the covered units that need it, and
     --- `fn` (the runner takes the locks, plans and builds).

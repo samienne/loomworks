@@ -1,12 +1,11 @@
 --- loomworks/daemon/devices.lua — `loomworks.Devices/1` on `/devices`, the
---- workspace's devices in the workspace daemon (spec §19.16 "Devices",
---- §19.18, §19.20; API.md §15; step 5n part B2):
+--- workspace's devices in the workspace daemon:
 ---
 ---   list {}          the registry (Workspace:devices) as it is: never loads,
 ---                    never probes; an unloaded workspace has none
 ---   scan {} T        each module that has devices lists them
 ---                    (Workspace:scan_devices) in the caller's environment
----                    (§19.15 "Environment": started inside its model
+---                    (started inside its model
 ---                    segment), the registry updated in a model segment
 ---   install {…} T    the module's install command of a device target
 ---                    (LaunchTarget:device_install_command) on its
@@ -23,25 +22,26 @@
 ---                    model segment and committed write)
 ---
 --- install / launch address their target as `prepare_run` does (`{ profile?,
---- project?, target?, kind? }`, API.md §9.1): the profile resolved before
+--- project?, target?, kind? }`): the profile resolved before
 --- the task is accepted (a refusal is the `refused` result); the target, its
 --- being a device target, the profile's device and the module's command
 --- inside the task (a failure ends it nonzero, as `Launch/1.build`'s).
 ---
---- Tasks: each is OWNED by the calling connection (§19.15) — a run in
+--- Tasks: each is OWNED by the calling connection — a run in
 --- `Service.runs`, cancelled by `Tasks/1.cancel` or by its owner's
 --- disconnect; a cancel kills the running command's process tree. Every
 --- command is spawned with exactly the caller's environment plus the
 --- module command's own variables, its output streamed on the task.
 ---
---- Locks (§19.3, order R → O → B → D → F): an install holds the device
---- target's build-directory lock (B, fail-fast: a build of that directory
---- refuses the install rather than installing a half-written artifact) and
---- then the device lock (D, §18.7: waits — on a timer, so the endpoint keeps
---- serving — for a live holder, printing it once; a hung holder fails); a
---- launch and a stop take only D. Each is held for the command only.
+--- Locks (order runtime → operation → build directory → device → file): an
+--- install holds the device target's build-directory lock (B, fail-fast: a
+--- build of that directory refuses the install rather than installing a
+--- half-written artifact) and then the device lock (D: waits — on a timer,
+--- so the endpoint keeps serving — for a live holder, printing it once; a
+--- hung holder fails); a launch and a stop take only D. Each is held for the
+--- command only.
 ---
---- `Launch/1.device_log { task }` (API.md §9.5; step 5n part B3) is served
+--- `Launch/1.device_log { task }` is served
 --- here too (`device_log_method`, mounted on /launch): the log stream of the
 --- program a finished launch of the caller launched, from the launch's record
 --- (`launches`: its target, device, pid and bundle). The module's log clear
@@ -50,8 +50,8 @@
 --- and sent as the `log` signal from a bounded queue (the oldest dropped and
 --- counted when full); the pid probe ends it once the program is gone.
 ---
---- No deletion: runner devices (§18), `lw device clean` and `lw run
---- --device` stay out of step 5n.
+--- No deletion: runner devices, `lw device clean` and `lw run --device` are
+--- not served here.
 
 local envelope = require("loomworks.proto.envelope")
 local envscope = require("loomworks.daemon.envscope")
@@ -224,7 +224,7 @@ local function run_command(service, ctx, run, command, task, k, o)
     spawn(ctx, run, argv, { cwd = command.cwd, env = command.env, timeout = timeout,
         output = task and function(stream, text) task:output(stream, text) end or nil },
         function(code, stdout, stderr, timed_out)
-            -- Its output ended: held bytes are this command's (§14.2).
+            -- Its output ended: held bytes are this command's.
             if task then task:end_output() end
             service:with_model(ctx, function()
                 if run.finished then return end
@@ -347,7 +347,7 @@ end
 --- err, result)` answers the call) and leaves `Service.runs`; `cancel(reason,
 --- code)` kills the running command (whose end then finishes the run) or
 --- finishes it at once. An install, launch, stop or device_log
---- `keeps_on_reload` (§19.16 "Devices"): a reload of the workspace neither
+--- `keeps_on_reload`: a reload of the workspace neither
 --- cancels it nor is declined for it — it runs only commands built when it
 --- was accepted (from the workspace of then, which nothing it does writes);
 --- a scan merges into its workspace's registry, so a reload cancels it.
@@ -508,7 +508,7 @@ local function run_device_op(service, ctx, op)
     -- The stop command of the program a launch starts, built now from the
     -- target this launch resolved (a `stop` never resolves it again).
     local stop_command = op == "launch" and lt:device_stop_command(serial, bundle) or nil
-    -- B, then D (§19.3): the artifact's build directory, then the device.
+    -- B, then D (lock order): the artifact's build directory, then the device.
     if op == "install" then
         local unit = lt._config_unit
         local bd = unit and unit.build_dir and unit:build_dir() or nil
@@ -537,8 +537,8 @@ local function run_device_op(service, ctx, op)
             local function launched(pid)
                 if run.finished then return end
                 if run.cancelled then return run.finish(run.cancel_code, run.stopped()) end
-                -- The program a `stop` of this task stops (§15 `stop`), and
-                -- whose log a `Launch/1.device_log` of it streams (§9.5).
+                -- The program a `stop` of this task stops, and
+                -- whose log a `Launch/1.device_log` of it streams.
                 M.launches(service)[task.id] = { owner = ctx.conn, serial = serial,
                     stop = stop_command or false, target = lt, profile = profile, pid = pid,
                     bundle = bundle }
@@ -710,7 +710,7 @@ local function stop_method(service)
         -- device lock), and the daemon is busy while it runs. Its end answers
         -- the call: `answer` fields set before it, else `ok` / `refused`.
         local run = new_run(service, ctx, "stop")
-        -- A launch is stopped once (§15): a second stop while this one runs
+        -- A launch is stopped once: a second stop while this one runs
         -- is refused.
         l.stopping = true
         local answer_fields
@@ -759,7 +759,7 @@ local function stop_method(service)
 end
 
 -- ---------------------------------------------------------------------------
--- Launch/1.device_log: the log stream of a launched program (API.md §9.5)
+-- Launch/1.device_log: the log stream of a launched program
 -- ---------------------------------------------------------------------------
 
 --- The records waiting to be sent of one log stream, at most LOG_QUEUE_MAX:
@@ -824,12 +824,11 @@ local function run_device_log(service, ctx, l, command, log_options)
         level = log_options and records.LEVELS[log_options.level] or nil }, l.profile)
 
     -- The records, one signal of at most LOG_BATCH_BYTES every LOG_FLUSH_MS
-    -- while the owner keeps up (PROTOCOL.md §14.4); all of them, in signals
-    -- that size, before the task's `done`. Until a subscription names the
-    -- task they stay in the queue (its bound and `dropped` still apply), so
-    -- a client subscribing once the call is accepted misses none (API.md
-    -- §9.5); the first `log` to it carries them. Still unnamed at the end,
-    -- they go with the run.
+    -- while the owner keeps up; all of them, in signals that size, before
+    -- the task's `done`. Until a subscription names the task they stay in
+    -- the queue (its bound and `dropped` still apply), so a client
+    -- subscribing once the call is accepted misses none; the first `log` to
+    -- it carries them. Still unnamed at the end, they go with the run.
     local queue = log_queue()
     local function named(sub_args) return sub_args.task == task.id end
     local function flush(force)
@@ -948,7 +947,7 @@ local function run_device_log(service, ctx, l, command, log_options)
         return run
     end
     -- A lock not taken, a failed or a timed-out clear is a note line, and
-    -- the stream starts anyway (§9.5).
+    -- the stream starts anyway.
     take_device_lock(service, ctx, run, serial, function(lerr)
         if lerr then
             task:line("note", "device log not cleared: " .. lerr, "plain")
@@ -964,7 +963,7 @@ local function run_device_log(service, ctx, l, command, log_options)
     return run
 end
 
---- `Launch/1.device_log { task }` (API.md §9.5): a task streaming the log
+--- `Launch/1.device_log { task }`: a task streaming the log
 --- of the program a finished `launch` task of the caller launched — its
 --- recorded target, device, pid and bundle (loomworks.daemon.DeviceLaunch),
 --- nothing resolved again. Refused as `stop` is (another client's launch

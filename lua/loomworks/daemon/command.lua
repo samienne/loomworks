@@ -1,4 +1,4 @@
---- loomworks/daemon/command.lua — `lw daemon <sub>` (spec §19.5, §19.11).
+--- loomworks/daemon/command.lua — `lw daemon <sub>`.
 ---
 --- Kept out of cli.lua (which sits at Lua's 200-local limit); cli.lua passes
 --- its output helpers in `host`:
@@ -29,12 +29,12 @@ local M = {}
 
 M.SUBS = { "status", "list", "stop", "restart", "kill", "run" }
 
---- How long `stop` waits for the daemon to release R (§19.11).
+--- How long `stop` waits for the daemon to release R.
 M.STOP_WAIT_MS = 10000
 --- Between two `stop` requests that got no answer (`stop` asks again while
 --- STOP_WAIT_MS lasts).
 M.RETRY_MS = 250
---- How long `stop --force` waits after asking before it kills (§19.5 step 1).
+--- How long `stop --force` waits after asking before it kills.
 M.ASK_MS = 5000
 
 --- The resolved runtime mode for a settings table, with a description of
@@ -82,8 +82,8 @@ function M.request(st, kind, timeout_ms)
     return require("loomworks.daemon.client").call(h.endpoint, kind, { timeout_ms = timeout_ms or 2000 })
 end
 
---- The per-daemon text for a daemon of another loomworks data directory
---- (spec §19.6.1): its handle's `key_id` is not this lw's.
+--- The per-daemon text for a daemon of another loomworks data directory:
+--- its handle's `key_id` is not this lw's.
 M.OTHER_KEY_TEXT = "belongs to another loomworks data dir (different key)"
 M.OTHER_KEY_HINT = " — stop it with that LOOMWORKS_DATA_DIR set, or with `lw daemon stop --force` in its workspace"
 
@@ -111,8 +111,8 @@ function M.query(st, timeout_ms)
     return M.request(st, "status", timeout_ms)
 end
 
---- The `idle` line of `lw daemon status` (step 5r D, §19.11 "Warm
---- restarts") from a `status` reply: the idle timeout in effect and, when
+--- The `idle` line of `lw daemon status` from a `status` reply: the idle
+--- timeout in effect and, when
 --- the idle clock runs once this query closes, the deadline; nil for a daemon
 --- that does not report its idle timeout (an older one).
 --- @param r table the `status` reply
@@ -160,7 +160,7 @@ function M.status(root, host)
         out("Daemon         " .. inspect.row(st, mode, own))
     end
     -- A live daemon of an earlier lw holding the legacy (unslotted) runtime
-    -- lock (§19.6 "Legacy files"): reported, never connected to.
+    -- lock: reported, never connected to.
     local linfo = require("loomworks.daemon.legacy").live_daemon(root)
     if linfo then
         out(string.format("Legacy         daemon of an earlier lw (pid %s, legacy runtime lock) — stop it with: "
@@ -196,7 +196,7 @@ function M.status(root, host)
             out("  answers      no (" .. tostring(err) .. ") — lw daemon stop --force recovers a hung daemon")
         end
     end
-    -- The runtime log (§19.10), when there is one.
+    -- The runtime log, when there is one.
     local logp = require("loomworks.daemon.paths").log_path(root)
     local lst = (vim.uv or vim.loop).fs_lstat(logp)
     if lst and lst.type == "file" then out("Log            " .. logp) end
@@ -228,13 +228,13 @@ local function wait_released(root, info, ms)
     end, 50)
 end
 
---- The not-responding message (§19.5).
+--- The not-responding message.
 local function not_responding(info)
     return string.format("the workspace daemon (pid %s) is not responding — recover with: lw daemon stop --force",
         tostring(info.pid or "?"))
 end
 
---- Forced recovery of R (§19.5 steps 1–5): `ask` sends `stop` first (stop
+--- Forced recovery of R: `ask` sends `stop` first (stop
 --- --force), `kill` skips it. Returns 0 or dies.
 function M.force(root, host, st, ask)
     local ok, res, info = M.recover(root, st, ask, {
@@ -250,7 +250,7 @@ function M.force(root, host, st, ask)
     return 0
 end
 
---- The forced recovery of R (§19.5 steps 1–5) without exiting: `ask` sends
+--- The forced recovery of R without exiting: `ask` sends
 --- `stop` first and waits about ASK_MS; then the holder's tree is killed and
 --- verified gone (loomworks.lock_break), R is reclaimed by nonce with the
 --- handle and socket removed under it, and an interrupted commit journal is
@@ -293,7 +293,7 @@ function M.recover(root, st, ask, opts)
         return false, "stopped the workspace daemon (pid " .. info.pid .. ") but could not reclaim its runtime lock",
             info
     end
-    -- Step 5: complete an interrupted multi-file commit (§19.4) if one is left.
+    -- Step 5: complete an interrupted multi-file commit if one is left.
     local uv = vim.uv or vim.loop
     if uv.fs_stat(root .. "/" .. require("loomworks.txn").JOURNAL) then
         local tok, msg = require("loomworks.op_lock").acquire(root, "daemon recovery")
@@ -307,7 +307,7 @@ function M.recover(root, st, ask, opts)
     return true, gone and "stopped" or "killed", info
 end
 
---- Record a kill / forced recovery in the runtime log (spec §19.5, §19.10).
+--- Record a kill / forced recovery in the runtime log.
 --- @param root string
 --- @param line string
 function M.record(root, line)
@@ -329,7 +329,7 @@ function M.stop(root, host, opts)
     -- is an earlier lw's: stopped the way a starting daemon stops it (asked,
     -- then its tree killed and verified gone — `stop_live`), whether or not
     -- --force / kill was given; then the legacy lock and handle of one that is
-    -- gone are removed as a reclaimer would (§19.6 "Legacy files"). The
+    -- gone are removed as a reclaimer would. The
     -- legacy files are never used to connect to a daemon.
     local stopped_legacy = false
     if not opts._again then
@@ -380,7 +380,7 @@ function M.stop(root, host, opts)
     if st.kind == "starting" then
         -- A daemon that holds R (its heartbeat fresh) but has not published
         -- its handle yet: on a loaded machine its start, or a handle rewrite
-        -- a reader keeps blocking (§19.6), can take seconds. Wait the stop
+        -- a reader keeps blocking, can take seconds. Wait the stop
         -- window for it (a fixed 3 s used to call such a daemon "not
         -- responding"); one that exited meanwhile is handled as what is left.
         vim.wait(M.STOP_WAIT_MS, function() st = inspect.state(root); return st.kind ~= "starting" end, 50)
@@ -399,7 +399,7 @@ function M.stop(root, host, opts)
     -- that fails early (the pipe busy, a connection reset) is sent again. A
     -- hung daemon is still reported after STOP_WAIT_MS, as before.
     -- A daemon of another loomworks data directory (its handle names another
-    -- key, §19.6) cannot authenticate with this lw: nothing is sent to it.
+    -- key) cannot authenticate with this lw: nothing is sent to it.
     if M.other_key(st.handle) then host.die("the workspace daemon " .. M.OTHER_KEY_TEXT .. M.OTHER_KEY_HINT, 1) end
     local uv = vim.uv or vim.loop
     uv.update_time()
@@ -434,8 +434,8 @@ function M.stop(root, host, opts)
 end
 
 --- A server for `root` with the build service attached the way every
---- runtime has it (§19.15, §19.19 step 3): the host's workspace load (loaded
---- on the first operation, then kept live) and the runtime log (§19.10).
+--- runtime has it: the host's workspace load (loaded on the first
+--- operation, then kept live) and the runtime log.
 --- @param root string
 --- @param host table the CLI host (`build` = the service's workspace host)
 --- @param opts table server options (loomworks.daemon.server.new)
@@ -447,7 +447,7 @@ function M._new_server(root, host, opts)
     return srv
 end
 
---- Start an attached runtime for one command (§19.1 "Loopback"): the
+--- Start an attached runtime for one command: the
 --- daemon's server and build service inside this process, holding R in
 --- `attached` mode with `command`, reached over `client.loopback_session`.
 --- The caller stops it (`srv:stop`) when the command ends; stopping releases
@@ -489,7 +489,7 @@ function M.run_server(root, args, host)
     -- hash its real path, loomworks.daemon.paths).
     local r = opt_value(args, "--root")
     if r then root = (r:gsub("\\", "/"):gsub("/+$", "")) end
-    -- The standard-I/O forms (§19.10 "Connections", step 5i): `--stdio` is
+    -- The standard-I/O forms: `--stdio` is
     -- the relay to the shared daemon (loomworks.daemon.relay); `--private`
     -- (tests only, gated by LOOMWORKS_TEST_PRIVATE_STDIO=1) the attached
     -- runtime on standard I/O (loomworks.daemon.stdio).
@@ -547,7 +547,7 @@ function M.restart(root, host, args)
 end
 
 -- ---------------------------------------------------------------------------
--- Every daemon of this user (spec §19.6.1)
+-- Every daemon of this user
 -- ---------------------------------------------------------------------------
 
 --- The `--under <dir>` filter, made absolute against the cwd.
@@ -566,7 +566,7 @@ local function under_of(args, host)
     return (u:gsub("/+$", ""))
 end
 
---- The STATE column of one entry: the §19.6.1 state (`live`, `starting`,
+--- The STATE column of one entry: the discovered state (`live`, `starting`,
 --- `hung`, `stray`, `unknown root`), a live one with what it is doing.
 function M.state_text(e)
     if e.state == "live" then
@@ -609,7 +609,7 @@ function M.rows(list)
     return rows
 end
 
---- The JSON shape of one entry (§19.6.1; absent values are null).
+--- The JSON shape of one entry (absent values are null).
 local function json_entry(e)
     local null = vim.NIL
     local function v(x) if x == nil then return null end return x end
@@ -621,8 +621,8 @@ local function json_entry(e)
     }
 end
 
---- One entry's `--json` text: json_entry plus `relays` (§19.6.1 step 3: the
---- relays connected through that daemon, `[ { pid, start_time } ]`), always
+--- One entry's `--json` text: json_entry plus `relays` (the relays
+--- connected through that daemon, `[ { pid, start_time } ]`), always
 --- an array — spliced in by hand, as an empty table is `{}` or `[]` depending
 --- on the host's encoder.
 local function json_text(e)
@@ -682,11 +682,11 @@ function M.list(args, host)
     return 0
 end
 
---- Kill a stray daemon (§19.6.1): only after its command line is read again
+--- Kill a stray daemon: only after its command line is read again
 --- and is still `lw … daemon run` for that root with the same start time,
 --- and is not a relay (discover.is_relay, against R read again: a relay is a
 --- connection, never killed); never this process or an ancestor. If it held
---- its workspace's runtime lock, that lock is reclaimed (§19.5). Returns true
+--- its workspace's runtime lock, that lock is reclaimed. Returns true
 --- or false + reason.
 function M.kill_stray(e)
     local proc = require("loomworks.proc")
@@ -714,8 +714,8 @@ function M.kill_stray(e)
     return true
 end
 
---- `lw daemon stop --all [--force]` / `lw daemon kill --all [--strays]`
---- (§19.6.1): the per-workspace stop / kill for every listed daemon that is
+--- `lw daemon stop --all [--force]` / `lw daemon kill --all [--strays]`:
+--- the per-workspace stop / kill for every listed daemon that is
 --- its workspace's runtime; strays only with `--strays` (kill). Exit 0 when
 --- no listed daemon is left running, else 1.
 --- @param args string[]

@@ -1,11 +1,10 @@
 --- loomworks/daemon/test_discover.lua — `loomworks.Tests/1.discover`, the
---- editor's test discovery in the workspace daemon (spec §19.15 "Tests",
---- §19.20 `Tests/1`; step 5m part B1).
+--- editor's test discovery in the workspace daemon.
 ---
 --- A task (`meta.kind = discover`) owned by the calling client, in its
---- environment (§19.15 "Environment": accepted in a model segment through
---- `Service:live`, so a different environment reloads the workspace first,
---- declined while a build runs). For each unit of the active profile, in
+--- environment (accepted in a model segment through `Service:live`, so a
+--- different environment reloads the workspace first; declined while a build
+--- runs). For each unit of the active profile, in
 --- project-key order:
 ---
 ---   * a unit with nothing to probe (not configured here, foreign kit, no
@@ -13,7 +12,7 @@
 ---   * a unit whose tree is current (loomworks.daemon.test_store `fresh`)
 ---     is not probed again unless `force`;
 ---   * otherwise the unit is probed — the in-process discovery
----     (`ConfigUnit:discover_tests_async`, §8.9.3) — holding its build
+---     (`ConfigUnit:discover_tests_async`) — holding its build
 ---     directory's lock for the probe only: it first waits in the Tests/1
 ---     queue of the directory (loomworks.daemon.test_store `acquire_dirs`,
 ---     behind a test run of it), then behind a task of this daemon that
@@ -202,7 +201,7 @@ function M.prober(svc, ctx, run, o)
     end
 
     --- The build directory's lock for the probe: fail-fast against another
-    --- process (a hung or dead holder handled by lock_break, §19.5).
+    --- process (a hung or dead holder is handled by lock_break).
     local function take_lock(bd)
         local lock_break = require("loomworks.lock_break")
         local lctx = { what = shown(bd), command = ctx.command or "lw test", unlock = shown(bd) }
@@ -320,7 +319,7 @@ function M.prober(svc, ctx, run, o)
         end
 
         if o.queue and bd then
-            -- The Tests/1 queue of the directory first (§5.3, FIFO), as a
+            -- The Tests/1 queue of the directory first (FIFO), as a
             -- test run waits for it.
             local now, granted = true, false
             local e = st:acquire_dirs({ bd }, function()
@@ -370,7 +369,7 @@ function M.run(svc, ctx)
             -- (A cancelled or failed discovery leaves the view stale.)
             if st.discovered == profile then st.discovered = nil end
         end
-        -- The view's update before `done` (§19.15 "Tests").
+        -- The view's update before `done`.
         pcall(require("loomworks.daemon.views").check, svc)
         task:done(code, err, result and { result = result } or nil)
         if svc.on_run_done then svc:on_run_done(run) end

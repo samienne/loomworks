@@ -1,5 +1,5 @@
 --- loomworks/daemon/running.lua — the running-task lines under `lw status`'s
---- Runtime row (spec §19.6 "Running tasks").
+--- Runtime row.
 ---
 --- Only a daemon the handle shows live, on this host, busy and with this lw's
 --- `key_id` is asked — an idle daemon is never contacted, and none is ever
@@ -108,7 +108,7 @@ end
 --- The running-task lines for `lw status` under the Runtime row (empty when
 --- the daemon is not asked or runs nothing), and the `status` reply they came
 --- from (nil when the daemon was not asked or did not answer), so `lw status`
---- can also show those tasks' profiles running (spec §16.18).
+--- can also show those tasks' profiles running.
 --- @param root string
 --- @param opts? { state?: table, own_key_id?: string|false, query?: fun(endpoint: string): table|nil, string|nil, now?: integer }
 --- @return string[] lines, table|nil reply
@@ -122,7 +122,7 @@ function M.lines(root, opts)
     end
     if not M.should_query(st, own) then return {} end
     -- The handle is forgeable: connect only to an endpoint a daemon of this
-    -- workspace binds (spec §19.7), never a remote pipe or another's socket.
+    -- workspace binds, never a remote pipe or another's socket.
     local eok, ewhy = require("loomworks.daemon.endpoint").check(root, st.handle.endpoint)
     if not eok then return { "  running tasks: unavailable (" .. tostring(ewhy) .. ")" } end
     local query = opts.query or M.query

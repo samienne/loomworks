@@ -1,4 +1,4 @@
---- loomworks/daemon/launch.lua — start a workspace daemon (spec §19.10).
+--- loomworks/daemon/launch.lua — start a workspace daemon.
 ---
 --- `<own executable> daemon run --root <root>`:
 ---   * detached (new process group / session), hidden, and with NO inherited
@@ -7,13 +7,13 @@
 ---     when run as `lw … | tail` — are marked non-inheritable around the
 ---     spawn (FFI SetHandleInformation) and restored after. Without this the
 ---     daemon kept the pipe open and `lw build | tail` hung until the daemon
----     exited (2 m 56 s in the 2026-09 spike, DAEMON.md §6);
+---     exited;
 ---   * working directory: the per-user state directory, never the workspace
 ---     (the daemon must not keep it busy);
 ---   * environment: the client's, de-duplicated (Windows: case-insensitively,
 ---     keeping the entry this process resolves), plus `LW_ROOT` and
 ---     `LOOMWORKS_LUA` = the source this process runs (so the daemon runs the
----     same code, and a v0.1.2 host re-executes it, DAEMON.md §6);
+---     same code, and an older host binary re-executes it);
 ---   * readiness: wait about 10 s for a handle naming a live daemon while
 ---     watching the child for an early exit. A child that exits because
 ---     another daemon holds the runtime lock (`server.EXIT_HELD`) is not a
@@ -30,7 +30,7 @@ local paths = require("loomworks.daemon.paths")
 
 local M = {}
 
---- Readiness wait (§19.10). `LW_TEST_DAEMON_READY_MS` lengthens it for test
+--- Readiness wait. `LW_TEST_DAEMON_READY_MS` lengthens it for test
 --- suites that start daemons on a heavily loaded machine.
 M.READY_MS = tonumber(os.getenv("LW_TEST_DAEMON_READY_MS") or "") or 10000
 
@@ -54,7 +54,7 @@ function M.self_argv()
     if not root then return nil, "cannot find the lw sources" end
     -- Modules resolve on the runtime path (plugin_loader), which `-u NONE`
     -- leaves without these sources: put their checkout on it, so the daemon
-    -- builds with the modules the client has (spec §19.15).
+    -- builds with the modules the client has.
     local repo = root:gsub("/lua$", "")
     return { vim.v.progpath, "--headless", "-u", "NONE",
         "--cmd", "lua vim.opt.rtp:prepend(" .. string.format("%q", repo) .. ")",
@@ -62,7 +62,7 @@ function M.self_argv()
 end
 
 --- The daemon's environment as a "K=V" list. `extra` (the editor's
---- `binary.source`, §19.16) is set last.
+--- `binary.source`) is set last.
 --- @param root string
 --- @param extra? table<string, string>
 --- @return string[]
@@ -141,7 +141,7 @@ end
 --- Spawn the daemon (no wait). Returns { pid, exited = fun(): integer|nil }
 --- or nil + reason.
 --- `opts.argv` replaces the own-executable prefix: the editor launches the
---- host binary it resolved (spec §19.16), never its own plugin source;
+--- host binary it resolved, never its own plugin source;
 --- `opts.env` adds variables (the opt-in `binary.source`).
 --- @param root string
 --- @param opts? { args?: string[], argv?: string[], env?: table<string, string> } extra `daemon run` arguments; the executable prefix; extra environment
@@ -181,7 +181,7 @@ function M.spawn(root, opts)
     return child
 end
 
---- Launch a daemon for `root` and wait until one is live (§19.10). Returns
+--- Launch a daemon for `root` and wait until one is live. Returns
 --- true + the live state (loomworks.daemon.inspect) or false + reason.
 --- @param root string
 --- @param opts? { ready_ms?: integer, args?: string[] }

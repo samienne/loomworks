@@ -1,11 +1,11 @@
 --- loomworks/daemon/discover.lua — every workspace daemon of this slot on
---- this host, found by a process scan (spec §19.6.1).
+--- this host, found by a process scan.
 ---
 --- There is no registry: nothing is written outside the workspaces. The scan
 --- lists the processes with their executable names (loomworks.proc.processes),
 --- keeps the lw-host candidates (`lw`, `lw-*`, `luvi`, `nvim`), reads their
 --- command lines and keeps `lw … daemon run` (loomworks.proc.is_daemon_for)
---- of this process's slot (§19.7.1, loomworks.daemon.identity.same_slot: a
+--- of this process's slot (loomworks.daemon.identity.same_slot: a
 --- process of another user or elevation, or whose token / euid cannot be
 --- read, is skipped).
 --- Each daemon's workspace is its `--root`; its runtime lock R and handle are
@@ -22,14 +22,13 @@
 ---
 --- A `lw … daemon run --stdio` process (any standard-I/O form, M.stdio_form —
 --- the same predicate `lw daemon run` dispatches on) is a **relay** unless R
---- names it by pid and start time (then it is a runtime — a pre-5i attached
+--- names it by pid and start time (then it is a runtime — an older attached
 --- `--stdio`, or the gated test-only `--stdio --private`, which takes R —
 --- and a daemon like any other): never a daemon row or a stray, never stopped or
---- killed; it is listed under the daemon of its root as `relays` (§19.6.1
---- step 3).
+--- killed; it is listed under the daemon of its root as `relays`.
 ---
 --- Each entry also carries `same_key`: whether the daemon's handle names this
---- lw's daemon key (`key_id`, §19.6) — false for a daemon of another loomworks
+--- lw's daemon key (`key_id`) — false for a daemon of another loomworks
 --- data directory (a test run's, say), nil when its handle does not say.
 ---
 --- Never launches, connects to or signals anything; writes nothing.
@@ -41,7 +40,7 @@ local identity = require("loomworks.daemon.identity")
 local M = {}
 
 --- A daemon with no runtime lock that started less than this many seconds
---- ago is `starting`: it has not taken its lock yet (§19.6.1).
+--- ago is `starting`: it has not taken its lock yet.
 M.STARTING_GRACE_S = 30
 
 local function uv() return vim.uv or vim.loop end
@@ -121,16 +120,14 @@ local function stdio_cmdline(args)
     return ra ~= nil and M.stdio_form(ra)
 end
 
---- Is a found `lw … daemon run` process a relay (§19.6.1 step 3, §19.10
---- "Connections")? A standard-I/O form is a relay unless its root's runtime
---- lock R names it by pid **and** start time — then it is a runtime (the
---- attached `--stdio` of a release before 5i, or the gated `--stdio
---- --private` runtime, which takes R) and a daemon like any other. A pre-5i
---- runtime R no longer names (taken over, unreadable, root gone) is thus a
---- relay: not listed, never killed (spec §19.6.1 step 3).
---- A relay is never a daemon row or a stray, and is never stopped or killed.
---- Anything not provably that runtime is a relay (the safe side: a relay is
---- never acted on).
+--- Is a found `lw … daemon run` process a relay? A standard-I/O form is a
+--- relay unless its root's runtime lock R names it by pid **and** start
+--- time — then it is a runtime (an older release's attached `--stdio`, or
+--- the gated `--stdio --private` runtime, which takes R) and a daemon like
+--- any other. Such a runtime R no longer names (taken over, unreadable, root
+--- gone) is thus a relay. A relay is never a daemon row or a stray, and is
+--- never stopped or killed: anything not provably that runtime is a relay
+--- (the safe side).
 --- @param d { pid: integer, start_time: string, args: string[], root?: string }
 --- @param lk? table R of `d.root` (loomworks.daemon.rlock.read), when read
 --- @return boolean
@@ -164,12 +161,12 @@ function M.scan()
             local st = proc.start_time(p.pid)
             if type(st) == "string" then
                 local args = proc.cmdline(p.pid, st)
-                -- Another slot's process (§19.7.1: another user or elevation,
+                -- Another slot's process (another user or elevation,
                 -- or a token / euid that cannot be read) is skipped: an
                 -- elevated or root caller lists, stops and kills only its own
                 -- slot's daemons.
                 if args and proc.is_daemon_for(args) and identity.same_slot(p.pid) then
-                    -- The root it names (§19.10: launched daemons always do);
+                -- The root it names (launched daemons always do);
                     -- is_daemon_for(args, root) matches its own --root.
                     found[#found + 1] = { pid = p.pid, start_time = st, args = args, root = M.root_of(args) }
                 end
@@ -180,7 +177,7 @@ function M.scan()
     return found, (uv().hrtime() - t0) / 1e6
 end
 
---- Leave out the pin redirect's wrappers (spec §16.23): a global lw that
+--- Leave out the pin redirect's wrappers: a global lw that
 --- redirects `daemon run --root R` to the pinned lw stays alive as that
 --- daemon's parent, with the same command line. It is not a daemon — the
 --- pinned lw under it is — so it must never be listed (as a stray) nor killed
@@ -210,7 +207,7 @@ function M.drop_redirect_wrappers(found, parent_of)
     return out
 end
 
---- Classify one found daemon from its workspace's files (§19.6.1).
+--- Classify one found daemon from its workspace's files.
 --- @param d table from `scan`
 --- @param own_key_id? string|false this lw's key id (default: computed; false: none)
 --- @return table entry
@@ -243,7 +240,7 @@ function M.classify(d, own_key_id)
     end
     if not names_me(lk) then
         if lk == nil and not (h and h.valid and not mine) and e.uptime_s and e.uptime_s < M.STARTING_GRACE_S then
-            -- Launched moments ago: it takes R first thing (§19.10).
+            -- Launched moments ago: it takes R first thing.
             e.state, e.reason = "starting", "no runtime lock yet"
             return e
         end
@@ -286,7 +283,7 @@ function M.under(root, dir)
     return r == d or r:sub(1, #d + 1) == d .. "/" or (d:sub(-1) == "/" and r:sub(1, #d) == d)
 end
 
---- Put each relay on the entry of the daemon of its root (§19.6.1 step 3):
+--- Put each relay on the entry of the daemon of its root:
 --- the one that is its workspace's runtime (`live`, `starting`, `hung`) when
 --- there is one, else the first listed for that root. Every entry gets a
 --- `relays` list (`{ pid, start_time }[]`, by pid); a relay whose root has no

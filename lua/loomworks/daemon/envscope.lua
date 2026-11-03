@@ -1,5 +1,5 @@
 --- loomworks/daemon/envscope.lua — run daemon-side work in the REQUESTING
---- client's environment (spec §19.15 "Environment").
+--- client's environment.
 ---
 --- A routed build must behave as if the client process had run it: the same
 --- PATH, compiler / SDK / vcvars variables, `${VAR}` expansions — not the
@@ -184,8 +184,8 @@ function M.additions(env)
 end
 
 --- `env` as it reads to the client whose environment is `client`, for the
---- `-v` env line (spec §19.15 "Roles and verbose": against the client's
---- environment, before the daemon's own adjustments). A whole environment
+--- `-v` env line (against the client's environment, before the daemon's own
+--- adjustments). A whole environment
 --- read inside the scope of `client` (every non-empty variable of `client`
 --- present: a run environment, ConfigUnit:run_env) loses the variables the
 --- scope itself added (`additions`, with the added value); any other `env`
@@ -213,7 +213,7 @@ end
 --- Run `fn` with the process environment switched to `env` (nil: as is),
 --- restoring the previous environment afterwards — also when `fn` raises
 --- (the error is re-raised). On Windows the scope keeps
---- `NoDefaultCurrentDirectoryInExePath=1` (spec §5.10) even when the client's
+--- `NoDefaultCurrentDirectoryInExePath=1` even when the client's
 --- environment lacks it (a client hosted by the editor): a program a probe
 --- runs by name is never taken from the current directory.
 --- @param env table<string, string>|nil
@@ -236,7 +236,7 @@ function M.with(env, fn)
     return unpack(res, 2)
 end
 
---- `env` with `overlay` on top (a step's own variables, §8.1); on Windows an
+--- `env` with `overlay` on top (a step's own variables); on Windows an
 --- overlay name replaces an entry that differs only in case.
 --- @param env table<string, string>
 --- @param overlay table|nil

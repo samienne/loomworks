@@ -1,9 +1,8 @@
---- loomworks/daemon/endpoint.lua — the daemon's endpoint and its access control
---- (spec §19.7).
+--- loomworks/daemon/endpoint.lua — the daemon's endpoint and its access control.
 ---
 --- The endpoint is a trust boundary — a peer that can issue commands can run
 --- builds — so it is restricted by the operating system AND gated by the
---- handshake (§19.8, loomworks.daemon.auth).
+--- handshake (loomworks.daemon.auth).
 ---
 ---   * POSIX — a Unix-domain socket `<dir>/<root hash>.sock` in a short
 ---     per-user directory created 0700 and verified to be a real directory
@@ -12,26 +11,26 @@
 ---     `sun_path` limit (~104 bytes on macOS, 108 on Linux) for any repository
 ---     depth; a base whose path would not fit falls back to `/tmp`.
 ---   * Windows — a named pipe `\\.\pipe\loomworks-<hash of S and root>`,
----     S the slot token (§19.7.1, loomworks.daemon.identity).
+---     S the slot token (loomworks.daemon.identity).
 ---     Right after binding (before listening) its security descriptor is
 ---     replaced, through LuaJIT FFI `SetSecurityInfo`, with the protected DACL
 ---     `D:P(D;;GA;;;NU)(A;;GA;;;<user SID>)(A;;GA;;;SY)`: owner and SYSTEM
 ---     only, network logons denied. A pipe whose DACL cannot be applied is
 ---     never served (the daemon exits with an error). The default DACL lets
----     Everyone and Anonymous READ, which leaked another client's traffic in
----     the 2026-09 spike (DAEMON.md §6). The descriptor belongs to the pipe,
+---     Everyone and Anonymous READ, which would leak another client's
+---     traffic. The descriptor belongs to the pipe,
 ---     not to an instance: the instances libuv creates later (one per
 ---     pending accept) carry the same DACL (tests read it back).
 ---     Peer check: the daemon checks each accepted instance, and a client the
 ---     pipe it connected to, before any frame (M.peer_check): the other end's
----     process must have this process's identity (§19.7.1: user SID and
+---     process must have this process's identity (user SID and
 ---     elevation); one whose token cannot be read is refused.
 ---
 --- Deletion safety: the only file this module removes is a stale socket at
 --- exactly `<verified dir>/<root hash>.sock` whose `lstat` type is `socket`
---- owned by this uid, and only for a caller that holds the runtime lock
---- (§19.7). The directory is a candidate of this environment or a real,
---- owned, 0700 directory (M._posix_owned).
+--- owned by this uid, and only for a caller that holds the runtime lock (it
+--- may still be in use otherwise). The directory is a candidate of this
+--- environment or a real, owned, 0700 directory (M._posix_owned).
 
 local paths = require("loomworks.daemon.paths")
 
@@ -43,7 +42,7 @@ local function is_win() return package.config:sub(1, 1) == "\\" end
 --- Conservative `sun_path` budget (the kernel limit includes the NUL).
 M.SUN_PATH_MAX = 100
 
---- The effective uid (spec §19.7: the socket directory is named by and
+--- The effective uid (the socket directory is named by and
 --- verified against it, never the real uid). POSIX only; a process whose
 --- effective uid cannot be read has no endpoint (no fallback).
 local function uid()
@@ -81,7 +80,7 @@ M._posix_candidates = posix_candidates
 --- @return string
 function M.address(root)
     if is_win() then
-        -- Keyed by the slot token S (§19.7.1): the slots of one user
+        -- Keyed by the slot token S: the slots of one user
         -- (elevated / standard) never share a pipe name.
         return [[\\.\pipe\loomworks-]] .. paths.short_hash(require("loomworks.daemon.identity").slot() .. "\n"
             .. paths._hash_key(root))
@@ -170,7 +169,7 @@ function M.user_sid()
     return sid
 end
 
---- The DACL the pipe gets (spec §19.7).
+--- The DACL the pipe gets.
 --- @param sid string
 --- @return string
 function M.sddl(sid)
@@ -185,7 +184,7 @@ local function os_handle(pipe)
     return w.ffi.cast("void*", fd)
 end
 
---- Replace the DACL of a bound pipe (spec §19.7). Returns true or nil + error.
+--- Replace the DACL of a bound pipe. Returns true or nil + error.
 --- @param pipe userdata a bound uv pipe
 --- @return boolean|nil ok, string|nil err
 function M.apply_dacl(pipe)
@@ -252,7 +251,7 @@ function M.read_dacl(pipe)
 end
 
 -- ---------------------------------------------------------------------------
--- Windows: the peer check (spec §19.7 "Peer check")
+-- Windows: the peer check
 -- ---------------------------------------------------------------------------
 
 local _k
@@ -298,13 +297,13 @@ function M.peer_pid(pipe, side)
     return tonumber(out[0])
 end
 
---- The peer check of a connected pipe (spec §19.7 "Peer check (Windows)"),
+--- The peer check of a connected pipe,
 --- run before any frame is read or written: the process at the other end
 --- (`side`: "client" for the daemon, "server" for a client) must have this
---- process's identity I (§19.7.1: user SID and elevation). A peer whose
+--- process's identity I (user SID and elevation). A peer whose
 --- process id or token cannot be read is refused, and so is any peer when
 --- this process's own identity cannot be read. POSIX: always true (the
---- euid-owned 0700 directory and the socket owner check do this, §19.7).
+--- euid-owned 0700 directory and the socket owner check do this).
 --- Only FFI calls: safe in a libuv callback of the editor host.
 --- @param pipe userdata
 --- @param side "client"|"server"
@@ -332,7 +331,7 @@ M._lstat = function(p) return uv().fs_lstat(p) end
 M._uid = uid
 
 --- Is `addr` this workspace's socket in a private directory of this user,
---- wherever that directory is (POSIX, spec §19.7)? The daemon binds the first
+--- wherever that directory is (POSIX)? The daemon binds the first
 --- candidate of the environment that LAUNCHED it (`$XDG_RUNTIME_DIR`,
 --- `$TMPDIR`), which a later client — from ssh, cron, `sudo -u`, a container
 --- exec — may not share, so the client cannot recompute the path. Accepted
@@ -372,7 +371,7 @@ end
 --- `address(root)` on Windows; on POSIX one of this environment's per-user
 --- socket candidates, or this root's socket in a private directory of this
 --- user (M._posix_owned: a daemon launched from another environment)? A
---- client connects to nothing else (spec §19.7): the handle lives in a
+--- client connects to nothing else: the handle lives in a
 --- `.nvim/` other local users may be able to write, and a forged one naming
 --- `\host\pipe\x` would make a client open a remote pipe (an SMB connection
 --- that leaks the user's NTLM hash) or another user's socket.
@@ -406,7 +405,7 @@ end
 -- ---------------------------------------------------------------------------
 
 --- Bind and listen the endpoint of `root`. The caller holds the runtime lock
---- (§19.7: a stale socket is unlinked only then). Returns the server pipe and
+--- (a stale socket is unlinked only then). Returns the server pipe and
 --- the address bound, or nil + error.
 --- @param root string
 --- @param on_connection fun(err: string|nil)
