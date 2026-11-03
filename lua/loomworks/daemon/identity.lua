@@ -185,7 +185,7 @@ local function cached()
     if M._cache then return M._cache end
     local I, err = M.read_identity()
     if not I then
-        error("cannot determine this process's daemon slot (spec §19.7.1): " .. tostring(err), 0)
+        error("cannot determine this process's daemon slot: " .. tostring(err), 0)
     end
     M._cache = { identity = I, slot = M.token_of(I) }
     return M._cache

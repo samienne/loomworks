@@ -28,7 +28,7 @@ local M = {}
 M.SCOPES = { "config", "user", "cache" }
 
 --- The reason a projection carries in `_no_write`.
-M.READ_ONLY = "a read-only projection of the workspace daemon's model (spec §19.13)"
+M.READ_ONLY = "a read-only projection of the workspace daemon's model"
 
 -- ========================== opaque-id registry ==========================
 
