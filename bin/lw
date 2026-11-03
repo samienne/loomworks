@@ -21,7 +21,7 @@ lua_dir="$home/lua"
 cli="$lua_dir/loomworks/cli.lua"
 if [ ! -f "$cli" ]; then
   echo "lw: cannot find the CLI at $cli" >&2
-  echo "lw: set LOOMWORKS_HOME to your loomworks.nvim checkout or dist" >&2
+  echo "lw: set LOOMWORKS_HOME to your loomworks checkout or dist" >&2
   exit 1
 fi
 
