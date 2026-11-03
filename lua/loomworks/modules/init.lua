@@ -22,7 +22,7 @@ local rejected = {}
 
 --- Load errors of module files that exist on the runtime path (recorded by
 --- `M.list`, which knows the file is there) — the environment inventory's
---- plugin registry reports them as rejected (headless §16.33).
+--- plugin registry reports them as rejected.
 --- @type table<string, string>
 local load_failed = {}
 
@@ -31,8 +31,8 @@ local load_failed = {}
 local rejection_notes = {}
 
 --- Report a rejected module: once per workspace load (loomworks.notify
---- `once`), so each load's diagnostics carry it (core daemon.md §19.13 "Load
---- warnings") while the gets within one load stay silent.
+--- `once`), so each load's diagnostics carry it while the gets within one
+--- load stay silent.
 --- @param id string
 local function report_rejected(id)
     local msg = rejection_notes[id]
@@ -55,8 +55,7 @@ end
 --- `loomworks.plugin_loader` — runtime path only, never `package.path` (whose
 --- `./?.lua` entry would reach a file relative to the current directory). An
 --- id that is not a plain identifier is rejected with a diagnostic; the
---- project that names it is preserved verbatim like any other unknown type
---- (spec §8.0).
+--- project that names it is preserved verbatim like any other unknown type.
 --- @param id string
 --- @return table|nil
 function M.get(id)
@@ -140,7 +139,7 @@ end
 
 --- Modules found on the runtime path that will not load, with the reason
 --- (contract / interface-version mismatch, or a load error). Read by the
---- environment inventory's plugin registry (headless §16.33, spec §8.0).
+--- environment inventory's plugin registry.
 --- @return table<string, string> id → reason
 function M.rejected()
     local out = {}

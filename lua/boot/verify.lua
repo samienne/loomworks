@@ -22,7 +22,7 @@ local M = {}
 -- way bundles can rely on.
 M.HOST_VERSION = 1
 
--- The release version this host binary was built as (spec §16.32), injected by
+-- The release version this host binary was built as, injected by
 -- scripts/release/fuse_host.sh at release-fuse time. nil in the committed
 -- source: a development build or a source run has no release identity, and
 -- `lw version` reports it as a dev build (or, for a bootstrap-only fuse
@@ -34,7 +34,7 @@ M.RELEASE_VERSION = nil
 -- Trusted public key: the PRODUCTION loomworks release key
 -- (keys/loomworks-release.pub.pem), embedded in the committed source so every
 -- build -- a release host, a `make install` / `lw --dev` build from a working
--- tree -- verifies official releases (spec §16.12). A public key is not secret.
+-- tree -- verifies official releases. A public key is not secret.
 -- Tests that verify test-signed artifacts pass their key explicitly (the
 -- `pubkey_pem` parameters below, or a host fused for the test with
 -- scripts/release/fuse_host.sh, which substitutes this block). Nothing at run
@@ -86,7 +86,7 @@ end
 
 --- The explanation appended to a failed signature check: which key this lw
 --- trusts, whether it is the loomworks release key, and the likely causes
---- (spec §16.12) -- never only "does not verify".
+--- -- never only "does not verify".
 --- @param pubkey_pem string|nil the key the check used (default: embedded)
 --- @return string
 function M.key_note(pubkey_pem)

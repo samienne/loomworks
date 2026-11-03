@@ -1,12 +1,12 @@
 --- loomworks/remote/spec_exec.lua — the command-spec executor for device
---- runners (spec §18.2, §18.8).
+--- runners.
 ---
 --- A device runner only BUILDS command specs `{ cmd, args, env?, check_output? }`;
 --- core executes every one of them here, so spawning, timeouts, cancellation,
 --- output normalisation and failure detection are uniform across runners:
 ---
----   * `cmd` must be an absolute path (derived from the SDK installation, spec
----     §17.7) and is resolved with the existing executable rules
+---   * `cmd` must be an absolute path (derived from the SDK installation)
+---     and is resolved with the existing executable rules
 ---     (loomworks.exe: existence, PATHEXT on Windows) — never a PATH search;
 ---   * `args` is an argument vector passed with no host command interpreter;
 ---   * `env` extends the parent environment;
@@ -30,7 +30,7 @@ local M = {}
 
 local function uv() return vim.uv or vim.loop end
 
---- Default transport timeouts, in seconds (spec §18.8).
+--- Default transport timeouts, in seconds.
 M.DEFAULT_TIMEOUTS = { query = 120, transfer = 600 }
 
 --- Grace period after a process exits for its pipes to drain before they are
@@ -215,7 +215,7 @@ end
 ---   backend  table|nil process backend (default: libuv)
 ---   on_command fun(c: { cmd: string[], env: table|nil, cwd: string|nil })|nil
 ---            hears the validated connector command before it is spawned
----            (`lw -v`, headless §16.4 *Verbose*)
+---            (`lw -v`)
 --- @param spec table runner-built spec
 --- @param opts? table
 --- @return loomworks.SpecJob
@@ -358,7 +358,7 @@ function M.run(spec, opts)
 end
 
 --- Resolve the effective transport timeouts: per-invocation overrides win over
---- the runner's, which win over core's defaults (spec §18.8).
+--- the runner's, which win over core's defaults.
 --- @param runner loomworks.Runner|nil
 --- @param overrides? { query?: number, transfer?: number }
 --- @return { query: number, transfer: number }

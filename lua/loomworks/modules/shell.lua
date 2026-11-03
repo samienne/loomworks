@@ -16,10 +16,10 @@ M.has_devices = false
 M.languages = { "c++" }
 
 --- Language-server integrations whose configurations `lsp_configs` can emit
---- (core §8.4) — health lists these servers in a workspace using this module.
+--- — health lists these servers in a workspace using this module.
 M.lsp_servers = { "clangd" }
 
---- Program-bearing type_config keys (core §8.4 / §17.6; shell spec §14): the
+--- Program-bearing type_config keys: the
 --- module environment and the clangd binary / database argument. The
 --- configure/build/clean commands are the project's build description — run
 --- only on an explicit action — so they are listed for the trust review only.
@@ -86,7 +86,7 @@ local function resolve_env(project, ctx)
     for k, v in pairs(project.env or {}) do env[k] = v end
     local tc = shell_block(project)
     if type(tc.env) == "table" then
-        -- Denylisted loader/interpreter variables are refused (core §17.9).
+        -- Denylisted loader/interpreter variables are refused.
         local allowed = require("loomworks.env_policy").filter(tc.env,
             { label = (project.name or "shell") .. " env" })
         for k, v in pairs(allowed) do
@@ -98,11 +98,11 @@ local function resolve_env(project, ctx)
     return next(env) and env or nil
 end
 
---- The only names a `build_dir` template may use (shell spec §6). No
+--- The only names a `build_dir` template may use. No
 --- environment variable, no project variable.
 local BUILD_DIR_VARS = { workspace_root = true, project_path = true, variant = true }
 
---- Why a `build_dir` template cannot be used (shell spec §6): the names it
+--- Why a `build_dir` template cannot be used: the names it
 --- uses besides `BUILD_DIR_VARS`, or nil when it uses none.
 --- @param template any
 --- @return string|nil
@@ -122,7 +122,7 @@ local function build_dir_error(template)
 end
 
 --- Expand a validated `build_dir` template with exactly the three names of
---- shell spec §6 (`project_path` is the project KEY). Never falls back to
+--- `BUILD_DIR_VARS` (`project_path` is the project KEY). Never falls back to
 --- the environment.
 --- @param template string
 --- @param workspace_root string
@@ -138,7 +138,7 @@ end
 --- Prefers core's cached value (which came from resolve_build_dir).
 --- Falls back to expanding the user-declared build_dir template, then to
 --- the standard .nvim/build path. A template that names anything else
---- (shell spec §6) is never expanded: core refuses every operation on such
+--- is never expanded: core refuses every operation on such
 --- a configuration, so reaching here with one is an error.
 --- @param project loomworks.ModuleContext
 --- @param active_config string
@@ -226,7 +226,7 @@ function M.info(path, config)
             cfg.variant = (cfg.base_name or name)
         end
 
-        -- Module fields go flat on the config info (spec §8 `info`): core's
+        -- Module fields go flat on the config info: core's
         -- Configuration copies every non-generic key into its
         -- `module_config`, so a nested `module_config` table would land at
         -- `module_config.module_config` and the template would be lost.
@@ -240,9 +240,9 @@ function M.info(path, config)
             cfg._derived = cfg._derived or {}
             cfg._derived.build_dir = true
         end
-        -- A template naming anything but the three build_dir names (shell
-        -- spec §6) makes the configuration invalid: reported to core as the
-        -- configuration info's `error` (core §8 `info`), which then never
+        -- A template naming anything but the three build_dir names
+        -- makes the configuration invalid: reported to core as the
+        -- configuration info's `error`, which then never
         -- asks for its build directory. nil clears a stale one.
         cfg.error = build_dir_error(cfg.build_dir)
     end
@@ -356,7 +356,7 @@ function M.tasks(project, active_config)
     end
 
     if build_cmd then
-        -- The caller's build args (core §8.1 `build_args`) append to the
+        -- The caller's build args append to the
         -- user's build command. `build_targets` is not supported: a shell
         -- build command has no generic notion of a target, so the build task
         -- does not claim it and core refuses `--target`.
@@ -392,7 +392,7 @@ function M.clean_tasks(project, active_config)
     local cmd = expand_cmd(shell.clean_cmd, ctx)
     if not cmd then
         -- No clean_cmd: wipe the build dir. Core performs that deletion itself
-        -- (`wipe_build_dir`, spec §8.1): validated against the workspace root
+        -- (`wipe_build_dir`): validated against the workspace root
         -- and done with filesystem calls — never a shell command line built
         -- from a (possibly cache-sourced) path.
         return {
@@ -486,7 +486,7 @@ function M.lsp_configs(project)
 
     -- Resolve build_dir from active profile so ${build_dir} matches
     -- what the build actually produces. The declared database is offered only
-    -- when the active unit is configured on this machine (spec §9.1) — the
+    -- when the active unit is configured on this machine — the
     -- module cannot tell whether the configure command produces it, so every
     -- declared database counts as build output.
     local build_dir = nil
@@ -506,7 +506,7 @@ function M.lsp_configs(project)
         local pp = active_profile and active_profile:project(project.key)
         local conf = pp and pp._config_unit and pp._config_unit._configuration or nil
         local variables = require("loomworks.variables")
-        -- Thread the active profile so blank variables (§1.3.1) pick up their
+        -- Thread the active profile so blank variables pick up their
         -- fill value; a still-blank value is skipped.
         for name, entry in pairs(variables.resolve(project, conf, nil, active_profile)) do
             if entry.value ~= nil then
@@ -520,7 +520,7 @@ function M.lsp_configs(project)
 
     -- compile_commands_dir wants the containing directory. Not configured
     -- here → no directory at all; the entry still routes the project's
-    -- buffers through loomworks, so clangd is withheld (spec §9.8).
+    -- buffers through loomworks, so clangd is withheld.
     local dir = nil
     if configured then
         dir = compile_commands

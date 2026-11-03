@@ -5,7 +5,7 @@ local io_mod = require("loomworks.io")
 local reserved_compiler = require("loomworks.reserved_compiler")
 
 --- Filter reserved compiler-driver vars out of a task env. The profile's
---- tool owns the compiler (spec §15 / cmake.md §5b); a hand-edited config/env
+--- tool owns the compiler; a hand-edited config/env
 --- carrying CC/CXX/… is dropped so the tool's compiler always wins. Returns a
 --- fresh env table plus the sorted list of stripped names (for a diagnostic).
 --- @param env table<string, string>|nil
@@ -25,7 +25,7 @@ local function strip_reserved_env(env)
 end
 
 --- True when a kit builds with the MSVC ABI (cl.exe or clang-cl), for which
---- the compiler cache needs `/Z7` debug info to hit (§5d). Delegates to the
+--- the compiler cache needs `/Z7` debug info to hit. Delegates to the
 --- shared `cpp_compilers.is_msvc_style` — the single clang-cl/MSVC-ABI signal
 --- both the `/Z7` path and the launcher-preference resolver use.
 --- @param kit table|nil tool_data
@@ -35,9 +35,9 @@ local function is_msvc_style(kit)
 end
 
 --- A CMake cache key that selects a compiler launcher —
---- `CMAKE_<LANG>_COMPILER_LAUNCHER`. Deliberately NOT reserved (§5b reserves
---- only `..._COMPILER`); the compiler-cache feature owns it *conditionally*
---- (§5d / §4f): when core resolved a launcher, the feature's value wins over a
+--- `CMAKE_<LANG>_COMPILER_LAUNCHER`. Deliberately NOT reserved (only
+--- `..._COMPILER` is); the compiler-cache feature owns it *conditionally*:
+--- when core resolved a launcher, the feature's value wins over a
 --- user-set one (with a diagnostic); when it did not, a user launcher passes
 --- through untouched.
 --- @param key any
@@ -48,8 +48,8 @@ end
 
 --- Memoized `cmake --version` probe. Returns `{ major, minor }` or nil.
 --- Keyed by the resolved cmake executable so a repeated configure pays it once.
---- Consulted only on the MSVC `/Z7` path and for a full reconfigure (§5d:
---- `--fresh` needs >= 3.24), so a plain build never runs it.
+--- Consulted only on the MSVC `/Z7` path and for a full reconfigure
+--- (`--fresh` needs >= 3.24), so a plain build never runs it.
 M._cmake_version_cache = {}
 --- @param cmake_cmd string
 --- @return { major: integer, minor: integer }|nil
@@ -95,7 +95,7 @@ local function cmake_at_least_325(cmake_cmd)
 end
 
 --- The ONLY cache keys whose change the module applies with an in-place
---- reconfigure (§5d whitelist, core §5.1 "in place only where certain"). They
+--- reconfigure. They
 --- are consulted solely to initialize each target's `<LANG>_COMPILER_LAUNCHER`
 --- property when the target is created — and targets are re-created on every
 --- configure run — while taking no part in compiler detection or any other
@@ -141,8 +141,8 @@ local function passed_d_options(argv)
     return out
 end
 
---- Classify this configure against the unit's previous configure (§5d "Full
---- reconfigure by default; in place only for the launcher keys", core §5.1):
+--- Classify this configure against the unit's previous configure (full
+--- reconfigure by default; in place only for the launcher keys):
 ---   * `"none"`     — never configured: a plain first configure;
 ---   * `"full"`     — any changed configure input: a `-D` added, changed or
 ---                    removed outside `IN_PLACE_KEYS`, a generator change, a
@@ -150,9 +150,8 @@ end
 ---                    `configure_env` record vs `configuration_env`), or a
 ---                    configured unit whose record is missing, lacks
 ---                    `passed_options`, or predates `configure_record_version`
----                    (it cannot be classified with certainty — core §5.1
----                    *Configure record migration*), or a forced full
----                    reconfigure (`force_full_reconfigure`, core §8.1);
+---                    (it cannot be classified with certainty), or a forced full
+---                    reconfigure (`force_full_reconfigure`);
 ---   * `"in_place"` — nothing changed, or only `IN_PLACE_KEYS` changed; the
 ---                    second return lists those that disappeared (to `-U`).
 --- `allow_in_place = false` (the preset path) turns every change into a full
@@ -163,7 +162,7 @@ end
 --- @param allow_in_place boolean
 --- @return "none"|"full"|"in_place" kind, string[] retract
 local function classify_reconfigure(project, passed, generator, allow_in_place)
-    -- Forced (`lw build --reconfigure`, core §8.1): always the full path —
+    -- Forced (`lw build --reconfigure`): always the full path —
     -- `--fresh` is harmless on a build tree that was never configured.
     if project.force_full_reconfigure then return "full", {} end
     local rec = project.recorded_module_info
@@ -198,7 +197,7 @@ local function classify_reconfigure(project, passed, generator, allow_in_place)
     return "in_place", retract
 end
 
---- One-shot non-blocking warnings (§5d preset / launcher-conflict), deduped so
+--- One-shot non-blocking warnings (preset / launcher conflict), deduped so
 --- a repeated build does not spam. Keyed by an arbitrary string.
 M._warned = {}
 --- @param key string
@@ -213,17 +212,17 @@ end
 
 M.id = "cmake"
 M.api_version = 1
---- Current format of this module's configure record (`module_info`, core
---- §8.1 `configure_record_version`). Core stamps it into the record after a
+--- Current format of this module's configure record (`module_info`).
+--- Core stamps it into the record after a
 --- successful configure; a configured unit whose record carries a different
 --- (or no) version was written by an older lw, so core marks it stale and
---- this module classifies its next configure as a full reconfigure (core
---- §5.1 *Configure record migration*). Bump when the record gains a key the
+--- this module classifies its next configure as a full reconfigure.
+--- Bump when the record gains a key the
 --- reconfigure classification depends on.
 M.configure_record_version = 1
 
---- Does `build_dir` already hold this module's configure state (core §8.4
---- `has_configure_state`)? Core asks it for a unit with no configure record:
+--- Does `build_dir` already hold this module's configure state
+--- (`has_configure_state`)? Core asks it for a unit with no configure record:
 --- an existing tree is then configured with the full reconfigure, not as a
 --- first configure. A stat only.
 --- @param build_dir string
@@ -243,13 +242,13 @@ M.has_options = true
 M.languages = { "c", "c++" }
 
 --- Language-server integrations whose configurations `lsp_configs` can emit
---- (core §8.4) — health lists these servers in a workspace using this module.
+--- — health lists these servers in a workspace using this module.
 M.lsp_servers = { "clangd", "qmlls" }
 
---- Program-bearing type_config keys (core §8.4 / §17.6): honored only from the
+--- Program-bearing type_config keys: honored only from the
 --- signed working copy, ignored (with a diagnostic) in loomworks.json. Build
 --- inputs (options, toolchain, generator, presets) are the project's own build
---- description and are not listed (core §17.8).
+--- description and are not listed.
 M.trust_fields = { type_config = { "clangd", "qmlls", "qml_import_paths" } }
 
 local uv = vim.uv or vim.loop
@@ -363,7 +362,7 @@ end
 --- @param tag string|nil short action label for the .bat filename
 --- @param env table|nil the task environment
 --- @return string[] cmd, table|nil env, string[]|nil display the command the
----   wrapper runs (the task spec's `display_cmd`, core §8.1); nil when unwrapped
+---   wrapper runs (the task spec's `display_cmd`); nil when unwrapped
 local function wrap_cmd(cmd, kit, generator, build_dir, tag, env)
     if M.runs_in_vcvars(kit, generator) and build_dir then
         local bat_path, err = write_vcvarsall_bat(
@@ -378,7 +377,7 @@ local function wrap_cmd(cmd, kit, generator, build_dir, tag, env)
         -- command line, so none of its characters is ever interpreted, and the
         -- argv is identical under both spawning conventions (the editor's job
         -- runner hands cmd.exe its arguments verbatim; the standalone host
-        -- quotes them). cmake spec §14.
+        -- quotes them).
         -- The Visual Studio Installer folder goes on the batch's PATH (when it
         -- exists, once): vcvarsall runs `vswhere.exe` by bare name and would
         -- otherwise print "'vswhere.exe' is not recognized" on every step.
@@ -396,7 +395,7 @@ M._wrap_cmd = wrap_cmd
 --- The environment variable carrying the vcvarsall batch path to `cmd.exe`.
 M.VCVARS_BAT_ENV = "LOOMWORKS_VCVARS_BAT"
 
---- Append the caller's build request (core §8.1 `build_targets` /
+--- Append the caller's build request (`build_targets` /
 --- `build_args`, headless `lw build --target X -- <args>`) to a native
 --- `cmake --build` command, BEFORE any vcvarsall wrapping — the wrapped command
 --- runs a generated batch file (`cmd /d /v:on /c !LOOMWORKS_VCVARS_BAT!`), so
@@ -605,7 +604,7 @@ end
 --- Parse CMakePresets.json and CMakeUserPresets.json with inheritance.
 --- Returns a list of configure presets with resolved fields. A preset whose
 --- (own or inherited) `condition` evaluates to false on this host is left
---- out, as CMake itself would refuse it (spec/modules/cmake.md §3).
+--- out, as CMake itself would refuse it.
 --- @param project_path string absolute path to the project directory
 --- @return table|nil presets
 local function load_presets(project_path)
@@ -1017,7 +1016,7 @@ end
 
 --- Whether a cmake generator emits `compile_commands.json` on its own.
 --- Only the Ninja and Makefile generators do; Visual Studio and Xcode
---- never do (§12). Matches cmake's own generator naming case-sensitively.
+--- never do. Matches cmake's own generator naming case-sensitively.
 --- A nil / unknown generator is treated as non-emitting-unknown by the
 --- caller, never as emitting.
 --- @param generator string|nil
@@ -1028,8 +1027,8 @@ function M.generator_emits_compile_commands(generator)
         or generator:find("Makefiles", 1, true) ~= nil
 end
 
---- Default value of a configuration's `compile_commands_generated` flag
---- (§12). loomworks now OWNS the clangd compilation database for EVERY
+--- Default value of a configuration's `compile_commands_generated` flag.
+--- loomworks now OWNS the clangd compilation database for EVERY
 --- cmake generator, so the default is `true` regardless of generator.
 --- `false` is the per-configuration escape hatch a user sets to fall back
 --- to the build dir's native database — only meaningful for an emitting
@@ -1041,8 +1040,8 @@ local function compile_commands_generated_default(generator)
     return true
 end
 
---- Read-only default description of a preset configuration (cmake.md §3,
---- core §8.1), from the preset's `displayName` and `description` after
+--- Read-only default description of a preset configuration,
+--- from the preset's `displayName` and `description` after
 --- inheritance: both → displayName, a blank line, description (one of them
 --- when identical after normalisation); a displayName equal to the bare
 --- preset name is skipped; non-strings are ignored. nil when there is none.
@@ -1093,7 +1092,7 @@ function M.info(path, config)
                 toolchain = toolchain,
                 from_preset = true,
                 is_default = true,  -- auto-gens from CMakePresets.json
-                -- Read-only default description (never persisted, §8.1).
+                -- Read-only default description (never persisted).
                 description = M._preset_description(preset),
             }
         end
@@ -1104,7 +1103,7 @@ function M.info(path, config)
     local configurations = M.resolve_configurations(defaults, config)
 
     -- Stamp each configuration with the default `compile_commands_generated`
-    -- flag (§12) unless the user/preset already set it explicitly. loomworks
+    -- flag unless the user/preset already set it explicitly. loomworks
     -- owns the database for every generator, so the default is `true`; only
     -- an explicit `false` (the escape hatch) survives here to fall back to a
     -- native database. The flag is module-specific data — it lands in the
@@ -1207,7 +1206,7 @@ local function resolve_build_dir(project_name, config_name, config_info, workspa
 
     if multi_config then
         -- Multi-config: one dir per kit (Debug/Release selected at build time
-        -- via --config). It is a shared tree (spec §8.4): every configuration
+        -- via --config). It is a shared tree: every configuration
         -- of this project is built into it with this kit.
         return kit_suffix and (base .. "/" .. sanitize_path_component(kit_suffix)) or base, true
     end
@@ -1228,7 +1227,7 @@ end
 --- @param tool_data table|nil module-specific tool data (cmake kit)
 --- @return string absolute build directory path
 --- @return boolean|nil shared true for the multi-config layout cmake lays out
----   itself (one tree for every configuration, spec §8.4); never for a
+---   itself (one tree for every configuration); never for a
 ---   preset `binaryDir`
 function M.resolve_build_dir(project_name, config_name, config_info, workspace_root, tool_data)
     local generator = (config_info and config_info.generator)
@@ -1242,7 +1241,7 @@ end
 --- CMake honors the launcher only for the Ninja and Makefile generator
 --- families (`Ninja`, `Ninja Multi-Config`, `Unix Makefiles`, `NMake
 --- Makefiles`, `MinGW Makefiles`, `MSYS Makefiles`, `Watcom WMake`, …); the
---- Visual Studio and Xcode (and other IDE) generators ignore it (§5d). An
+--- Visual Studio and Xcode (and other IDE) generators ignore it. An
 --- unresolved (nil) generator is treated as supporting it — nothing to say.
 --- @param generator string|nil
 --- @return boolean
@@ -1254,7 +1253,7 @@ local function generator_supports_launcher(generator)
 end
 
 --- Why the compiler-cache launcher cannot be applied to a configuration, or
---- nil when it can (§5d non-goals). Shared by `M.cache_launcher_applicable`
+--- nil when it can. Shared by `M.cache_launcher_applicable`
 --- (core's staleness + status/health) and `M.tasks` (which then injects no
 --- launcher and records "none") so the two can never disagree.
 --- @param from_preset boolean
@@ -1275,12 +1274,12 @@ local function launcher_not_applicable(from_preset, generator)
 end
 
 --- Whether a compiler-cache launcher can be applied to a configuration
---- (module interface §8 optional hook; consulted by core's launcher staleness
+--- (optional module hook; consulted by core's launcher staleness
 --- and by the profile's cache status / health). Not applicable — so `M.tasks`
 --- injects nothing and records `"none"`, and core expects that marker instead
 --- of reconfiguring on every build — for a preset (configured by
 --- `cmake --preset`, which owns its cache variables) and for a generator that
---- ignores `CMAKE_<LANG>_COMPILER_LAUNCHER` (Visual Studio, Xcode; §5d). The
+--- ignores `CMAKE_<LANG>_COMPILER_LAUNCHER` (Visual Studio, Xcode). The
 --- generator is the configuration's own (`module_config.generator`), else the
 --- tool's, exactly as `M.tasks` resolves it.
 --- @param ctx { configuration: loomworks.Configuration|nil, tool_data: table|nil }
@@ -1355,12 +1354,12 @@ function M.tasks(project, active_config)
     local cmake_cmd = (kit and kit.cmake_path) or "cmake"
     local configure_cmd = { cmake_cmd }
 
-    -- Compiler-cache launcher (§5d). Core resolved a launcher from the
+    -- Compiler-cache launcher. Core resolved a launcher from the
     -- effective `cache` policy + compiler family (or nil for policy `off`,
     -- `auto` on an MSVC-style compiler, or launcher not found); the module
     -- applies it (not on a preset or a VS/Xcode generator, below). Resolve the user options once,
     -- up front, so the non-preset branch can decide launcher OWNERSHIP: a
-    -- user-set `CMAKE_<LANG>_COMPILER_LAUNCHER` is not reserved (§5b/§4f), so
+    -- user-set `CMAKE_<LANG>_COMPILER_LAUNCHER` is not reserved, so
     -- when the feature resolved a launcher it WINS over the user's (with a
     -- diagnostic) and when it did not, the user's launcher passes through.
     local cache_launcher = project.compiler_cache and project.compiler_cache.path or nil
@@ -1374,7 +1373,7 @@ function M.tasks(project, active_config)
         elseif k == "CMAKE_MSVC_DEBUG_INFORMATION_FORMAT"
                 or k == "CMAKE_POLICY_DEFAULT_CMP0141" then
             -- A user-pinned debug format or CMP0141 policy default wins: the
-            -- module injects neither key (§5d).
+            -- module injects neither key.
             user_debug_format_conflict = true
         elseif type(v) == "string" and (v:find("/Zi", 1, true) or v:find("/ZI", 1, true)) then
             user_debug_format_conflict = true
@@ -1393,7 +1392,7 @@ function M.tasks(project, active_config)
         configure_cmd[#configure_cmd + 1] = "--preset"
         configure_cmd[#configure_cmd + 1] = config_info.base_name or active_config
 
-        -- Preset non-goal (§5d): the preset owns its cache variables (a
+        -- Preset non-goal: the preset owns its cache variables (a
         -- launcher included), so the compiler-cache launcher is not injected
         -- here. Warn (once)
         -- and direct the user to set CMAKE_<LANG>_COMPILER_LAUNCHER in the
@@ -1431,7 +1430,7 @@ function M.tasks(project, active_config)
             configure_cmd[#configure_cmd + 1] = "-DCMAKE_C_COMPILER=" .. c_path
         end
 
-        -- Generator non-goal (§5d): CMake honors CMAKE_<LANG>_COMPILER_LAUNCHER
+        -- Generator non-goal: CMake honors CMAKE_<LANG>_COMPILER_LAUNCHER
         -- only for Ninja and Makefile generators — Visual Studio / Xcode ignore
         -- it. Inject nothing (nor the MSVC debug-info keys, which only serve a
         -- launcher), warn once, and record "none"; `M.cache_launcher_applicable`
@@ -1445,10 +1444,10 @@ function M.tasks(project, active_config)
             cache_launcher = nil
         end
 
-        -- Compiler-cache launcher (§5d): apply the core-resolved launcher via
+        -- Compiler-cache launcher: apply the core-resolved launcher via
         -- CMake's own CMAKE_<LANG>_COMPILER_LAUNCHER cache variables (per the
         -- C/CXX languages CMake enables). A user launcher option, if any, is
-        -- dropped from emission below (own-launcher wins, §4f).
+        -- dropped from emission below (own-launcher wins).
         if cache_launcher then
             configure_cmd[#configure_cmd + 1] = "-DCMAKE_C_COMPILER_LAUNCHER=" .. cache_launcher
             configure_cmd[#configure_cmd + 1] = "-DCMAKE_CXX_COMPILER_LAUNCHER=" .. cache_launcher
@@ -1465,7 +1464,7 @@ function M.tasks(project, active_config)
             -- shared .pdb (/Zi|/ZI) is FAILED by sccache and compiled uncached
             -- by ccache. Switch to embedded (/Z7) — only for MSVC/clang-cl,
             -- single-config, cmake >= 3.25, and only when the user has not
-            -- pinned a conflicting value (§5d). The format variable only takes
+            -- pinned a conflicting value. The format variable only takes
             -- effect under policy CMP0141=NEW, which a project with an older
             -- cmake_minimum_required leaves unset — so the policy default is
             -- injected alongside (it does not override an explicit
@@ -1546,8 +1545,8 @@ function M.tasks(project, active_config)
                 project_path = project.path or project.name,
             }
             local expand = require("loomworks.expand")
-            -- Fold user-declared project variables into the expansion context
-            -- (spec §5c / core §1.3.1). Values are resolved upstream with the
+            -- Fold user-declared project variables into the expansion context.
+            -- Values are resolved upstream with the
             -- active compiler family already applied (overseer's
             -- resolve_project_variables), so a compiler-conditional flag such
             -- as `${warn_flags}` lands on the `-D` line without editing
@@ -1562,7 +1561,7 @@ function M.tasks(project, active_config)
                 if reserved_compiler.is_reserved_option(k) then
                     stripped_opts[#stripped_opts + 1] = k
                 elseif cache_launcher and is_launcher_option(k) then
-                    -- The compiler-cache feature owns the launcher (§4f/§5d);
+                    -- The compiler-cache feature owns the launcher;
                     -- the user's launcher option is dropped (warned above).
                     -- When no cache is resolved, this branch is skipped and the
                     -- user launcher passes through the else below.
@@ -1575,7 +1574,7 @@ function M.tasks(project, active_config)
     end
     table.sort(stripped_opts)
 
-    -- Faithful reconfigure (§5d "Full reconfigure by default", core §5.1).
+    -- Faithful reconfigure.
     -- CMake keeps configure state across reconfigures and computes much of it
     -- only at the first configure, so any changed configure input is applied
     -- by a FULL reconfigure (`--fresh`, or a core-run reset of CMakeCache.txt
@@ -1588,8 +1587,8 @@ function M.tasks(project, active_config)
     local passed_options = passed_d_options(configure_cmd)
     local pre_configure_reset
     local kind, retract = classify_reconfigure(project, passed_options, generator, not from_preset)
-    -- How this configure runs, for core's one-line "why" report (§8.1
-    -- `reconfigure` / `reconfigure_detail`).
+    -- How this configure runs, for core's one-line "why" report
+    -- (`reconfigure` / `reconfigure_detail`).
     local reconfigure = kind == "none" and "initial" or kind
     local reconfigure_detail
     if kind == "full" then
@@ -1633,7 +1632,7 @@ function M.tasks(project, active_config)
             assert(io_mod.mkdir_p(query_dir))
             -- toolchains-v1 gives per-language compiler paths, used to
             -- reconstruct compile_commands.json for non-emitting generators
-            -- (Visual Studio / Xcode). See §12.
+            -- (Visual Studio / Xcode).
             for _, marker in ipairs({ "codemodel-v2", "cache-v2", "toolchains-v1" }) do
                 local query_file = query_dir .. "/" .. marker
                 if not uv.fs_stat(query_file) then
@@ -1660,7 +1659,7 @@ function M.tasks(project, active_config)
             -- diagnostic. The tool's compiler is used regardless.
             stripped_compiler_keys = (#stripped_opts > 0 or #stripped_env > 0)
                 and { options = stripped_opts, env = stripped_env } or nil,
-            -- Full reconfigure below CMake 3.24 (§5d): core removes these
+            -- Full reconfigure below CMake 3.24: core removes these
             -- configure-state entries from build_dir before the configure.
             pre_configure_reset = pre_configure_reset,
             reconfigure = reconfigure,
@@ -1677,11 +1676,11 @@ function M.tasks(project, active_config)
                 -- can compare it: a unit configured with no cache records
                 -- "none" and install-after-configure fires when a cache later
                 -- appears. A record without it is from an older lw and is
-                -- caught by the record version (core §5.1). (§5d / §11.)
+                -- caught by the record version.
                 cache_launcher = cache_launcher or "none",
                 -- Every `-D` this configure passed (name → value; on the
                 -- preset path the appended user options), so the next
-                -- configure can classify its change (§5d full vs in-place).
+                -- configure can classify its change (full vs in-place).
                 passed_options = passed_options,
             },
         },
@@ -1723,7 +1722,7 @@ function M.tasks(project, active_config)
                 configuration_key = configuration_key,
                 build_dir = build_dir,
                 tool_data = cached_tool_data,
-                -- build_args / build_targets are on the native command (§8.1).
+                -- build_args / build_targets are on the native command.
                 applied_build_args = true,
                 applied_build_targets = true,
             },
@@ -1747,7 +1746,7 @@ function M.tasks(project, active_config)
                 configuration_key = configuration_key,
                 build_dir = build_dir,
                 tool_data = cached_tool_data,
-                -- build_args / build_targets are on the native command (§8.1).
+                -- build_args / build_targets are on the native command.
                 applied_build_args = true,
                 applied_build_targets = true,
             },
@@ -1958,7 +1957,7 @@ function M.detect_tools_async(callback)
 end
 
 -- ---------------------------------------------------------------------------
--- Environment inventory (cmake §13, core §16.33)
+-- Environment inventory
 -- ---------------------------------------------------------------------------
 
 --- `exe:ninja` — also declared by meson with the same id (probed once).
@@ -2013,7 +2012,7 @@ local function generator_requirement(generator)
     return nil
 end
 
---- What a project needs under a tool (cmake §13) — pure: reads only the tool
+--- What a project needs under a tool — pure: reads only the tool
 --- data and the mapped configuration (the preset parse already filled its
 --- generator); no spawn, no filesystem access.
 --- @param ctx { project: loomworks.Project, tool: loomworks.Tool|nil, configuration: loomworks.Configuration|nil }
@@ -2130,7 +2129,7 @@ end
 --- Called by core when an SDK provides capabilities for cmake.
 --- A platform's optional `target_platform` (a string for every arch, or an
 --- arch → token table) is returned BESIDE each kit's tool_data, never inside
---- it: the token is not part of kit identity (cmake.md §15.1, core §10.7).
+--- it: the token is not part of kit identity.
 --- @param caps table opaque data from sdk:query("cmake")
 --- @param sdk loomworks.SDK
 --- @return { tool_data: table, target_platform?: string }[]
@@ -2285,7 +2284,7 @@ local TARGET_TYPE_MAP = {
     INTERFACE_LIBRARY = "interface_library",
 }
 
---- Build the shared parse plan from the file-api codemodel (§8.4): resolve the
+--- Build the shared parse plan from the file-api codemodel: resolve the
 --- reply dir, source root, the selected configuration, the project-owned target
 --- name set, an id→name map (so dependency resolution is O(1) per edge, not a
 --- scan of every target), and the ordered list of project-owned target refs to
@@ -2810,7 +2809,7 @@ function M.get_options(build_dir, config)
     return build_option_tree(flat, option_groups)
 end
 
--- ============= Generated compile_commands.json (§12) =============
+-- ============= Generated compile_commands.json =============
 
 --- Whether a compiler drives with MSVC (`/`-prefixed) flag syntax.
 --- True for the `cl` and `clang-cl` drivers (matched on basename,
@@ -2907,7 +2906,7 @@ local function dir_of(p)
     return (norm_path(p):gsub("/[^/]*$", ""))
 end
 
---- Header file extensions used by the Tier-1 attribution scan (§12.3).
+--- Header file extensions used by the Tier-1 attribution scan.
 local HEADER_EXTS = {
     h = true, hh = true, hpp = true, hxx = true, ["h++"] = true,
     inl = true, ipp = true, tcc = true, cuh = true,
@@ -2941,7 +2940,7 @@ end
 
 --- Build the argv prefix (compiler + flags, no source file) for a
 --- compileGroup, in the compiler's native syntax. Shared by compiled-source
---- and header entries (§12) so both render identical flags. Returns a fresh
+--- and header entries so both render identical flags. Returns a fresh
 --- table each call (the caller appends the file and keeps it).
 --- @param cg table compileGroup
 --- @param compiler string compiler path / bare name (argv[0])
@@ -2985,8 +2984,8 @@ end
 --- (compiler + flags, from `cg_argv_prefix`) and a resolved file path. Clones
 --- the prefix so a per-group prefix can be reused across its sources. This is
 --- the one place an entry's shape is produced, so the full-DB generator
---- (compiled sources §12.2, headers §12.3) and the per-file query
---- (`compile_command_for` §12.6) cannot drift.
+--- (compiled sources, headers) and the per-file query
+--- (`compile_command_for`) cannot drift.
 --- @param prefix string[] argv prefix (not mutated)
 --- @param abs string resolved absolute file path (the entry's `file`)
 --- @param build_dir string the entry's `directory`
@@ -3011,7 +3010,7 @@ local function render_cc_entry(cg, compiler, abs, build_dir)
     return render_cc_entry_with_prefix(cg_argv_prefix(cg, compiler), abs, build_dir)
 end
 
---- The language-forcing argv token(s) for a header entry (§12.3), in the
+--- The language-forcing argv token(s) for a header entry, in the
 --- compiler's flag style. clangd infers a `.h` (and other ambiguous
 --- extensions) as C and then silently drops C++-only flags (e.g. MSVC
 --- `/std:c++17`), so a header attributed to a C++ compileGroup must carry an
@@ -3028,16 +3027,16 @@ local function header_language_argv(msvc, language)
     return { "-x", cxx and "c++" or "c" }
 end
 
---- Exposed for unit tests (pure flag-token helper, §12.3).
+--- Exposed for unit tests (pure flag-token helper).
 M._header_language_argv = header_language_argv
 
---- Render one `compile_commands.json` entry for a HEADER file (§12.3). Like
+--- Render one `compile_commands.json` entry for a HEADER file. Like
 --- `render_cc_entry` but inserts the language-forcing flag(s)
 --- (`header_language_argv`) right after the compiler (argv[1] position), before
 --- the include/define flags and the input file, so clangd parses the header in
 --- the chosen compileGroup's language rather than guessing from the extension.
 --- The one place a header entry is shaped, so the full-DB header generator
---- (§12.3) and the per-file query (§12.6) cannot drift. Compiled TUs keep their
+--- and the per-file query cannot drift. Compiled TUs keep their
 --- real extension and never pass through here.
 --- @param cg table compileGroup (its `language` selects C vs C++)
 --- @param compiler string compiler path / bare name (argv[0])
@@ -3054,7 +3053,7 @@ local function render_header_entry(cg, compiler, abs, build_dir)
     return render_cc_entry_with_prefix(prefix, abs, build_dir)
 end
 
---- Incremental stream-writer for `compile_commands.json` (§12.2). Writes the
+--- Incremental stream-writer for `compile_commands.json`. Writes the
 --- array entry-by-entry so the whole database is never encoded in one
 --- `vim.json.encode` call: `[`, then each entry encoded on its own,
 --- comma-separated, then `]`. The bytes go to a temporary file; the caller
@@ -3075,7 +3074,7 @@ end
 --- The temp file of a write: `<out_file>.<pid>.tmp`, unique per process and in
 --- the same directory as `out_file` (so the final rename stays atomic on one
 --- filesystem). The single-flight guard of `refresh_generated_cc` is per
---- process, so the daemon (D6 startup regeneration) and a daemon-mode editor
+--- process, so the daemon (startup regeneration) and a daemon-mode editor
 --- may write the same database at once; with a shared fixed name one would
 --- truncate the other's temp file and rename a half-written database into
 --- place. Each process only ever writes, renames or removes its own name.
@@ -3191,7 +3190,7 @@ end
 --- leading drive (`C:/`) or POSIX root (`/`). A leading `..` that would
 --- escape the root is clamped (dropped). Used to resolve out-of-tree
 --- artifact paths — a project that hardcodes its output directory yields
---- a `../../bin/app`-style path relative to the build dir (§4.6).
+--- a `../../bin/app`-style path relative to the build dir.
 --- @param p string forward-slashed path
 --- @return string
 local function collapse_path(p)
@@ -3226,7 +3225,7 @@ end
 --- Resolve a file-api artifact path to an absolute, display-cased path.
 --- Absolute inputs (drive or POSIX root) are returned as-is with slashes
 --- normalized; relative inputs (including `..` for hardcoded out-of-tree
---- outputs) resolve against `build_dir` and collapse (§4.6).
+--- outputs) resolve against `build_dir` and collapse.
 --- @param raw string artifact path from the file-api target detail
 --- @param build_dir string absolute build directory
 --- @return string absolute path (display casing preserved)
@@ -3240,10 +3239,10 @@ local function resolve_artifact_path(raw, build_dir)
 end
 
 --- Resolve the absolute on-disk output artifacts a build of this config
---- unit produces (cmake.md §4.6) — the module's optional `resolve_artifacts`
---- core capability (module-interface §8.4). Reads the codemodel-v2 reply for
+--- unit produces — the module's optional `resolve_artifacts`
+--- core capability. Reads the codemodel-v2 reply for
 --- `ctx.build_dir`, selects the variant's configuration, walks the
---- project-owned targets (the §4.3 filter shared with `parse_targets`), and
+--- project-owned targets (the filter shared with `parse_targets`), and
 --- collects EVERY entry of each target's `artifacts[]` — a single target can
 --- emit several files (an executable plus its `.pdb`, a shared library plus
 --- its import lib). Each artifact is resolved to an absolute path in display
@@ -3263,7 +3262,7 @@ function M.resolve_artifacts(ctx)
 
     local reply_dir = build_dir .. "/.cmake/api/v1/reply"
 
-    -- Project-owned target filter (§4.3), identical to parse_targets.
+    -- Project-owned target filter, identical to parse_targets.
     local project_names = {}
     if config_data.projects then
         for _, proj in ipairs(config_data.projects) do
@@ -3305,8 +3304,8 @@ function M.resolve_artifacts(ctx)
     return next(artifacts) and artifacts or nil
 end
 
---- Freshness stamp of the compile data `cache_compat_scan` reads (core §8
---- `cache_compat_stamp`, cmake §5d): the name of the current file-api reply
+--- Freshness stamp of the compile data `cache_compat_scan` reads
+--- (`cache_compat_stamp`): the name of the current file-api reply
 --- index. CMake writes a NEW, uniquely timestamped `index-*.json` (and removes
 --- the previous one) on EVERY (re)configure that finds a query — including the
 --- re-run the build tool triggers itself after a CMakeLists / `.cmake` edit,
@@ -3335,10 +3334,10 @@ function M.cache_compat_stamp(ctx)
     return latest
 end
 
---- Post-configure compiler-cache compatibility scan (core §8
---- `cache_compat_scan`, cmake §5d). After a configure that applied a launcher
+--- Post-configure compiler-cache compatibility scan
+--- (`cache_compat_scan`). After a configure that applied a launcher
 --- to an MSVC-style kit, scan every target's compile flags — the same file-api
---- codemodel `compileCommandFragments` the owned compile_commands (§12.2) is
+--- codemodel `compileCommandFragments` the owned compile_commands is
 --- reconstructed from, so it covers every generator and never decodes the
 --- native `compile_commands.json` — for PDB-writing debug flags (/Zi, /ZI,
 --- -Zi, -ZI). The `/Z7` request only changes CMake's DEFAULT flags; a target
@@ -3350,10 +3349,10 @@ end
 --- uncacheable compile, so it reports clean without reading anything.
 --- Advisory; spawns nothing.
 --- Also reports a /Zi-style token in the configuration environment's `CL` /
---- `_CL_` (group "environment", §5d) — flags no compile command shows.
+--- `_CL_` (group "environment") — flags no compile command shows.
 --- Returns the scanned build's `totals` (compiled units / targets), so core can
 --- collapse a finding that covers (nearly) every unit into one line, and the
---- cmake-specific `advice` wording (§5d).
+--- cmake-specific `advice` wording.
 --- @param ctx { build_dir: string, tool_data?: table, compiler_cache?: { tool: string, path: string }, config_name?: string, variant?: string, configuration_env?: table<string, string> }
 --- @return { scanned: boolean, reason?: string, findings: table[], totals?: { units: integer, targets: integer }, advice?: table }
 function M.cache_compat_scan(ctx)
@@ -3362,7 +3361,7 @@ function M.cache_compat_scan(ctx)
         return { scanned = true, findings = {} }
     end
     -- `CL` / `_CL_` in the configuration environment reach every compile but
-    -- no compile-command data shows them (§5d / §5a): checked separately.
+    -- no compile-command data shows them: checked separately.
     local tool = ctx.compiler_cache and ctx.compiler_cache.tool
     local env_findings = cpp.pdb_env_findings(ctx.configuration_env, tool)
     local build_dir = ctx.build_dir
@@ -3435,7 +3434,7 @@ end
 --- compileGroups carry, so no canonicalization is needed. Shared by
 --- `_build_cc_entries` (full DB) and `compile_command_for` (per-file query)
 --- so both select the identical compileGroup, compiler, and resolved path
---- for any given source — the entries cannot drift (§12.6).
+--- for any given source — the entries cannot drift.
 --- @param codemodel table parsed codemodel-v2 reply
 --- @param target_details table<string, table> jsonFile → parsed target detail
 --- @param toolchains table|nil parsed toolchains-v1 reply
@@ -3467,7 +3466,7 @@ local function for_each_compiled_source(codemodel, target_details, toolchains, s
     end
 end
 
---- Create incremental compiled-source-entry state (§12.2). Mirrors
+--- Create incremental compiled-source-entry state. Mirrors
 --- `for_each_compiled_source`'s iteration exactly (targets → compileGroups →
 --- sourceIndexes, same compiler fallback and prefix caching) so the async
 --- generator can build entries a bounded number of targets per turn without
@@ -3548,13 +3547,13 @@ function M._build_cc_entries(codemodel, target_details, toolchains, source_root,
     return st.entries
 end
 
---- Build the Tier-1 header-attribution index (§12.3) from parsed file-api
+--- Build the Tier-1 header-attribution index from parsed file-api
 --- data. Pure — no disk access. For the selected configuration it records,
 --- per project-owned target with compileGroups: its display `name`, its
 --- compileGroup keyed by language, its primary language, its source-directory
 --- set, its total source count (tie-break weight), and `sample_by_lang` (one
 --- representative *compiled* source per language, for provenance reporting in
---- §12.6). It also records a dir → owning-targets map (for nearest-ancestor
+--- `compile_command_for`). It also records a dir → owning-targets map (for nearest-ancestor
 --- tie-breaks) and a listed-header → target map (headers named directly in a
 --- target's `sources`). `source_dirs` is the de-duplicated list of every target
 --- source directory, sorted longest-first so the first ancestor match is the
@@ -3564,7 +3563,7 @@ end
 --- @param source_root string|nil
 --- @param variant string|nil
 --- @return { targets: table, dir_owners: table, source_dirs: string[], listed: table }
---- Create incremental header-attribution-index state (§12.3). The per-target
+--- Create incremental header-attribution-index state. The per-target
 --- body matches the synchronous build exactly; the final longest-first sort of
 --- `source_dirs` runs once when the last target is consumed. Lets the async
 --- generator build the index a bounded number of targets per turn.
@@ -3604,7 +3603,7 @@ local function attr_index_step(st, max_targets)
 
             local groups_by_lang, primary_lang = {}, nil
             -- One representative compiled (non-header) source per language, for
-            -- the §12.6 provenance `source` field. Cheap: first non-header
+            -- the provenance `source` field. Cheap: first non-header
             -- source index of the first group in that language wins.
             local sample_by_lang = {}
             for _, cg in ipairs(detail.compileGroups) do
@@ -3683,11 +3682,11 @@ function M._target_attribution_index(codemodel, target_details, source_root, var
     return st.index
 end
 
---- Attribute a single file path to a target id (§12.3): a listed path uses its
+--- Attribute a single file path to a target id: a listed path uses its
 --- listing target; otherwise the target whose source directory is the nearest
 --- ancestor (longest prefix on path boundaries), breaking ties by most sources
 --- then lexically-first id. Also returns how the match was made — `"listed"` or
---- `"directory"` — for provenance reporting (§12.6). nil when unattributable.
+--- `"directory"` — for provenance reporting. nil when unattributable.
 --- @param index table from `_target_attribution_index`
 --- @param path string file path (header or otherwise)
 --- @return string|nil target id
@@ -3718,7 +3717,7 @@ local function attribute_header(index, path)
 end
 
 --- Enumerate candidate header files by a bounded directory listing of the
---- targets' source directories (§12.3). This is a filesystem dir listing,
+--- targets' source directories. This is a filesystem dir listing,
 --- NOT an include-scan or compiler run — Tier-1. Skips build/vendor/hidden
 --- dirs and bounds recursion depth. Listed headers (which may live outside a
 --- scanned subtree) are always included. `opts.scandir(dir) → {{name,type},…}`
@@ -3747,7 +3746,7 @@ local function header_walk_list(st, dir)
     return res
 end
 
---- Create header-walk state (§12.3). The recursive scan is turned into an
+--- Create header-walk state. The recursive scan is turned into an
 --- explicit work-stack of directories so the async generator can pop a bounded
 --- number per scheduled turn instead of descending the whole tree in one
 --- synchronous pass. Seeded with the targets' source directories at depth 0.
@@ -3765,7 +3764,7 @@ local function header_walk_new(index, opts)
 end
 
 --- Advance the header walk by popping at most `max_dirs` directories from the
---- work-stack (§12.3). Visits the same directory set the recursive walk did —
+--- work-stack. Visits the same directory set the recursive walk did —
 --- same SKIP list, depth bound, and `seen` dedupe — so the discovered header
 --- set is identical regardless of traversal order. Returns true when the stack
 --- is exhausted.
@@ -3815,18 +3814,18 @@ local function header_walk_result(st)
     return arr
 end
 
--- Header candidate enumeration (§12.3) is driven directly by the async
+-- Header candidate enumeration is driven directly by the async
 -- generator via `header_walk_new` / `header_walk_step` / `header_walk_result`
 -- (bounded slices). A synchronous whole-tree pass is intentionally not exposed
--- here — the UI path must never walk the tree in one go (§12.2).
+-- here — the UI path must never walk the tree in one go.
 
---- Select the compileGroup used to render a header attributed to target `t`
---- (§12.3): the target's C++ group when present, else its C group, else its
+--- Select the compileGroup used to render a header attributed to target `t`:
+--- the target's C++ group when present, else its C group, else its
 --- primary language group. nil when the target has no usable group. Shared by
 --- the header generator and the per-file query so both render identical flags.
 --- @param t table target record from `_target_attribution_index`
 --- @return table|nil compileGroup
---- Pick the compileGroup used for a header attributed to target `t` (§12.3).
+--- Pick the compileGroup used for a header attributed to target `t`.
 --- Target-level choice, independent of the header's extension: prefer the
 --- target's C++ group (safe superset for clangd; `.h` in C++ is common), else
 --- C, else the target's primary language group. nil when the target has none.
@@ -3835,7 +3834,7 @@ local function header_group(t)
     return g.CXX or g.C or (t.primary_lang and g[t.primary_lang]) or nil
 end
 
---- Create incremental header-entry state (§12.3). Sorts the header candidates
+--- Create incremental header-entry state. Sorts the header candidates
 --- once up front (deterministic order), then attributes/renders them in
 --- batches. Byte-identical to the one-shot build (shared stepper).
 --- @return table state ({ entries } is the accumulated result)
@@ -3895,7 +3894,7 @@ local function header_entries_step(st, max_headers)
     return st.done
 end
 
---- Build `compile_commands.json` entries for headers (§12.3). Pure. Each header
+--- Build `compile_commands.json` entries for headers. Pure. Each header
 --- is attributed to a target (`attribute_header`) and rendered with that
 --- target's `header_group` compileGroup. Deterministic order, each header at
 --- most once; unattributable headers omitted. Byte-identical to the async
@@ -3925,9 +3924,9 @@ local CC_ENTRIES_TARGETS_PER_STEP = 16
 local CC_HEADERS_PER_STEP = 128
 
 --- Reconstruct a `compile_commands.json` from the cmake file-api and write it
---- into `out_dir` (§12), ASYNCHRONOUSLY and YIELDING (spec §12.2). The heavy
+--- into `out_dir`, ASYNCHRONOUSLY and YIELDING. The heavy
 --- reconstruction — reading the per-target file-api replies, the Tier-1 header
---- directory walk (§12.3), and the entry-by-entry stream — is sliced across
+--- directory walk, and the entry-by-entry stream — is sliced across
 --- scheduled turns (time-boxed to `CC_SLICE_BUDGET_NS`) so a large project
 --- never freezes the UI mid-generation. The stream is written to a temp file
 --- and atomically renamed on completion, so clangd never observes a
@@ -4004,7 +4003,7 @@ function M.generate_compile_commands_async(build_dir, out_dir, opts, done)
                 end
             elseif phase == "entries" then
                 -- Compiled-source entries + the header-attribution index, built
-                -- a bounded batch of targets per turn (§12.2) — both were
+                -- a bounded batch of targets per turn — both were
                 -- previously one synchronous burst over every target/source.
                 if not ent_st then
                     ent_st = cc_entries_new(
@@ -4030,7 +4029,7 @@ function M.generate_compile_commands_async(build_dir, out_dir, opts, done)
             elseif phase == "headers" then
                 -- Attribute discovered headers (excluding compiled sources) and
                 -- append their entries — the per-header attribution is sliced a
-                -- bounded batch per turn (§12.2) — then open the stream.
+                -- bounded batch per turn — then open the stream.
                 if not hdr_prepped then
                     local compiler_by_lang = compiler_map(toolchains)
                     local compiled = {}
@@ -4095,7 +4094,7 @@ function M.generate_compile_commands_async(build_dir, out_dir, opts, done)
     end
 
     -- Start on the next tick so the caller is never blocked, even for the
-    -- first slice (§12.2 — reconstruction never runs inline).
+    -- first slice (reconstruction never runs inline).
     vim.schedule(slice)
 end
 
@@ -4167,13 +4166,13 @@ local function generated_cc_dir(workspace_root, build_dir)
     return root .. "/.nvim/cache/" .. M.lsp_database_root .. "/" .. tail
 end
 
---- The owned-database area under `<root>/.nvim/cache/` (core §8.4): core
---- removes a build directory's mirror with it and the whole area on nuke
---- (core §4.6 "Owned LSP database cleanup"). One plain path segment.
+--- The owned-database area under `<root>/.nvim/cache/`: core
+--- removes a build directory's mirror with it and the whole area on nuke.
+--- One plain path segment.
 M.lsp_database_root = "cc"
 
---- The owned compile_commands.json directory for one build directory (core
---- §8.4), used by core only for cleanup. nil when either input is missing.
+--- The owned compile_commands.json directory for one build directory,
+--- used by core only for cleanup. nil when either input is missing.
 --- @param ctx { build_dir: string|nil, workspace_root: string|nil }
 --- @return string|nil
 function M.lsp_database_dir(ctx)
@@ -4185,14 +4184,14 @@ function M.lsp_database_dir(ctx)
     return generated_cc_dir(root, bd)
 end
 
---- In-flight generation registry for single-flight per out_dir (§12.2). Keyed
+--- In-flight generation registry for single-flight per out_dir. Keyed
 --- by the normalized (lowercased) out_dir. Each record collects every caller's
 --- `done` and a `dirty` flag set when a fresh trigger lands mid-run.
 --- @type table<string, { dirty: boolean, dones: fun(changed: boolean)[] }>
 local _cc_in_progress = {}
 
 --- Whether the reply index is newer than the generated file (or the file is
---- absent) — the cheap synchronous freshness gate (§12.4). Returns nil when
+--- absent) — the cheap synchronous freshness gate. Returns nil when
 --- there is no reply index at all (never configured / no work possible).
 --- @param build_dir string
 --- @param out_dir string
@@ -4206,10 +4205,10 @@ local function cc_is_stale(build_dir, out_dir)
     return true
 end
 
---- Freshness-gated regeneration of the owned database (§12.4). The mtime GUARD
+--- Freshness-gated regeneration of the owned database. The mtime GUARD
 --- is cheap and SYNCHRONOUS (a couple of stats + one small dir scan); only when
 --- it decides to rebuild is the heavy reconstruction dispatched — and that runs
---- ASYNCHRONOUSLY and SINGLE-FLIGHT per out_dir (§12.2), never blocking the UI.
+--- ASYNCHRONOUSLY and SINGLE-FLIGHT per out_dir, never blocking the UI.
 ---
 --- `done(changed)` is invoked once when the request settles: false when the DB
 --- was already fresh (or there is nothing to generate), true iff it was
@@ -4240,7 +4239,7 @@ function M.refresh_generated_cc(build_dir, out_dir, opts, done)
     local rec = _cc_in_progress[key]
     if rec then
         -- Already generating this out_dir: coalesce. Append our `done`, and
-        -- mark dirty so the run re-checks freshness on settle (§12.2).
+        -- mark dirty so the run re-checks freshness on settle.
         rec.dirty = true
         rec.dones[#rec.dones + 1] = done
         return true
@@ -4275,9 +4274,9 @@ function M.refresh_generated_cc(build_dir, out_dir, opts, done)
     return true
 end
 
---- §12.4 trigger entry point (core §8.4 optional module hook). Regenerate the
+--- Freshness trigger entry point. Regenerate the
 --- owned clangd database for a build dir if stale — asynchronous and
---- non-blocking (§8.4). Core calls this after a successful configure/build and
+--- non-blocking. Core calls this after a successful configure/build and
 --- on a reply-dir watch signal. `ctx`: `build_dir`, `workspace_root`, and
 --- optionally `variant` / `compiler`. `done(changed)` forwards the completion
 --- signal so core can re-resolve LSP wiring when the DB was newly written.
@@ -4298,7 +4297,7 @@ function M.refresh_lsp_database(ctx, done)
     }, done)
 end
 
---- §12.4 (core §8.4 optional module hook). The file-api reply directory
+--- The file-api reply directory
 --- whose changes should re-trigger `refresh_lsp_database`, or nil when the
 --- build dir has no reply directory yet. `ctx`: `build_dir`.
 --- @param ctx { build_dir: string }
@@ -4310,10 +4309,10 @@ function M.lsp_database_watch_path(ctx)
     return reply
 end
 
---- §12.6 (core §8.4 optional hook). Redetermine the compile command the owned
+--- Redetermine the compile command the owned
 --- clangd database uses (or would use) for `file` under `ctx.build_dir`,
 --- WITHOUT decoding the generated `compile_commands.json` — it reads the same
---- file-api replies §12.2/§12.3 build the database from and renders the entry
+--- file-api replies the full generator builds the database from and renders the entry
 --- through the shared `render_cc_entry`, so the command bytes are byte-for-byte
 --- the DB entry for that file. The own-vs-borrowed decision is made strictly on
 --- whether the file has its own compiled entry, never on file type:
@@ -4321,13 +4320,13 @@ end
 ---     target's own compileGroup, selected by source index (its exact flags);
 ---     `origin = { kind = "own" }`;
 ---   * the file has NO compiled entry (a header, or any other file) → borrowed
----     via `attribute_header` (§12.3), rendered with that target's compileGroup
+---     via `attribute_header`, rendered with that target's compileGroup
 ---     chosen at the target level by `header_group`; `origin = { kind =
 ---     "attributed", target, via, source }`;
 ---   * anything no target claims (outside every source tree and not listed)
 ---     → nil (unattributable).
 --- The additive `origin` is attached AFTER `render_cc_entry`, so that shared
---- renderer and the full-DB generator (§12.2/§12.3) stay origin-free — a
+--- renderer and the full-DB generator stay origin-free — a
 --- generated DB entry never carries `origin`.
 --- @param ctx { build_dir: string, workspace_root?: string, variant?: string, compiler?: string }
 --- @param file string absolute source or header path
@@ -4376,7 +4375,7 @@ function M.compile_command_for(ctx, file)
     end
 
     -- No compiled entry (a header, or any other non-compiled file): borrow the
-    -- command via attribution (§12.3). The gate is entry-presence, not a header
+    -- command via attribution. The gate is entry-presence, not a header
     -- test — a header listed in CMakeLists appears in the target's `sources` but
     -- in no compileGroup, so it lands here too. A file no target claims → nil.
     local index = M._target_attribution_index(codemodel, target_details, source_root, variant)
@@ -4429,18 +4428,18 @@ function M.lsp_configs(project)
     --   1. `compile_commands_from` redirect to a different configuration
     --   2. Active profile's ProfileProject for this project (→ ConfigUnit build_dir)
     -- Either way the database is offered only from a unit configured on this
-    -- machine (spec §9.1): `configured` tracks the unit actually supplying it,
+    -- machine: `configured` tracks the unit actually supplying it,
     -- and an unconfigured one yields `db_state = "unconfigured"`, no
     -- compile_commands_dir and no generation.
     local tc = project.type_config or {}
     local build_dir = nil
     local configured = false
     -- Whether build_dir came from a `compile_commands_from` redirect (a
-    -- different configuration's build dir). Generation (§12) is skipped in
+    -- different configuration's build dir). Generation is skipped in
     -- that case — the redirect target owns its own database.
     local from_redirect = false
-    -- qmlls's build dir keeps its own, unchanged resolution (cmake spec
-    -- §11: redirect's first unit with a build dir, else the active unit's,
+    -- qmlls's build dir keeps its own, unchanged resolution (the
+    -- redirect's first unit with a build dir, else the active unit's,
     -- else `project.cached.build_dir`) — the configured-here rule is clangd's.
     local qmlls_build_dir = nil
     if tc.compile_commands_from then
@@ -4469,7 +4468,7 @@ function M.lsp_configs(project)
         end
     end
     -- Active profile's ProfileProject for this project, captured for both
-    -- build_dir resolution and the §12 generated-database decision below.
+    -- build_dir resolution and the generated-database decision below.
     local active_pp = nil
     local active_profile = ws.get_active_profile and ws:get_active_profile()
     if active_profile then
@@ -4504,7 +4503,7 @@ function M.lsp_configs(project)
             local active_profile = ws:get_active_profile()
             if active_profile and active_profile.tool_for then
                 local tref = active_profile:tool_for(project.type)
-                -- A kit's clangd path comes from detection only (core §17.7).
+                -- A kit's clangd path comes from detection only.
                 tool_data = (tref and tref.detected ~= false and tref.data) or tool_data
             end
         end
@@ -4530,7 +4529,7 @@ function M.lsp_configs(project)
         import_paths = tc.qml_import_paths
     end
 
-    -- §12: loomworks owns the clangd database for EVERY cmake generator.
+    -- loomworks owns the clangd database for EVERY cmake generator.
     -- Point clangd at our generated directory unless the active configuration
     -- opts out with `compile_commands_generated = false` (the escape hatch),
     -- or a `compile_commands_from` redirect (from_redirect) already resolved
@@ -4560,12 +4559,11 @@ function M.lsp_configs(project)
             end
             -- SCHEDULE the mtime-gated (thrash-proof) regeneration through the
             -- shared seam also used by the task-completion and reply-dir-watch
-            -- triggers, then return the generated dir immediately (§12.4).
+            -- triggers, then return the generated dir immediately.
             -- Generation is async + single-flight, so this never blocks LSP
             -- wiring; the previous database (if any) stays readable meanwhile.
             -- Only when this process generates: never in a daemon-mode
-            -- editor, where only the workspace daemon does (core §9.7, §12.4
-            -- "one writer").
+            -- editor, where only the workspace daemon does (one writer).
             if not ws.generates_lsp_databases or ws:generates_lsp_databases() then
                 M.refresh_generated_cc(build_dir, out_dir, {
                     variant = variant,
@@ -4582,7 +4580,7 @@ function M.lsp_configs(project)
             binary = binary,
             binary_required = binary_required,
             compile_commands_dir = clangd_cc_dir,
-            -- The build dir whose owned database clangd reads (core §8.4):
+            -- The build dir whose owned database clangd reads:
             -- the redirect target under `compile_commands_from`, else the
             -- active unit's. Core matches database writes against it.
             db_dir = build_dir,

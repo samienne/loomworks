@@ -26,18 +26,18 @@ end
 -- Where releases are fetched from. Overridable via LOOMWORKS_RELEASE_URL or
 -- the `release-url` config key; a local directory works as an offline mirror.
 -- `/releases/latest/download` already resolves to the newest NON-prerelease on
--- GitHub, so this base IS the `stable` channel (§16.29). Latest queries go to
+-- GitHub, so this base IS the `stable` channel. Latest queries go to
 -- the current repository only; a SPECIFIC version's assets come from the
 -- repository that version was published in (boot.origin, see versioned_base).
 M.DEFAULT_RELEASE_URL = origin.LATEST_DOWNLOAD
 
 -- The releases API for the default origin. Consulted ONLY to resolve the
--- `unstable` channel (§16.29): the newest release INCLUDING pre-releases. Never
+-- `unstable` channel: the newest release INCLUDING pre-releases. Never
 -- queried for `stable`, nor when a release-source override / mirror is set —
 -- the channel governs only the default origin.
 M.RELEASES_API_URL = origin.RELEASES_API
 
--- The update channels this host knows (§16.29). `stable` (default) is unchanged
+-- The update channels this host knows. `stable` (default) is unchanged
 -- behavior; `unstable` follows pre-releases too. Both verify identically.
 M.CHANNELS = { stable = true, unstable = true }
 M.DEFAULT_CHANNEL = "stable"
@@ -55,9 +55,9 @@ function M.release_base(opts) return release_base(opts) end
 
 --- The user-supplied release-source override (opts.url > LOOMWORKS_RELEASE_URL >
 --- `release-url` config), or nil when the default origin is in effect. An
---- override is a mirror used as-is and SUPERSEDES channel resolution (§16.29):
+--- override is a mirror used as-is and SUPERSEDES channel resolution:
 --- the channel governs only the default origin. Public so `lw health` can
---- surface the "channel is being overridden" state (§16.31) without reimplementing
+--- surface the "channel is being overridden" state without reimplementing
 --- the precedence.
 function M.url_override(opts)
   return (opts and opts.url)
@@ -66,7 +66,7 @@ function M.url_override(opts)
 end
 local url_override = M.url_override
 
---- Resolve the active update channel (§16.29) with precedence: explicit
+--- Resolve the active update channel with precedence: explicit
 --- opts.channel > LOOMWORKS_CHANNEL env > `channel` config key > default
 --- (stable). Returns the channel name, or nil + err for an unknown value.
 --- @return string|nil channel, string|nil err
@@ -82,7 +82,7 @@ function M.resolve_channel(opts)
   return c
 end
 
---- Save `channel` as the host's update channel (§16.29) — what
+--- Save `channel` as the host's update channel — what
 --- `lw self-update --channel <c>` does, writing the same `channel` key as
 --- `lw settings set channel <c>`. LOOMWORKS_CHANNEL still overrides it for a run.
 --- @param channel string
@@ -105,9 +105,9 @@ end
 
 --- The note self-update prints when the newest installed bundle is newer than
 --- the release the channel resolved to — typically a prerelease kept after
---- switching back to `stable`. Bundles never downgrade (§16.29: the newest
+--- switching back to `stable`. Bundles never downgrade (the newest
 --- installed bundle is the one that runs), so it stays active until a newer
---- release reaches the channel. nil when there is nothing to say. ASCII (§16.7).
+--- release reaches the channel. nil when there is nothing to say. ASCII.
 --- @param installed string|nil newest installed bundle version
 --- @param target string the version the channel resolved to
 --- @return string|nil
@@ -120,15 +120,15 @@ function M.newer_bundle_note(installed, target)
     .. " it is replaced once a release newer than it reaches this channel"
 end
 
---- Resolve the newest release version for the `unstable` channel (§16.29) by
+--- Resolve the newest release version for the `unstable` channel by
 --- querying the releases API. The highest-versioned NON-DRAFT entry wins (by
 --- version, never list order; a pre-release ranks below its release) —
 --- pre-releases are INCLUDED (that is what `unstable` means). Returns the version (leading `v`
 --- stripped) or nil, err.
 ---
 --- SECURITY: the tag is network-derived, so it is validated with
---- pin.valid_version BEFORE it can reach any URL or path (defense in depth,
---- §16.29 / §16.23). Transport is never trusted — the bundle it names is still
+--- pin.valid_version BEFORE it can reach any URL or path (defense in depth).
+--- Transport is never trusted — the bundle it names is still
 --- signature/hash-verified downstream exactly as on stable.
 --- `fetch_limits` (optional) is passed to `download.fetch` — the health check's
 --- quick timeouts; self-update calls it without, keeping the default retries.
@@ -147,7 +147,7 @@ function M.resolve_unstable_version(fetch_limits)
   end
   -- The API lists releases in PUBLISH order, not version order (a stable
   -- release cut after a newer pre-release is listed first), so take the
-  -- HIGHEST non-draft version by the §16.29 ordering (a pre-release ranks
+  -- HIGHEST non-draft version by release ordering (a pre-release ranks
   -- below its release). Every candidate tag is validated first: one unsafe
   -- tag fails the whole query.
   local best
@@ -167,28 +167,28 @@ end
 
 --- Resolve the newest AVAILABLE release version for the resolved channel, WITHOUT
 --- downloading (or verifying) a bundle — the version-availability probe behind
---- `lw health`'s update check (§16.31). It performs exactly one lightweight
+--- `lw health`'s update check. It performs exactly one lightweight
 --- network fetch: the releases API on `unstable` (reusing resolve_unstable_version),
 --- else `manifest.json` from the `latest`/override base to read the version it
 --- names. It never fetches or executes a bundle, so it applies NO integrity
---- verification — a real self-update still verifies signature + hash (§16.12). All
+--- verification — a real self-update still verifies signature + hash. All
 --- failures (offline, HTTP error, malformed body) are returned as `nil, err` so the
 --- caller can degrade silently.
 ---
 --- SECURITY: the resolved version is network-derived, so it is validated with
---- pin.valid_version before it is handed back (defense in depth, §16.29). It is
+--- pin.valid_version before it is handed back (defense in depth). It is
 --- only ever displayed/compared here — never interpolated into a URL or path.
 ---
 --- `opts.fetch` (curl limits, see `download.fetch`) bounds the one fetch; the
 --- health check passes quick timeouts so an unreachable network cannot stall
---- `lw health` (§16.31). A local/mirror base is a file read and ignores it.
+--- `lw health`. A local/mirror base is a file read and ignores it.
 --- @return string|nil version, string|nil err
 function M.resolve_newest_version(opts)
   opts = opts or {}
   local channel, cerr = M.resolve_channel(opts)
   if not channel then return nil, cerr end
   -- `unstable` on the default origin: newest incl. pre-releases via the API. A
-  -- mirror/override supersedes the channel (§16.29) and is peeked like stable.
+  -- mirror/override supersedes the channel and is peeked like stable.
   if channel == "unstable" and not url_override(opts) then
     return M.resolve_unstable_version(opts.fetch)
   end
@@ -276,7 +276,7 @@ end
 
 --- The machine-local directory for everything a pinned run provisions:
 --- `<install>/pinned` — the install folder, `<data>` unless
---- LOOMWORKS_INSTALL_DIR moves it (spec §16.22). Never inside a repository — a
+--- LOOMWORKS_INSTALL_DIR moves it. Never inside a repository — a
 --- clone can ship any file under its own tree, so nothing there is trusted.
 function M.pinned_root() return paths.install_dir() .. "/pinned" end
 
@@ -289,7 +289,7 @@ function M.pinned_bundle_dir(version, sha256)
   return M.pinned_root() .. "/" .. tostring(sha256):lower() .. "/lua-" .. version
 end
 
---- Where the global host caches a pinned host binary it redirects to (§16.23):
+--- Where the global host caches a pinned host binary it redirects to:
 --- `<data>/pinned/lw-<version>-<asset>`. Re-verified against the pin on every use.
 function M.pinned_binary_path(version, asset)
   return M.pinned_root() .. "/lw-" .. version .. "-" .. asset
@@ -493,7 +493,7 @@ local function canon_path(p)
 end
 
 --- Remove installed releases beyond the `keep` newest. Best-effort, and
---- deletion-safe (spec §16.22 "Install folder"): only entries
+--- deletion-safe: only entries
 --- `installed_releases` lists (a `lua-<release version>` real bundle
 --- directory, never a link/junction), re-checked right before removal, whose
 --- resolved path is a direct child of the resolved install folder
@@ -522,14 +522,14 @@ function M.gc(keep, except, running_root)
 end
 
 --- Acquire/activate the current release. opts: { url?, force?, channel? }.
---- The channel (§16.29) selects WHICH release an un-pinned, un-overridden fetch
+--- The channel selects WHICH release an un-pinned, un-overridden fetch
 --- targets; it never weakens verification. Returns
 --- { version, updated, dir, channel_overridden } or nil, err[, info].
 --- `channel_overridden` is the requested channel name when a release-url
 --- override superseded a non-default channel (nil otherwise) — for the caller
 --- to surface as a warning. `info` is set only when the (verified) release
 --- needs a newer host than this one — { version, host_incompatible = true } —
---- so the caller can update the host binary first (§16.32).
+--- so the caller can update the host binary first.
 --- @param opts? { url?: string, force?: boolean, channel?: string }
 --- @return { version: string, updated: boolean, dir: string, channel_overridden?: string }|nil result
 --- @return string|nil err
@@ -540,7 +540,7 @@ function M.self_update(opts)
   if not channel then return nil, cerr end
 
   local base = release_base(opts)
-  -- A release-url override supersedes the channel (§16.29): it is used as-is and
+  -- A release-url override supersedes the channel: it is used as-is and
   -- the channel (which governs only the default origin) is ignored. That is by
   -- design, but silent it misleads — a user who passed `--channel unstable`
   -- believes it applied. So when a NON-DEFAULT channel intent is present AND an
@@ -550,7 +550,7 @@ function M.self_update(opts)
     and channel or nil
   -- `unstable` on the default origin resolves the newest release (pre-releases
   -- included) via the API, then fetches that version's assets from its versioned
-  -- path. A mirror/override supersedes the channel (§16.29): it is used as-is and
+  -- path. A mirror/override supersedes the channel: it is used as-is and
   -- the API is never called. `stable` keeps the /latest/download base unchanged.
   if channel == "unstable" and not url_override(opts) then
     local ver, verr = M.resolve_unstable_version()
@@ -567,7 +567,7 @@ function M.self_update(opts)
   if not manifest then return nil, e3 end
   local okh, eh = verify.host_compatible(manifest)
   if not okh then
-    -- Don't strand the host (§16.32): the manifest is already signature-
+    -- Don't strand the host: the manifest is already signature-
     -- verified, so hand its release back as a host-update target — the caller
     -- replaces the lw binary (when allowed) and asks for a re-run.
     return nil, eh, { version = manifest.version, host_incompatible = true }
@@ -584,7 +584,6 @@ function M.self_update(opts)
   if not paths.is_release_version(version) then
     return nil, "manifest names an invalid release version '" .. tostring(version) .. "'"
   end
-  -- Release bundles go to the install folder (spec §16.22 "Install folder").
   local install = paths.install_dir()
   local dest_dir = install .. "/lua-" .. version
   -- The install folder may be any user-chosen directory: a `lua-<version>`
@@ -641,14 +640,14 @@ function M.self_update(opts)
     channel_overridden = channel_overridden }
 end
 
---- The one-line `lw version` report. The host's release version (spec §16.32)
---- leads, with the capability version (§16.14) in parentheses. A host with no
+--- The one-line `lw version` report. The host's release version
+--- leads, with the capability version in parentheses. A host with no
 --- embedded release version never guesses one: it is `dev build` when it IS a
 --- development build (`info.dev_build`, from host_update.dev_build — the same
 --- predicate self-update uses), else `unknown release` (a release host built
 --- before version identity existed, which self-update does replace).
---- ASCII only (spec §16.7): it prints before system Lua can set the console
---- encoding. In pinned context (§16.32) the PIN decides what runs, not the
+--- ASCII only: it prints before system Lua can set the console
+--- encoding. In pinned context the PIN decides what runs, not the
 --- update channel: the line names the pinned version (marked prerelease when it
 --- is one) and the pin file, and carries no channel. A release bundle that is a
 --- prerelease is marked `(prerelease)` too.
@@ -661,7 +660,7 @@ function M.version_line(info, channel, pinned)
     or (info.dev_build and "dev build" or "unknown release")
   local host = label .. " (v" .. info.host_version .. ")"
   -- A prerelease bundle says so (a user following `stable` after trying
-  -- `unstable` keeps it until a newer stable arrives — §16.29).
+  -- `unstable` keeps it until a newer stable arrives).
   local bundle = info.bundle
   if info.source == "release" and paths.is_prerelease(bundle) then bundle = bundle .. " (prerelease)" end
   local line = string.format("lw - host: %s | source: %s | bundle: %s",
@@ -697,7 +696,7 @@ function M.version_info(luaroot, source_kind, opts)
   end
   return {
     host_version = verify.HOST_VERSION,
-    -- The host's embedded release version (spec §16.32); nil = a dev build or
+    -- The host's embedded release version; nil = a dev build or
     -- a release host from before version identity (told apart by dev_build).
     release_version = verify.RELEASE_VERSION,
     dev_build = (opts and opts.dev_build) and true or false,

@@ -31,7 +31,7 @@ M.REDIRECT_COMMANDS = {
   build = true, run = true, test = true, clean = true, configure = true, reset = true,
 }
 
--- Commands whose SUB-command decides (spec §16.23): of `lw daemon`, the ones
+-- Commands whose SUB-command decides: of `lw daemon`, the ones
 -- that start a workspace daemon — `run` (in every form, `--stdio` included:
 -- what the editor launches) and `restart` — so the daemon of a pinned
 -- workspace is the pinned lw whoever starts it. `status`, `list`, `stop` and
@@ -42,7 +42,7 @@ M.REDIRECT_SUBCOMMANDS = {
 }
 
 -- The first release that has each redirected command a pinned lw may lack
--- (spec §16.23 "A pin older than the command"). A pin naming an older release
+-- A pin naming an older release
 -- is never redirected to for it: that host would only fail with "unknown
 -- command". Keys: the command, `<command> <sub>`, and `daemon run --stdio`
 -- for the editor's form. Every other redirect command predates version pins.
@@ -149,7 +149,7 @@ function M.parse(text)
   end
   if not version or version == "" then return nil, "pin missing 'version'" end
   -- Reject a malicious/garbled version here so it never reaches a URL or an
-  -- rm_rf'd path (a repo cannot redirect the fetch — spec §16.23).
+  -- rm_rf'd path (a repo cannot redirect the fetch).
   if not M.valid_version(version) then
     return nil, "pin has an unsafe version '" .. version .. "'"
   end
@@ -195,7 +195,7 @@ end
 
 -- The pinned artifacts the HOST provisions (the redirect's host binary and the
 -- pinned bundle) live in the per-user data dir, never under the pin root — see
--- boot.update.pinned_binary_path / pinned_bundle_dir (spec §16.22).
+-- boot.update.pinned_binary_path / pinned_bundle_dir.
 
 --- Is `cmd` (with its sub-command `sub`, the next word) a workspace operation
 --- that honors a pin?
@@ -240,7 +240,7 @@ local LAUNCH_ADD_VALUED = { ["--working-dir"] = true, ["--cwd"] = true, ["--env"
 --- global flags included): the index of the first token that belongs to a
 --- program or native tool — the first `--`, or a `launch add` program's
 --- arguments — or #args + 1. The host's flags (`--dev`, `--no-pin`) are
---- recognised only before it (spec §16.7); on `launch set` and the set-value
+--- recognised only before it; on `launch set` and the set-value
 --- commands that is up to `--`, the escape for an argument or value spelling
 --- one. The host mirror of the bundle's `loomworks.cli_options.own_end` (which
 --- knows every command's grammar): the host cannot load the bundle before it
@@ -269,7 +269,7 @@ function M.own_end(args)
     return to_dashdash(c + 1), c
   end
   -- A valued option takes the next token unless that is missing, `--` or
-  -- starts with `--` (spec §16.7 "Option values": the bundle refuses those);
+  -- starts with `--` (the bundle refuses those);
   -- `--opt=value` is one token.
   local function step(k)
     local nx = args[k + 1]
@@ -295,7 +295,7 @@ end
 --- Does `args` ask for the version: `-v` / `--version` before the command
 --- word (or, with no command word, among lw's own arguments)? After the
 --- command `-v` is that command's own option — `--verbose` on build, run,
---- test and clean (spec §16.4 *Verbose*) — so `lw build -v` builds while
+--- test and clean — so `lw build -v` builds while
 --- `lw -v build` prints the version.
 --- @param args string[] the whole command line, host flags already peeled
 --- @return boolean
@@ -333,12 +333,12 @@ function M.peel_host_flags(args)
 end
 
 --- The first release whose lw knows the global color options (`--color=<when>`,
---- `--no-color`, spec §16.7 *Highlighting*). A pinned lw older than this
+--- `--no-color`). A pinned lw older than this
 --- rejects them as unknown options (exit 2).
 M.COLOR_OPTIONS_SINCE = "0.1.48"
 
 --- The arguments a redirecting host forwards to the pinned lw `version`
---- (spec §16.23): unchanged, except that the color options among lw's own
+--- command: unchanged, except that the color options among lw's own
 --- arguments (before `own_end`) are dropped when the pinned lw predates them
 --- (a prerelease of COLOR_OPTIONS_SINCE included). They are never turned into
 --- an environment variable; a program's arguments are never touched.
@@ -361,7 +361,7 @@ end
 
 --- The error for a development source with no directory configured. With
 --- `in_args` (a `--dev` after the command word, `peel_host_flags`) it adds a
---- hint: the user may have meant it for the program (spec §16.7).
+--- hint: the user may have meant it for the program.
 --- @param in_args boolean|nil
 --- @return string
 function M.dev_unconfigured_message(in_args)
@@ -389,7 +389,7 @@ end
 --- Decide what a global host should do about a pin. Pure — all inputs explicit.
 --- "unsupported": the pinned release predates the command (REDIRECT_SINCE);
 --- the third value is the release that introduced it. The caller does not
---- redirect, and leaves the workspace daemon to the pinned lw (spec §16.23).
+--- redirect, and leaves the workspace daemon to the pinned lw.
 --- @param o { command?, sub?, stdio?, pin?, self_version?, pinned_sentinel?, no_pin?, lw_override?, dev? }
 --- @return "in-process"|"redirect"|"bypass"|"no-pin"|"unsupported" action, string reason, string|nil since
 function M.decide(o)
@@ -415,7 +415,7 @@ end
 --- bypasses the pin — what `decide` would redirect a workspace operation to
 --- — or nil. A command such a host runs itself (a config edit, `lw profile
 --- select`) must not start or replace the workspace daemon: that is the
---- pinned lw's (spec §16.23, §19.9). Pure — the same inputs as `decide`.
+--- pinned lw's. Pure — the same inputs as `decide`.
 --- @param o { pin?, self_version?, pinned_sentinel?, no_pin?, lw_override?, dev? }
 --- @return string|nil
 function M.foreign_pin(o)
@@ -425,7 +425,7 @@ function M.foreign_pin(o)
 end
 
 -- ---------------------------------------------------------------------------
--- Pin management argument grammar (spec §16.24). Pure.
+-- Pin management argument grammar. Pure.
 -- ---------------------------------------------------------------------------
 
 --- Global flags the CLI accepts among a command's own arguments; tolerated

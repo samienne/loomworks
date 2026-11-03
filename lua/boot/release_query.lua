@@ -1,8 +1,8 @@
--- `lw release query` (spec §16.42): resolve an update channel to a VERIFIED
+-- `lw release query`: resolve an update channel to a VERIFIED
 -- release — its version, the SHA-256 of every host asset and its descriptor
--- (§16.41) — without downloading, installing or saving anything.
+-- — without downloading, installing or saving anything.
 --
--- A host command (§16.23): main.lua dispatches it before pin redirection and
+-- A host command: main.lua dispatches it before pin redirection and
 -- before pinned-bundle provisioning, so it always runs as the invoked host,
 -- needs no workspace and starts no daemon. It reuses the self-update channel
 -- and version resolution (boot.update) and the signed hash list of pin
@@ -25,13 +25,13 @@ local M = {}
 M.FORMAT = 1
 
 --- The overall time limit (seconds) when no `--timeout` is given: every fetch
---- is bounded (§16.42), so an unreachable network never hangs the caller.
+--- is bounded, so an unreachable network never hangs the caller.
 M.DEFAULT_TIMEOUT = 60
 
 --- The connect limit (seconds) of each fetch, capped by the time left.
 M.CONNECT_TIMEOUT = 10
 
---- The descriptor asset a release publishes (§16.41).
+--- The descriptor asset a release publishes.
 --- @param version string a pin.valid_version release version
 --- @return string
 function M.descriptor_asset(version)
@@ -44,7 +44,7 @@ end
 --- @field timeout integer|nil `--timeout <seconds>`: the overall limit
 
 --- Parse the arguments of `lw release query` (`args` is the forwarded argv,
---- leading global flags allowed). Unknown options are usage errors (§16.7).
+--- leading global flags allowed). Unknown options are usage errors.
 --- @param args string[]
 --- @return loomworks.boot.ReleaseQueryArgs|nil args, string|nil err
 function M.parse_args(args)
@@ -95,7 +95,7 @@ end
 
 --- @class loomworks.boot.ReleaseQueryResult
 --- @field query integer the output format version (M.FORMAT)
---- @field channel string the resolved channel (§16.29 precedence)
+--- @field channel string the resolved channel
 --- @field channel_ignored boolean a release-source override superseded the channel
 --- @field source "origin"|"override"
 --- @field version string the newest release on the channel
@@ -103,7 +103,7 @@ end
 --- @field assets table<string, string> host asset -> SHA-256, from the verified sums
 --- @field descriptor table the release's descriptor document, hash-verified
 
---- Resolve the channel to a verified release (§16.42 steps 1-4).
+--- Resolve the channel to a verified release.
 --- @param opts? { channel?: string, timeout?: integer, url?: string }
 --- @return loomworks.boot.ReleaseQueryResult|nil result, string|nil err
 function M.query(opts)
@@ -208,7 +208,7 @@ end
 
 --- Run `lw release query` for main.lua: returns the exit code, the stdout text
 --- and the stderr text (each nil when empty). A failure prints one stderr line
---- and nothing on stdout (§16.42).
+--- and nothing on stdout.
 --- @param args string[] the forwarded argv
 --- @return integer code, string|nil out, string|nil err
 function M.run(args)

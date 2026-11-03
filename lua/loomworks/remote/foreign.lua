@@ -1,9 +1,9 @@
---- loomworks/remote/foreign.lua — foreign build-target artifacts (spec §18.1).
+--- loomworks/remote/foreign.lua — foreign build-target artifacts.
 ---
 --- A build-target artifact is **foreign** when the Tool that built its
 --- ConfigUnit carries a target-platform token, or when the host-executability
 --- probe (remote/probe.lua) finds a format/architecture the host cannot run.
---- Invariant (spec §15 #19): a foreign artifact never executes on the host.
+--- Invariant: a foreign artifact never executes on the host.
 --- Every local execution path for a build-target artifact calls
 --- `M.check_local` first; the headless run/test paths call `M.classify` to
 --- route a foreign artifact to a device runner instead.
@@ -57,7 +57,7 @@ local function kit_name(tool)
     return tool.key or tool.label or "?"
 end
 
---- The refusal message for a foreign artifact (spec §18.1): names the
+--- The refusal message for a foreign artifact: names the
 --- artifact, the platform and the remedy.
 --- @param f loomworks.ForeignArtifact
 --- @param remedy? string replaces the default remedy line
@@ -88,7 +88,7 @@ function M.refusal(f, remedy)
     return head .. " " .. remedy
 end
 
---- Guard for every LOCAL execution of a build-target artifact (spec §18.1):
+--- Guard for every LOCAL execution of a build-target artifact:
 --- returns true when the host may run it, else nil + the refusal message.
 --- @param unit loomworks.ConfigUnit|nil
 --- @param artifact string

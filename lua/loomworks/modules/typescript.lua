@@ -7,7 +7,7 @@ M.has_options = false
 M.languages = { "typescript" }
 
 --- Language-server integrations whose configurations `lsp_configs` can emit
---- (core §8.4) — health lists these servers in a workspace using this module.
+--- — health lists these servers in a workspace using this module.
 M.lsp_servers = {}
 
 local uv = vim.uv or vim.loop
@@ -290,7 +290,7 @@ function M.npm_version_from_layout(ctx, npm_path)
     return nil
 end
 
---- Environment inventory (typescript §7, core §16.33): node and npm, which a
+--- Environment inventory: node and npm, which a
 --- project's tasks run through. `exe:node` is also declared by the pwa-node
 --- adapter's inventory companion with the same id (probed once). npm's version
 --- is read from its installed package.json (`npm_version_from_layout`); only
@@ -395,7 +395,7 @@ function M.tasks(project, active_config)
         end
         build_cmd[#build_cmd + 1] = "--force"
     end
-    -- The caller's build args (core §8.1 `build_args`) go on the native
+    -- The caller's build args go on the native
     -- command BEFORE the Windows `cmd /c` wrap, so they pass the same
     -- argument check as every other npm/tsc argument. `npm run` needs `--` to
     -- hand them to the script. `build_targets` is not supported.

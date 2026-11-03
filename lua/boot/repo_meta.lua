@@ -1,4 +1,4 @@
--- Repository metadata for the repo-local launcher (spec §16.24): the ignore
+-- Repository metadata for the repo-local launcher: the ignore
 -- rule for the launcher cache, the line-ending attributes of lw.sh / lw.cmd /
 -- lw.pin, the executable bit of lw.sh, and pruning of old cached host
 -- binaries. Used by `lw bootstrap install` (boot.bootstrap); runs in the
@@ -22,7 +22,7 @@ local GIT_ENV = { GIT_OPTIONAL_LOCKS = "0", GIT_TERMINAL_PROMPT = "0", LC_ALL = 
 M.GIT_TIMEOUT_MS = 10000
 
 --- Run `git -C <cwd> <args...>`. Repository-local configuration must not run
---- commands on lw's behalf (spec §17.8): no fsmonitor hook, no hooks path.
+--- commands on lw's behalf: no fsmonitor hook, no hooks path.
 --- Returns code, stdout, stderr — or nil, err when git cannot be run.
 --- Test seam: M._git.
 function M._git(cwd, args, opts)
@@ -99,7 +99,7 @@ local function under(path, dir)
   return path == dir or path:sub(1, #dir + 1) == dir .. "/"
 end
 
---- The line ending to write into an ignore/attributes file (spec §16.24): the
+--- The line ending to write into an ignore/attributes file: the
 --- file's own — CR LF when it already has CR LF lines — so an append never
 --- leaves it with mixed endings; for a file being created (`text` empty), what
 --- git would check it out with: CR LF under `core.autocrlf=true`, else LF.
@@ -144,7 +144,7 @@ function M.cache_ignored_by_repo(root, top)
     function(cwd, args) return M._git(cwd, args) end)
 end
 
---- Ensure the launcher cache is ignored by the repository (spec §16.24).
+--- Ensure the launcher cache is ignored by the repository.
 --- @return "present"|"covered"|"added"|nil status, string|nil err
 function M.ensure_gitignore(root, top, write_file)
   local path = root .. "/.gitignore"
@@ -176,7 +176,7 @@ function M.effective_attrs(root, top, files)
   return out and launcher.parse_check_attr(out) or nil
 end
 
---- Ensure the attributes give each file its line ending (spec §16.24).
+--- Ensure the attributes give each file its line ending.
 --- `files` (default: all three) limits the rules — `--pin-only` passes lw.pin.
 --- @return string[] appended files, string|nil problem, string|nil err
 function M.ensure_gitattributes(root, top, write_file, files)
@@ -221,7 +221,7 @@ function M.ensure_gitattributes(root, top, write_file, files)
   return missing
 end
 
---- Make sure lw.sh is recorded executable (spec §16.24). Where git tracks the
+--- Make sure lw.sh is recorded executable. Where git tracks the
 --- bit through the file system the file mode was set on write; where it does
 --- not (core.fileMode=false — Windows), the bit lives only in the index: add an
 --- untracked lw.sh with +x, or set +x on a tracked one. The ONLY staging.
@@ -246,7 +246,7 @@ function M.ensure_exec_bit(root, top)
 end
 
 --- Remove cached host binaries of versions other than `keep` from
---- `<root>/.nvim/cache` (spec §16.24). Confined: the cache dir and its `.nvim`
+--- `<root>/.nvim/cache`. Confined: the cache dir and its `.nvim`
 --- parent must be real directories (not links/junctions) under the root; only
 --- regular files directly in it, named exactly `lw-<valid version>-<known
 --- asset>`, never the pinned version's, never the running executable. A

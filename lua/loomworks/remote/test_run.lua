@@ -1,5 +1,5 @@
---- loomworks/remote/test_run.lua — named test executables (spec §16.16,
---- §18.6): results-option handling, outcome judgement and JUnit output shared
+--- loomworks/remote/test_run.lua — named test executables:
+--- results-option handling, outcome judgement and JUnit output shared
 --- by the local and the device path of `lw test --target <exe>`.
 ---
 --- A named executable runs directly (never through the native batch runner)
@@ -68,7 +68,7 @@ function M.failed_reasons(reasons, c)
     return s
 end
 
---- The failing test names of a failed step's summary line (spec §16.16), in
+--- The failing test names of a failed step's summary line, in
 --- result order: at most `cap` names, then ", and K more" for the rest. ""
 --- when there are none.
 --- @param c table|nil M.count output
@@ -83,10 +83,10 @@ function M.failed_names(c, cap)
     return s
 end
 
---- How many failing test names a failed step's line lists (spec §16.16).
+--- How many failing test names a failed step's line lists.
 M.FAILED_NAMES_CAP = 10
 
---- Judge an executable's outcome (spec §18.6).
+--- Judge an executable's outcome.
 --- @param o { status: integer|nil, results_requested: boolean, results: table[]|nil, results_missing: boolean, crashes?: integer, transport_error?: string }
 --- @return boolean failed, string[] reasons
 function M.judge(o)
@@ -185,14 +185,14 @@ function M.write_file(path, content)
     return true
 end
 
---- The `before_exec` hook of a device test run (spec §18.6): detect the
+--- The `before_exec` hook of a device test run: detect the
 --- framework with the list probe executed on the device; for gtest, remove a
 --- stale results file and point `--gtest_output` at a device-side file in the
 --- staging root. Returns the hook and a state table (`framework`,
 --- `results_name`).
 --- The results option goes right after the program (before a launch's own
---- args); `tail` (the entry's own args, then caller-forwarded args, spec
---- §16.16) is appended last.
+--- args); `tail` (the entry's own args, then caller-forwarded args)
+--- is appended last.
 --- @param name string executable base name
 --- @param tail? string[] arguments placed after the results option
 --- @return function hook, table state
@@ -211,7 +211,7 @@ function M.device_hook(name, tail)
             st.framework = "gtest"
             dev.mkdir(M.RESULTS_REL)
             dev.remove({ rel })
-            -- Right after the program, before a launch's own args (§16.16).
+            -- Right after the program, before a launch's own args.
             table.insert(plan.argv, 2, "--gtest_output=xml:" .. plan.root .. "/" .. rel)
             add_tail(plan)
             st.results_name = safe .. ".xml"

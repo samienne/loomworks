@@ -54,7 +54,7 @@ local function is_absolute(p)
   return p:sub(1, 1) == "/" or p:match("^%a:/") ~= nil
 end
 
---- The install-folder override (spec §16.22 "Install folder"):
+--- The install-folder override:
 --- `LOOMWORKS_INSTALL_DIR`, normalized, or nil when unset. A relative value is
 --- not honoured (it would resolve against whatever directory lw runs in): nil
 --- plus the reason, which main.lua prints once.
@@ -68,7 +68,7 @@ function M.install_dir_override()
   return v
 end
 
---- Where lw INSTALLS what it downloads (spec §16.22 "Install folder"): the
+--- Where lw INSTALLS what it downloads: the
 --- release bundles (`<install>/lua-<ver>`, self-update) and the pinned cache
 --- (`<install>/pinned`: the pin redirect's host binaries and pinned bundles),
 --- with the release-notes record that describes those bundles. Equal to
@@ -121,7 +121,7 @@ function M.write_config(cfg)
 end
 
 --- Split a version into its numeric release core and its pre-release identifier
---- list. Build metadata (`+…`) is ignored for precedence (semver §10). A version
+--- list. Build metadata (`+…`) is ignored for precedence (semver). A version
 --- with no `-<pre>` suffix returns nil for the identifier list.
 ---   "0.2.0"        -> {0,2,0}, nil
 ---   "0.2.0-beta.1" -> {0,2,0}, {"beta","1"}
@@ -139,7 +139,7 @@ local function split_version(v)
   return nums, ids
 end
 
---- Compare two pre-release identifiers per semver §11.4: numeric identifiers
+--- Compare two pre-release identifiers per semver: numeric identifiers
 --- compare numerically, numeric ranks below alphanumeric, alphanumerics compare
 --- lexically. Returns -1 / 0 / 1.
 local function cmp_ident(x, y)
@@ -153,7 +153,7 @@ end
 
 --- Semver-aware comparison of two versions: -1 if a<b, 0 if equal, 1 if a>b.
 --- The numeric release core compares field-by-field; on an equal core a
---- pre-release orders BELOW the full release (§16.29), and two pre-releases
+--- pre-release orders BELOW the full release, and two pre-releases
 --- compare identifier-by-identifier (a shorter identifier list ranks lower).
 local function compare_versions(a, b)
   local acore, apre = split_version(a)
@@ -183,7 +183,7 @@ function M.is_prerelease(v)
   return (v:gsub("%+.*$", "")):find("-", 1, true) ~= nil
 end
 
---- Compare versions (semver-aware, §16.29). True when `a` is strictly newer than
+--- Compare versions (semver-aware). True when `a` is strictly newer than
 --- `b`. A pre-release (`0.2.0-beta.1`) is older than its release (`0.2.0`); the
 --- numeric core still orders "1.10.0" > "1.9.0".
 function M.version_gt(a, b)
@@ -195,7 +195,7 @@ end
 --- alphanumeric identifiers), and safe as a path segment (pin.valid_version).
 --- The install folder can be any user-chosen directory (LOOMWORKS_INSTALL_DIR),
 --- so a looser match would rank or delete foreign `lua-*` folders
---- (`lua-language-server`) — spec §16.22 "Install folder".
+--- (`lua-language-server`).
 --- @param ver any
 --- @return boolean
 function M.is_release_version(ver)

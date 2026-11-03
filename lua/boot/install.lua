@@ -10,7 +10,7 @@
 -- (`-y`), and never when --no-modify-path. Windows needs no PATH edit.
 --
 -- Replacing a DIFFERENT binary already at the install location is gated the
--- same way (spec §16.15): the existing file is described (size, date, and —
+-- same way: the existing file is described (size, date, and —
 -- read from its fused bundle, never executed — whether it is a development
 -- build or which release it is) and the user confirms; `-y` skips the question;
 -- non-interactive without `-y` refuses. An identical binary is left as it is.
@@ -290,7 +290,7 @@ function M.install(opts)
   if opts.no_bundle and opts.fused_system_lua then
     -- A development build (`make install`): its system Lua is fused in.
     -- self-update never replaces a development build, and a release bundle it
-    -- installed would take precedence over the fused code (spec §16.11).
+    -- installed would take precedence over the fused code.
     say("- bundle: skipped (--no-bundle): this lw carries its own system Lua (a development")
     say("  build); update it by rebuilding it (make install), not with `lw self-update`,")
     say("  whose release bundle would take precedence over the fused code.")

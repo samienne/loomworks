@@ -1,10 +1,10 @@
--- Self-update's "what's new" lines (spec §16.32, §16.37).
+-- Self-update's "what's new" lines.
 --
 -- The host knows nothing about the notes format: after `lw self-update`
 -- installed a newer bundle, it loads THAT bundle's pure renderer
 -- (loomworks/release_notes.lua, already signature-verified with the rest of the
 -- bundle) into a sandbox of plain builtins, hands it the bundle's
--- loomworks/CHANGELOG.md, and prints what comes back folded to ASCII (§16.7).
+-- loomworks/CHANGELOG.md, and prints what comes back folded to ASCII.
 -- Any failure reduces the output to the pointer line; nothing here can change
 -- self-update's exit status (main.lua also pcall's it).
 

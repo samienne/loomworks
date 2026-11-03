@@ -1,9 +1,9 @@
---- loomworks/remote/probe.lua — host-executability probe (spec §18.1).
+--- loomworks/remote/probe.lua — host-executability probe.
 ---
 --- Reads the executable-format header of a build-target artifact and compares
 --- its format — and, where the format records one, its machine architecture —
 --- with the host's. A mismatch makes the artifact **foreign**: it never runs on
---- this host (spec §15 invariant 19). The probe never refuses what it cannot
+--- this host. The probe never refuses what it cannot
 --- judge: an unreadable file, a script, or an unknown format is not a mismatch.
 ---
 --- Formats recognised: ELF, PE (the `MZ` stub + `PE\0\0` header) and Mach-O

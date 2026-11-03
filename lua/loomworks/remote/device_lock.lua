@@ -1,5 +1,5 @@
 --- loomworks/remote/device_lock.lua — one remote operation at a time per
---- device per host (spec §18.7).
+--- device per host.
 ---
 --- An exclusive per-serial lockfile `<dir>/<serial>.lock` in a per-user state
 --- directory, shared by the editor, the CLI and every workspace on the host.
@@ -7,10 +7,10 @@
 --- (loomworks.build_lock); unlike those it WAITS by default (queueing for a
 --- shared device is normal), printing the holder once; `wait = false` fails
 --- fast. The wait has no deadline; a dead holder's lock is reclaimed, a hung
---- one (alive, heartbeat lapsed) is reported, not waited for (spec §19.5).
+--- one (alive, heartbeat lapsed) is reported, not waited for.
 --- `LOOMWORKS_DEVICE_LOCK_DIR` relocates the directory.
 ---
---- Leftover programs (§18.7): while a remote run's program runs, the lockfile
+--- Leftover programs: while a remote run's program runs, the lockfile
 --- also records `{ device_pid, nonce, program, program_started_at }`; a
 --- handle that reclaimed a dead holder's lock carries that record as `leftover`.
 
@@ -75,7 +75,7 @@ function M.leftover_of(info)
     return { pid = pid, nonce = nonce, program = program, started_at = started }
 end
 
---- Record the running program in a held lock (§18.7).
+--- Record the running program in a held lock.
 --- @param handle table|nil
 --- @param p { pid: integer, nonce: string, program: string }
 function M.set_program(handle, p)
@@ -92,7 +92,7 @@ function M.clear_program(handle)
 end
 
 -- ---------------------------------------------------------------------------
--- Leftover record file (§18.7): `<lock dir>/<serial>.leftover` keeps the
+-- Leftover record file: `<lock dir>/<serial>.leftover` keeps the
 -- program of a run that ended (lock released) without stopping it.
 -- ---------------------------------------------------------------------------
 
@@ -205,12 +205,12 @@ end
 ---   workspace   string recorded in the lockfile
 ---   on_wait     fun(msg: string) called ONCE when the lock is held by another
 ---   poll_ms     number override of the poll cadence
----   break_locks "ask"|"now"|nil — `--break-locks` (spec §19.5): a hung or
+---   break_locks "ask"|"now"|nil — `--break-locks`: a hung or
 ---               live holder on this host is stopped instead of waited for
 ---               (default: loomworks.lock_break.requested, set by the CLI)
 ---   command     the command named in a hung holder's recovery hint
 ---   on_break    fun(line: string) — every ask / kill of `--break-locks`
---- A hung holder (alive, heartbeat stale, spec §19.5) is never waited for: it
+--- A hung holder (alive, heartbeat stale) is never waited for: it
 --- is reported with the recovery command.
 --- @param serial string
 --- @param opts? table

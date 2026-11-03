@@ -1,9 +1,9 @@
 --- loomworks/remote/devices.lua — devices reported by device runners and
---- device selection for remote execution (spec §18.3, §1.8).
+--- device selection for remote execution.
 ---
 --- Devices a runner lists join the workspace device registry
 --- (`Workspace._devices`, serial → Device) with `provider` = the runner id; a
---- serial reported by both a module (§11) and a runner is one Device.
+--- serial reported by both a module and a runner is one Device.
 ---
 --- Selection order (first match wins): an explicit selection for this
 --- operation → the profile's persisted serial → the sole online device. A
@@ -52,7 +52,7 @@ function M.list(runner, opts)
     return out
 end
 
---- Ask the runner's optional `describe_device(serial)` (spec §18.2) about each
+--- Ask the runner's optional `describe_device(serial)` about each
 --- ONLINE device, once, under the query timeout: a returned `display_name`
 --- replaces the listed name and `properties` merge into the device's. Best
 --- effort — a failing builder, spec or parser keeps what the listing said.
@@ -118,7 +118,7 @@ local function describe(devices)
 end
 M.describe = describe
 
---- Choose the device for an operation (spec §18.3).
+--- Choose the device for an operation.
 --- @param devices table[] the runner's current listing
 --- @param opts { explicit?: string, persisted?: string, runner_id?: string, profile_key?: string }
 --- @return string|nil serial, string|nil err, string|nil source "explicit"|"persisted"|"sole"

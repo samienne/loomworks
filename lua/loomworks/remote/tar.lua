@@ -1,6 +1,6 @@
 --- loomworks/remote/tar.lua — write an uncompressed archive in the portable
 --- tape-archive format (POSIX ustar, with a pax `path` record for names that
---- do not fit), for staging an archive set as ONE transfer (spec §18.4).
+--- do not fit), for staging an archive set as ONE transfer.
 ---
 --- Entries: a directory entry for every parent directory (so extractors that
 --- do not create leading directories still work), then each regular file

@@ -1,5 +1,5 @@
 -- Host-level help: the help of the HOST's own commands (version, self-update,
--- install, bootstrap, release) — the single source of that text (spec §16.7):
+-- install, bootstrap, release) — the single source of that text:
 -- the bundle's CLI reuses these topics for `lw help <host command>`, so the
 -- answer is the same with or without a bundle. Also what `lw help` / `-h` /
 -- `--help` / `lw <cmd> --help` print when no loomworks system Lua is available
@@ -8,7 +8,7 @@
 -- bundle — naming the repo launcher in a pinned repository.
 --
 -- Pure: builds text, prints nothing. ASCII only (it prints before system Lua
--- can set the console encoding, §16.7).
+-- can set the console encoding).
 
 local M = {}
 
@@ -294,7 +294,7 @@ function M.text(topic, ctx, sub)
   return M.usage(topic, ctx)
 end
 
---- Only `sub`'s part of a host command's help (spec §16.7): its entry — a line
+--- Only `sub`'s part of a host command's help: its entry — a line
 --- `  <sub> ...` indented two, with its continuation lines indented three or
 --- more — plus a pointer to the whole. nil when the help does not document it.
 --- The same shape the CLI's sub-command help uses.
