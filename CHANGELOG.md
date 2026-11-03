@@ -22,6 +22,8 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
   empty `## Unreleased` back on top. The release workflow refuses a full-release
   tag without its entry. Pre-releases have no entry of their own: they ship
   the Unreleased entry.
+* A development build takes its version from the newest released entry
+  (`<version>+dev`), so the file always keeps at least one.
 -->
 
 ## Unreleased
@@ -31,3 +33,13 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
 - `lw`, the workspace daemon and its protocol moved here from loomworks.nvim,
   which is now a client of the daemon. The history of the 0.1.x releases is in
   the CHANGELOG of loomworks.nvim.
+
+## 0.1.49 - 2026-10-19
+
+The last release made from loomworks.nvim. Its notes, and those of every
+earlier 0.1.x release, are in the CHANGELOG of loomworks.nvim.
+
+### Added
+
+- `-v` / `--verbose` on `lw build`, `lw run`, `lw test` and `lw clean` prints
+  every command a step runs under its header. (#273)
