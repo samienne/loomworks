@@ -18,9 +18,10 @@ recovery — is the loomworks behavioural specification's; each section below
 points to the sections that define it.
 
 **Section numbers.** `§n` is a section of this document. `spec §n` is a
-section of the loomworks behavioural specification. Text marked as moved comes from those sections,
-which keep a pointer under the same heading or label; it stays normative as
-written, including the parts of it that state meaning.
+section of the loomworks behavioural specification. Text marked as moved
+comes from those sections, which keep a pointer under the same heading or
+label; it stays normative as written, including the parts of it that state
+meaning.
 
 **Not covered.** The following are private to the implementation that writes
 them, and a reader may discard them: the launcher scripts (`lw.sh`,
