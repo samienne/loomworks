@@ -1,5 +1,5 @@
 --- loomworks/daemon/core_interfaces.lua — the core interfaces the build
---- service serves (spec §19.20 "Interface catalogue", step 5g.2):
+--- service serves:
 ---
 ---   /workspace   loomworks.Workspace/1    header, publish, publish_one, revert_one, revert_to_baseline,
 ---                                         set_intent, set_description, trust_accept, delete_user_prefs
@@ -31,24 +31,24 @@
 ---
 --- Each method adapts the handler the protocol-10 request kind already uses
 --- (loomworks.daemon.service), so the v0 alias and the interface method are
---- one implementation (§19.20 "Versions and deprecation"). None of them needs
+--- one implementation. None of them needs
 --- a loaded workspace at mount time — `header` reports the state, the others
 --- load as their v0 requests do — so they are mounted when the service is
 --- attached, before any load, and no `objects_changed` follows a load.
 ---
---- T = task-streamed (§19.15 "Tasks of interface methods"): the method
+--- T = task-streamed: the method
 --- replies with the operation's outcome (`accepted` with the `task_id`, or
 --- `refused` / `declined` / `confirm`) and the task's frames follow on the
 --- transport's task stream; the start meta names the method (`object`,
 --- `iface`, `v`, `method`) and `done.result` carries the task result its
 --- schema declares (`Task.call`, loomworks.daemon.tasks).
 ---
---- References (§19.20): an entity argument is `{ key }` (the CLI) or `{ id }`
+--- References: an entity argument is `{ key }` (the CLI) or `{ id }`
 --- (an id from a snapshot's index); an id is resolved against the live model
 --- in the request's model segment, and a stale one is the refused result.
 ---
 --- Signals: `Workspace.changed` with every committed state-file write (beside
---- the protocol-10 `model_change` broadcast, §19.12);
+--- the protocol-10 `model_change` broadcast);
 --- `Workspace.header_changed` when the header's state, name, active profile
 --- or error changed (checked after every model segment and every write, and
 --- before the acknowledgement of a request answered inside its segment);
@@ -60,8 +60,8 @@
 --- subscribers of `/tasks` (filtered by the subscription's `task_id`). The
 --- task frames themselves reach a connection of transport 11 only for a task
 --- its `/tasks` subscription matches (or that it owns), and every
---- connection below 11 as in protocol 10 (§19.15 "Observation", step 5g.3;
---- loomworks.daemon.tasks). Likewise the protocol-10 `model_change` and
+--- connection below 11 as in protocol 10 (loomworks.daemon.tasks). Likewise
+--- the protocol-10 `model_change` and
 --- `retiring` broadcasts reach only connections below transport 11.
 
 local envelope = require("loomworks.proto.envelope")
@@ -82,7 +82,7 @@ M.LSP = { path = "/lsp", iface = "loomworks.LspConfig", v = 1 }
 M.PROJECTS = { path = "/projects", iface = "loomworks.Projects", v = 1 }
 M.CONFIG_SETS = { path = "/projects", iface = "loomworks.ConfigSets", v = 1 }
 
---- The header of `Workspace/1` (the welcome header's fields, §19.13), never
+--- The header of `Workspace/1` (the welcome header's fields), never
 --- loading.
 --- @param service loomworks.daemon.BuildService
 --- @return table
@@ -102,11 +102,11 @@ end
 
 --- Emit `Workspace.header_changed { header }` when the header's model fields
 --- differ from the last ones seen (the first call only records them), then
---- the views' `update` where a view changed (§19.13 "Views") — after
+--- the views' `update` where a view changed — after
 --- applying the file changes another process made (Service:check_files).
 --- @param service loomworks.daemon.BuildService
 function M.header_check(service)
-    -- Another process's file changes first (§19.13 "Freshness of views").
+    -- Another process's file changes first, so the views are fresh.
     if service.check_files then service:check_files() end
     local h = M.header(service)
     local sig = table.concat({ tostring(h.state), tostring(h.name), tostring(h.active_profile),
@@ -125,7 +125,7 @@ function M.header_check(service)
     if not ok and reg then reg:_log("Devices changed check failed: %s", tostring(err)) end
 end
 
---- `LspConfig/1.get`'s state (§19.20): `env_key` names the environment it is
+--- `LspConfig/1.get`'s state: `env_key` names the environment it is
 --- computed in (the caller's, or nil for the daemon's own). Never loads: in
 --- any state but `loaded` it is that state with nothing else.
 --- @param service loomworks.daemon.BuildService
@@ -147,7 +147,7 @@ end
 --- Built only while someone subscribes; without subscribers the baseline is
 --- dropped, and the first subscription records it (`lsp_impl`'s
 --- `subscribed`) without sending anything (a client reads `get` after
---- subscribing, §19.20).
+--- subscribing).
 --- @param service loomworks.daemon.BuildService
 --- @param force? boolean
 function M.lsp_check(service, force)
@@ -176,7 +176,7 @@ function M.lsp_check(service, force)
     end
 end
 
---- The item an `ItemRef` (API.md §1.2) names: a profile, configuration set,
+--- The item an `ItemRef` names: a profile, configuration set,
 --- project, configuration or launch configuration of `ws`, by its id alone
 --- (ids are unique across kinds), or nil + the stale-reference refusal.
 --- @param service loomworks.daemon.BuildService
@@ -236,7 +236,7 @@ end
 local function command(service, ctx, fn)
     service:_on_model_request(ctx.conn, { kind = "workspace_command", env = ctx.env }, function(ws, seg)
         -- A change another process wrote is taken in first: the write
-        -- then never refuses as stale for it (§2.7).
+        -- then never refuses as stale for it.
         local tr = ws._tracker
         if tr and tr.sync then tr:sync() end
         if service.host.current() ~= ws then
@@ -257,12 +257,12 @@ local function command(service, ctx, fn)
     return require("loomworks.daemon.interfaces").ASYNC
 end
 
---- The `loomworks.Workspace/1` handlers (API.md §6). The commands run in a
+--- The `loomworks.Workspace/1` handlers. The commands run in a
 --- model segment of the caller's environment (as `write_segment`): ids
 --- resolve to the live objects once, here, and the write is the shared
 --- loomworks.model_commands function the in-process editor calls. A publish
 --- takes the workspace operation lock O (Workspace:publish / publish_one are
---- guarded, spec §19.3); a refusal of a lock or a save names its cause (the
+--- guarded); a refusal of a lock or a save names its cause (the
 --- holder). `trust_accept` / `delete_user_prefs` act on the core's working
 --- copy, also while the load is refused, and the daemon then serves the
 --- load they started.
@@ -372,7 +372,7 @@ function M.tasks_impl(service)
             return { outcome = "refused", message = "task " .. tostring(args.task_id) .. " cannot be cancelled",
                 exit_code = 1 }
         end
-        -- As a disconnect does (§19.15): on the main loop, after the reply.
+        -- As a disconnect does: on the main loop, after the reply.
         vim.schedule(function()
             if not run.finished then run.cancel("cancelled by the client that started it", 130) end
         end)
@@ -459,8 +459,8 @@ end
 
 --- The handler of a task-streamed operation method.
 --- @param service loomworks.daemon.BuildService
---- `units` (Build/1 build, configure, clean; spec §19.15 "Editor scopes and
---- configure") is a non-empty list, exclusive with `profile`: otherwise
+--- `units` (Build/1 build, configure, clean) is a non-empty list, exclusive
+--- with `profile`: otherwise
 --- `invalid_args`, before anything is resolved.
 --- @param op "build"|"test"|"run"|"debug"|"target_build"|"clean"|"reset"|"configure"
 --- @param where table
@@ -504,12 +504,12 @@ function M.tests_impl(service)
         run = operation(service, "test", M.TESTS, "run"),
         discover = require("loomworks.daemon.test_discover").handler(service, M.TESTS),
     }
-    -- The editor's runs, debug preparations and results (step 5m part B2).
+    -- The editor's runs, debug preparations and results.
     for name, fn in pairs(require("loomworks.daemon.test_runs").methods(service)) do methods[name] = fn end
     return { methods = methods }
 end
 
---- `Launch/1.targets` (API.md §9.6), defined below with the reference
+--- `Launch/1.targets`, defined below with the reference
 --- resolvers it uses.
 local launch_targets
 
@@ -518,13 +518,13 @@ local launch_targets
 --- @return loomworks.daemon.InterfaceImpl
 function M.launch_impl(service)
     return { methods = {
-        -- The profile's launchable targets (step 6b-α): a read.
+        -- The profile's launchable targets: a read.
         targets = function(ctx, args) return launch_targets(service, ctx, args) end,
         prepare_run = operation(service, "run", M.LAUNCH, "prepare_run"),
         prepare_debug = operation(service, "debug", M.LAUNCH, "prepare_debug"),
-        -- The build of a launch target (§19.15 "Build of a launch target").
+        -- The build of a launch target.
         build = operation(service, "target_build", M.LAUNCH, "build"),
-        -- The log stream of a device launch (API.md §9.5, step 5n B3): its
+        -- The log stream of a device launch: its
         -- records are this interface's `log` signal.
         device_log = require("loomworks.daemon.devices").device_log_method(service),
     } }
@@ -624,14 +624,14 @@ local function await_tools(service, ws, before)
 end
 
 --- The warn note of a write whose detection did not finish within the wait
---- (the reply stays `ok`: the write is done, API.md §11).
+--- (the reply stays `ok`: the write is done).
 local RESCAN_UNFINISHED = "toolchain detection did not finish in time; it goes on in the background"
 
---- The `loomworks.Toolchains/1` handlers. `rescan` (API.md §11, step 5o
---- part B4) is a command: in a model segment of the caller's environment it
---- detects the toolchains again, as the status page's `L` does in-process,
---- every module type afresh (no machine-level cached result reused,
---- spec §16.43), and replies once the model took them in, or `ok` with a
+--- The `loomworks.Toolchains/1` handlers. `rescan` is a command: in a model
+--- segment of the caller's environment it detects the toolchains again, as
+--- the status page's `L` does in-process, every module type afresh (no
+--- machine-level cached result reused), and replies once the model took
+--- them in, or `ok` with a
 --- warn note when that did not happen within the wait.
 --- @param service loomworks.daemon.BuildService
 --- @return loomworks.daemon.InterfaceImpl
@@ -669,14 +669,14 @@ local function sdk_of(service, ws, ref)
     return nil, "no SDK '" .. tostring(ref.key) .. "'"
 end
 
---- The `loomworks.Sdks/1` handlers (API.md §21, step 5o part B4). `detect`
+--- The `loomworks.Sdks/1` handlers. `detect`
 --- is a read in a model segment of the caller's environment (the providers'
 --- detection probes it); `add` and `remove` are commands as Workspace/1's
 --- (`command`), the write the shared loomworks.model_commands function the
 --- in-process editor calls, which also starts detecting the toolchains
 --- again; the daemon waits for that detection (as Toolchains/1.rescan) before
---- it replies, so the SDK's kits are offered (or gone). `list` is deferred
---- (step 5o D9: view.Workspace/1 carries the SDKs).
+--- it replies, so the SDK's kits are offered (or gone). There is no `list`:
+--- view.Workspace/1 carries the SDKs.
 --- @param service loomworks.daemon.BuildService
 --- @return loomworks.daemon.InterfaceImpl
 function M.sdks_impl(service)
@@ -690,7 +690,7 @@ function M.sdks_impl(service)
     function methods.add(ctx, args)
         return command(service, ctx, function(ws)
             -- The daemon's cwd is not the caller's: a relative path would
-            -- resolve against the wrong directory (API.md §21). An unknown
+            -- resolve against the wrong directory. An unknown
             -- provider is refused first (by sdk_add).
             if type(args.path) == "string" and require("loomworks.sdks").get(args.provider)
                 and not require("loomworks.exe").is_absolute(args.path) then
@@ -736,7 +736,7 @@ end
 local function write_segment(service, ctx, kind, write)
     service:_on_model_request(ctx.conn, { kind = kind, env = ctx.env }, function(ws)
         -- A change another process wrote is taken in first: the write then
-        -- never refuses as stale for it (§2.7).
+        -- never refuses as stale for it.
         local tr = ws._tracker
         if tr and tr.sync then tr:sync() end
         if service.host.current() ~= ws then
@@ -863,7 +863,7 @@ local function set_or_candidate(service, ws, ref)
 end
 
 --- The `loomworks.Profiles/1` handlers. `set_device` / `clear_device`
---- (API.md §11) write the profile's device to the working copy as the
+--- write the profile's device to the working copy as the
 --- in-process Profile:set_device / clear_device do; `set_device`'s device
 --- is one of the registry's (Devices/1.list), by id or serial. The write's
 --- `model_change` (Workspace/1 `changed`) precedes the reply.
@@ -902,7 +902,7 @@ function M.profiles_impl(service)
         end)
     end
 
-    -- Step 5o part B2 (API.md §11): the commands run as Workspace/1's do
+    -- The commands run as Workspace/1's do
     -- (`command`), the references resolved to the live objects once, here;
     -- the write is the shared loomworks.model_commands function the
     -- in-process editor calls. A toolchain change re-derives the profile's
@@ -920,7 +920,7 @@ function M.profiles_impl(service)
 
     --- The wire form of a toolchain entry: a module's `{ module, key?,
     --- label, sdk_key? }` (`sdk_key` a kit toolchain's SDK), an SDK's
-    --- `{ sdk = true, key, label }` (API.md §11).
+    --- `{ sdk = true, key, label }`.
     local function tool_wire(e)
         if e.sdk then return { sdk = true, key = e.sdk.key, label = e.tool_label or e.sdk.key } end
         return { module = e.tool_mod_type, key = e.tool_key, label = e.tool_label or e.tool_key, sdk_key = e.sdk_key }
@@ -949,7 +949,7 @@ function M.profiles_impl(service)
         return on_profile(ctx, args, function(profile) return mc.profile_set_active(profile) end)
     end
 
-    -- Step 6b-α (API.md §11): the profile's default launch target, `target`
+    -- The profile's default launch target, `target`
     -- `{ kind, project, name }` (`project` a reference, resolved here) one of
     -- Launch/1.targets' records; no `target` removes the stored choice.
     -- The target is checked against the profile's current targets
@@ -1003,7 +1003,7 @@ function M.profiles_impl(service)
             if r.outcome == "ok" then
                 r.profile = r.profile and { id = service.ids:id(r.profile), key = r.profile.key } or nil
                 -- The automatic set a candidate added is a created entity:
-                -- returned as { id, key } (API.md §4.1), also when the
+                -- returned as { id, key }, also when the
                 -- profile could not be saved (the warn result).
                 local cs = set.candidate ~= nil and r.config_set or nil
                 r.config_set = cs and { id = service.ids:id(cs), key = cs.name } or nil
@@ -1040,7 +1040,7 @@ project_of = function(service, ws, ref)
     return nil, "no project '" .. tostring(ref.key) .. "'"
 end
 
---- `Launch/1.targets { profile }` (API.md §9.6): the profile's launchable
+--- `Launch/1.targets { profile }`: the profile's launchable
 --- targets, in a model segment of the caller's environment, each record's
 --- project as `{ id, key }`; targets unknown or older than their unit's last
 --- configure or build are parsed first, off the model queue
@@ -1096,7 +1096,7 @@ local function configuration_of(service, project, ref)
     return c
 end
 
---- The launch configuration of `project` a call names (API.md §1.2): its id
+--- The launch configuration of `project` a call names: its id
 --- (refused when it is another project's), or `{ key }` its name in
 --- `project`; or nil + the refusal.
 --- @param service loomworks.daemon.BuildService
@@ -1131,14 +1131,14 @@ local function plain(v)
     return out
 end
 
---- The `loomworks.Projects/1` handlers (API.md §19). The commands run as
+--- The `loomworks.Projects/1` handlers. The commands run as
 --- Workspace/1's do (`command`): references resolve to the live objects once,
 --- here (a project, configuration or launch configuration by id or by key,
 --- a variable, deploy declaration or `type_config` field by its project and
 --- name), and the write is the shared loomworks.model_commands function the
 --- in-process editor calls. A configuration rename propagates under the
---- workspace operation lock O (Project:rename_configuration is guarded, spec
---- §19.3), as does `add`'s profile upgrade (Workspace:upgrade_profiles_for_tool);
+--- workspace operation lock O (Project:rename_configuration is guarded),
+--- as does `add`'s profile upgrade (Workspace:upgrade_profiles_for_tool);
 --- a launch rename writes only the working copy and takes no O. The reads
 --- (`candidates`, `declaration`, `expand_preview`, `unit_options`) run in a model segment of
 --- the caller's environment and change nothing.
@@ -1175,7 +1175,7 @@ function M.projects_impl(service)
     --- (model_commands.keyed_tools_needed); they are then detected without
     --- blocking (model_commands.detect_keyed_tools_async: started in that
     --- segment, its probes go on while the daemon serves other requests, as
-    --- the workspace's own detection does, §19.11) and `go` gets them as
+--- the workspace's own detection does) and `go` gets them as
     --- `{ [mod_type] = list }`; with none needed, `go(nil)`. `go` runs the
     --- request's own segment, which replies. Only the detection's start runs
     --- in the client's environment: its later probes (after the first async
@@ -1340,10 +1340,10 @@ function M.projects_impl(service)
         end)
     end
 
-    -- The build options of a configured configuration unit (API.md §19; step
-    -- 5o C2d): the unit is checked and its build directory taken in a model
-    -- segment; the module's read (ConfigUnit:options_async, spec §8
-    -- `get_options_async`) then runs off the model queue, so a slow meson
+    -- The build options of a configured configuration unit: the unit is
+    -- checked and its build directory taken in a model segment; the
+    -- module's read (ConfigUnit:options_async) then runs off the model
+    -- queue, so a slow meson
     -- does not hold the other requests, and the reply follows when it ends.
     -- Its programs spawn in the client's environment. Read-only, no lock.
     function methods.unit_options(ctx, args)
@@ -1392,7 +1392,7 @@ function M.projects_impl(service)
     return { methods = methods }
 end
 
---- The `loomworks.ConfigSets/1` handlers (API.md §20; step 5o part B2), on
+--- The `loomworks.ConfigSets/1` handlers, on
 --- `/projects` beside Projects/1. `candidates` is a read; the others are
 --- commands run as Workspace/1's (`command`): the references (a set by id or
 --- name; a mapping's project and configuration each by id or key, the
@@ -1400,7 +1400,7 @@ end
 --- once, here, and the write is the shared loomworks.model_commands
 --- function the in-process editor calls. A rename propagates under the
 --- workspace operation lock O (Workspace:rename_configuration_set is
---- guarded, spec §19.3).
+--- guarded).
 --- @param service loomworks.daemon.BuildService
 --- @return loomworks.daemon.InterfaceImpl
 function M.config_sets_impl(service)
@@ -1502,7 +1502,7 @@ function M.config_sets_impl(service)
     return { methods = methods }
 end
 
---- The `loomworks.DebugConfig/1` handlers (§19.20 `DebugConfig/1`): the
+--- The `loomworks.DebugConfig/1` handlers: the
 --- workspace's debug-adapter mapping, read in a model segment of the
 --- requesting client's environment as a query is (loaded as for `snapshot`
 --- when none is). `set_adapter` is a command: in its model segment, after
@@ -1531,7 +1531,7 @@ function M.debug_impl(service)
     function methods.set_adapter(ctx, args)
         return segment(ctx, function(ws)
             -- A change another process wrote is taken in first: the write
-            -- then never refuses as stale for it (§2.7).
+            -- then never refuses as stale for it.
             local tr = ws._tracker
             if tr and tr.sync then tr:sync() end
             if service.host.current() ~= ws then
@@ -1548,9 +1548,9 @@ function M.debug_impl(service)
     return { methods = methods }
 end
 
---- The `loomworks.LspConfig/1` handlers (§19.20 `LspConfig/1`). `get` is
+--- The `loomworks.LspConfig/1` handlers. `get` is
 --- answered in a model segment of the caller's environment (an entry's server
---- binary resolves in it, §19.15 "Environment") against the loaded model,
+--- binary resolves in it) against the loaded model,
 --- never loading one: in any other state it answers that state at once.
 --- `set_option` is a command like DebugConfig/1.set_adapter: in its model
 --- segment (loaded as for a query when none is), after the tracker took in
@@ -1588,15 +1588,15 @@ function M.lsp_impl(service)
     function methods.set_option(ctx, args)
         local value = args.value
         if value == vim.NIL then value = nil end
-        -- An unknown server or key, or a mistyped value, is an invalid call
-        -- (§19.20): refused before any segment, nothing loaded or written.
+        -- An unknown server or key, or a mistyped value, is an invalid call:
+        -- refused before any segment, nothing loaded or written.
         local problem = require("loomworks.workspace").lsp_option_problem(args.server, args.key, value)
         if problem then
             return nil, envelope.err(envelope.ERR.invalid_args, "set_option: " .. problem)
         end
         service:_on_model_request(ctx.conn, { kind = "lsp_config", env = ctx.env }, function(ws)
             -- A change another process wrote is taken in first: the write
-            -- then never refuses as stale for it (§2.7).
+            -- then never refuses as stale for it.
             local tr = ws._tracker
             if tr and tr.sync then tr:sync() end
             if service.host.current() ~= ws then
@@ -1664,9 +1664,9 @@ function M.task_signal(registry, task, name, args)
     end)
 end
 
---- The `Workspace.changed` signal of a model change (§19.12).
+--- The `Workspace.changed` signal of a model change.
 --- @param registry loomworks.daemon.Registry
---- @param revision integer the model revision after the write (API.md §6)
+--- @param revision integer the model revision after the write
 function M.changed(registry, revision)
     registry:emit(M.WORKSPACE.path, M.WORKSPACE.iface, M.WORKSPACE.v, "changed",
         { revision = revision })

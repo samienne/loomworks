@@ -1,5 +1,4 @@
---- loomworks/daemon/loopback.lua — the in-memory transport of an attached run
---- (spec §19.1 "Loopback during the transition", §19.8).
+--- loomworks/daemon/loopback.lua — the in-memory transport of an attached run.
 ---
 --- An attached run executes the daemon's code inside the client process; the
 --- two sides talk over a pair of connected in-memory ends carrying the same

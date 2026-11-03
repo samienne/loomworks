@@ -1,10 +1,9 @@
 --- loomworks/daemon/tests_view.lua — the workspace daemon's tests view
---- (`loomworks.view.Tests/1` on `/views`, spec §19.13 "The tests view"; step
---- 5m part B1): its state, built by loomworks.test_state (the builder the
---- editor uses in-process) from the session's test state — the one store,
---- loomworks.daemon.test_store (discovered trees, staleness, node ids, last
---- results, a running run's statuses) — with the daemon's opaque ids
---- (§19.12) and its session fields.
+--- (`loomworks.view.Tests/1` on `/views`): its state, built by
+--- loomworks.test_state (the builder the editor uses in-process) from the
+--- session's test state — the one store, loomworks.daemon.test_store
+--- (discovered trees, staleness, node ids, last results, a running run's
+--- statuses) — with the daemon's opaque ids and its session fields.
 
 local test_state = require("loomworks.test_state")
 local test_store = require("loomworks.daemon.test_store")

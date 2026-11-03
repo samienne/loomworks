@@ -1,20 +1,20 @@
 --- loomworks/daemon/maintenance.lua — `loomworks.Maintenance/1` on
---- `/maintenance` (API.md §22; step 5o part B5): `execute_deletion { target,
---- plan?, yes? }`, task-streamed (`meta.kind = "delete"`).
+--- `/maintenance`: `execute_deletion { target, plan?, yes? }`, task-streamed
+--- (`meta.kind = "delete"`).
 ---
 --- The method is the in-process command (loomworks.model_commands
 --- `deletion_request` / `deletion_run`) in a model segment of the caller's
 --- environment: the target's ids resolve to the live objects once, here (the
 --- input boundary), the deletion is planned (loomworks.deletion_plan) after
---- resolution and before any lock, and answered with `reset`'s outcomes
---- (§8.5, §8.6): `refused` (a stale target, a stray dir outside the
+--- resolution and before any lock, and answered with `reset`'s outcomes:
+--- `refused` (a stale target, a stray dir outside the
 --- workspace or not in the current stray set, a changed plan, nothing to
 --- delete), `confirm { lines, plan, unit_ids }` without `yes` (`unit_ids`
 --- the ids of the units whose build state the plan removes, by the same
 --- issuer as the view's — a matcher for the client's own tasks only), else
 --- `accepted` with the task.
 ---
---- Deletion safety (project CLAUDE.md): this module removes nothing itself
+--- Deletion safety: this module removes nothing itself
 --- and adds no deletion path. The accepted task runs `deletion_run`, which
 --- takes the workspace operation lock and every build-directory lock of the
 --- plan through `Workspace:_locked_deletion`, plans again under them (a
@@ -26,7 +26,7 @@
 --- daemon busy — until the deletion and its locks have settled, also after
 --- its task ended.
 ---
---- `nuke { plan?, yes? }` (part B6), task-streamed (`meta.kind = "nuke"`):
+--- `nuke { plan?, yes? }`, task-streamed (`meta.kind = "nuke"`):
 --- the in-process nuke (`Core:nuke_check` / `_nuke_begin` / `_nuke_run`,
 --- `lw nuke`'s) in a model segment. Refused while any task of this daemon
 --- runs (listed; none is passed over or stopped) and when a lock is held
@@ -152,7 +152,7 @@ function M.run(svc, ctx)
         svc:with_model(ctx, function() finish(run.cancel_code, "delete stopped: " .. run.cancel_reason) end)
     end
 
-    -- A profile's deletion runs on that profile: its row is busy (API.md §14.4).
+    -- A profile's deletion runs on that profile: its row is busy.
     task:start({ name = deletion.label, kind = "delete" },
         deletion.kind == "profile" and deletion.target.profile or nil)
     for _, line in ipairs(ctx.listing or {}) do task:line("out", line, "plain") end
@@ -199,7 +199,7 @@ function M.accept(svc, ctx)
         return refuse(refusal)
     end
     if ctx.refused then return refuse(ctx.refused) end
-    -- A change another process wrote is taken in first (§2.7).
+    -- A change another process wrote is taken in first.
     if ws._tracker and ws._tracker.sync then ws._tracker:sync() end
     if svc.host.current() ~= ws then
         return refuse("the workspace was reloaded (refused or changed .nvim files); try again")
@@ -259,12 +259,12 @@ function M.execute_deletion_method(service)
 end
 
 -- ---------------------------------------------------------------------------
--- nuke (step 5o part B6)
+-- nuke
 -- ---------------------------------------------------------------------------
 
 --- The token family of a nuke plan, the header of its listing, its plan and
 --- its listing: the command layer's (loomworks.model_commands, shared with
---- the in-process nuke the status page runs, step 5o C2c-2).
+--- the in-process nuke the status page runs).
 local mc_nuke = require("loomworks.model_commands")
 M.NUKE_KIND = mc_nuke.NUKE_KIND
 M.NUKE_HEADER = mc_nuke.NUKE_HEADER
@@ -287,8 +287,8 @@ local function nuke_message(msg)
     return (tostring(msg or "nuke failed"):gsub("^loomworks: ", ""))
 end
 
---- The daemon's own running work a nuke refuses on (API.md §22, spec §19.3:
---- the daemon's nuke passes over none of its own tasks): every task not
+--- The daemon's own running work a nuke refuses on (it never passes over
+--- one of its own tasks): every task not
 --- ended but `except` (the nuke's own), in start order, and every deletion
 --- run whose task ended while its removal still settles. One display string
 --- each; empty when nothing runs.
@@ -384,8 +384,8 @@ function M.nuke_run(svc, ctx)
     --- Stop the nuke (idempotent). Before it executes it ends at once; while
     --- it executes it stops at the next check, before the removal. Once the
     --- removal started (the model is unloaded) a cancel is ignored: the
-    --- removal runs to its end (the operation lock is held until it has,
-    --- spec §19.3) and the nuke ends as it would without the cancel.
+--- removal runs to its end (the operation lock is held until it has)
+--- and the nuke ends as it would without the cancel.
     function run.cancel(reason, code)
         if run.cancelled or run.finished or run.removing then return end
         run.cancelled = true
@@ -469,7 +469,7 @@ end
 --- locks (checked, not held), then the plan: `refused`, `confirm { lines,
 --- plan }` without `yes`, else `accepted` with the task. Like
 --- `Workspace/1.trust_accept` it is served while the workspace load is
---- refused (an invalid build cache, spec §17.4: nuke is its remedy): with no
+--- refused (an invalid build cache, whose remedy is the nuke): with no
 --- model it acts on the core alone, through the same checks
 --- (`_nuke_begin`'s safety checks and locks, the busy check, the plan).
 --- @param svc loomworks.daemon.BuildService
@@ -495,7 +495,7 @@ function M.nuke_accept(svc, ctx)
     -- The daemon's own tasks are neither passed over nor stopped.
     local busy = M.nuke_busy(svc)
     if #busy > 0 then return refuse(busy_refusal(busy)) end
-    -- The locks before the listing, also without `yes` (spec §19.3):
+    -- The locks before the listing, also without `yes`:
     -- taken and released, never breaking a holder.
     local root = svc.server.root
     local ok, why, areas = no_break(function() return core:nuke_check(root) end)

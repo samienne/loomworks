@@ -1,5 +1,5 @@
 --- loomworks/daemon/inspect.lua — the state of a workspace's runtime, read
---- from its files only (spec §19.6): the runtime lock R and the handle. Never
+--- from its files only: the runtime lock R and the handle. Never
 --- launches, connects to or signals anything — the `Runtime` row of
 --- `lw status` and the file part of `lw daemon status` are computed here.
 ---
@@ -9,7 +9,7 @@
 ---   starting      R held by a live daemon on this host, no handle yet
 ---   hung          R held by a daemon on this host that stopped heartbeating
 ---   foreign       R held by a daemon on another host (heartbeat fresh)
----   attached      R held by an attached run (§19.2) or another lw command
+---   attached      R held by an attached run or another lw command
 ---   stale         a handle (or lock) whose daemon is gone: R free, dead or
 ---                 stale — the next command recovers it (daemon mode), or `lw daemon stop`
 ---   unreadable    a malformed handle and no live holder
@@ -57,7 +57,7 @@ end
 
 local function age_text(secs) return lock_record.age_text(math.max(0, tonumber(secs) or 0)) end
 
---- The `Runtime` row's text (without the label), spec §19.6.
+--- The `Runtime` row's text (without the label).
 --- @param st table from `state`
 --- @param mode string the resolved runtime mode
 --- @param own_version? string this lw's identity (loomworks.daemon.version)

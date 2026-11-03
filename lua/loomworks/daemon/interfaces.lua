@@ -1,5 +1,5 @@
 --- loomworks/daemon/interfaces.lua — the daemon's interface registry and the
---- root object (spec §19.20 "Interfaces", step 5g.1).
+--- root object.
 ---
 --- The registry maps object paths to the interface versions mounted on them,
 --- each with its schema document (loomworks.proto.documents), the digest of
@@ -17,14 +17,14 @@
 --- result, or nil + an error object; or `M.ASYNC` after taking `ctx.reply` /
 --- `ctx.fail` to answer later.
 ---
---- Object `/` always implements `loomworks.Root/1` (frozen, §19.8):
+--- Object `/` always implements `loomworks.Root/1` (frozen):
 --- `describe`, `schema`, `subscribe`, `unsubscribe`. Its signals
 --- (`objects_changed`, `retiring`) reach every connection of transport 11
 --- without a subscription; other interfaces' signals reach only the
 --- connections subscribed to them, stamped with the `sub_id` and a `seq` per
 --- object and connection: it counts only the signals of that object the
 --- connection is actually sent, so a gap means a lost signal, never one
---- filtered out (§19.12, §19.20); `subscribe` returns the value it starts
+--- filtered out; `subscribe` returns the value it starts
 --- from. A connection's subscriptions are dropped when it closes.
 
 local envelope = require("loomworks.proto.envelope")
@@ -43,7 +43,7 @@ M.ASYNC = setmetatable({}, { __tostring = function() return "interfaces.ASYNC" e
 M.ROOT_METHODS = { "describe", "schema", "subscribe", "unsubscribe" }
 
 --- How this daemon delivers to a transport-11 connection, as
---- `describe().delivery` reports it (§19.20): only by subscription.
+--- `describe().delivery` reports it: only by subscription.
 M.DELIVERY = "subscription"
 
 --- The implementation name `describe().binary.impl` reports.
@@ -410,7 +410,7 @@ end
 --- given; it is asked right before that subscription's frame is sent).
 --- `args` may be a function `(sub, seq) → args`: the arguments of each
 --- subscription's frame, given the frame's `seq` (a signal whose own `seq`
---- argument is the frame's, gapless per object and connection, §19.12).
+--- argument is the frame's, gapless per object and connection).
 --- @param object string
 --- @param iface string
 --- @param v integer
@@ -529,7 +529,7 @@ function M.root_impl()
             objects = reg:object_list(true),
             root_methods = M.ROOT_METHODS,
             -- A transport-11 connection gets task frames and changes only
-            -- through its subscriptions (§19.20, step 5g.3).
+            -- through its subscriptions.
             delivery = M.DELIVERY,
         }
     end

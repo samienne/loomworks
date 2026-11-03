@@ -1,5 +1,5 @@
 --- loomworks/daemon/test_store.lua — the build service's test state for the
---- session (spec §19.13 "The tests view", §19.15 "Tests", step 5m), the one
+--- session, the one
 --- store of it: what `Tests/1.discover` found per unit and whether the view
 --- is stale, the opaque ids of test nodes, the per-node last results and the
 --- statuses of a running `Tests/1.run_cases`, the build-directory operation
@@ -8,7 +8,7 @@
 --- One store per build service (`M.of(service)`), in the daemon's memory:
 --- it survives the editor's reconnects, not a daemon restart.
 ---
---- **Discovery** (step 5m part B1, loomworks.daemon.test_discover), per
+--- **Discovery** (loomworks.daemon.test_discover), per
 --- configuration unit (weak keys: a reloaded workspace's units are new
 --- objects, so a reload drops their trees — the view shows them pending
 --- until the next discovery, which keeps their nodes' ids and last results):
@@ -39,7 +39,7 @@
 --- failed is not stale for that: the failure is its state until the next
 --- discovery.
 ---
---- **Node ids.** A node's id is an opaque session id (§19.12) issued for its
+--- **Node ids.** A node's id is an opaque session id issued for its
 --- local key (loomworks.test_state: unit-scoped), stable while the key is —
 --- so a re-discovery, also after a reload, keeps the id (and the last
 --- result) of a node it keeps: ids and results are keyed by the local key,
@@ -419,7 +419,7 @@ function M.subtree(rec, out)
 end
 
 -- ---------------------------------------------------------------------------
--- The build-directory operation queue of the Tests/1 tasks (§5.3, FIFO)
+-- The build-directory operation queue of the Tests/1 tasks (FIFO)
 -- ---------------------------------------------------------------------------
 
 local function dir_key(d)
@@ -434,7 +434,7 @@ end
 --- queue). `fn` may run before this returns (the directories are free) and
 --- the task may end inside it: it gets the entry, so it can release it then.
 --- A task of another kind (a build) still meets the build-directory lock
---- itself, which fails fast (§19.3).
+--- itself, which fails fast.
 --- @param dirs string[]
 --- @param fn fun(entry: table)
 --- @return table entry
@@ -528,8 +528,8 @@ local function norm_path(p)
     return p
 end
 
---- Remove a per-run results file of the workspace `root` (spec §19.15
---- "Tests": `<root>/.nvim/tmp/lw-test-<hex>.xml`, §16.40). Deletion safety:
+--- Remove a per-run results file `<root>/.nvim/tmp/lw-test-<hex>.xml` of the
+--- workspace `root`. Deletion safety:
 --- only a regular file (lstat: never a directory or a link's target) that
 --- is a direct child of `<root>/.nvim/tmp` (separator-bounded) whose name is
 --- exactly `lw-test-<hex>.xml`, with `<root>/.nvim` and `<root>/.nvim/tmp`

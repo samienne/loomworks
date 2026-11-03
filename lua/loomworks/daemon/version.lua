@@ -1,5 +1,5 @@
 --- loomworks/daemon/version.lua — what a client and a daemon compare in the
---- version handshake (spec §19.9): the wire protocol, the host version and the
+--- version handshake: the wire protocol, the host version and the
 --- working-copy and cache schema versions.
 ---
 --- The host version is the running release (`0.1.43`, from the bundle
@@ -14,34 +14,31 @@
 --- fused executable, whose sources cannot change under it, the executable
 --- itself. Editing any source file therefore makes a dev client and a dev
 --- daemon mismatch, exactly as a self-update does for a release (the daemon is
---- restarted when idle, retired when busy, §19.9). The fingerprint stats every
+--- restarted when idle, retired when busy). The fingerprint stats every
 --- source file once per process (about 10 ms).
 
 local M = {}
 
---- The wire protocol version (spec §19.8). 1 was draft PR #88 (unauthenticated);
---- 2 adds the mutual handshake and the frozen control subset; 3 the routed
---- `build` request and its task stream (§19.15); 4 the observer role and the
---- `model_change` / `retiring` broadcasts (§19.11, §19.12, §19.16); 5 the
---- routed `test` request (the batch `lw test`, §19.15); 6 the `prepare_run`
---- request (the preparation of `lw run`, §19.15 "Run"); 7 `origin` in the
---- task `start` meta and `tasks` in the `status` reply (§19.11, §19.15, §19.16);
---- 8 the routed `clean` request (`lw clean`, §19.15 "Clean"); 9 the routed
---- `reset` request and its `confirm` outcome (`lw reset`, §19.15 "Reset");
---- 10 the `snapshot` and `query` requests and the model fields of the
---- `welcome` header (§19.13, §19.14); 11 the transport-only version: the
---- message envelope (`call` / `ok` / `error` / `signal` / `task`), the root
---- object `/` (`loomworks.Root/1`), `protocol_min` and `welcome.objects`
---- (§19.8, §19.20). From 11 the number versions the transport only;
---- everything else is an interface with its own version.
+--- The wire protocol version. 1 was unauthenticated; 2 adds the mutual
+--- handshake and the frozen control subset; 3 the routed `build` request and
+--- its task stream; 4 the observer role and the `model_change` / `retiring`
+--- broadcasts; 5 the routed `test` request; 6 the `prepare_run` request; 7
+--- `origin` in the task `start` meta and `tasks` in the `status` reply; 8 the
+--- routed `clean` request; 9 the routed `reset` request and its `confirm`
+--- outcome; 10 the `snapshot` and `query` requests and the model fields of
+--- the `welcome` header; 11 the transport-only version: the message envelope
+--- (`call` / `ok` / `error` / `signal` / `task`), the root object `/`
+--- (`loomworks.Root/1`), `protocol_min` and `welcome.objects`. From 11 the
+--- number versions the transport only; everything else is an interface with
+--- its own version.
 M.PROTOCOL = 11
 
---- The oldest transport this build still speaks (spec §19.8): a daemon of
+--- The oldest transport this build still speaks: a daemon of
 --- protocol 11 serves clients of 10, whose request kinds are v0 aliases.
 M.PROTOCOL_MIN = 10
 
---- The transport version two ranges agree on (spec §19.9 "From protocol
---- 11"): the highest in the overlap of `[min, max]` and ours, or nil when
+--- The transport version two ranges agree on: the highest in the overlap of
+--- `[min, max]` and ours, or nil when
 --- they do not overlap. A peer that states no `protocol_min` (protocol 10 and
 --- older) states the range `[max, max]`.
 --- @param max integer|nil the peer's `protocol`
@@ -117,7 +114,7 @@ local function exe_fingerprint()
     -- The executable itself, not the spelling that reached it: the CLI
     -- launches from its own `exepath` (`…\lw.exe`) while the editor finds
     -- `lw` on PATH (`…\lw.EXE`, via PATHEXT), or through a link; the same
-    -- binary must fingerprint the same (§19.9).
+    -- binary must fingerprint the same.
     local real = uv().fs_realpath(exe)
     local id = (type(real) == "string" and real or exe):gsub("\\", "/")
     if vim.fn.has("win32") == 1 then id = id:lower() end
@@ -141,7 +138,7 @@ function M.identity()
     base = base:gsub("%+dev$", "")
     -- Test seam (like the other LW_TEST_* variables): a development build
     -- that claims another version, e.g. a daemon of "another release" for
-    -- the restart tests of the version policy (§19.9). Checked only after
+    -- the restart tests of the version policy. Checked only after
     -- the release lookup: a release build never honours it.
     local forced = os.getenv("LW_TEST_IDENTITY")
     if type(forced) == "string" and forced ~= "" then
@@ -174,7 +171,7 @@ function M.schemas()
     }
 end
 
---- Does a peer's announced versions match ours (spec §19.9)? A CLI client
+--- Does a peer's announced versions match ours? A CLI client
 --- requires protocol, host version and schemas to be equal; an editor client
 --- (`opts.editor`) protocol and schemas only.
 --- @param peer table { protocol, lw_version, schemas = { user, cache } }
@@ -189,10 +186,10 @@ function M.matches(peer, opts)
     return true
 end
 
---- The CLI's policy from protocol 11 (spec §19.9 "From protocol 11", step
---- 5g.3): a CLI client drives a daemon of an agreed transport (`transport`,
---- `negotiate`) only when the daemon's `describe().binary.lw_version`
---- (§19.20) and its schemas (the challenge's) equal its own — pin semantics
+--- The CLI's policy from protocol 11: a CLI client drives a daemon of an
+--- agreed transport (`transport`, `negotiate`) only when the daemon's
+--- `describe().binary.lw_version` and its schemas (the challenge's) equal
+--- its own — pin semantics
 --- and behavioural parity, which no interface version expresses. No agreed
 --- transport is always a mismatch ("protocol").
 --- @param transport integer|nil the transport both sides agreed on
@@ -207,8 +204,8 @@ function M.cli_policy_matches(transport, lw_version, schemas)
     return true
 end
 
---- May an editor OBSERVE a daemon with these announced versions (spec §19.9,
---- §19.16)? Overlapping transport ranges (`negotiate`; before protocol 11
+--- May an editor OBSERVE a daemon with these announced versions?
+--- Overlapping transport ranges (`negotiate`; before protocol 11
 --- this was an equal protocol) and schemas no newer than ours; the host
 --- version may differ. Returns false + what is wrong ("protocol" | "schemas").
 --- @param peer table
@@ -223,8 +220,8 @@ function M.observer_compatible(peer)
     return true
 end
 
---- Are the peer's schemas newer than ours (spec §19.9: such a daemon is never
---- stopped by this client)?
+--- Are the peer's schemas newer than ours (such a daemon is never stopped
+--- by this client)?
 --- @param peer table
 --- @return boolean
 function M.peer_schemas_newer(peer)

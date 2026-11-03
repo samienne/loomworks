@@ -1,6 +1,5 @@
 --- loomworks/daemon/relay.lua — `lw daemon run --root <root> --stdio`: the
---- standard-I/O relay to the workspace's shared daemon (spec §19.10
---- "Connections", §19.8 "Relay handshake", step 5i).
+--- standard-I/O relay to the workspace's shared daemon.
 ---
 --- The relay is a **connection**, never a daemon: it takes no lock, writes no
 --- handle and registers nothing. Its client (the editor, a test) sees the
@@ -30,9 +29,9 @@
 --- when already gone, with no other daemon live).
 ---
 --- Before `welcome` is forwarded a failure writes nothing to standard output
---- and one `lw: …` line to standard error (`M.EXIT`, §19.10 "Relay exit
---- status"); status 14 adds the retiring-instance line `retiring
---- <pid>:<start_time>` after it (`M.retiring_line`). Nothing secret — the machine key, nonces, proofs — is ever
+--- and one `lw: …` line to standard error (`M.EXIT`); status 14 adds the
+--- retiring-instance line `retiring <pid>:<start_time>` after it
+--- (`M.retiring_line`). Nothing secret — the machine key, nonces, proofs — is ever
 --- printed or logged; the client's `hello` is not echoed anywhere.
 ---
 --- `--private` (tests only, gated by LOOMWORKS_TEST_PRIVATE_STDIO=1) is the
@@ -44,8 +43,7 @@ local connect = require("loomworks.daemon.connect")
 
 local M = {}
 
---- Exit statuses (spec §19.10 "Relay exit status"). Status 3 ("another
---- daemon won") is never a relay's.
+--- Exit statuses. Status 3 ("another daemon won") is never a relay's.
 M.EXIT = {
     ok = 0,
     usage = 2,
@@ -58,12 +56,12 @@ M.EXIT = {
     retired = 16,
 }
 
---- How long the relay waits for the client's `hello` (§19.8 step 1).
+--- How long the relay waits for the client's `hello`.
 M.HELLO_MS = 5000
 --- What the relay buffers per direction before it stops reading the other
---- side; it resumes below half (§19.10 "Relay buffering").
+--- side; it resumes below half.
 M.HIGH_WATER = 4 * 1024 * 1024
---- The environment variable that admits `--private` (§19.10 "Tests") and
+--- The environment variable that admits `--private` and
 --- the relay's timing test hooks below.
 M.PRIVATE_ENV = "LOOMWORKS_TEST_PRIVATE_STDIO"
 
@@ -83,10 +81,10 @@ function M._test_ms(getenv, name, default, min)
 end
 
 --- How long an ordinary relay waits for a retiring daemon to release the
---- runtime lock (`RELAY_RETIRE_WAIT`, §19.8 step 5). The test hook shortens it.
+--- runtime lock (`RELAY_RETIRE_WAIT`). The test hook shortens it.
 M.RETIRE_WAIT_MS = M._test_ms(os.getenv, "LW_TEST_RELAY_RETIRE_MS", 60000, 0)
 --- The cadence at which a waiting relay re-reads the runtime lock and the
---- handle (`--no-launch`, an attached run's lock; §19.10 "No launch").
+--- handle (`--no-launch`, an attached run's lock).
 M.POLL_MS = M._test_ms(os.getenv, "LW_TEST_RELAY_POLL_MS", 2000, 10)
 --- How long the relay waits, at exit, for queued bytes to be written.
 M.FLUSH_MS = 5000
@@ -101,13 +99,12 @@ M.FLUSH_MS = 5000
 --- @field private boolean
 --- @field no_launch boolean
 --- @field skip? loomworks.daemon.Instance the `--skip-instance` daemon
---- @field retiring? loomworks.daemon.Instance the `--retiring` daemon (§19.10 "A named retiring daemon")
+--- @field retiring? loomworks.daemon.Instance the `--retiring` daemon
 --- @field root? string the `--root` value, as given (separators normalized)
 
 --- Parse and validate the options of `lw daemon run` that concern the
 --- standard-I/O forms (`args[1]` = "daemon", `args[2]` = "run"). Returns the
---- options, or nil + the usage text (status 2) — the rules of §19.10 "Relay
---- exit status".
+--- options, or nil + the usage text (status 2).
 --- @param args string[]
 --- @param getenv? fun(name: string): string|nil
 --- @return loomworks.daemon.RelayArgs|nil, string|nil
@@ -278,7 +275,7 @@ function Relay:_fail(code, line)
 end
 
 -- The forwarded `hello` fields and the JSON type each must have when
--- present (§19.8 step 2).
+-- present.
 local HELLO_TYPES = { protocol = "number", protocol_min = "number", lw_version = "string", schemas = "table",
     client = "string", role = "string" }
 
@@ -402,7 +399,7 @@ function Relay:_drop()
     self.conn, self.dbuf, self.daemon_closed = nil, {}, false
 end
 
---- The client's versions, forwarded in the socket `hello` (§19.8 step 2).
+--- The client's versions, forwarded in the socket `hello`.
 function Relay:_hello_fields()
     local h = self.hello
     return { protocol = h.protocol, protocol_min = h.protocol_min, lw_version = h.lw_version,
@@ -449,8 +446,8 @@ local function instance_of(st)
     return { pid = h.pid or lk.pid, start_time = h.start_time or lk.start_time }
 end
 
---- The retiring-instance line a status-14 relay writes last (§19.10
---- "Retiring-instance line"): `retiring <pid>:<start_time>`, the instance in
+--- The retiring-instance line a status-14 relay writes last:
+--- `retiring <pid>:<start_time>`, the instance in
 --- the form `--retiring` takes (connect.instance_id) — or nil when the
 --- instance is not known in full (no start time), and then no line is
 --- written.
@@ -481,7 +478,7 @@ function Relay:_connect_or_start()
                 tostring(st.lock and st.lock.host or "?"), pid_text(st)))
         elseif o == "elsewhere" then
             -- An attached run holds the runtime lock: wait for it to end,
-            -- with no bound while the client is there (§19.10).
+            -- with no bound while the client is there.
             if self:_sleep(M.POLL_MS) then return self:_ended() end
         elseif o == "launch_failed" then
             -- An attached run that took the lock meanwhile is waited on too.
@@ -496,7 +493,7 @@ function Relay:_connect_or_start()
             local code = self:_open(st)
             if code then return code end
             if not self.conn.welcome.retiring then return nil end
-            -- A retiring daemon (§19.8 step 5): wait for it to go, then
+            -- A retiring daemon: wait for it to go, then
             -- launch its successor (or connect to one another client started).
             local inst = instance_of(st)
             self:_drop()
@@ -510,7 +507,7 @@ function Relay:_connect_or_start()
                     "the retiring workspace daemon (pid %s) still holds the workspace after %d s",
                     tostring(inst.pid), math.floor(M.RETIRE_WAIT_MS / 1000)))
                 -- The last standard-error line: the instance, for the
-                -- caller's `--retiring` (§19.10 "Retiring-instance line").
+                -- caller's `--retiring`.
                 local line = M.retiring_line(inst)
                 if line and self.opts.note then self.opts.note(line) end
                 return code
@@ -519,8 +516,7 @@ function Relay:_connect_or_start()
     end
 end
 
---- Wait for a live daemon (`--no-launch`, §19.10 "No launch", "Skip an
---- instance", "A named retiring daemon"). Returns nil once connected, or
+--- Wait for a live daemon (`--no-launch`). Returns nil once connected, or
 --- the exit status.
 function Relay:_wait_for_daemon()
     local skip = self.opts.skip
@@ -555,9 +551,9 @@ function Relay:_wait_for_daemon()
 end
 
 --- The `welcome` the client gets: the daemon's, with `daemon`, `via` and
---- `relay` added (§19.8 step 4) — spliced into its raw payload, so every
---- field the daemon sent reaches the client byte for byte. `relay` is this
---- relay's own code identity (§19.9), the identity of the daemon it would
+--- `relay` added — spliced into its raw payload, so every field the daemon
+--- sent reaches the client byte for byte. `relay` is this relay's own code
+--- identity, the identity of the daemon it would
 --- launch: a relay redirected to a repository pin (main.lua) runs the pinned
 --- release, so it names that release.
 --- @param payload string the daemon's `welcome` payload
@@ -593,7 +589,7 @@ function Relay:_relay()
     self.down.push(M.welcome_frame(conn.welcome_payload or vim.json.encode(conn.welcome), conn.challenge, self.st.handle))
     for _, c in ipairs(self.dbuf) do self.down.push(c) end
     self.dbuf = {}
-    -- Client bytes read before `welcome` (§19.8: the client may pipeline;
+    -- Client bytes read before `welcome` (the client may pipeline;
     -- at most HIGH_WATER of them, Relay:_on_stdin).
     local pend = self.pending
     self.pending, self.pending_n = {}, 0

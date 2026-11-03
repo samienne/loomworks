@@ -1,21 +1,20 @@
 --- loomworks/daemon/connect.lua — connect or start: the one way a client
---- process reaches its workspace's daemon (spec §19.10 "Connections",
---- "Connect or start").
+--- process reaches its workspace's daemon.
 ---
 --- Shared by the CLI's daemon-mode ensure step (loomworks.daemon.ensure) and
---- the `lw daemon run --stdio` relay (step 5i): read the runtime's state from
+--- the `lw daemon run --stdio` relay: read the runtime's state from
 --- its files (loomworks.daemon.inspect), wait once, bounded, for a daemon
 --- still starting, then either open an authenticated connection to the live
---- daemon (the endpoint check of §19.7 and the socket handshake of §19.8,
---- which verifies `server_proof`) or launch the normal detached daemon
---- (loomworks.daemon.launch, §19.10) when none runs.
+--- daemon (the endpoint check and the socket handshake, which verifies
+--- `server_proof`) or launch the normal detached daemon
+--- (loomworks.daemon.launch) when none runs.
 ---
 --- Policy stays with the caller: what to print, the version reconcile
---- (§19.9, the CLI's), `--break-locks` recovery of a hung daemon (the CLI's,
+--- (the CLI's), `--break-locks` recovery of a hung daemon (the CLI's,
 --- through `opts.on_hung`), the relay's exit statuses. This module prints
 --- nothing.
 ---
---- It also names a daemon **instance** (§19.5, §19.10 "Skip an instance"):
+--- It also names a daemon **instance**:
 --- `<pid>:<start_time>`, the handle's `pid` and `start_time` — the process
 --- start time of loomworks.proc, which itself carries a method prefix and may
 --- contain colons (`linux:<boot id>:<ticks>`), so an id splits at its first
@@ -30,7 +29,7 @@ local M = {}
 -- Instances
 -- ---------------------------------------------------------------------------
 
---- A daemon instance: process id and process start time (§19.5).
+--- A daemon instance: process id and process start time.
 --- @class loomworks.daemon.Instance
 --- @field pid integer
 --- @field start_time string opaque, with its method prefix (`win:`, `linux:`, `mac:`)
@@ -110,8 +109,8 @@ function M.await_start(root, st, step_ms)
 end
 
 --- Open an authenticated connection to the live daemon `st` (inspect kind
---- "live"): the endpoint check (§19.7), then the socket handshake (§19.8;
---- the server's proof is verified before anything else is sent). Returns
+--- "live"): the endpoint check, then the socket handshake (the
+--- server's proof is verified before anything else is sent). Returns
 --- the connection, or nil + why:
 ---   "endpoint"     the handle's endpoint failed the check (detail: why)
 ---   "untrusted"    the endpoint did not prove this lw's key
@@ -147,7 +146,7 @@ end
 --- @field launch_state? table what the launch returned (its live state), as is
 
 --- Connect to the workspace daemon of `root`, or launch it first when none
---- runs (§19.10 "Connect or start"). Never prints. Outcomes:
+--- runs. Never prints. Outcomes:
 ---   "connected"      an authenticated connection (`conn`) to the live daemon
 ---                    (`opts.connect`), or — with `opts.connect_launched` —
 ---                    to the one launched here (`launched`)
@@ -155,10 +154,10 @@ end
 ---   "launched"       none ran; one was launched, not connected
 ---   "launch_failed"  none ran; the launch failed (`detail`)
 ---   "starting"       a daemon still starting after the one bounded wait
----   "hung"           the holder is hung (§19.5), and `opts.on_hung` did not
+---   "hung"           the holder is hung, and `opts.on_hung` did not
 ---                    recover it
 ---   "elsewhere"      another holder: `st.kind` "foreign" (another host),
----                    "attached" (an attached run, §19.2), or "starting"
+---                    "attached" (an attached run), or "starting"
 ---                    (seen only after `on_hung` recovered)
 ---   "endpoint" | "untrusted" | "unreachable"  as for `open`
 --- opts:

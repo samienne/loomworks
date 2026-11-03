@@ -1,16 +1,16 @@
---- loomworks/daemon/client.lua — connect to a workspace daemon and authenticate
---- (spec §19.8), then send control requests.
+--- loomworks/daemon/client.lua — connect to a workspace daemon and authenticate,
+--- then send control requests.
 ---
 --- The endpoint comes from the handle (clients never compute it). On
---- Windows the client first checks the pipe's server process (§19.7 "Peer
---- check": this process's user SID and elevation, else ERR_UNTRUSTED with
+--- Windows the client first checks the pipe's server process (this
+--- process's user SID and elevation, else ERR_UNTRUSTED with
 --- nothing sent). It then sends `hello`, verifies the daemon's `server_proof` BEFORE sending anything
 --- else — a process squatting the endpoint cannot prove knowledge of K, and
 --- the client then closes and reports the endpoint as untrusted — answers
 --- with its own proof, and waits for `welcome`.
 ---
 --- Transport is a libuv pipe on both hosts, or the in-memory loopback of an
---- attached run (`loopback_connect` / `loopback_session`, §19.1) through the
+--- attached run (`loopback_connect` / `loopback_session`) through the
 --- same frame reader. `connect` is asynchronous; the `session` / `call`
 --- wrappers pump the event loop with `vim.wait` (the CLI). The editor
 --- connects through the `--stdio` relay instead (`M.relay`, below): the same
@@ -33,15 +33,15 @@ M.ERR_TIMEOUT = "timeout"       -- no answer in time
 M.ERR_CLOSED = "closed"         -- the daemon closed the connection
 M.ERR_TRANSPORT = "transport"   -- the negotiated transport has no interface calls (protocol 10)
 
---- @class loomworks.daemon.WelcomeRelay  a relay's `welcome.relay` (§19.8 step 4)
---- @field lw_version string the relay's own code identity (§19.9): that of the daemon it would launch
+--- @class loomworks.daemon.WelcomeRelay  a relay's `welcome.relay`
+--- @field lw_version string the relay's own code identity: that of the daemon it would launch
 
 --- @class loomworks.daemon.Conn
 --- @field pipe userdata the libuv pipe, or a loomworks.daemon.LoopbackEnd
---- @field loopback boolean|nil an attached run's in-memory connection (§19.1)
+--- @field loopback boolean|nil an attached run's in-memory connection
 --- @field challenge table the daemon's announced versions (protocol, lw_version, schemas, session_generation)
---- @field welcome table the daemon's `welcome`; through a relay with its additions (§19.8 step 4): `daemon`, `via = "relay"` and `relay` (loomworks.daemon.WelcomeRelay, absent from an older relay)
---- @field transport integer|nil the transport both sides agreed on (§19.9 "From protocol 11"), from the challenge
+--- @field welcome table the daemon's `welcome`; through a relay with its additions: `daemon`, `via = "relay"` and `relay` (loomworks.daemon.WelcomeRelay, absent from an older relay)
+--- @field transport integer|nil the transport both sides agreed on, from the challenge
 --- @field closed boolean|nil
 --- @field on_close fun(conn: loomworks.daemon.Conn)|nil called once when the connection closes
 ---   after it was established (either side; runs in a libuv callback)
@@ -60,7 +60,7 @@ function Conn:request(msg, cb)
     pcall(function() self.pipe:write(protocol.encode(msg)) end)
 end
 
---- Call an interface method (spec §19.20): sends a `call` frame stamped with
+--- Call an interface method: sends a `call` frame stamped with
 --- the interface version; `cb(result|nil, err)` with the `ok` reply's
 --- `result`, or the structured error object (`{ code, message, data? }`;
 --- loomworks.proto.envelope) — a closed connection is `{ code = "closed" }`,
@@ -74,7 +74,7 @@ end
 --- @param cb fun(result: any, err: loomworks.proto.ErrorObject|nil)
 --- @param env? table<string, string> the client's environment
 function Conn:call(object, iface, v, method, args, cb, env)
-    -- Interface calls are transport 11 (§19.8): a daemon of protocol 10
+    -- Interface calls are transport 11: a daemon of protocol 10
     -- would only answer "unknown request kind".
     if not (type(self.transport) == "number" and self.transport >= 11) then
         return cb(nil, { code = M.ERR_TRANSPORT,
@@ -148,7 +148,7 @@ local function frame_reader(conn, opts, state, finish, is_done, on_challenge)
         for _, msg in ipairs(msgs) do
             if state == "hello" then
                 if msg.kind ~= protocol.KIND.challenge or not on_challenge or not on_challenge(msg) then
-                    -- Close without sending anything else (§19.8).
+                    -- Close without sending anything else.
                     return finish(nil, M.ERR_UNTRUSTED)
                 end
                 state = "auth"
@@ -170,8 +170,8 @@ local function frame_reader(conn, opts, state, finish, is_done, on_challenge)
                 if p then
                     conn._pending[msg.req_id] = nil
                     if msg.kind == protocol.KIND.error then
-                        -- An interface call's error is a structured object
-                        -- (§19.20); a v0 request's a string.
+                        -- An interface call's error is a structured object;
+                        -- a v0 request's a string.
                         p(nil, type(msg.error) == "table" and msg.error or tostring(msg.error))
                     else
                         p(msg)
@@ -205,8 +205,8 @@ local function handshake_guard(conn, opts, cb)
     return finish, function() return done end
 end
 
---- The transport agreed with a daemon's challenge (§19.9 "From protocol
---- 11"), within the range this client announced (`opts.protocol`, a test's
+--- The transport agreed with a daemon's challenge, within the range this
+--- client announced (`opts.protocol`, a test's
 --- older client; default ours).
 --- @param ch table the challenge
 --- @param opts table
@@ -223,15 +223,15 @@ function M._agreed(ch, opts)
 end
 
 --- Connect to `endpoint` and authenticate. `cb(conn|nil, err, detail)`.
---- opts: { client = "cli"|"editor", role = "observer"|nil (§19.16), timeout_ms,
+--- opts: { client = "cli"|"editor", role = "observer"|nil, timeout_ms,
 ---         key (tests: K override), on_message = fun(msg) for broadcasts,
 ---         on_close = fun(conn) once an established connection closes,
 ---         protocol / protocol_min = the range to announce (tests: an older
 ---         client; default ours),
 ---         hello = the fields to announce in `hello` instead of this lw's
 ---         (`protocol`, `protocol_min`, `lw_version`, `schemas`, `client`,
----         `role`: the `--stdio` relay forwards its client's, §19.8 "Relay
----         handshake"; the nonce is always this connection's own),
+---         `role`: the `--stdio` relay forwards its client's; the nonce is
+---         always this connection's own),
 ---         raw = fun(chunk) — after `welcome`, hand the connection's bytes
 ---         over undecoded (see frame_reader) }
 --- @param endpoint string
@@ -255,7 +255,7 @@ function M.connect(endpoint, opts, cb)
     local pipe = uv.new_pipe(false)
     local conn = setmetatable({ pipe = pipe, _pending = {}, endpoint = endpoint }, Conn)
     local finish, is_done = handshake_guard(conn, opts, cb)
-    -- The daemon's proof is verified BEFORE anything else is sent (§19.8).
+    -- The daemon's proof is verified BEFORE anything else is sent.
     local function on_challenge(msg)
         if not auth.valid_nonce(msg.server_nonce)
             or not auth.equal(msg.server_proof, auth.server_proof(key, endpoint, nc, msg.server_nonce)) then
@@ -272,7 +272,7 @@ function M.connect(endpoint, opts, cb)
     local ok_c = pcall(function()
         pipe:connect(endpoint, function(cerr)
             if cerr then return finish(nil, M.ERR_CONNECT, tostring(cerr)) end
-            -- The peer check (§19.7, Windows) before `hello`: the pipe's server
+            -- The peer check (Windows) before `hello`: the pipe's server
             -- process must be of this process's slot (user SID and elevation)
             -- — a daemon or squatter of another slot gets no frame.
             local okp, why = require("loomworks.daemon.endpoint").peer_check(pipe, "server")
@@ -286,7 +286,7 @@ function M.connect(endpoint, opts, cb)
 end
 
 --- Connect to an attached runtime in this process over the loopback
---- transport (spec §19.1 "Loopback"): no endpoint and no authentication.
+--- transport: no endpoint and no authentication.
 --- The server adopts its end as an authenticated connection and welcomes it
 --- over the loopback; `challenge` is synthesized from the server's versions.
 --- The conn has the pipe session's shape. `cb(conn|nil, err, detail)`.
@@ -404,8 +404,7 @@ end
 -- The editor's relay client (M.relay)
 -- ---------------------------------------------------------------------------
 
---- `M.relay` — the editor's side of the `--stdio` relay (spec §19.16
---- "Through the relay", §19.10 "Connections").
+--- `M.relay` — the editor's side of the `--stdio` relay.
 ---
 --- The editor never reads the handle or the machine key to connect: it spawns
 --- `<binary> daemon run --root <root> --stdio [--no-launch [--retiring <id> |
@@ -415,7 +414,7 @@ end
 --- forwards the daemon's `welcome` with `daemon = {…}` and `via = "relay"`
 --- added; there is no `challenge` on this side.
 ---
---- The relay process (normative, §19.16 "The relay process"):
+--- The relay process:
 ---   * spawned hidden and NOT detached, plain pipes for standard input,
 ---     output and error, the per-user state directory as working directory,
 ---     the environment a daemon launch would get (launch.env);
@@ -439,7 +438,7 @@ end
 ---     ignores EOF is orphaned — accepted);
 ---   * standard error is kept: its `lw: …` line is the Runtime line's detail,
 ---     and a status-14 relay's last line `retiring <pid>:<start_time>`
----     (§19.10 "Retiring-instance line") names the instance for `--retiring`.
+---     names the instance for `--retiring`.
 ---
 --- Libuv callbacks here never call vim.fn; the caller's callbacks are
 --- invoked from libuv callbacks and must only schedule.
@@ -452,20 +451,20 @@ local function relay_env_ms(name)
 end
 
 --- How long after closing a relay's standard input the editor waits before
---- it kills the relay's own process id (spec §19.16: about 5 s).
+--- it kills the relay's own process id (about 5 s).
 RC.KILL_MS = relay_env_ms("LW_TEST_RELAY_KILL_MS") or 5000
 --- How long, once the relay exited, its remaining pipe EOFs are waited for
 --- before the outcome is reported anyway (the daemon never holds them).
 RC.EOF_GRACE_MS = 1000
 --- How long, once a relay's standard output reached EOF before `welcome`, its
---- exit is waited for (spec §19.16 "The relay process": about 5 s). A relay
+--- exit is waited for (about 5 s). A relay
 --- still running then is an internal error (no status: the "protocol" case
 --- of the exit-before-`welcome` table) and is ended (Relay:close).
 RC.EXIT_WAIT_MS = relay_env_ms("LW_TEST_RELAY_EXIT_WAIT_MS") or 5000
 --- How many standard-error lines are kept.
 RC.STDERR_LINES = 50
 
---- The relay forms (§19.16 "Through the relay").
+--- The relay forms.
 RC.FORMS = { ordinary = true, ["no-launch"] = true, retiring = true, skip = true }
 
 --- The `daemon run` arguments of a relay form (after the executable prefix).
@@ -485,8 +484,8 @@ function RC.args(root, form, instance)
 end
 
 --- The retiring instance a status-14 relay named: its LAST standard-error
---- line when that is exactly `retiring <pid>:<start_time>` (§19.10
---- "Retiring-instance line"; both parts in the form `--retiring` takes), or
+--- line when that is exactly `retiring <pid>:<start_time>` (both parts in
+--- the form `--retiring` takes), or
 --- nil (a relay of an older pin, a daemon without a start time).
 --- @param lines string[]
 --- @return string|nil instance id
@@ -695,7 +694,7 @@ function RC.connect(opts, cb)
                 c.challenge = w.daemon
                 c.transport = M._agreed(w.daemon, opts)
             else
-                -- An older pin's attached runtime (§19.10 "Compatibility"): no
+                -- An older pin's attached runtime: no
                 -- `daemon` to judge; interface calls only when it lists objects.
                 c.challenge = {}
                 c.transport = type(w.objects) == "table" and 11 or 10

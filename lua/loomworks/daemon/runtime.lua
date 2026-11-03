@@ -1,13 +1,11 @@
---- loomworks/daemon/runtime.lua — the runtime mode (spec §19.1).
+--- loomworks/daemon/runtime.lua — the runtime mode.
 ---
---- During the transition (spec §19.19 steps 1–5) the host setting
---- `runtime-mode` takes:
+--- During the transition the host setting `runtime-mode` takes:
 ---   * `in-process` (the default) — no daemon is launched or used; every
----     operation runs on the in-process path (§1–§18 as written);
+---     operation runs on the in-process path;
 ---   * `daemon` — every workspace command ensures the workspace daemon is
 ---     running (launching it if absent) and routes the operations that have
----     moved (none yet: step 2 only keeps it running); everything else still
----     runs on the in-process path.
+---     moved; everything else still runs on the in-process path.
 --- `LOOMWORKS_RUNTIME` overrides the setting. An invalid value at either
 --- layer is reported and ignored (falls through to the next source).
 ---
@@ -18,8 +16,7 @@ local M = {}
 M.IN_PROCESS = "in-process"
 M.DAEMON = "daemon"
 
---- The CLI's transition default (spec §19.1; the editor's is `daemon`,
---- `editor_select`).
+--- The CLI's transition default (the editor's is `daemon`, `editor_select`).
 M.DEFAULT = M.IN_PROCESS
 
 M.MODES = { M.IN_PROCESS, M.DAEMON }
@@ -60,9 +57,9 @@ function M.resolve(configured, opts)
     return M.DEFAULT, "default", warning
 end
 
---- The idle-timeout setting (spec §19.11 "Idle exit").
+--- The idle-timeout setting.
 M.IDLE_SETTING = "daemon-idle-timeout"
---- The idle grace (spec §19.11 "Warm restarts", step 5r): the default of the
+--- The idle grace: the default of the
 --- idle timeout, defined only here; every other default refers to it.
 M.IDLE_GRACE_SECONDS = 45
 
@@ -89,7 +86,7 @@ end
 local function truthy(v) return v ~= nil and v ~= "" and v ~= "0" and v:lower() ~= "false" end
 
 --- How long an attached run waits for another attached run that holds the
---- workspace's runtime lock before it fails "workspace busy" (spec §19.2):
+--- workspace's runtime lock before it fails "workspace busy":
 --- the setting and its default (5 s).
 M.BUSY_WAIT_SETTING = "runtime-busy-wait"
 M.BUSY_WAIT_DEFAULT_MS = 5000
@@ -116,11 +113,11 @@ function M.busy_wait_ms(cfg)
     return M.parse_busy_wait(cfg and cfg[M.BUSY_WAIT_SETTING]) or M.BUSY_WAIT_DEFAULT_MS
 end
 
---- Does this command use the workspace daemon (spec §19.1)? During the
+--- Does this command use the workspace daemon? During the
 --- transition: only in `daemon` mode, and not when attached is selected —
 --- in this precedence: the `--no-daemon` flag; `LOOMWORKS_NO_DAEMON` (`1`
 --- attached, `0` shared even in CI); `CI`. Attached means, for now, the
---- in-process path with no daemon launched (§19.1 "During the transition").
+--- in-process path with no daemon launched.
 --- @param configured string|nil the runtime-mode setting
 --- @param opts? { flag?: boolean, getenv?: fun(name:string):string|nil }
 --- @return { daemon: boolean, mode: string, reason?: string, warning?: string }
@@ -150,12 +147,12 @@ end
 --- @field deprecated boolean|nil the deprecated in-process editor (the Runtime line's note)
 --- @field warning string|nil an ignored setup value (the Runtime line's note)
 
---- The Runtime line's note on the deprecated in-process editor (spec/ui.md §1.1).
+--- The Runtime line's note on the deprecated in-process editor.
 M.DEPRECATED_NOTE = "deprecated: the in-process editor will be removed"
 
---- The editor's runtime mode (spec §19.1, step 5s). `daemon` is the default;
---- of the setup option `runtime.mode` only `"in-process"` changes it — the
---- deprecated in-process editor, until step 6b — and an explicit `"daemon"`
+--- The editor's runtime mode. `daemon` is the default; of the setup option
+--- `runtime.mode` only `"in-process"` changes it — the deprecated in-process
+--- editor — and an explicit `"daemon"`
 --- is shown as `setup`. The environment (`LOOMWORKS_RUNTIME`,
 --- `LOOMWORKS_NO_DAEMON`, `CI`) and lw's `runtime-mode` setting do not apply
 --- to the editor. An invalid value is reported in `warning` and ignored.

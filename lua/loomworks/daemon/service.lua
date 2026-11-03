@@ -1,22 +1,22 @@
 --- loomworks/daemon/service.lua — the daemon's live workspace and the
 --- routed operations: `build`, the batch `test`, the preparation of a run and
---- `clean` (spec §19.15, §19.19 steps 3, 5 and 5c).
+--- `clean`.
 ---
 --- **Live workspace.** The daemon loads its workspace on the first operation,
---- or when an editor attaches (`on_editor_attached`, §19.16 "Loaded on
---- attach") (through the host's loader — the same load as the in-process path, which
+--- or when an editor attaches (`on_editor_attached`) (through the host's
+--- loader — the same load as the in-process path, which
 --- refuses a workspace exactly as `lw` does) and keeps it. Before accepting
 --- each operation it applies every pending external change to its files
 --- exactly as its file watcher would (`FileTracker:sync` →
---- `Workspace:_on_file_changed`, including a trust refusal, §17.4), completes
---- or refuses a commit journal (§19.4) by reloading, and reloads when the
+--- `Workspace:_on_file_changed`, including a trust refusal), completes
+--- or refuses a commit journal by reloading, and reloads when the
 --- requesting client's environment differs from the one the workspace was
 --- loaded in (`envscope.signature`) — that reload keeps the model's ids,
 --- each reloaded entity taking over the id of the one it replaces by kind
---- and key (`snapshot.ids_by_key` / `carry_ids`; API.md §1.2), so the
+--- and key (`snapshot.ids_by_key` / `carry_ids`), so the
 --- request's own ids, from the previous load, still resolve; a reload keeps the device registry and
 --- neither cancels nor waits for device installs, launches and stops
---- (`_adopt`, `keeps_on_reload`, §19.16 "Devices"). The workspace's file tracker never polls
+--- (`_adopt`, `keeps_on_reload`). The workspace's file tracker never polls
 --- in the daemon: changes are applied only here, inside a client's
 --- environment.
 ---
@@ -40,36 +40,35 @@
 ---     stop does not count). The client runs in-process.
 ---
 --- **Request** `{ kind = "test", args = { profile?, junit?, extra?, no_build?, verbose? }, … }` —
---- the same outcomes (`no_build`: `lw test --no-build`, nothing built, §16.16); the plan checks (test_plan.precheck) refuse as in-process; "declined" when saved test targets would run on a device (§16.16).
+--- the same outcomes (`no_build`: `lw test --no-build`, nothing built); the plan checks (test_plan.precheck) refuse as in-process; "declined" when saved test targets would run on a device.
 ---
 --- **Request** `{ kind = "prepare_run", args = { profile?, target?, project?,
---- kind?, cwd?, extra?, no_build?, quiet?, verbose? }, … }` (§19.15 "Run") — the same
+--- kind?, cwd?, extra?, no_build?, quiet?, verbose? }, … }` — the same
 --- outcomes; also "declined" for a profile one of whose units builds with a
 --- foreign kit (device runs stay in the client). The task builds, selects,
 --- deploys and resolves the launch; its `done` carries the resolved `launch`
 --- (or `device = true`) and the client executes the program.
 ---
---- **`Launch/1.prepare_debug`** (§19.15 "Debug"; an interface method only,
+--- **`Launch/1.prepare_debug`** (an interface method only,
 --- no protocol-10 alias) — the args of `prepare_run` minus `quiet` /
 --- `prefix` / `verbose`, the same outcomes, never "declined" for a foreign kit: a device
 --- or foreign target ends its task nonzero instead. Its `done.result` carries
 --- the debug spec. Both preparations take `build_scope` ("profile", the
---- default, or "target": the launch flow's units instead of the profile,
---- §19.15 "Build scope of a launch").
---- Both take `force` (the artifact-conflict answer, §5.9; interface only).
+--- default, or "target": the launch flow's units instead of the profile).
+--- Both take `force` (the artifact-conflict answer; interface only).
 ---
---- **`Launch/1.build`** (§19.15 "Build of a launch target"; an interface
+--- **`Launch/1.build`** (an interface
 --- method only, op `target_build`) — addressed as `prepare_run` is, plus
 --- `force`; the outcomes of `build`. Its task (`meta.kind = build`) runs the
 --- target scope's phases up to the launch target's own unit and resolves no
 --- launch; a device target ends it nonzero before the build.
 ---
---- **Request** `{ kind = "clean", args = { profile?, verbose? }, … }` (§19.15 "Clean")
+--- **Request** `{ kind = "clean", args = { profile?, verbose? }, … }`
 --- — the same outcomes; also "refused" on stdout (`stream = "out"`) with the
 --- in-process `nothing to clean …` line when there is nothing to clean,
 --- decided after resolution and before any lock (as in-process).
 ---
---- **`Build/1.configure`** (§19.15 "Editor scopes and configure"; an
+--- **`Build/1.configure`** (an
 --- interface method only, no protocol-10 kind) — the outcomes of `build`: the
 --- configure step of every unit of the scope, also one already configured.
 --- **`units`** on build, configure and clean: the scope is those configuration
@@ -78,12 +77,11 @@
 --- `profile_key` and `meta.profile` absent. **`jobs`** on build: the build
 --- tool's parallelism. **`targets`** items may be `{ project, target }`.
 --- **`verbose`** (`-v`) on build, clean, test and `prepare_run`: the task also
---- streams the command lines of §16.4 *Verbose* (role `command`), their env
---- line against the client's environment (`ctx.env`, before the daemon's own
---- adjustments; §19.15 "Roles and verbose").
+--- streams the command lines (role `command`), their env line against the
+--- client's environment (`ctx.env`, before the daemon's own adjustments).
 ---
 --- **Request** `{ kind = "reset", args = { profile?, all?, yes?, plan? }, … }`
---- (§19.15 "Reset") — the outcomes of `build`, plus "confirm" (`lines`,
+--- — the outcomes of `build`, plus "confirm" (`lines`,
 --- `plan`, `profile_key`): the reset is planned (loomworks.reset_plan, as
 --- in-process) after resolution and before any lock or side effect. Nothing
 --- to reset: "refused" with the in-process line, exit code 0 and `stream =
@@ -93,7 +91,7 @@
 --- exit 1). Otherwise "accepted" (`profile_key` absent for `--all`); the task
 --- prints the listing first only when no `plan` was sent (`-y`).
 ---
---- **Request** `{ kind = "snapshot", scope?, env }` (§19.13) → reply `ok`
+--- **Request** `{ kind = "snapshot", scope?, env }` → reply `ok`
 --- with `outcome = "ok"`, the scope's tables, `tools`, `shared_ignored`,
 --- `index`, `seq` and `session_generation` (loomworks.daemon.snapshot); or
 --- "refused" / "declined" as for `build`. No task, no lock. A loaded model is
@@ -101,7 +99,7 @@
 --- no file check, no tool wait); with none loaded, it is loaded in the
 --- request's environment without waiting for tool detection.
 ---
---- **Request** `{ kind = "query", name, args?, env }` (§19.14) → reply `ok`
+--- **Request** `{ kind = "query", name, args?, env }` → reply `ok`
 --- with `outcome = "ok"` and `result`; "refused" (`message`) for an unknown
 --- query or a failed one; "declined" as for `build`. Read-only: it runs in
 --- the request's environment (its model segment) against the model as it is,
@@ -128,10 +126,10 @@ M.LOAD_WAIT_MS = 45000
 --- @field ws table|nil the live workspace
 --- @field env_sig string|nil the environment signature `ws` was loaded in
 --- @field stopping boolean|nil the server is stopping (`on_stopping`): no new request starts
---- @field ids loomworks.daemon.IdRegistry the session's opaque-id registry (§19.12)
+--- @field ids loomworks.daemon.IdRegistry the session's opaque-id registry
 --- @field _device_registry table<string, loomworks.Device>|nil the device registry (serial → Device) every
----   workspace this daemon loads shares (`_adopt`, §19.16 "Devices")
---- @field _lsp_sig string|nil LspConfig/1 (§19.20): the state (the daemon's own environment) at the last
+---   workspace this daemon loads shares (`_adopt`)
+--- @field _lsp_sig string|nil LspConfig/1: the state (the daemon's own environment) at the last
 ---   `changed`, the baseline the next check compares with; nil while /lsp has no subscriber
 --- @field _lsp_force boolean|nil an owned database was written during a model segment: the deferred check
 ---   sends `changed` even when the state is unchanged (a raised `db_rev`)
@@ -144,7 +142,7 @@ M.LOAD_WAIT_MS = 45000
 --- @field _busy_check boolean|nil a view check for a profile task's start or end is scheduled
 ---   (`_profile_task_moved`; one check covers every task that moved before it runs)
 --- @field _carried table|nil the ids an environment reload took from the model it dropped
----   (`snapshot.ids_by_key`), kept until a load succeeds and they carry over (`_carry_ids`, API.md §1.2)
+---   (`snapshot.ids_by_key`), kept until a load succeeds and they carry over (`_carry_ids`)
 local Service = {}
 Service.__index = Service
 
@@ -157,7 +155,7 @@ function M.attach(server, host)
         ids = snapshot.registry(server.generation) }, Service)
     self.tasks = tasks_mod.new(server)
     self.tasks.on_change = function() self:_update_busy() end
-    -- The task signals of loomworks.Tasks/1 (§19.20), to /tasks subscribers.
+    -- The task signals of loomworks.Tasks/1, to /tasks subscribers.
     local core_ifaces = require("loomworks.daemon.core_interfaces")
     self.tasks.on_started = function(t, info)
         if server.interfaces then core_ifaces.task_signal(server.interfaces, t, "started", { task = info }) end
@@ -170,7 +168,7 @@ function M.attach(server, host)
         end
         self:_profile_task_moved(t)
     end
-    -- A target-scoped task's step changed state (§19.15 "Steps of a task").
+    -- A target-scoped task's step changed state.
     self.tasks.on_step = function(t, index, state, err)
         if server.interfaces then
             core_ifaces.task_signal(server.interfaces, t, "step", { task_id = t.id, index = index,
@@ -179,9 +177,9 @@ function M.attach(server, host)
     end
     envscope.install()
     server.service = self
-    -- The core interfaces it serves (step 5g.2), once the registry exists.
+    -- The core interfaces it serves, once the registry exists.
     if server.interfaces then core_ifaces.mount(server.interfaces, self) end
-    -- LspConfig/1's `changed` (§19.20): an owned LSP database written by
+    -- LspConfig/1's `changed`: an owned LSP database written by
     -- this daemon's model (a raised `db_rev`), and the active profile's
     -- databases settled (`ready`) — both outside any model segment.
     local events = require("loomworks.events")
@@ -203,7 +201,7 @@ function M.attach(server, host)
 end
 
 --- A task on a profile started or ended: its row's `busy` in the workspace
---- view flipped (view.Workspace/1, API.md §14.4), so the views' `update`
+--- view flipped (view.Workspace/1), so the views' `update`
 --- follows. Inside a model segment its end's check sends it; otherwise a
 --- check runs once the current callbacks are done (after the run's end has
 --- recorded the profile's `last_result`: one update carries both).
@@ -229,8 +227,8 @@ function Service:run_of_task(task)
     return nil
 end
 
---- Is a reset's deletion still running after its task ended (a timeout,
---- spec §19.15 "Reset")? Its locks are still held and its subprocesses run.
+--- Is a reset's deletion still running after its task ended (a timeout)?
+--- Its locks are still held and its subprocesses run.
 --- @return boolean
 function Service:_deletion_unsettled()
     for run in pairs(self.runs) do
@@ -268,7 +266,7 @@ end
 
 --- Before a request's acknowledgement from inside its model segment: what
 --- the segment changed so far reaches the subscribers first
---- (`Workspace.header_changed` and the views' `update`, §19.13 "Views").
+--- (`Workspace.header_changed` and the views' `update`).
 --- The check after the segment still runs; it sends only what changed since.
 --- @param ctx table
 function Service:_before_ack(ctx)
@@ -295,7 +293,7 @@ function Service:_drain()
         end
         self.current = nil
         -- A segment may have loaded, reloaded or failed to load the
-        -- workspace: Workspace/1's `header_changed` (§19.20).
+        -- workspace: Workspace/1's `header_changed`.
         pcall(require("loomworks.daemon.core_interfaces").header_check, self)
         if not ok then
             self.server:log("internal error in a build: %s", tostring(err))
@@ -310,8 +308,8 @@ function Service:_drain()
     self.draining = false
 end
 
---- Append a note to a request's reply notes with its role (API.md §4.1:
---- `note_roles[i]` is the LineRole of `notes[i]`), so the two never part.
+--- Append a note to a request's reply notes with its role (`note_roles[i]`
+--- is the LineRole of `notes[i]`), so the two never part.
 --- @param c table the request context
 --- @param text string
 --- @param role string a Common/1 LineRole
@@ -321,8 +319,8 @@ local function add_note(c, text, role)
     c.note_roles[#c.note_roles + 1] = role
 end
 
---- A warm workspace's load warnings into the notes of request `c` (§19.13
---- "Load warnings"): the request that loaded it got them as they were raised
+--- A warm workspace's load warnings into the notes of request `c`: the
+--- request that loaded it got them as they were raised
 --- (`handlers().notify`); each later one that uses it carries them too, with
 --- their roles, so every CLI command prints them as an in-process run (which
 --- loads each time) does. Once per connection and workspace — a command's
@@ -361,8 +359,8 @@ function Service:handlers()
             if level and level < vim.log.levels.WARN then return end
             local c = self.current
             if c and c.conn and c.conn.observer and require("loomworks.notify").in_load() then
-                -- A load's warning on an editor's request (§19.13 "Load
-                -- warnings"): the editor shows it in the views, and would
+                -- A load's warning on an editor's request: the editor shows
+                -- it in the views, and would
                 -- read a `warn` note of the reply as the command's failure.
                 c = nil
             end
@@ -377,9 +375,9 @@ function Service:handlers()
             if c then c.refused = c.refused or tostring(msg) end
             self.server:log("refused: %s", tostring(msg))
         end,
-        -- A committed write of a state file: tell the clients (§19.12).
+        -- A committed write of a state file: tell the clients.
         written = function() self.server:model_changed() end,
-        -- The watched files changed (§19.13 "Freshness of views"): another
+        -- The watched files changed: another
         -- process's change is applied as a check applies it, with the views'
         -- `update`s; inside a model segment, by the check after it.
         files_changed = function() self:on_files_changed() end,
@@ -387,9 +385,8 @@ function Service:handlers()
 end
 
 --- Running builds bound to a workspace that is no longer the live one are
---- stopped (§19.15: the workspace was unloaded or reloaded under them). A
---- device install, launch or stop is not (`keeps_on_reload`, §19.16
---- "Devices").
+--- stopped (the workspace was unloaded or reloaded under them). A device
+--- install, launch or stop is not (`keeps_on_reload`).
 function Service:_stop_stale_runs(why)
     for run in pairs(self.runs) do
         if run.ctx.ws ~= self.ws and not run.keeps_on_reload then run.cancel(why, 1) end
@@ -406,7 +403,7 @@ function Service:_workspace_runs()
 end
 
 --- Make `ws` the live workspace, loaded in the environment of signature
---- `sig`. Devices are runtime state (§19.16 "Devices"): the daemon's
+--- `sig`. Devices are runtime state: the daemon's
 --- registry is the first workspace's, and every workspace loaded after it
 --- shares it, so a reload keeps the device list and its ids.
 --- @param ws table
@@ -421,7 +418,7 @@ function Service:_adopt(ws, sig)
 end
 
 --- Hand the ids an environment reload took from the model it dropped
---- (`self._carried`, API.md §1.2) to `ws`, the model the next successful
+--- (`self._carried`) to `ws`, the model the next successful
 --- load produced, and forget them.
 --- @param ws table
 function Service:_carry_ids(ws)
@@ -441,14 +438,14 @@ function Service:_unload()
 end
 
 --- After a command that put the core through setup again (Workspace/1's
---- trust_accept / delete_user_prefs, API.md §6): wait for that load, then
+--- trust_accept / delete_user_prefs): wait for that load, then
 --- serve what it produced (its refusal is the header's). Runs bound to the
 --- old workspace stop, and every id issued before is stale.
 --- @param ctx table the request (its `env`)
 function Service:_adopt_reload(ctx)
     self.host.settle(M.LOAD_WAIT_MS)
     self.ws, self.env_sig = nil, nil
-    self._carried = nil -- (this load re-ids, API.md §1.2: nothing carries over)
+    self._carried = nil -- (this load re-ids: nothing carries over)
     self:_stop_stale_runs("the workspace was reloaded")
     local now = self.host.current()
     if now then self:_adopt(now, envscope.signature(ctx.env)) end
@@ -483,7 +480,7 @@ function Service:live(ctx, as_is)
         if ctx.conn then ctx.conn.load_notes_of = ws end -- (raised into its notes)
         return ws
     end
-    -- An environment reload keeps the model's ids (API.md §1.2, §19.12): the
+    -- An environment reload keeps the model's ids: the
     -- ids of the model it drops, by kind and key, for the reloaded one. They
     -- wait on the service until a load succeeds (`_carry_ids`), so a load
     -- that fails or throws in between does not lose them.
@@ -494,13 +491,13 @@ function Service:live(ctx, as_is)
         self._carried = snapshot.ids_by_key(self.ws, self.ids)
         self:_unload()
     end
-    -- A commit journal (§19.4): a full load completes or refuses it.
+    -- A commit journal: a full load completes or refuses it.
     if self.ws and require("loomworks.txn").read_journal(root) ~= nil then self:_unload() end
     if self.ws then
         local tr = self.ws._tracker
         if tr and tr.sync then tr:sync() end
         if self.host.current() ~= self.ws then
-            -- A refused file put the core back through setup (§17.4): wait for
+            -- A refused file put the core back through setup: wait for
             -- it, then use what it produced — or report its refusal.
             self.host.settle(M.LOAD_WAIT_MS)
             self.ws, self.env_sig = nil, nil
@@ -533,7 +530,7 @@ function Service:on_build(conn, msg)
     return self:_on_operation("build", conn, msg)
 end
 
---- Handle a `test` request (the batch `lw test`, spec §19.15) on an
+--- Handle a `test` request (the batch `lw test`) on an
 --- authenticated connection.
 --- @param conn table
 --- @param msg table
@@ -541,15 +538,15 @@ function Service:on_test(conn, msg)
     return self:_on_operation("test", conn, msg)
 end
 
---- Handle a `prepare_run` request (the preparation of `lw run`, spec §19.15
---- "Run") on an authenticated connection.
+--- Handle a `prepare_run` request (the preparation of `lw run`) on an
+--- authenticated connection.
 --- @param conn table
 --- @param msg table
 function Service:on_run(conn, msg)
     return self:_on_operation("run", conn, msg)
 end
 
---- Handle a `clean` request (`lw clean`, spec §19.15 "Clean") on an
+--- Handle a `clean` request (`lw clean`) on an
 --- authenticated connection.
 --- @param conn table
 --- @param msg table
@@ -557,7 +554,7 @@ function Service:on_clean(conn, msg)
     return self:_on_operation("clean", conn, msg)
 end
 
---- Handle a `reset` request (`lw reset`, spec §19.15 "Reset") on an
+--- Handle a `reset` request (`lw reset`) on an
 --- authenticated connection.
 --- @param conn table
 --- @param msg table
@@ -566,7 +563,7 @@ function Service:on_reset(conn, msg)
 end
 
 --- Apply another process's changes to the workspace files before the
---- header and the views are computed (§19.13 "Freshness of views"): the
+--- header and the views are computed: the
 --- loaded model's light sync (Workspace:sync_light) — never a load, never a
 --- tool detection; what needs either waits for the next state-changing
 --- request's sync (`live`). Not inside a model segment (its request synced
@@ -581,8 +578,8 @@ function Service:check_files()
     if not ok then self.server:log("file check before the views failed: %s", tostring(err)) end
 end
 
---- The workspace's files changed on disk (its tracker's watch, §19.13
---- "Freshness of views"): run the header check, which applies the change
+--- The workspace's files changed on disk (its tracker's watch): run the
+--- header check, which applies the change
 --- (`check_files`) and sends the views' `update`s. A model segment that runs
 --- is followed by that check already.
 function Service:on_files_changed()
@@ -590,7 +587,7 @@ function Service:on_files_changed()
     pcall(require("loomworks.daemon.core_interfaces").header_check, self)
 end
 
---- The model the header and the views (§19.13) report: the live workspace,
+--- The model the header and the views report: the live workspace,
 --- else the host's load failure. Never loads.
 --- @return table|nil ws, loomworks.ViewLoadError|nil err
 function Service:header_model()
@@ -600,7 +597,7 @@ function Service:header_model()
     return ws, err
 end
 
---- The `welcome` header's model fields (§19.13): the live workspace's name
+--- The `welcome` header's model fields: the live workspace's name
 --- and active profile, else the host's load failure. Never loads.
 --- @return table
 function Service:header()
@@ -638,7 +635,7 @@ function Service:_on_model_request(conn, msg, answer, bad, deliver)
     end
     self:with_model(ctx, function()
         if ctx.conn.closed then return end
-        -- Tests: a slow model segment (the client's read deadline, §19.1).
+        -- Tests: a slow model segment (the client's read deadline).
         local delay = tonumber(env.LW_TEST_MODEL_DELAY_MS or "")
         if delay then vim.wait(delay, function() return ctx.conn.closed end, 10) end
         local ws, refusal, decline = self:live(ctx, true)
@@ -669,7 +666,7 @@ function Service:_on_model_request(conn, msg, answer, bad, deliver)
     end)
 end
 
---- Handle a `snapshot` request (§19.13): the scope's tables of the live
+--- Handle a `snapshot` request: the scope's tables of the live
 --- model, its toolchain detection and the current-key → id index.
 --- @param conn table
 --- @param msg table
@@ -692,7 +689,7 @@ function Service:_snapshot_answer(conn, scope)
     end
 end
 
---- Handle a `query` request (§19.14): a registered host-probing query run
+--- Handle a `query` request: a registered host-probing query run
 --- against the live model in the client's environment.
 --- @param conn table
 --- @param msg table
@@ -798,11 +795,11 @@ local function run_args_ok(a, op, interface)
     for _, k in ipairs({ "no_build", "quiet", "prefix", "force" }) do
         if a[k] ~= nil and type(a[k]) ~= "boolean" then return false end
     end
-    -- (The conflict question's answer, §5.9: not in the protocol-10 request.)
+    -- (The conflict question's answer: not in the protocol-10 request.)
     if a.force ~= nil and not interface then return false end
     -- (No report and no wrapper for a debug launch.)
     if op ~= "run" and (a.quiet ~= nil or a.prefix ~= nil) then return false end
-    -- (A launch target's build: no launch to resolve, always built, §19.15.)
+    -- (A launch target's build: no launch to resolve, always built.)
     if op == "target_build" and (a.cwd ~= nil or a.extra ~= nil or a.no_build ~= nil or a.build_scope ~= nil) then
         return false
     end
@@ -849,7 +846,7 @@ function Service:_on_operation(op, conn, msg, deliver, call)
     end
     -- (`units` only on build, configure and clean; `jobs` only on build;
     -- both, and `{ project, target }` items, only through Build/1 — the
-    -- CLI's protocol-10 requests are unchanged, §19.15.)
+    -- CLI's protocol-10 requests are unchanged.)
     if not scope_args_ok(a) or (a.units ~= nil and op ~= "build" and op ~= "configure" and op ~= "clean")
         or (a.jobs ~= nil and op ~= "build") or (not deliver and not v0_args_ok(a)) then
         return ctx.reply({ outcome = "declined", reason = "malformed request" })
@@ -870,11 +867,11 @@ function Service:_on_operation(op, conn, msg, deliver, call)
 end
 
 --- An interface call's references by id (`args.profile_id`,
---- `args.project_id`; §19.20 "References"): resolved once, in the model
---- segment, straight to the live objects, which the caller passes on. An id
---- is never turned into its key to be matched again (step 5o part 0): the
---- CLI's matcher (§16.9) reads a key as user input (a bare integer is a
---- profile number), so a key round-trip can name another entity.
+--- `args.project_id`): resolved once, in the model segment, straight to the
+--- live objects, which the caller passes on. An id is never turned into its
+--- key to be matched again: the CLI's matcher reads a key as user input (a
+--- bare integer is a profile number), so a key round-trip can name another
+--- entity.
 --- @param ws table the live workspace
 --- @param a table the operation's args
 --- @return { profile?: loomworks.Profile, project?: loomworks.Project }|nil objs
@@ -895,7 +892,7 @@ function Service:_resolve_ids(ws, a)
     return objs
 end
 
---- An operation's `units` (§19.15 "Editor scopes and configure") resolved
+--- An operation's `units` resolved
 --- to the live configuration units, in order, duplicates dropped: `{ id }`
 --- with the session's ids (a stale id refused as for a profile), `{ project,
 --- configuration }` by the project key and configuration-unit key.
@@ -970,9 +967,9 @@ function Service:_accept(ctx)
                 notes = ctx.notes, note_roles = ctx.note_roles })
         end
     end
-    -- A test run's plan is checked before the build, as in-process (§16.16):
+    -- A test run's plan is checked before the build, as in-process:
     -- its notes go with the reply; a refusal (a foreign kit's tests with no
-    -- saved test target, §18.6; arguments after `--` for a mixed plan) is
+    -- saved test target; arguments after `--` for a mixed plan) is
     -- refused with the in-process message and exit code. Saved test targets
     -- a foreign kit builds run on a device, which stays in the client (as a
     -- device `lw run`): declined.
@@ -992,7 +989,7 @@ function Service:_accept(ctx)
         end
     end
     -- A run of a profile built by a foreign kit is a device run: its device
-    -- locks, staging and program liveness stay with the client (§19.15). (A
+    -- locks, staging and program liveness stay with the client. (A
     -- debug launch is never declined for it: there is no device debug, so
     -- its task refuses a device or foreign target, runner.lua.)
     local platform = ctx.op == "run" and profile and require("loomworks.run_prep").kit_platform(profile) or nil
@@ -1001,13 +998,13 @@ function Service:_accept(ctx)
             .. platform .. "; device runs stay in this process" })
     end
     -- Nothing to clean (no configured build directory on disk, or no module
-    -- clean): refused with the in-process line, before any lock — on stdout
-    -- (API.md §4.1), an ordinary result: the editor's rebuild goes on to
+    -- clean): refused with the in-process line, before any lock — on stdout,
+    -- an ordinary result: the editor's rebuild goes on to
     -- its build.
     local clean_steps, clean_refused
     if ctx.op == "clean" then
         clean_steps, clean_refused = build_run.plan_clean(profile, units)
-        -- Invalid ProfileProjects (core §5.4) are not cleaned: with nothing
+        -- Invalid ProfileProjects are not cleaned: with nothing
         -- else to clean, the clean is still a task (no steps) that fails
         -- naming them, its task result's `not_run` (a rebuild builds the
         -- others).
@@ -1035,7 +1032,7 @@ function Service:_accept(ctx)
         args = { reconfigure = a.reconfigure == true }
     elseif launching then
         -- (The program's arguments: an empty list is still a list.)
-        -- (`force`: the artifact-conflict question's answer, §5.9.)
+        -- (`force`: the artifact-conflict question's answer.)
         -- (`project`: the Project an id named, else the key the CLI typed.)
         args = { target = a.target, project = refs.project or a.project, kind = a.kind, cwd = a.cwd,
             extra = a.extra or {},
@@ -1043,8 +1040,7 @@ function Service:_accept(ctx)
         if ctx.op == "run" then
             args.quiet, args.prefix, args.verbose = a.quiet == true, a.prefix == true, a.verbose == true
         end
-        -- A launch target's build is the target scope's build phases (§19.15
-        -- "Build of a launch target").
+        -- A launch target's build is the target scope's build phases.
         if ctx.op == "target_build" then args.build_scope = "target" end
     else
         args = { extra = extra, targets = (a.targets and #a.targets > 0) and a.targets or nil,
@@ -1105,7 +1101,7 @@ function Service:_accept_reset(ctx, ws, refs)
         return ctx.reply({ outcome = "refused", message = reset_plan.nothing_message(plan), exit_code = 0,
             stream = "out", notes = ctx.notes, note_roles = ctx.note_roles })
     end
-    -- The client asks (§19.15 Confirmation): what the question shows, and a
+    -- The client asks: what the question shows, and a
     -- token of it; no lock, nothing changed.
     if not a.yes then
         return ctx.reply({ outcome = "confirm", lines = reset_plan.listing(plan), plan = plan.token,
@@ -1134,8 +1130,8 @@ function Service:on_run_done(run)
         self.server:log("%s task %s ended%s", run.op or "build", run.task.id,
             run.cancelled and (": " .. tostring(run.cancel_reason)) or "")
     end
-    -- The profile's last result (view.Workspace/1 `last_result`, API.md
-    -- §14.4): state of the daemon's session, kept while the next run runs
+    -- The profile's last result (view.Workspace/1 `last_result`): state of
+    -- the daemon's session, kept while the next run runs
     -- and across reconnects; the view's `update` follows at the segment's
     -- header check (here, for a run that ended outside a segment).
     local t = run.task
@@ -1149,7 +1145,7 @@ function Service:on_run_done(run)
     -- A reset whose deletion outlived its task kept the server busy.
     if run.deleting then self:_update_busy() end
     -- The tests view: the units the run covered may no longer match their
-    -- discovered trees (§19.13 "The tests view", `stale`).
+    -- discovered trees (`stale`).
     pcall(require("loomworks.daemon.test_store").on_run_done, self, run)
 end
 
@@ -1170,7 +1166,7 @@ end
 --- any model segment, so outside the requester's environment scope
 --- (daemon/envscope.lua): it only compares the toolchain rows and signals
 --- `changed`; the detection's result was taken in by the workspace's own
---- callback, as a load's background detection is (§19.11).
+--- callback, as a load's background detection is.
 function Service:_tools_settled()
     local late = self._late_tools
     if not late then return end
@@ -1182,7 +1178,7 @@ function Service:_tools_settled()
     if not vim.deep_equal(late.rows, rows) then self.server:model_changed() end
 end
 
---- Is the daemon's own background work running (§19.11)? The loaded model's
+--- Is the daemon's own background work running? The loaded model's
 --- tool detection: a `snapshot` or `query` load does not wait for it, so it
 --- may outlive the connection that asked. (A run settling without its owner
 --- is the server's `busy`.)
@@ -1193,14 +1189,14 @@ end
 
 --- Is a request's model segment running (`_drain`)? A lifetime tick can run
 --- inside one (e.g. during its wait for the model to load); the background
---- work cap does not act then (§19.11 "Background work cap").
+--- work cap does not act then.
 --- @return boolean
 function Service:in_segment()
     return self.draining == true or self.current ~= nil
 end
 
---- Abandon the model's tool detection past BACKGROUND_MAX_DURATION (§19.11
---- "Background work cap"): it has no handle to cancel, so with no run active
+--- Abandon the model's tool detection past BACKGROUND_MAX_DURATION: it has
+--- no handle to cancel, so with no run active
 --- the model is unloaded — the torn-down workspace never applies or saves the
 --- late result; the probe subprocesses run to completion on their own. The
 --- next request loads the model afresh. False when a run is active (the
@@ -1213,8 +1209,8 @@ function Service:abandon_background()
     return true
 end
 
---- An editor attached (an observer connection, hello `role = "observer"`,
---- §19.16 "Loaded on attach"): load the workspace when none is loaded, as a
+--- An editor attached (an observer connection, hello `role = "observer"`):
+--- load the workspace when none is loaded, as a
 --- read-only request does — in a model segment, in the daemon's own
 --- environment, without waiting for tool detection — so an editor-only
 --- session does not stay `unloaded`. Nothing when a model is loaded, a load
@@ -1240,15 +1236,15 @@ function Service:owns_task(conn)
     return #self.tasks:owned_by(conn) > 0
 end
 
---- The owning client disconnected: cancel its builds (§19.15). Called from
+--- The owning client disconnected: cancel its builds. Called from
 --- the connection's read callback, so the cancellation — which kills the
 --- step's process tree and waits for it to go — runs on the main loop
 --- afterwards, never inside the callback.
 --- @param conn table
 function Service:on_conn_closed(conn)
-    -- Its prepared test debug sessions are dropped (§19.15 "Tests").
+    -- Its prepared test debug sessions are dropped.
     pcall(require("loomworks.daemon.test_runs").on_conn_closed, self, conn)
-    -- Its device launches can no longer be stopped through it (§19.16 "Devices").
+    -- Its device launches can no longer be stopped through it.
     pcall(require("loomworks.daemon.devices").on_conn_closed, self, conn)
     local mine = {}
     for run in pairs(self.runs) do
@@ -1260,7 +1256,7 @@ function Service:on_conn_closed(conn)
     end)
 end
 
---- The runtime lost its authority (§19.2): the workspace — and the one of
+--- The runtime lost its authority: the workspace — and the one of
 --- every run still settling — writes no file again (`_no_write`, honoured by
 --- its cache and working-copy saves).
 function Service:freeze_writes()
@@ -1307,7 +1303,7 @@ function Service:on_stopping(reason)
             run.task:done(run.cancel_code or 1, (run.op or "build") .. " stopped: the workspace daemon stopped")
         end
     end
-    -- The files' watch ends with the daemon (§19.13); the workspace's
+    -- The files' watch ends with the daemon; the workspace's
     -- teardown stops its tracker.
     local tr = self.ws and self.ws._tracker
     if tr and tr.stop_signals then pcall(tr.stop_signals, tr) end

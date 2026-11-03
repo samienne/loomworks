@@ -1,47 +1,47 @@
---- loomworks/daemon/server.lua — the daemon run loop (spec §19.2, §19.6–§19.11).
+--- loomworks/daemon/server.lua — the daemon run loop.
 ---
 --- `lw daemon run` creates one `Server` for its workspace and starts it:
 ---
----   1. acquire the runtime lock R (§19.2) — held by a live or hung holder:
+---   1. acquire the runtime lock R — held by a live or hung holder:
 ---      exit without side effects (`EXIT_HELD`), the launching client then
 ---      connects to that one; a dead holder's lock is reclaimed and its stale
 ---      handle removed;
----   2. bind the endpoint (§19.7, owner-only; Windows DACL) and publish the
----      handle (§19.6);
----   3. serve: every connection must authenticate first (§19.8 — only
+---   2. bind the endpoint (owner-only; Windows DACL) and publish the
+---      handle;
+---   3. serve: every connection must authenticate first (only
 ---      `hello` / `auth`, 64 KiB frame cap, ~5 s, no broadcast before
----      `welcome`, which lists the objects, §19.20); then, through one
+---      `welcome`, which lists the objects); then, through one
 ---      dispatch table (`M.DISPATCH`), the frozen control requests `ping`,
 ---      `status`, `stop`, `retire`, the interface envelope's `call` (the
 ---      registry loomworks.daemon.interfaces, with the root object `/`), and
 ---      — with a build service attached (`lw daemon run`,
 ---      loomworks.daemon.service) — the protocol-10 request kinds as v0
----      aliases (§19.8, §19.15);
+---      aliases;
 ---   4. heartbeat (about 5 s): R's own timer refreshes the lock; the server
 ---      refreshes the handle (rewriting it if it was removed) and checks that
 ---      R still carries its record — a replaced record means the lock was
 ---      reclaimed while this process was suspended: it exits at once, nonzero,
----      touching no workspace file (§19.2).
+---      touching no workspace file.
 ---
---- Broadcasts (§19.11, §19.12, §19.16): `model_change { seq,
+--- Broadcasts: `model_change { seq,
 --- session_generation }` to every authenticated client below transport 11
 --- after each committed write of a state file (`model_changed`, called by
 --- the build service), and `retiring` to OBSERVER connections below 11
 --- (hello `role = "observer"`, the editor) when the daemon is retired —
 --- observers then disconnect. A connection of transport 11 gets their
 --- interface forms instead, only by subscription (`Workspace/1.changed`) or
---- as the root's `retiring` signal (§19.20, step 5g.3).
+--- as the root's `retiring` signal.
 ---
---- Busy (§19.9 "Busy", step 5g.3): only a connection that owns a running
+--- Busy: only a connection that owns a running
 --- task or has a command in flight (`conn_busy`) holds off a retirement or
 --- counts in `status.busy_clients`; one that only observes or subscribes
 --- never does.
 ---
---- Every exit (stop request, lost lock, and — §19.11 — idle, root removed)
+--- Every exit (stop request, lost lock, idle, root removed)
 --- cancels running work, closes the clients and the endpoint, removes the
 --- handle and (POSIX) the socket while still holding R, releases R, and ENDS
 --- THE PROCESS through `opts.exit` (default `os.exit`) — no timer or handle
---- may keep it alive (DAEMON.md §6: daemons that never exited).
+--- may keep it alive.
 ---
 --- Host-neutral: `start()` returns at once; the CLI then pumps the event loop
 --- until the process exits. Tests drive a server in-process with an injected
@@ -58,8 +58,8 @@ local lock_record = require("loomworks.lock_record")
 
 local M = {}
 
---- Exit status of a daemon that found the runtime lock held (§19.10: the
---- launching client connects to the holder instead of failing).
+--- Exit status of a daemon that found the runtime lock held (the launching
+--- client connects to the holder instead of failing).
 M.EXIT_HELD = 3
 
 --- A retiring daemon that became idle waits at most this long for its
@@ -68,25 +68,25 @@ M.EXIT_HELD = 3
 M.RETIRE_DRAIN_MS = 2000
 M.RETIRE_POLL_MS = 20
 
---- `stop_reason` of a runtime whose lock was taken over (§19.2), and of one
---- whose workspace root was removed (§19.11).
+--- `stop_reason` of a runtime whose lock was taken over, and of one whose
+--- workspace root was removed.
 M.LOST_LOCK = "the runtime lock was taken over"
 M.ROOT_REMOVED = "the workspace root was removed"
 
 --- Heartbeat period of the handle / lost-lock / lifetime checks.
 M.TICK_MS = 5000
---- Keepalive interval (§19.11): a connection silent for three is dropped.
+--- Keepalive interval: a connection silent for three is dropped.
 M.KEEPALIVE_MS = 30000
---- Idle timeout default (§19.11, setting `daemon-idle-timeout`): the idle
+--- Idle timeout default (setting `daemon-idle-timeout`): the idle
 --- grace, defined in the runtime module.
 M.IDLE_SECONDS = require("loomworks.daemon.runtime").IDLE_GRACE_SECONDS
---- `BACKGROUND_MAX_DURATION` (§19.11 "Background work cap"): ownerless
+--- `BACKGROUND_MAX_DURATION`: ownerless
 --- background work with no connection open is stopped after this long.
 M.BACKGROUND_MAX_MS = 10 * 60 * 1000
---- An unauthenticated connection is closed after this long (§19.8).
+--- An unauthenticated connection is closed after this long.
 M.AUTH_TIMEOUT_MS = 5000
---- A request in flight longer than this is logged once as a warning (§19.9
---- "Busy"): an interface method that answered ASYNC and never replied would
+--- A request in flight longer than this is logged once as a warning: an
+--- interface method that answered ASYNC and never replied would
 --- otherwise keep its connection busy silently. Never cleared by force.
 M.STUCK_REQUEST_MS = 10 * 60 * 1000
 
@@ -96,11 +96,11 @@ local function env_ms(name)
 end
 
 --- @class loomworks.daemon.Server
---- @field attached boolean|nil an attached runtime (§19.1): no endpoint, handle or idle stop
+--- @field attached boolean|nil an attached runtime: no endpoint, handle or idle stop
 --- @field exit_code integer|nil an attached runtime's exit status, recorded when it stopped
 --- @field stop_reason string|nil why it stopped (`LOST_LOCK`, `ROOT_REMOVED`, or the `stop` reason)
---- @field interfaces loomworks.daemon.Registry|nil the interface registry with the root object (§19.20), created on start
---- @field background boolean background work (§19.11) ran at the last lifetime check
+--- @field interfaces loomworks.daemon.Registry|nil the interface registry with the root object, created on start
+--- @field background boolean background work ran at the last lifetime check
 --- @field background_since number|nil uv.now() when the background work became ownerless with no connection open (the cap's clock)
 local Server = {}
 Server.__index = Server
@@ -141,7 +141,7 @@ function M.new(root, opts)
     return self
 end
 
---- Log a line (the runtime log, §19.10, when the host gave one).
+--- Log a line (the runtime log, when the host gave one).
 function Server:log(fmt, ...)
     if self.opts.log then pcall(self.opts.log, string.format(fmt, ...)) end
 end
@@ -163,10 +163,10 @@ function Server:_handle_record()
         busy = self.busy,
         idle_since = (self.n_clients == 0 and not self.busy and not self.background) and self.idle_since or nil,
         lock_nonce = self.R and self.R.record and self.R.record.lock_nonce or nil,
-        -- Which data directory's key this daemon authenticates with (§19.6).
+        -- Which data directory's key this daemon authenticates with.
         key_id = self.key and auth.key_id(self.key) or nil,
         -- The executable this daemon runs (display only: the editor's
-        -- version-mismatch note names it, §19.16).
+        -- version-mismatch note names it).
         exe = self:_exe(),
     }
 end
@@ -181,7 +181,7 @@ function Server:_exe()
     return self._exe_path or nil
 end
 
---- The handle rewrite (§19.6): how long one rewrite may retry a rename that
+--- The handle rewrite: how long one rewrite may retry a rename that
 --- a reader blocks while the loop waits (ms), the backoff of the later
 --- retries (ms; the last value repeats until it succeeds), and how long it
 --- may keep failing before the runtime log says so (ms).
@@ -204,7 +204,7 @@ function Server:_handle_changed(delay_ms)
     end)
 end
 
---- Publish the handle record (§19.6). Skipped when this daemon last wrote
+--- Publish the handle record. Skipped when this daemon last wrote
 --- exactly this record and the file is still there (the heartbeat refreshes
 --- its time): every rewrite is a rename a reader can block. A rename a
 --- reader keeps blocking (Windows) is retried for HANDLE_SYNC_MS, then again
@@ -244,7 +244,7 @@ function Server:_write_handle()
     return nil
 end
 
---- The part of starting both runtimes share (§19.1, §19.2): the versions
+--- The part of starting both runtimes share: the versions
 --- computed, the root checked, R acquired in `mode` (a predecessor's stale
 --- handle removed). Returns true, or nil + message + exit status (EXIT_HELD
 --- when another runtime holds the lock).
@@ -255,7 +255,7 @@ function Server:_acquire(lock_opts)
     -- vim.fn (the fingerprint's sha256) in fast callbacks.
     self.identity = version.identity()
     self.schemas = version.schemas()
-    -- The interface registry with the root object (§19.20); its schema
+    -- The interface registry with the root object; its schema
     -- digests are computed here too, outside any callback.
     self:registry()
     local st = uv.fs_stat(self.root)
@@ -279,7 +279,7 @@ function Server:_acquire(lock_opts)
     return true
 end
 
---- Start the heartbeat timer (§19.2).
+--- Start the heartbeat timer.
 function Server:_start_tick()
     self.timer = uv.new_timer()
     self.timer:start(self.tick_ms, self.tick_ms, function() self:_guard(self._tick) end)
@@ -291,8 +291,8 @@ end
 function Server:start()
     lock_record.set_holder_kind("daemon")
     -- A live daemon of this slot that holds the legacy (unslotted) runtime
-    -- lock is an earlier lw's: stopped before this one starts (§19.6
-    -- "Legacy files"). Its files are never read to connect to it.
+    -- lock is an earlier lw's: stopped before this one starts. Its files are
+    -- never read to connect to it.
     if uv.fs_stat(self.root) then
         local lout = require("loomworks.daemon.legacy").stop_live(self.root, function(l) self:log("%s", l) end)
         if lout == "stopped" then self:log("stopped the workspace daemon of an earlier lw (legacy runtime lock)") end
@@ -331,7 +331,7 @@ function Server:start()
     return true
 end
 
---- Start an attached runtime (§19.1 "Loopback"): the daemon's code inside
+--- Start an attached runtime: the daemon's code inside
 --- the client process for the length of one command. R is held in `attached`
 --- mode with the command; there is no endpoint, no authentication key, no
 --- handle and no idle stop — its clients are loopback connections handed to
@@ -367,10 +367,10 @@ function Server:_guard(fn, ...)
     if not self.stopped then pcall(self.stop, self, "internal error: " .. tostring(err), 1) end
 end
 
---- The heartbeat (§19.2, §19.6; lifetime checks of §19.11 via `lifetime`).
+--- The heartbeat (lifetime checks via `lifetime`).
 function Server:_tick()
     if self.stopped then return end
-    -- Root removed (§19.11): checked first — its lock went with it.
+    -- Root removed: checked first — its lock went with it.
     local rst = uv.fs_stat(self.root)
     if not rst or rst.type ~= "directory" then
         return self:stop(M.ROOT_REMOVED, 0)
@@ -380,7 +380,7 @@ function Server:_tick()
     end
     self:_warn_stuck_requests()
     -- An attached runtime publishes no handle and never stops for idleness:
-    -- it ends with its command (§19.1).
+    -- it ends with its command.
     if self.attached then return end
     -- The heartbeat keeps the published handle fresh even while a rewrite is
     -- still failing; a failing rewrite (or a removed handle) is retried here.
@@ -389,7 +389,7 @@ function Server:_tick()
     self:lifetime()
 end
 
---- Background work (§19.11): work the daemon owns with no connection as its
+--- Background work: work the daemon owns with no connection as its
 --- owner. A run still settling after its owner left or after its task ended
 --- (`busy`: a cancellation killing its step, a reset's deletion), and the
 --- loaded model's tool detection (`service:background_work()`), which a
@@ -405,7 +405,7 @@ function Server:_background_work()
     return false
 end
 
---- The lifetime rules of §19.11 checked on every tick: a connection silent
+--- The lifetime rules checked on every tick: a connection silent
 --- for three keepalive intervals is dropped as half-open; idle — no
 --- connection and no background work — for the idle timeout, the daemon
 --- exits. The idle clock starts when the last connection closes or the last
@@ -416,7 +416,7 @@ function Server:lifetime()
     local now = uv.now()
     for conn in pairs(self.conns) do
         -- A connection that owns a running operation is its terminal: it is
-        -- never dropped for silence (its client pings anyway, §19.15).
+        -- never dropped for silence (its client pings anyway).
         if conn.authed and now - conn.last_seen > 3 * self.keepalive_ms
                 and not (self.service and self.service:owns_task(conn)) then
             self:_close(conn, "silent for three keepalive intervals")
@@ -433,7 +433,7 @@ function Server:lifetime()
     -- No connection at all — one still authenticating (bounded by the
     -- authentication timeout) is a client on its way in.
     local unconnected = self.n_clients == 0 and next(self.conns) == nil
-    -- The cap's clock (§19.11 "Background work cap") counts only while the
+    -- The background work cap's clock counts only while the
     -- work is ownerless and no connection is open; a connection resets it
     -- (here, and in `_on_connection` for one opened and closed between ticks).
     if bg and unconnected then
@@ -462,7 +462,7 @@ function Server:lifetime()
 end
 
 --- Background work outlasted BACKGROUND_MAX_DURATION with no connection
---- open (§19.11 "Background work cap"). A run still settling (a cancellation
+--- open. A run still settling (a cancellation
 --- killing its step, a reset's deletion: `busy`) is stopped through the stop
 --- path — `on_stopping` stops a deletion between entries (its entries stay
 --- `unknown`), releases the run's locks and ends its task — and the daemon,
@@ -495,17 +495,17 @@ function Server:_background_cap()
 end
 
 --- R was reclaimed or removed while this process held it: it has lost
---- authority — stop at once, write nothing, exit nonzero (§19.2).
+--- authority — stop at once, write nothing, exit nonzero.
 function Server:_lost_lock()
     if self.stopped then return end
     self.stop_reason = M.LOST_LOCK
     if self.service then
-        -- No workspace file is written from here on (§19.2): a clean's wipe or
+        -- No workspace file is written from here on: a clean's wipe or
         -- a reset's deletion still settling, a segment drained below, never
         -- save the cache or the working copy. (What a deletion wrote before
         -- it started — its entries `unknown` — stays: crash safety.)
         if self.service.freeze_writes then pcall(self.service.freeze_writes, self.service) end
-        -- An attached runtime's running operation is this command's (§19.2):
+        -- An attached runtime's running operation is this command's:
         -- it is cancelled as on Ctrl-C — its steps' process trees killed —
         -- before the command ends; its clients (the loopback) are told.
         if self.attached then
@@ -525,16 +525,15 @@ function Server:_lost_lock()
 end
 
 --- Stop: close clients and the endpoint, remove the handle and socket while
---- still holding R, release R, end the process (§19.11). Idempotent. An
---- attached runtime has no endpoint or handle: it closes its loopback
---- connections, releases R and returns to its caller (`exit` records the
---- status, §19.1).
+--- still holding R, release R, end the process. Idempotent. An attached
+--- runtime has no endpoint or handle: it closes its loopback connections,
+--- releases R and returns to its caller (`exit` records the status).
 --- @param reason string
 --- @param code? integer exit status (default 0)
 function Server:stop(reason, code)
     if self.stopped then return end
     self.stop_reason = self.stop_reason or reason
-    -- Running operations end first (§19.11, §19.15): their step processes
+    -- Running operations end first: their step processes
     -- are killed and their build locks released while this process still
     -- holds R; their clients are told before the connections close.
     if self.service then pcall(self.service.on_stopping, self.service, reason) end
@@ -542,7 +541,7 @@ function Server:stop(reason, code)
     self:log("stopping: %s", tostring(reason))
     for conn in pairs(self.conns) do
         pcall(function() if not conn.sock:is_closing() then conn.sock:close() end end)
-        -- Its subscriptions end with it (§19.20), as on any close.
+        -- Its subscriptions end with it, as on any close.
         if self.interfaces then self.interfaces:drop_conn(conn) end
     end
     self.conns = {}
@@ -571,7 +570,7 @@ end
 
 function Server:_send(conn, msg, cb)
     if conn.closed or conn.sock:is_closing() then return end
-    -- The answer to a command in flight (§19.9 "Busy"): any frame naming its
+    -- The answer to a command in flight: any frame naming its
     -- `req_id` but a task frame or a signal (an `ok`, `error`, `accepted`,
     -- `refused`, `declined` or `confirm` reply) ends it.
     local inf = conn.in_flight
@@ -583,7 +582,7 @@ function Server:_send(conn, msg, cb)
 end
 
 --- Log once (a warning) each request in flight past STUCK_REQUEST_MS: it
---- keeps its connection busy (§19.9), so a handler that never answers holds
+--- keeps its connection busy, so a handler that never answers holds
 --- off an idle restart or a retirement — say so in the runtime log. Checked
 --- on the heartbeat; the request is never cleared here.
 function Server:_warn_stuck_requests()
@@ -601,7 +600,7 @@ function Server:_warn_stuck_requests()
     end
 end
 
---- Is `conn` BUSY (spec §19.9 "Busy", step 5g.3): does it own a running task
+--- Is `conn` BUSY: does it own a running task
 --- or have a command in flight (a request other than the frozen control
 --- subset, not yet answered)? A connection that only observes or subscribes
 --- never is — the observer rule applied to every connection.
@@ -624,7 +623,7 @@ function Server:busy_connections(except)
 end
 
 --- Authenticated clients other than observers (tests, the log). What holds
---- off a retirement is `busy_connections` (§19.9 "Busy").
+--- off a retirement is `busy_connections`.
 --- @return integer
 function Server:active_clients()
     local n = 0
@@ -634,7 +633,7 @@ function Server:active_clients()
     return n
 end
 
---- Authenticated observer connections (§19.16).
+--- Authenticated observer connections.
 --- @return integer
 function Server:observer_count()
     local n = 0
@@ -644,7 +643,7 @@ function Server:observer_count()
     return n
 end
 
---- Retiring and idle: exit (§19.11). Idle from step 5g.3 (§19.9 "Busy"):
+--- Retiring and idle: exit. Idle is
 --- no running task and no busy connection — one that owns a task or has a
 --- command in flight; a connection that only observes or subscribes (an
 --- editor, an idle client) never holds a retirement off.
@@ -681,7 +680,7 @@ function Server:_maybe_retire()
     end))
 end
 
---- A committed write of a state file (§19.12): advance the sequence number
+--- A committed write of a state file: advance the sequence number
 --- and tell every authenticated client (the protocol-10 `model_change`
 --- broadcast), and the subscribers of loomworks.Workspace/1 (`changed`).
 function Server:model_changed()
@@ -699,7 +698,7 @@ function Server:model_changed()
     end
 end
 
---- The interface registry with the root object (§19.20), created on first
+--- The interface registry with the root object, created on first
 --- use, with the core interfaces of the attached build service mounted
 --- (loomworks.daemon.core_interfaces; a service attached later mounts them
 --- itself).
@@ -725,9 +724,9 @@ function Server:_close(conn, why)
     pcall(function() if not conn.sock:is_closing() then conn.sock:close() end end)
     self.conns[conn] = nil
     if why then self:log("closed a connection: %s", why) end
-    -- Its subscriptions end with it (§19.20).
+    -- Its subscriptions end with it.
     if self.interfaces then self.interfaces:drop_conn(conn) end
-    -- Its operations belong to it: cancelled (§19.15).
+    -- Its operations belong to it: cancelled.
     if conn.authed and self.service then pcall(self.service.on_conn_closed, self.service, conn) end
     if conn.authed then
         self.n_clients = self.n_clients - 1
@@ -746,7 +745,7 @@ function Server:_on_connection(err)
         pcall(function() sock:close() end)
         return
     end
-    -- The peer check (§19.7, Windows) before anything is read: the client
+    -- The peer check (Windows) before anything is read: the client
     -- process must be of this daemon's slot (user SID and elevation).
     local okp, why = endpoint.peer_check(sock, "client")
     if not okp then
@@ -757,7 +756,7 @@ function Server:_on_connection(err)
     local conn = { sock = sock, decoder = protocol.new_decoder(protocol.PREAUTH_MAX), state = "new",
         last_seen = uv.now() }
     self.last_request = os.time()
-    -- Opening a connection resets the background work cap's clock (§19.11),
+    -- Opening a connection resets the background work cap's clock,
     -- even one that closes again before the next lifetime tick.
     self.background_since = nil
     self.conns[conn] = true
@@ -775,7 +774,7 @@ function Server:_on_read(conn, rerr, chunk)
         conn.last_seen = uv.now()
         local msgs, derr = conn.decoder:push(chunk)
         if not msgs then
-            -- Before authentication: closed with no detail (§19.8).
+            -- Before authentication: closed with no detail.
             if conn.authed then self:_send(conn, { kind = protocol.KIND.error, error = derr }) end
             return self:_close(conn, derr)
         end
@@ -799,10 +798,10 @@ function Server:_handshake(conn, msg)
         conn.nc, conn.ns, conn.state = msg.nonce, ns, "challenged"
         conn.peer = { protocol = msg.protocol, protocol_min = msg.protocol_min, lw_version = msg.lw_version,
             schemas = msg.schemas, client = msg.client, role = msg.role }
-        -- The transport both sides agree on (§19.9 "From protocol 11"); nil
+        -- The transport both sides agree on; nil
         -- with no overlap — the frozen control subset still serves it.
         conn.transport = version.negotiate(msg.protocol, msg.protocol_min)
-        -- An observer (§19.16) never holds off a retirement.
+        -- An observer never holds off a retirement.
         conn.observer = msg.role == "observer"
         self:_send(conn, {
             kind = K.challenge, protocol = protocol.VERSION, protocol_min = protocol.VERSION_MIN,
@@ -844,7 +843,7 @@ function Server:_authed(conn)
         self.n_clients)
     local header = { root = self.root, pid = self.pid, lw_version = self.identity,
         session_generation = self.generation }
-    -- The always-warm header (§19.13): the model's name, active profile
+    -- The always-warm header: the model's name, active profile
     -- and error state, from the service when one is attached. Its fields
     -- are only ever added: the session fields above are never overwritten.
     if self.service and self.service.header then
@@ -855,16 +854,16 @@ function Server:_authed(conn)
             end
         end
     end
-    -- Transport fields beside the header (protocol 11, §19.8): the objects
-    -- (describe().objects without digests, §19.20).
+    -- Transport fields beside the header (protocol 11): the objects
+    -- (describe().objects without digests).
     local objects = self.interfaces and self.interfaces:object_list(false) or nil
     self:_send(conn, {
         kind = protocol.KIND.welcome, seq = self.seq, clients = self.n_clients, busy = self.busy,
         retiring = self.retiring, header = header, objects = objects,
     })
     self:_handle_changed()
-    -- An editor attached: the daemon loads the workspace (§19.16 "Loaded on
-    -- attach"); `welcome` above still reported the model as it was.
+    -- An editor attached: the daemon loads the workspace; `welcome` above
+    -- still reported the model as it was.
     if conn.observer and self.service and self.service.on_editor_attached then
         local ok, err = pcall(self.service.on_editor_attached, self.service)
         if not ok then self:log("internal error loading for an editor: %s", tostring(err)) end
@@ -884,7 +883,7 @@ function Server:_read(conn)
 end
 
 --- Register a connection that needs no authentication — the loopback end of
---- an attached run (§19.1): in the state `_handshake` leaves an authenticated
+--- an attached run: in the state `_handshake` leaves an authenticated
 --- connection in, welcomed over the connection itself. `peer` is what a
 --- `hello` announces (`protocol`, `lw_version`, `schemas`, `client`, `role`).
 --- Returns the connection, or nil + error once the server stopped.
@@ -907,8 +906,8 @@ function Server:adopt(sock, peer)
 end
 
 --- Register a connection over a private pipe that needs no authentication
---- — the standard input and output of `lw daemon run --stdio` (§19.16), or
---- a loopback end (the conformance runner, §19.20): its first frame must be
+--- — the standard input and output of `lw daemon run --stdio`, or
+--- a loopback end (the conformance runner): its first frame must be
 --- `hello` (whose `nonce` is ignored), answered directly by `welcome`;
 --- anything else closes it. `on_close` runs once it closed.
 --- @param sock table a stream with the pipe methods (loomworks.daemon.loopback)
@@ -931,14 +930,14 @@ function Server:status(conn)
     r.retiring = self.retiring
     r.observers = self:observer_count()
     -- The connections besides the asking one that own a running task or
-    -- have a command in flight (§19.9 "Busy", step 5g.3): what a mismatched
+    -- have a command in flight: what a mismatched
     -- client weighs to tell an idle daemon from a busy one. An addition to
     -- the frozen shape; an older daemon omits it.
     r.busy_clients = self:busy_connections(conn)
-    -- The running tasks (protocol 7, §19.11): each one's `start` meta, when it
+    -- The running tasks: each one's `start` meta, when it
     -- started and its last percent.
     r.tasks = self.service and self.service.tasks and self.service.tasks:snapshot(conn) or {}
-    -- The idle deadline (step 5r D, §19.11 "Warm restarts"): the idle
+    -- The idle deadline: the idle
     -- timeout in effect, and — when nothing but the asking connection keeps
     -- the daemon up (no other client, no run, no background work) — the time
     -- it exits if the asker closes now and no client connects (the asker's
@@ -951,7 +950,7 @@ function Server:status(conn)
     return r
 end
 
---- An authenticated request: a handler error is a typed error reply (§19.8),
+--- An authenticated request: a handler error is a typed error reply,
 --- never a crash.
 function Server:_dispatch(conn, msg)
     local ok, err = pcall(self._dispatch_request, self, conn, msg)
@@ -964,12 +963,12 @@ function Server:_dispatch(conn, msg)
     end
 end
 
---- The dispatch table (spec §19.20, step 5g.1): one entry per request kind.
+--- The dispatch table: one entry per request kind.
 --- `call` is the interface envelope, served by the registry
 --- (loomworks.daemon.interfaces); the frozen control subset answers itself;
 --- the request kinds of protocol 10 are v0 ALIASES, served unchanged by the
---- build service's handlers — the same handlers the interface methods of
---- step 5g.2 adapt — and only when a service is attached (else, as before,
+--- build service's handlers — the same handlers the interface methods
+--- adapt — and only when a service is attached (else, as before,
 --- an unknown kind). A v0 request gets a v0 reply: `error` is a string.
 ---   control = fun(server, conn, msg, reply)
 ---   v0      = the build service's method name
@@ -994,36 +993,35 @@ M.DISPATCH = {
             return server:registry():call(conn, msg)
         end,
     },
-    -- Routed operations (§19.15): `build` (step 3), the batch `test` (step
-    -- 5), the preparation of `lw run` (the program runs in the client), `lw
-    -- clean` (step 5c), `lw reset` (step 5d).
+    -- Routed operations: `build`, the batch `test`, the preparation of `lw
+    -- run` (the program runs in the client), `lw clean`, `lw reset`.
     [protocol.KIND.build] = { v0 = "on_build" },
     [protocol.KIND.test] = { v0 = "on_test" },
     [protocol.KIND.prepare_run] = { v0 = "on_run" },
     [protocol.KIND.clean] = { v0 = "on_clean" },
     [protocol.KIND.reset] = { v0 = "on_reset" },
-    -- The model: a scope snapshot for the client's projection (§19.13); a
-    -- host-probing query in the client's environment (§19.14).
+    -- The model: a scope snapshot for the client's projection; a
+    -- host-probing query in the client's environment.
     [protocol.KIND.snapshot] = { v0 = "on_snapshot" },
     [protocol.KIND.query] = { v0 = "on_query" },
 }
 
---- The frozen control subset among the request kinds (§19.8): never a
---- command, so never busy (§19.9 "Busy").
+--- The frozen control subset among the request kinds: never a
+--- command, so never busy.
 M.CONTROL = { [protocol.KIND.ping] = true, [protocol.KIND.status] = true, [protocol.KIND.stop] = true,
     [protocol.KIND.retire] = true }
 
 --- Does `conn` take the protocol-10 broadcasts (`model_change`, `retiring`,
 --- every task's frames)? Every connection below transport 11 does, as
 --- before; one of transport 11 receives only what it subscribed to, plus the
---- root's signals (§19.20 "Signals and subscriptions", step 5g.3).
+--- root's signals.
 --- @param conn table
 --- @return boolean
 function M.takes_v0_broadcasts(conn)
     return not (type(conn.transport) == "number" and conn.transport >= 11)
 end
 
---- Mark the daemon retiring (§19.11): observers below transport 11 are told
+--- Mark the daemon retiring: observers below transport 11 are told
 --- with the v0 `retiring` broadcast (they disconnect on it and never hold the
 --- retirement off), every connection of transport 11 with the root's
 --- `retiring` signal. Already idle, it exits at once (after the reply).
@@ -1052,7 +1050,7 @@ function Server:_dispatch_request(conn, msg)
     end
     local entry = type(msg.kind) == "string" and M.DISPATCH[msg.kind] or nil
     -- A command in flight until its answer (`_send`): every request but the
-    -- frozen control subset, which never makes a connection busy (§19.9).
+    -- frozen control subset, which never makes a connection busy.
     if entry and msg.req_id ~= nil and not M.CONTROL[msg.kind] then
         conn.in_flight = conn.in_flight or {}
         local what = msg.kind

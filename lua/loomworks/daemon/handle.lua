@@ -1,8 +1,7 @@
---- loomworks/daemon/handle.lua — the daemon handle `<root>/.nvim/loomworks.daemon-<S>.json`
---- (spec §19.6).
+--- loomworks/daemon/handle.lua — the daemon handle `<root>/.nvim/loomworks.daemon-<S>.json`.
 ---
---- Discovery only: the runtime lock (§19.2, loomworks.daemon.rlock) decides
---- who the runtime is, the handshake (§19.8) whether a client may use it. The
+--- Discovery only: the runtime lock (loomworks.daemon.rlock) decides who the
+--- runtime is, the handshake whether a client may use it. The
 --- daemon writes the handle after binding its endpoint:
 ---
 ---   { pid, host, os, start_time, endpoint, protocol, lw_version,
@@ -17,7 +16,7 @@
 ---
 --- Removal (deletion safety): only the holder of the runtime lock removes the
 --- handle — the daemon on its way out, or a process that reclaimed the lock of
---- a dead daemon (§19.5) — and only this exact regular file.
+--- a dead daemon — and only this exact regular file.
 
 local paths = require("loomworks.daemon.paths")
 
@@ -25,7 +24,7 @@ local M = {}
 
 local function uv() return vim.uv or vim.loop end
 
---- Staleness window of the heartbeat (the runtime lock's, §16.6).
+--- Staleness window of the heartbeat (the runtime lock's).
 M.STALE_SECONDS = 20
 
 --- Is a decoded handle well-formed?
@@ -175,7 +174,7 @@ function M.write(root, rec, opts)
 end
 
 --- Refresh the handle's modification time (the heartbeat). Returns false
---- when the handle is absent (the daemon then rewrites it, §19.6).
+--- when the handle is absent (the daemon then rewrites it).
 --- @param root string
 --- @return boolean
 function M.touch(root)

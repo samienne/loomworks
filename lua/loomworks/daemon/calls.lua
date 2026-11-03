@@ -1,5 +1,4 @@
---- loomworks/daemon/calls.lua — the CLI's requests as interface calls (spec
---- §19.20, step 5g.2: "the CLI calls them").
+--- loomworks/daemon/calls.lua — the CLI's requests as interface calls.
 ---
 --- The CLI builds its daemon requests in the protocol-10 shape (`build`,
 --- `test`, `prepare_run`, `clean`, `reset`, `snapshot`, `query`), which stay
@@ -16,12 +15,12 @@
 ---   query profile_cache     /profiles    loomworks.Profiles/1    compiler_cache
 ---
 --- Entity arguments become references by key (`{ key }`: the CLI sends what
---- the user typed, §19.20 "References"). A transport error of the call is
---- answered by its code (M.on_error):
+--- the user typed). A transport error of the call is answered by its code
+--- (M.on_error):
 ---
 ---   unknown_object, unknown_interface,    nothing ran: the protocol-10 request
----   unknown_method, unsupported_version   is sent instead (a daemon of step
----                                         5g.1 speaks transport 11 without
+---   unknown_method, unsupported_version   is sent instead (an older daemon
+---                                         speaks transport 11 without
 ---                                         these interfaces)
 ---   invalid_args, same_build_required,    `declined` with the error: the CLI
 ---   stopping, retiring                    runs the command in-process

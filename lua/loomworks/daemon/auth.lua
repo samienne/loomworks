@@ -1,6 +1,6 @@
---- loomworks/daemon/auth.lua — the mutual handshake proofs (spec §19.8).
+--- loomworks/daemon/auth.lua — the mutual handshake proofs.
 ---
----   K = HMAC-SHA256(machine key §17.2, "loomworks-daemon-v1")
+---   K = HMAC-SHA256(machine key, "loomworks-daemon-v1")
 ---   server_proof = HMAC(K, "server" ‖ LF ‖ E ‖ LF ‖ Nc ‖ LF ‖ Ns)
 ---   client_proof = HMAC(K, "client" ‖ LF ‖ E ‖ LF ‖ Ns ‖ LF ‖ Nc)
 ---
@@ -31,7 +31,7 @@ end
 M.KEY_ID_LABEL = "loomworks-daemon-key-id-v1"
 
 --- The non-secret fingerprint of a daemon key K, published in the handle
---- (`key_id`, spec §19.6): the first 16 hex digits of HMAC(K, KEY_ID_LABEL).
+--- (`key_id`): the first 16 hex digits of HMAC(K, KEY_ID_LABEL).
 --- It tells which loomworks data directory (machine key) a daemon belongs
 --- to without connecting; a one-way value under its own label, it reveals
 --- nothing usable about K and is never part of a proof.

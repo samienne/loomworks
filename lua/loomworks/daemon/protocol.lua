@@ -1,5 +1,5 @@
 --- loomworks/daemon/protocol.lua — framing and message kinds of the daemon
---- wire protocol (spec §19.8).
+--- wire protocol.
 ---
 --- A message is a JSON object prefixed by its decimal byte length and a
 --- newline: `<len>\n<json>`. Every request carries a `req_id` its reply
@@ -10,7 +10,7 @@
 --- The **frozen control subset** — this framing, `hello` / `challenge` /
 --- `auth` / `welcome`, `ping`, `status`, `stop` and `retire`, and the `ok` /
 --- `error` replies — never changes shape across versions, so any two
---- versions can always authenticate, inspect and retire each other (§19.8).
+--- versions can always authenticate, inspect and retire each other.
 
 local M = {}
 
@@ -19,7 +19,7 @@ M.VERSION = require("loomworks.daemon.version").PROTOCOL
 --- The oldest transport still spoken (loomworks.daemon.version.PROTOCOL_MIN).
 M.VERSION_MIN = require("loomworks.daemon.version").PROTOCOL_MIN
 
---- Frame cap before authentication (spec §19.8).
+--- Frame cap before authentication.
 M.PREAUTH_MAX = 64 * 1024
 --- Frame cap after authentication.
 M.MAX_FRAME = 16 * 1024 * 1024
@@ -38,30 +38,30 @@ M.KIND = {
     -- replies (frozen)
     ok = "ok",
     error = "error",
-    -- routed operations (§19.15): a request and its task stream
+    -- routed operations: a request and its task stream
     build = "build",
     test = "test",
     prepare_run = "prepare_run",
     clean = "clean",
     reset = "reset",
     task = "task",
-    -- the model (§19.13, §19.14): a scope snapshot for a client's
+    -- the model: a scope snapshot for a client's
     -- projection; a read-only query that probes the host in the client's
     -- environment
     snapshot = "snapshot",
     query = "query",
-    -- broadcasts (§19.11, §19.12): a committed write of a state file; the
+    -- broadcasts: a committed write of a state file; the
     -- daemon was retired (observers disconnect)
     model_change = "model_change",
     retiring = "retiring",
-    -- the message envelope of protocol 11 (§19.20, loomworks.proto.envelope):
+    -- the message envelope of protocol 11 (loomworks.proto.envelope):
     -- an interface call and an interface signal (replies are `ok` / `error`,
     -- the error then a structured object)
     call = "call",
     signal = "signal",
 }
 
---- A session-scoped opaque id (spec §19.12, §19.20): entity ids, task ids
+--- A session-scoped opaque id: entity ids, task ids
 --- and subscription ids are strings that carry the daemon's session
 --- generation, so an id handed out by an earlier session (a restarted daemon)
 --- never names anything in this one; it is refused as stale. Clients never
@@ -74,8 +74,8 @@ function M.session_id(generation, n)
     return g .. "." .. string.format("%d", n)
 end
 
---- Does `conn` take the opaque string ids of transport 11 (§19.20)? A
---- protocol-10 (v0) connection keeps its integer task ids (§19.15).
+--- Does `conn` take the opaque string ids of transport 11? A
+--- protocol-10 (v0) connection keeps its integer task ids.
 --- @param conn table|nil
 --- @return boolean
 function M.opaque_ids(conn)
@@ -147,11 +147,11 @@ end
 
 M.Decoder = Decoder
 
---- Is a daemon whose `status` reply (to the asking connection) is `st` busy
---- (§19.9 "Busy", step 5g.3)? A running task, or another connection that
+--- Is a daemon whose `status` reply (to the asking connection) is `st`
+--- busy? A running task, or another connection that
 --- owns a task or has a command in flight (`busy_clients`). A connection that
 --- only observes or subscribes — an editor — never holds off a restart or a
---- retirement. A daemon before 5g.3 reports no `busy_clients`: every client
+--- retirement. An older daemon reports no `busy_clients`: every client
 --- but the asking one and the observers counts — `opts.asker_observer`: the
 --- asking connection is itself an observer (the editor), so it is counted in
 --- `observers` and not subtracted again. No reply counts as busy.

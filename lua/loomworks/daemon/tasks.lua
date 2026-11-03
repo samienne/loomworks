@@ -1,4 +1,4 @@
---- loomworks/daemon/tasks.lua — the workspace TASK STREAM (spec §19.15).
+--- loomworks/daemon/tasks.lua — the workspace TASK STREAM.
 ---
 --- A running operation streams `task` events, separate from model changes:
 ---
@@ -9,10 +9,10 @@
 ---       one of loomworks's own lines (status lines, notes) — the client prints
 ---       it exactly as the in-process host prints it (stdout line, stderr
 ---       line, stderr text); `role` is the line's highlighting role
----       (Common/1 LineRole, spec §16.7) — for a line the CLI also prints
+---       (Common/1 LineRole) — for a line the CLI also prints
 ---       in-process, the role it prints it with
 ---   { kind = "task", task_id, phase = "output", stream = "stdout"|"stderr", text | data }
----       a chunk of a build step's raw output (PROTOCOL.md §14.2): `text` when
+---       a chunk of a build step's raw output: `text` when
 ---       it is valid UTF-8, else `data`, its bytes in base64; an incomplete
 ---       trailing UTF-8 sequence is held back per stream until the stream's
 ---       next chunk, the step's end, a line or the task's end
@@ -21,7 +21,7 @@
 ---   { kind = "task", task_id, phase = "done", exit_code, error?, result? }
 ---       the end; `error` is the refusal / failure the client prints as
 ---       `lw: <error>` before exiting with `exit_code`; `result` only for the
----       task of an interface method (`Task.call`, spec §19.20): its task
+---       task of an interface method (`Task.call`): its task
 ---       result, typed by the method's schema
 ---
 --- The client that started the task (its OWNER) receives every event,
@@ -36,7 +36,7 @@
 --- Every other authenticated client below transport 11 OBSERVES the task (a
 --- CLI build streams into the editor), as in protocol 10; a connection of
 --- transport 11 observes only the tasks its `loomworks.Tasks/1` subscription
---- on `/tasks` matches (§19.15 "Observation", step 5g.3). An observer gets at most `OBSERVER_CAP_BYTES` of a task's output,
+--- on `/tasks` matches. An observer gets at most `OBSERVER_CAP_BYTES` of a task's output,
 --- then one truncation notice; an observer whose connection queues more than
 --- `OBSERVER_QUEUE_MAX` bytes is dropped (it re-attaches by connecting again)
 --- unless it owns a running task itself — then it only misses what it
@@ -88,8 +88,8 @@ M._queued = queued
 --- @field last_pct integer last progress percent sent (-1 before the first tick)
 --- @field _carry table<string, { [1]: string, [2]: integer }>|nil per output stream, the incomplete trailing UTF-8 sequence held back (Task:output) with its sequence number (`_carry_n`): flushed in the order they were produced
 --- @field _carry_n integer|nil the last held-back sequence's number
---- @field call loomworks.daemon.TaskCall|nil the interface method it runs for (§19.20): `{ object, iface, v, method, result = fun(exit_code, err, fields, extra): table }`
---- @field steps table[]|nil a target-scoped task's steps with their current states (§19.15 "Steps of a task"): `{ id, kind, label, project?, configuration?, target?, phase?, state }` each, in run order
+--- @field call loomworks.daemon.TaskCall|nil the interface method it runs for: `{ object, iface, v, method, result = fun(exit_code, err, fields, extra): table }`
+--- @field steps table[]|nil a target-scoped task's steps with their current states: `{ id, kind, label, project?, configuration?, target?, phase?, state }` each, in run order
 local Task = {}
 Task.__index = Task
 
@@ -145,8 +145,8 @@ function Stream:runs_on(profile)
     return false
 end
 
---- The running (started, not finished) tasks as the `status` reply's `tasks`
---- (spec §19.11): `{ task_id, name, kind, profile, scope?, units, origin,
+--- The running (started, not finished) tasks as the `status` reply's `tasks`:
+--- `{ task_id, name, kind, profile, scope?, units, origin,
 --- started_at, percent? }` each, in start order; each `task_id` as `conn`
 --- takes it (M.wire_id). `with_steps`: also a target-scoped task's `steps`
 --- (loomworks.Tasks/1's TaskInfo; `status.tasks` stays frozen without them).
@@ -165,8 +165,8 @@ function Stream:snapshot(conn, with_steps)
 end
 
 --- A task's id as `conn` takes it: the opaque, session-scoped string of
---- transport 11 (§19.20), or the integer of protocol 10 (v0, §19.15: its
---- task frames, `accepted` replies and `status` rows keep their shape).
+--- transport 11, or the integer of protocol 10 (v0: its task frames,
+--- `accepted` replies and `status` rows keep their shape).
 --- @param task loomworks.daemon.Task
 --- @param conn? table nil: the opaque id
 --- @return string|integer
@@ -184,7 +184,7 @@ local function for_conn(task, msg, conn)
     return c
 end
 
---- The origin of a task owned by `conn`: its `hello.client` (§19.15).
+--- The origin of a task owned by `conn`: its `hello.client`.
 --- @param conn table|nil
 --- @return string|nil
 function M.origin_of(conn)
@@ -193,7 +193,7 @@ function M.origin_of(conn)
     return nil
 end
 
---- One `units[]` entry of a task's start meta (API.md §4.2; step 5o C2d):
+--- One `units[]` entry of a task's start meta:
 --- the project key, the configuration unit's key and the unit's session id
 --- (absent without a live unit — a profile's project with no unit yet).
 --- A client matches a task to its records by the id; the keys are for
@@ -251,7 +251,7 @@ end
 
 --- Does `conn` observe this task? Below transport 11 every connection does
 --- (protocol 10); from 11 only one subscribed to `loomworks.Tasks/1` on
---- `/tasks` for every task or for this one (§19.15 "Observation"): the frames
+--- `/tasks` for every task or for this one: the frames
 --- sent are this version's, so a subscription to another version (a later
 --- `/2` beside it) does not take them.
 --- @param conn table
@@ -310,16 +310,16 @@ function Task:info(conn, with_steps)
         steps = (with_steps and self.steps) and vim.deepcopy(self.steps) or nil }
 end
 
---- Announce the task. Its `origin` is filled from the owner (§19.15), and
---- for the task of an interface method (`task.call`, §19.20 "Tasks and
---- cancel") the meta also names its `object`, `iface`, `v` and `method`.
+--- Announce the task. Its `origin` is filled from the owner, and for the
+--- task of an interface method (`task.call`) the meta also names its
+--- `object`, `iface`, `v` and `method`.
 --- The stream's `on_started(task, info)` hook (loomworks.Tasks/1's
 --- `started` signal) runs after the `start` frame. A target-scoped task's
---- `meta.steps` (§19.15 "Steps of a task", each `pending`) is its step plan:
+--- `meta.steps` (each `pending`) is its step plan:
 --- the task keeps a copy whose states `step` advances.
 --- `profile`: the Profile it runs on (none for a task scoped to units or
 --- to the whole workspace): the workspace view's `busy` on that profile's
---- row while it runs, for any client (API.md §14.4; Stream:runs_on).
+--- row while it runs, for any client (Stream:runs_on).
 --- @param meta table
 --- @param profile? loomworks.Profile
 function Task:start(meta, profile)
@@ -338,8 +338,8 @@ function Task:start(meta, profile)
     if s.on_started then pcall(s.on_started, self, self:info(nil, true)) end
 end
 
---- A step of a target-scoped task changed state (§19.15 "Steps of a
---- task"): its current state recorded (Tasks/1.list), then the stream's
+--- A step of a target-scoped task changed state: its current state
+--- recorded (Tasks/1.list), then the stream's
 --- `on_step(task, index, state, err)` hook (loomworks.Tasks/1's `step`
 --- signal). Never after the task ended (its signals precede its `done`).
 --- @param index integer the step's 1-based position in `steps`
@@ -356,7 +356,7 @@ function Task:step(index, state, err)
 end
 
 --- One of loomworks's own lines, with its highlighting role when the
---- producer knows it (spec §16.7, Common/1 LineRole). A line the CLI also
+--- producer knows it (Common/1 LineRole). A line the CLI also
 --- prints in-process carries the role it prints it with; a line only the
 --- daemon emits (a discovery's, a launch target's build phases) the role of
 --- its kind (a lead line `lead`, a success `ok`, …).
@@ -366,7 +366,7 @@ end
 function Task:line(stream, text, role)
     if self.finished then return end
     -- Output held back comes first, in the order it was produced; every
-    -- string the daemon sends is valid UTF-8 (PROTOCOL.md §4).
+    -- string the daemon sends is valid UTF-8.
     self:_flush_output()
     if type(text) == "string" then text = bytes.sanitize(text) end
     self:_emit({ phase = "line", stream = stream, text = text, role = role })
@@ -374,7 +374,7 @@ end
 
 --- Raw output of a step (a pipe read: any bytes). An incomplete trailing
 --- UTF-8 sequence waits for the stream's next chunk (`_flush_output`), so a
---- character split between two reads still travels as `text` (§14.2).
+--- character split between two reads still travels as `text`.
 --- @param stream "stdout"|"stderr"
 --- @param chunk string
 function Task:output(stream, chunk)
@@ -408,7 +408,7 @@ end
 
 --- A process of the task ended: its output ends with it. Bytes held back
 --- (a UTF-8 sequence cut at its end) go out now, never joined with the next
---- process's (PROTOCOL.md §14.2) — also in a task without step states.
+--- process's — also in a task without step states.
 function Task:end_output()
     if self.finished then return end
     self:_flush_output()
@@ -454,7 +454,7 @@ end
 --- @param exit_code integer
 --- @param err? string the refusal / failure (printed as `lw: <err>`)
 --- @param fields? table more fields of the `done` event (a run's `launch` /
----   `device`, §19.15 "Run"); its `result` (a test run's structured results)
+---   `device`); its `result` (a test run's structured results)
 ---   is never a field of the frame itself: it goes into the task result of
 ---   an interface method's task only
 function Task:done(exit_code, err, fields)
@@ -468,7 +468,7 @@ function Task:done(exit_code, err, fields)
         if k == "result" then extra = v else msg[k] = v end
     end
     -- The task of an interface method: `done.result`, typed by the method's
-    -- task result schema (§19.15 "Tasks of interface methods").
+    -- task result schema.
     if self.call and self.call.result then
         local ok, result = pcall(self.call.result, exit_code, err, fields or {}, extra)
         if ok then msg.result = result end

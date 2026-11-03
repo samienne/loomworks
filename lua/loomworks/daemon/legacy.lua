@@ -1,15 +1,14 @@
---- loomworks/daemon/legacy.lua — the runtime files of lw before slots
---- (spec §19.6 "Legacy files", §19.7.1).
+--- loomworks/daemon/legacy.lua — the runtime files of lw before slots.
 ---
 --- `<root>/.nvim/loomworks.daemon.json`, `.lock` and `.log` (+ `.log.1`) are
 --- never read to connect to a daemon. This module only:
 ---
 ---   * stops a live daemon of THIS slot that holds the legacy runtime lock
----     (a daemon of another version, §19.9) before this slot's daemon starts
+---     (a daemon of another version) before this slot's daemon starts
 ---     (`stop_live`, from loomworks.daemon.server) and from `lw daemon stop`
 ---     / `kill` / `restart`; `lw daemon status` reports it (`live_daemon`);
----   * removes the legacy lock and handle as a reclaimer would (§19.5:
----     holder dead) — `lw daemon stop`, housekeeping and `lw cleanup`;
+---   * removes the legacy lock and handle as a reclaimer would (holder
+---     dead) — `lw daemon stop`, housekeeping and `lw cleanup`;
 ---   * lists the legacy logs as leftovers for housekeeping / `lw cleanup`.
 ---
 --- Deletion safety: only these exact names directly in `<root>/.nvim`, which
@@ -157,7 +156,7 @@ function M.remove_handle(root, path, rec)
     return uv().fs_unlink(path) and true or false
 end
 
---- Remove the legacy lock and handle as a reclaimer would (§19.5): the lock
+--- Remove the legacy lock and handle as a reclaimer would: the lock
 --- when its holder is dead, then the handle when it names a gone process and
 --- no live holder has the lock. Returns the removed paths.
 --- @param root string
@@ -197,8 +196,8 @@ function M.logs(root)
 end
 
 --- The legacy runtime lock's record when its holder is a live daemon of
---- this slot (§19.7.1, §19.5 identity rules: a process of this host alive
---- with the record's start time, its slot read from the process itself) — a
+--- this slot (a process of this host alive with the record's start time, its
+--- slot read from the process itself) — a
 --- daemon of an earlier lw; nil otherwise (none, dead, hung, another host's,
 --- no or uncheckable start time, an attached run, another slot's). Never
 --- raises.
@@ -224,11 +223,11 @@ function M.live_daemon(root)
 end
 
 --- Before this slot's daemon starts, and from `lw daemon stop` / `kill` /
---- `restart` (§19.6 "Legacy files"): a live daemon of
---- this slot (§19.7.1) holding the legacy runtime lock is a daemon of
---- another version (§19.9) — stop it (asked first, then its tree killed and
---- verified gone, loomworks.lock_break; the §19.5 identity rules: `lw …
---- daemon run --root <root>`, known start time, not an ancestor). A holder
+--- `restart`: a live daemon of this slot holding the legacy runtime lock is a
+--- daemon of another version — stop it (asked first, then its tree killed and
+--- verified gone, loomworks.lock_break; only a process whose command line is
+--- `lw … daemon run --root <root>`, with a known start time, that is not an
+--- ancestor of this process). A holder
 --- of another slot, an attached run, a hung, dead or foreign holder, is left
 --- alone. Never raises.
 --- @param root string

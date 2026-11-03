@@ -1,4 +1,4 @@
---- loomworks/daemon/identity.lua — the runtime slot (spec §19.7.1).
+--- loomworks/daemon/identity.lua — the runtime slot.
 ---
 --- Runtimes are separated per slot: the operating-system user and, on
 --- Windows, whether the process token is elevated. The identity string I is
@@ -16,15 +16,14 @@
 ---
 --- `process_identity(pid)` reads another process's I the same way (Windows:
 --- OpenProcess + OpenProcessToken; Linux `/proc/<pid>/status`; macOS
---- `proc_pidinfo`), for the process scan (§19.6.1) and the legacy lock
---- (§19.6 "Legacy files"): a process whose identity cannot be read is of
---- another slot.
+--- `proc_pidinfo`), for the process scan and the legacy lock: a process
+--- whose identity cannot be read is of another slot.
 
 local M = {}
 
 local function is_win() return package.config:sub(1, 1) == "\\" end
 
---- The domain-separation prefix of S (spec §19.7.1).
+--- The domain-separation prefix of S.
 M.PREFIX = "loomworks-daemon-slot-v1"
 
 -- ---------------------------------------------------------------------------
@@ -138,9 +137,9 @@ local function own_euid()
     return nil, "cannot read the effective uid"
 end
 
---- The effective uid of this process (POSIX; spec §19.7: the socket
---- directory, the process filter and the trust key's owner are checked
---- against it, never the real uid), or nil + error. Windows has none.
+--- The effective uid of this process (POSIX: the socket directory, the
+--- process filter and the trust key's owner are checked against it, never
+--- the real uid), or nil + error. Windows has none.
 --- @return integer|nil euid, string|nil err
 function M.euid()
     if M._euid_override then return M._euid_override end
@@ -155,7 +154,7 @@ M._euid_override = nil
 -- The slot
 -- ---------------------------------------------------------------------------
 
---- This process's identity string I (§19.7.1), or nil + error.
+--- This process's identity string I, or nil + error.
 --- @return string|nil I, string|nil err
 function M.read_identity()
     if M._identity_override then return M._identity_override end
@@ -225,7 +224,7 @@ function M.process_identity(pid)
 end
 
 --- Is process `pid` of this process's slot? False when its identity cannot
---- be read (spec §19.6.1: such a process is skipped).
+--- be read (such a process is skipped).
 --- @param pid integer
 --- @return boolean
 function M.same_slot(pid)

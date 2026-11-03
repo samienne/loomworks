@@ -1,18 +1,17 @@
---- loomworks/daemon/paths.lua — where the workspace runtime's files live
---- (spec §19.2, §19.6, §19.10).
+--- loomworks/daemon/paths.lua — where the workspace runtime's files live.
 ---
----   <root>/.nvim/loomworks.daemon-<S>.lock   the runtime lock R (§19.2)
----   <root>/.nvim/loomworks.daemon-<S>.json   the handle: discovery only (§19.6)
----   <root>/.nvim/loomworks.daemon-<S>.log    the runtime log (§19.10)
+---   <root>/.nvim/loomworks.daemon-<S>.lock   the runtime lock R
+---   <root>/.nvim/loomworks.daemon-<S>.json   the handle: discovery only
+---   <root>/.nvim/loomworks.daemon-<S>.log    the runtime log
 ---   <root>/.nvim/loomworks.daemon.{lock,json,log}  the legacy (unslotted)
----                                        names of lw before slots (§19.6
----                                        "Legacy files", daemon.legacy)
+---                                        names of lw before slots
+---                                        (daemon.legacy)
 ---   <state>/                             the per-user state directory: the
----                                        daemon's working directory (§19.10)
+---                                        daemon's working directory
 ---   <state>/logs/                        where earlier versions kept the
----                                        runtime logs (legacy, §16.40)
+---                                        runtime logs (legacy)
 ---
---- `<S>` is this process's slot token (§19.7.1, loomworks.daemon.identity):
+--- `<S>` is this process's slot token (loomworks.daemon.identity):
 --- the slot's files only; another slot's are never named here. A process
 --- whose slot cannot be determined gets an error, never a shared name.
 ---
@@ -37,7 +36,7 @@ end
 --- The root as hashed for per-user names: its real path (so a client that
 --- reached the workspace through an 8.3 short name, a junction or a symlink
 --- names the same files as the daemon), case-folded on Windows, whose
---- filesystems are case-insensitive (the same folding as §2.3).
+--- filesystems are case-insensitive.
 --- @param root string
 --- @return string
 local function hash_key(root)
@@ -69,22 +68,22 @@ function M.slot_base()
     return "loomworks.daemon-" .. require("loomworks.daemon.identity").slot()
 end
 
---- The runtime lock of this process's slot (§19.2).
+--- The runtime lock of this process's slot.
 --- @param root string
 --- @return string
 function M.lock_path(root)
     return M.norm_root(root) .. "/.nvim/" .. M.slot_base() .. ".lock"
 end
 
---- The handle of this process's slot (§19.6).
+--- The handle of this process's slot.
 --- @param root string
 --- @return string
 function M.handle_path(root)
     return M.norm_root(root) .. "/.nvim/" .. M.slot_base() .. ".json"
 end
 
---- The legacy (unslotted) file names in `<root>/.nvim/` (§19.6 "Legacy
---- files"): never read to connect to a daemon.
+--- The legacy (unslotted) file names in `<root>/.nvim/`: never read to
+--- connect to a daemon.
 M.LEGACY = {
     lock = "loomworks.daemon.lock",
     handle = "loomworks.daemon.json",
@@ -92,7 +91,7 @@ M.LEGACY = {
     log1 = "loomworks.daemon.log.1",
 }
 
---- The per-user data directory (shared with the trust key, §17.2).
+--- The per-user data directory (shared with the trust key).
 --- @return string
 function M.data_dir()
     return require("loomworks.trust").data_dir()
@@ -104,7 +103,7 @@ function M.state_dir()
     return M.data_dir() .. "/daemon"
 end
 
---- The runtime log of a workspace for this process's slot (§19.10): inside
+--- The runtime log of a workspace for this process's slot: inside
 --- the workspace, beside the runtime lock and the handle.
 --- @param root string
 --- @return string
@@ -112,7 +111,7 @@ function M.log_path(root)
     return M.norm_root(root) .. "/.nvim/" .. M.slot_base() .. ".log"
 end
 
---- Where versions before §16.40 kept the runtime logs (`<hash>.log`), now
+--- Where earlier versions kept the runtime logs (`<hash>.log`), now
 --- only a source of leftovers for housekeeping.
 --- @return string
 function M.legacy_log_dir()

@@ -1,19 +1,17 @@
---- loomworks/daemon/rlock.lua — the runtime lock R, `<root>/.nvim/loomworks.daemon-<S>.lock`
---- (spec §19.2).
+--- loomworks/daemon/rlock.lua — the runtime lock R, `<root>/.nvim/loomworks.daemon-<S>.lock`.
 ---
 --- It designates the one runtime of a workspace. Same primitive as the
---- build-directory lock (§16.6, loomworks.build_lock): an exclusive create and
---- an mtime heartbeat (about 5 s), the common lock record of §19.5
+--- build-directory lock (loomworks.build_lock): an exclusive create and an
+--- mtime heartbeat (about 5 s), the common lock record
 --- (`{ pid, host, start_time, lock_nonce, kind, operation, started_at }`)
 --- plus `mode` (`daemon` | `attached`), `command` (an attached run's) and
---- `host_version`. Dead and hung holders are handled per §19.5
---- (loomworks.lock_record): a dead one is reclaimed at once, a hung one never
---- automatically.
+--- `host_version`. Through loomworks.lock_record a dead holder is reclaimed
+--- at once, a hung one never automatically.
 ---
 --- A daemon acquires R before binding its endpoint and holds it for its
 --- lifetime; one whose record was replaced while it was suspended has lost
---- authority and exits (§19.2). R is the outermost lock of the order
---- R → O → B → D → F (§19.3).
+--- authority and exits. R is the outermost lock: locks are only taken in the
+--- order runtime → workspace operation → build directory → device → file save.
 
 local build_lock = require("loomworks.build_lock")
 local lock_record = require("loomworks.lock_record")
