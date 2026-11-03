@@ -1,23 +1,24 @@
 name: release
 
-# Cut a release in two stages, so the plugin can pin the very binaries it
-# publishes (spec 19.16 "Plugin pin"; the procedure is in ARCHITECTURE.md, "Cutting a release or beta"):
+# Cut a release in two stages, so nothing is published before every asset is
+# built, signed and staged (immutable releases: a published tag name burns):
 #
-#   build    (workflow_dispatch, stage=build, on the build commit C): build the
-#            lw host binary for each platform (luvi + fused bootstrap), the
-#            signed system-Lua bundle, the descriptor, signed SHA256SUMS and
-#            provenance, and stage them all as an UNPUBLISHED DRAFT release vX
-#            targeting C (no tag yet). Nothing is published.
-#   publish  (push of tag vX; or workflow_dispatch stage=publish to re-run the
-#            gate): never rebuilds. scripts/release/pin.sh wrote
-#            lua/loomworks/provision/pinned.lua from the draft and the cutter
-#            committed it as C+1 and tagged it vX; this stage verifies the pin
-#            (scripts/release/pin.lua verify: signature, pinned hashes ==
-#            SHA256SUMS, descriptor offers the plugin's interfaces, C..vX
-#            changes only pinned.lua) and only then publishes the draft. No
-#            draft, or any failed check: the job fails, nothing is published.
+#   build    (workflow_dispatch, stage=build, on the build commit C = head of
+#            --ref): build the lw host binary for each platform (luvi + fused
+#            bootstrap), the signed system-Lua bundle, the descriptor, signed
+#            SHA256SUMS and provenance, and stage them all as an UNPUBLISHED
+#            DRAFT release vX in this repository, targeting C (no tag yet).
+#   publish  (push of the annotated tag vX on C; or workflow_dispatch
+#            stage=publish to re-run the gate): never rebuilds. Checks that vX
+#            is an annotated tag on exactly the draft's build commit, that
+#            SHA256SUMS is signed by the committed release key and every asset
+#            matches it, and that the bundle manifest and descriptor name vX
+#            (scripts/release/verify_draft.sh); only then publishes the draft.
+#            No draft, or any failed check: the job fails, nothing is published.
 #
-# See ARCHITECTURE.md "Standalone Runner & Distribution" and keys/README.md.
+# The editor plugin pins published lw releases in its own repository; nothing
+# here depends on it. See ARCHITECTURE.md "Standalone Runner & Distribution"
+# and keys/README.md.
 
 on:
   push:
@@ -247,7 +248,8 @@ jobs:
       - name: Run the bundle under released hosts
         shell: bash
         env:
-          REPO_SLUG: ${{ github.repository }}
+          # every old lw release lives in loomworks.nvim, not this repo
+          REPO_SLUG: samienne/loomworks.nvim
         run: bash scripts/ci/old-host-compat.sh
 
   # Build stage: stage every asset as a draft release (nothing published).
@@ -347,7 +349,7 @@ jobs:
       # attached after it goes live. The build stage creates the release as a
       # DRAFT with every asset attached and no tag yet (it targets the build
       # commit, recorded as the draft's target_commitish); the publish stage
-      # un-drafts it once the pin commit's tag verifies.
+      # un-drafts it once the tag on that commit verifies.
       - name: Stage the draft release (assets, no tag)
         shell: bash
         env:
@@ -365,16 +367,16 @@ jobs:
             echo "::error::$n release(s) named $tag already exist; delete a stale draft first, or bump the version"; exit 1
           fi
           if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" >/dev/null 2>&1; then
-            echo "::error::tag $tag already exists; the tag goes on the pin commit, after this stage"; exit 1
+            echo "::error::tag $tag already exists; the tag goes on the build commit, after this stage"; exit 1
           fi
           pre=()
           if [ "$PRERELEASE" = true ]; then pre=(--prerelease); fi
           gh release create "$tag" release/* -R "$GITHUB_REPOSITORY" --draft \
             --target "$GITHUB_SHA" --title "$tag" --notes-file release-body.md ${pre[@]+"${pre[@]}"}
-          echo "staged draft $tag from $GITHUB_SHA; next: scripts/release/pin.sh $VER (ARCHITECTURE.md, Cutting a release or beta)"
+          echo "staged draft $tag from $GITHUB_SHA; next: git tag -a $tag $GITHUB_SHA -m $tag, then git push origin $tag"
 
-  # Tag push: verify the pin commit against the draft built from its parent,
-  # then publish that draft. Never builds anything.
+  # Tag push: check the tag, verify the draft built from its commit, then
+  # publish that draft. Never builds anything.
   publish:
     if: github.event_name == 'push' || inputs.stage == 'publish'
     runs-on: ubuntu-latest
@@ -395,17 +397,11 @@ jobs:
           echo "version=$ver" >> "$GITHUB_OUTPUT"
           echo "tag=v$ver" >> "$GITHUB_OUTPUT"
 
-      # Full history: the gate diffs the build commit against the tag.
+      # The tagged commit must be the build commit (checked below), so these
+      # are the scripts and the committed release key the draft was built with.
       - uses: actions/checkout@v5
         with:
           ref: refs/tags/${{ steps.v.outputs.tag }}
-          fetch-depth: 0
-
-      # scripts/release/pin.lua runs under `nvim -l`.
-      - name: Install Neovim
-        uses: rhysd/action-setup-vim@v1
-        with:
-          neovim: true
 
       - name: Find the draft
         id: draft
@@ -417,7 +413,7 @@ jobs:
         # zero or several fail); its id drives the download and the publish.
         run: |
           info="$(bash scripts/release/draft.sh find "$GITHUB_REPOSITORY" "$TAG")" || {
-            echo "::error::no unique draft release $TAG: dispatch release.yml with stage=build on the build commit, then pin it (ARCHITECTURE.md, Cutting a release or beta)"; exit 1; }
+            echo "::error::no unique draft release $TAG: dispatch release.yml with stage=build on the build commit first"; exit 1; }
           id="$(printf '%s' "$info" | cut -f1)"
           build="$(printf '%s' "$info" | cut -f2)"
           printf '%s' "$build" | grep -Eq '^[0-9a-f]{40}$' \
@@ -426,32 +422,54 @@ jobs:
           echo "build=$build" >> "$GITHUB_OUTPUT"
           echo "draft $TAG (release $id) built from $build"
 
-      - name: Download the draft's signed hashes, descriptor and host binaries
+      # The tag as GitHub holds it (read through the API: a checkout can turn an
+      # annotated tag into a lightweight one). It must be an annotated tag on
+      # exactly the draft's build commit, so the published tag names the
+      # source the assets were built from.
+      - name: Check the tag is annotated and on the build commit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.v.outputs.tag }}
+          BUILD: ${{ steps.draft.outputs.build }}
+        run: |
+          ref="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq '[.object.type, .object.sha] | @tsv')" \
+            || { echo "::error::no tag $TAG on $GITHUB_REPOSITORY"; exit 1; }
+          type="$(printf '%s' "$ref" | cut -f1)"
+          obj="$(printf '%s' "$ref" | cut -f2)"
+          if [ "$type" != tag ]; then
+            echo "::error::$TAG is not an annotated tag (git tag -a)"; exit 1
+          fi
+          commit="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$obj" --jq 'select(.object.type == "commit") | .object.sha')"
+          if [ "$commit" != "$BUILD" ]; then
+            echo "::error::$TAG points at '$commit', but the draft was built from $BUILD; tag the build commit"; exit 1
+          fi
+          head="$(git rev-parse HEAD)"
+          if [ "$head" != "$BUILD" ]; then
+            echo "::error::the checkout of $TAG is $head, not the build commit $BUILD"; exit 1
+          fi
+          echo "$TAG is an annotated tag on the build commit $BUILD"
+
+      - name: Download the draft's assets
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           ID: ${{ steps.draft.outputs.id }}
-          VER: ${{ steps.v.outputs.version }}
         run: |
-          bash scripts/release/draft.sh download "$GITHUB_REPOSITORY" "$ID" pin \
-            SHA256SUMS SHA256SUMS.sig "lw-$VER-descriptor.json" \
-            lw-linux-x86_64 lw-macos-arm64 lw-windows-x86_64.exe
-          ls -la pin
+          bash scripts/release/draft.sh download "$GITHUB_REPOSITORY" "$ID" draft SHA256SUMS SHA256SUMS.sig
+          # Every asset SHA256SUMS lists; verify_draft.sh rejects odd names.
+          mapfile -t names < <(sed -e 's/\r$//' -e 's/^[0-9a-f]*  *\*\{0,1\}//' draft/SHA256SUMS)
+          bash scripts/release/draft.sh download "$GITHUB_REPOSITORY" "$ID" draft "${names[@]}"
+          ls -la draft
 
-      # The gate: the signature (committed release key), pinned.lua == this
-      # version and the signed host hashes, the descriptor offers what the
-      # plugin needs, every host binary (HOST_ASSETS) is here and matches
-      # SHA256SUMS (a missing one fails), and the
-      # tagged commit changes nothing but pinned.lua on top of the build commit.
-      - name: Verify the pin
+      # The gate: SHA256SUMS signed by the committed release key, every asset
+      # present and matching it, the required assets listed, and the bundle
+      # manifest and descriptor naming this version.
+      - name: Verify the draft
         shell: bash
         env:
           VER: ${{ steps.v.outputs.version }}
-          TAG: ${{ steps.v.outputs.tag }}
-          BUILD: ${{ steps.draft.outputs.build }}
-        run: |
-          head="$(git rev-parse "$TAG^{commit}")"
-          nvim -l scripts/release/pin.lua verify "$VER" pin --base "$BUILD" --head "$head"
+        run: bash scripts/release/verify_draft.sh "$VER" draft keys/loomworks-release.pub.pem
 
       - name: Publish the draft
         shell: bash
