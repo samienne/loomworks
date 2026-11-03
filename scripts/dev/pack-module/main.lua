@@ -3,7 +3,7 @@
 -- top-level `<name>-<version>/` directory, exactly like a GitHub codeload zip.
 -- Prints the archive's SHA-256 and a ready-to-paste index entry.
 --
--- Run with luvi (from the loomworks.nvim repo root):
+-- Run with luvi (from the loomworks repo root):
 --   luvi scripts/dev/pack-module -- <checkout-dir> <name> <version> <out-dir>
 --
 -- e.g.  luvi scripts/dev/pack-module -- \

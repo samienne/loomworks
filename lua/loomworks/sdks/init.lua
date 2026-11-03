@@ -103,7 +103,7 @@ function M.get(id)
             .. " but loomworks core requires "
             .. tostring(API.sdk)
             .. ". Update the SDK provider's plugin or pin a "
-            .. "compatible loomworks.nvim. No backwards "
+            .. "compatible lw release (samienne/loomworks). No backwards "
             .. "compatibility — see loomworks/api_versions.lua.")
         return nil
     end

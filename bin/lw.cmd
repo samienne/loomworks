@@ -18,7 +18,7 @@ set "LUA_DIR=%LOOMWORKS_HOME%\lua"
 set "CLI=%LUA_DIR%\loomworks\cli.lua"
 if not exist "%CLI%" (
   echo lw: cannot find the CLI at "%CLI%" 1>&2
-  echo lw: set LOOMWORKS_HOME to your loomworks.nvim checkout or dist 1>&2
+  echo lw: set LOOMWORKS_HOME to your loomworks checkout or dist 1>&2
   exit /b 1
 )
 
