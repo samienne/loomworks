@@ -2,7 +2,7 @@
 # The draft release of a tag, found by listing releases (never by the tag:
 # the tag does not exist yet while the draft is staged, and `gh release view
 # <tag>` can match a published release or another draft).
-# Used by .github/workflows/release.yml and scripts/release/pin.sh.
+# Used by .github/workflows/release.yml.
 #
 #   draft.sh find     <owner/repo> <tag>   print "<release id>\t<target_commitish>"
 #                                          of the ONLY draft with tag_name <tag>;
