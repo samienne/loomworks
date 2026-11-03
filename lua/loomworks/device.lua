@@ -1,13 +1,13 @@
 --- loomworks/device.lua — Device: physical or emulated deployment target.
 --- Represents a connected device discovered via a module's list_devices()
---- or a device runner's list_devices (spec §18.2).
+--- or a device runner's list_devices.
 --- Runtime-only — not persisted to cache. Profile stores the selected
 --- device serial in user.json.
 
 --- @class loomworks.Device
 --- @field serial string unique device identifier (e.g., adb serial)
 --- @field display_name string human-readable label (model name or serial)
---- @field provider string module id or device-runner id (spec §18.2) that reported the device
+--- @field provider string module id or device-runner id that reported the device
 --- @field state "online"|"offline"
 --- @field properties table opaque module-specific data (model, OS version, etc.)
 --- @field _removed boolean

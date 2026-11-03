@@ -29,8 +29,8 @@ local _load_failed = {}
 local _rejection_notes = {}
 
 --- Report a rejected provider: once per workspace load (loomworks.notify
---- `once`), so each load's diagnostics carry it (core daemon.md §19.13 "Load
---- warnings") while the gets within one load stay silent.
+--- `once`), so each load's diagnostics carry it while the gets within one
+--- load stay silent.
 --- @param id string
 local function report_rejected(id)
     local msg = _rejection_notes[id]
@@ -126,7 +126,7 @@ end
 
 --- Providers found on the runtime path that will not load, with the reason
 --- (contract / interface-version mismatch, or a load error). Read by the
---- environment inventory's plugin registry (headless §16.33, spec §8.0).
+--- environment inventory's plugin registry.
 --- Loads every provider first so the set is complete.
 --- @return table<string, string> id → reason
 function M.rejected()

@@ -1,12 +1,11 @@
 --- loomworks/compiler_cache.lua — Compiler-cache (ccache / sccache) resolution.
 ---
 --- Core owns *resolution*: it derives a concrete launcher from the effective
---- `cache` **policy** (core §1.3.2, the reserved `cache` variable) and the
+--- `cache` **policy** (the reserved `cache` variable) and the
 --- active tool's compiler family, gated on the launcher actually being present
 --- on the toolchain search path. Modules own *application* — how to wrap their
---- own compiler invocation with the resolved launcher (see the per-module
---- specs). The resolved launcher is derived, never stored; a change to it makes
---- a configured unit stale (core §5, module §11).
+--- own compiler invocation with the resolved launcher. The resolved launcher
+--- is derived, never stored; a change to it makes a configured unit stale.
 ---
 --- This module is deliberately free of any module-specific ("if cmake …")
 --- logic: it maps (policy, family) → `{ tool, path }|nil` and nothing more.
@@ -17,7 +16,7 @@ local M = {}
 --- family. A gcc/clang family prefers ccache and falls back to sccache — both
 --- fall back to a plain compile for anything they cannot cache, so enabling
 --- them automatically is safe. The MSVC-style family (msvc, and clang-cl) is
---- deliberately ABSENT: under `auto` it resolves to no launcher (spec §1.3.2),
+--- deliberately ABSENT: under `auto` it resolves to no launcher,
 --- because sccache FAILS a compile that writes a shared .pdb (/Zi, /ZI) and
 --- such flags can come from code loomworks does not control. Caching there is
 --- an explicit opt-in (`cache=sccache` / `cache=ccache`).
@@ -48,7 +47,7 @@ function M.normalize_policy(policy)
 end
 
 --- The compiler-cache launchers loomworks knows how to apply — the only
---- concrete tool names a `cache` policy may name (core §1.3.2).
+--- concrete tool names a `cache` policy may name.
 --- @type string[]
 M.KNOWN_LAUNCHERS = { "ccache", "sccache" }
 
@@ -106,7 +105,7 @@ local function msvc_style_family(family)
 end
 
 --- Whether `policy` is `auto` AND `family` is MSVC-style, i.e. `auto`
---- deliberately resolves to no launcher here (spec §1.3.2) — as opposed to
+--- deliberately resolves to no launcher here — as opposed to
 --- "no launcher found". Status/health use it to say "not enabled
 --- automatically for MSVC-style compilers" instead of "none found".
 --- @param policy string|boolean|nil
@@ -121,7 +120,7 @@ end
 --- `lookup(name) -> string|nil` resolves an executable name to an absolute path
 --- (or nil when absent); it defaults to the shared `cpp_compilers` PATH index,
 --- and is injectable so tests need no real filesystem.
---- @param policy string|boolean|nil effective `cache` policy (core §1.3.2)
+--- @param policy string|boolean|nil effective `cache` policy
 --- @param family? "clang"|"gcc"|"msvc"|string|nil active compiler family
 --- @param lookup? fun(name: string): string|nil executable resolver
 --- @return { tool: string, path: string }|nil
@@ -133,7 +132,7 @@ function M.resolve(policy, family, lookup)
 
     local candidates
     if p == "auto" then
-        -- MSVC-style (msvc, clang-cl): `auto` never enables a launcher (§1.3.2).
+        -- MSVC-style (msvc, clang-cl): `auto` never enables a launcher.
         -- resolve_for passes an already-MSVC-ified family for a clang-cl
         -- tool_data; the raw "clang-cl" string is handled too.
         if msvc_style_family(family) then return nil end
@@ -142,7 +141,7 @@ function M.resolve(policy, family, lookup)
     else
         -- Explicit named launcher: use exactly that tool (still PATH-gated) —
         -- and only a core-known launcher name: an unknown policy value names no
-        -- program (spec §17.6), it builds uncached with a diagnostic.
+        -- program, it builds uncached with a diagnostic.
         local known = false
         for _, t in ipairs(M.KNOWN_LAUNCHERS) do
             if t == p then known = true end
@@ -177,14 +176,14 @@ end
 function M.resolve_for(project, configuration, tool_data, profile, lookup)
     if not project then return nil, nil, nil end
     local cpp = require("loomworks.cpp_compilers")
-    -- Compiler-family for OVERRIDES resolution folds clang-cl → clang (spec: a
+    -- Compiler-family for OVERRIDES resolution folds clang-cl → clang (a
     -- clang-cl build honours `overrides.clang`).
     local override_family = cpp.family_from_tool_data(tool_data)
     local variables = require("loomworks.variables")
     local policy, source = variables.resolve_cache_policy(
         project, configuration, override_family, profile)
     -- Compiler-family for the launcher PREFERENCE treats clang-cl as MSVC-style
-    -- (auto → no launcher, §1.3.2) — distinct from the override family above.
+    -- (auto → no launcher) — distinct from the override family above.
     local pref_family = cpp.is_msvc_style(tool_data) and "msvc" or override_family
     return M.resolve(policy, pref_family, lookup), M.normalize_policy(policy), source
 end
@@ -241,7 +240,7 @@ function M.tool_of_path(path)
 end
 
 --- The module's CURRENT freshness stamp of the compile data its compatibility
---- scan reads (core §8 `cache_compat_stamp`) — an opaque string that changes
+--- scan reads (`cache_compat_stamp`) — an opaque string that changes
 --- whenever that data is rewritten (a configure, or the generator re-run the
 --- build tool triggers itself). nil when the module has no stamp hook, the
 --- hook errors, or there is no data yet. Cheap by contract (a stat or a
@@ -255,8 +254,8 @@ function M.compat_stamp(impl, ctx)
     return (ok and type(stamp) == "string") and stamp or nil
 end
 
---- Run a module's optional post-configure compatibility scan (core §5.1, §8
---- `cache_compat_scan`) for a configure that applied `launcher_path`. Returns
+--- Run a module's optional post-configure compatibility scan
+--- (`cache_compat_scan`) for a configure that applied `launcher_path`. Returns
 --- the record core stores in `module_info.cache_compat` —
 --- `{ tool, scanned, reason?, findings[], totals?, advice?, source_stamp? }`
 --- (`totals` = `{ units, targets }` compiled in the scanned build, `advice` =
@@ -267,7 +266,7 @@ end
 --- (advisory: never break the configure). Core adds `policy_source` (which
 --- layer enabled the cache).
 --- @param impl table|nil module implementation
---- @param ctx table `{ build_dir, configuration, tool_data, config_name, variant, configuration_env }` (`configuration_env`: the resolved configuration environment the configure ran with, core §1.3.3 — e.g. MSVC's `CL` / `_CL_`, which compile commands do not show)
+--- @param ctx table `{ build_dir, configuration, tool_data, config_name, variant, configuration_env }` (`configuration_env`: the resolved configuration environment the configure ran with — e.g. MSVC's `CL` / `_CL_`, which compile commands do not show)
 --- @param launcher_path string|nil recorded launcher ("none"/nil → no scan)
 --- @return table|nil
 function M.run_compat_scan(impl, ctx, launcher_path)
@@ -396,7 +395,7 @@ function M.compat_group_lines(rec)
     for _, f in ipairs(rec and rec.findings or {}) do
         local line
         if f.units == nil then
-            -- An environment finding (§8): the flag reaches every compile.
+            -- An environment finding: the flag reaches every compile.
             line = string.format("%s: every compile (%s)", tostring(f.group), tostring(f.flag))
         elseif not pervasive then
             line = string.format("%s: %d unit%s (%s)", tostring(f.group), f.units,
@@ -490,7 +489,7 @@ end
 --- recorded an error-severity finding (the launcher fails those compiles):
 --- points back at the finding instead of leaving the reader to connect a
 --- compiler error to it. nil when the record has no error finding. Advisory
---- only — the scan never gates the build (§5.1).
+--- only — the scan never gates the build.
 --- @param rec table|nil `module_info.cache_compat`
 --- @return string|nil
 function M.compat_failure_hint(rec)
@@ -513,8 +512,8 @@ function M.compat_failure_hint(rec)
 end
 
 --- Whether a module can apply a compiler-cache launcher to a configuration at
---- all — its optional `cache_launcher_applicable(ctx)` hook (module interface
---- §8), which may also return a short `reason` and a one-sentence `hint` when
+--- all — its optional `cache_launcher_applicable(ctx)` hook, which may also
+--- return a short `reason` and a one-sentence `hint` when
 --- it cannot. Absent hook, or a hook that errors, means applicable. Shared by
 --- launcher staleness (`ConfigUnit`) and the profile's cache status / health so
 --- they never disagree.

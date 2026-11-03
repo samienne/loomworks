@@ -13,13 +13,13 @@
 ---        Defaults to the owning module's static `languages` when the
 ---        tool's source data doesn't override.
 --- @field _module loomworks.Module owning module domain object
---- @field _detected boolean produced by detection on this machine (spec §17.7).
+--- @field _detected boolean produced by detection on this machine.
 ---        false for a tool known only from cached tool data: its `data` is a
 ---        record for display, never used to run anything (`exec_data`).
 --- @field mod_type string module type (from _module.id)
---- @field _target_platform string|nil execution platform (spec §1.5, §18.1): an
+--- @field _target_platform string|nil execution platform: an
 ---        opaque target-platform token for a tool whose output runs elsewhere
----        (set from `kits_from_sdk`, §10.7), nil when its output runs on the
+---        (set from `kits_from_sdk`), nil when its output runs on the
 ---        host. Runtime fact of detection — never part of the tool key.
 --- @field _sdk loomworks.SDK|nil the SDK that produced this tool (SDK-derived
 ---        kits only); its provider's device runner serves `_target_platform`
@@ -74,7 +74,7 @@ function Tool.new(module, key, data, label)
     return self
 end
 
---- Record the execution platform and producing SDK (spec §18.1). Called on
+--- Record the execution platform and producing SDK. Called on
 --- every tool sync: detection supplies both (nil for host tools); a tool known
 --- only from the cache gets neither.
 --- @param target_platform string|nil opaque token, nil = host-runnable
@@ -88,7 +88,7 @@ function Tool:_set_platform(target_platform, sdk)
 end
 
 --- The execution platform token, or nil when this tool's output runs on the
---- host (spec §18.1). Opaque: compared only for equality.
+--- host. Opaque: compared only for equality.
 --- @return string|nil
 function Tool:execution_platform()
     return self._target_platform
@@ -100,7 +100,7 @@ function Tool:sdk()
     return self._sdk
 end
 
---- The tool data to RUN with (spec §17.7): the data detection produced on
+--- The tool data to RUN with: the data detection produced on
 --- this machine, or nil for a tool known only from the cache.
 --- @return table|nil
 function Tool:exec_data()
@@ -133,7 +133,7 @@ end
 --- carries no C/C++ compiler or the family can't be determined. Derived from
 --- the opaque `data` (module-specific) via the shared cpp_compilers logic;
 --- clang-cl folds to `clang`. Used to select compiler-specific variable
---- `overrides` (core §1.3.1).
+--- `overrides`.
 --- @return "clang"|"gcc"|"msvc"|nil
 function Tool:compiler_family()
     return require("loomworks.cpp_compilers").family_from_tool_data(self.data)

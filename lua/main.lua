@@ -80,7 +80,7 @@ end
 local paths = require("boot.paths")
 local pin = require("boot.pin")
 
--- A Windows host self-update (spec §16.32) — or `lw install` / `make install`
+-- A Windows host self-update — or `lw install` / `make install`
 -- over a running lw (boot.install.copy_binary) — renames the running exe aside
 -- to `<exe>.old`; the next invocation removes it. Best-effort and silent — the
 -- file may still be in use by another lw process that started before the swap.
@@ -97,7 +97,7 @@ local function getenv(name) return paths.getenv(name) end
 
 -- ---- args: peel off the bootstrap-level `--dev[=PATH]` / `--no-pin` flags ---
 -- Only where they are lw's own: never after `--` or from a program's
--- arguments (`lw launch add … -- --dev`, spec §16.7).
+-- arguments (`lw launch add … -- --dev`).
 local forwarded, host_flags = pin.peel_host_flags({ ... })
 local dev_flag, dev_flag_path, no_pin = host_flags.dev, host_flags.dev_path, host_flags.no_pin
 
@@ -137,14 +137,14 @@ local command, command_sub = pin.command_words(forwarded)
 -- upward walk the CLI uses to bind a workspace, seeded from LW_ROOT when a
 -- launcher passes the user's cwd. A daemon started for a workspace (`lw
 -- daemon run --root <dir>`, which runs from the per-user state directory)
--- names its workspace with --root (spec §16.23).
+-- names its workspace with --root.
 -- For a daemon command its --root wins over LW_ROOT: a launcher's LW_ROOT is
 -- the user's cwd, which may lie in another (nested / submodule) pinned root.
 local pin_start = (command == "daemon") and paths.norm(pin.root_option(forwarded)) or nil
 pin_start = pin_start or paths.norm(getenv("LW_ROOT"))
 local pin_root = pin.find_pin_root(pin_start or uv.cwd())
 
--- The install folder (spec §16.22): a relative LOOMWORKS_INSTALL_DIR is not
+-- The install folder: a relative LOOMWORKS_INSTALL_DIR is not
 -- honoured; say so once (stderr — stdout may be a protocol stream).
 do
   local _, ignored = paths.install_dir_override()
@@ -155,7 +155,7 @@ end
 -- `--version` / `-v` are the conventional spellings; accept them as aliases so
 -- they don't fall through to workspace resolution and error about a missing
 -- loomworks.json. Only before the command word: after it `-v` is the
--- command's own option (`lw build -v`, spec §16.4 *Verbose*), while
+-- command's own option (`lw build -v`), while
 -- `lw -v build` is still the version.
 if pin.asks_version(forwarded) then command = "version" end
 --- Is system Lua fused into this host? A dev build (`make install` /
@@ -175,7 +175,7 @@ end
 
 local host_command = (not help_requested) and command or nil
 
--- How lw was run (spec §16.24 "Invoked form"): a repo launcher names itself in
+-- How lw was run: a repo launcher names itself in
 -- LOOMWORKS_LAUNCHER (lw.sh / lw.cmd); a pinned context without it is some
 -- launcher; otherwise the global lw. Kept for system Lua (health's remedies)
 -- in a global, and removed from the environment so a process this one starts
@@ -190,7 +190,7 @@ do
   if l then pcall(uv.os_unsetenv, "LOOMWORKS_LAUNCHER") end
 end
 
--- ---- pin management (spec §16.24) -----------------------------------------
+-- ---- pin management --------------------------------------------------------
 -- `lw bootstrap [install|upgrade]` runs as the invoked host, never redirects,
 -- and needs no system Lua — so it is handled here, BEFORE pinned-context bundle
 -- provisioning: `./lw.sh bootstrap` works offline and can repair a pin whose
@@ -249,7 +249,7 @@ if host_command == "bootstrap" then
   exit(0)
 end
 
--- ---- release query (spec §16.42) -------------------------------------------
+-- ---- release query -----------------------------------------------------------
 -- `lw release query` resolves a channel to a verified release for a caller
 -- that runs a verified lw (the editor's managed lw). A host command: handled
 -- here, BEFORE pinned-bundle provisioning and pin redirection, so it never
@@ -284,7 +284,7 @@ if pinned_sentinel and not dev_opt_in then
         ": " .. tostring(err) .. "\n")
       exit(1)
     end
-    -- Record its last use (spec §16.40): `lw cleanup --all` prunes pinned
+    -- Record its last use: `lw cleanup --all` prunes pinned
     -- releases unused for long. The directory's mtime, never a file inside
     -- it (the bundle tree must stay byte-identical to the release).
     pcall(uv.fs_utime, dir, os.time(), os.time())
@@ -292,7 +292,7 @@ if pinned_sentinel and not dev_opt_in then
   end
 end
 
--- `lw version --json` (spec §16.41, the binary descriptor) describes what this
+-- `lw version --json` (the binary descriptor) describes what this
 -- binary implements — protocol range, interfaces, schemas — which lives in
 -- system Lua, so it runs after the system-Lua searcher is installed (below).
 local version_json = false
@@ -304,7 +304,7 @@ end
 
 if host_command == "version" and not version_json then
   local upd = require("boot.update")
-  -- Same dev-build predicate self-update uses (§16.32), so the label never
+  -- Same dev-build predicate self-update uses, so the label never
   -- calls a host a dev build that self-update would replace, or vice versa.
   local hu = require("boot.host_update")
   local fused = fused_system_lua()
@@ -335,7 +335,7 @@ elseif host_command == "self-update" then
     elseif type(v) == "string" and v:sub(1, 10) == "--channel=" then channel = v:sub(11)
     elseif channel == "" then channel = v end  -- `--channel <value>` form
   end
-  -- Host-step options (spec §16.32): who may self-replace.
+  -- Host-step options: who may self-replace.
   local function host_opts(target)
     return {
       target_version = target,
@@ -345,7 +345,7 @@ elseif host_command == "self-update" then
       fused_system_lua = fused_system_lua(),
     }
   end
-  -- `--channel <c>` is persisted (spec §16.29): it becomes the update channel
+  -- `--channel <c>` is persisted: it becomes the update channel
   -- for later runs too, exactly like `lw settings set channel <c>`.
   if channel == "" then
     io.stderr:write("lw: --channel needs a value: stable or unstable\n")
@@ -369,7 +369,7 @@ elseif host_command == "self-update" then
   end
   io.write("lw: checking for updates...\n")
   -- The bundle that was newest before this update: "what's new" is measured
-  -- from it (spec §16.32).
+  -- from it.
   local prev_bundle = (paths.installed_releases()[1] or {}).ver
   local res, err, info = require("boot.update").self_update({ force = force, channel = channel,
     running_root = luaroot })
@@ -426,8 +426,8 @@ elseif host_command == "self-update" then
     local note = require("boot.update").newer_bundle_note(newest and newest.ver, res.version)
     if note then io.write("lw: note: " .. note .. "\n") end
   end
-  -- What changed since the previous bundle, from the NEW bundle's release notes
-  -- (spec §16.32, §16.37). Never affects the exit status. Printed LAST, after
+  -- What changed since the previous bundle, from the NEW bundle's release
+  -- notes. Never affects the exit status. Printed LAST, after
   -- the host-binary line, so it is the final thing the user sees.
   local function print_whats_new()
   if not res.updated then return end
@@ -454,7 +454,7 @@ elseif host_command == "self-update" then
     end)
   end
   end
-  -- Then the host binary itself (spec §16.32): host-side fixes never ship in the
+  -- Then the host binary itself: host-side fixes never ship in the
   -- bundle, so a bundle-only update would leave them stranded. Same release as
   -- the bundle just resolved; verified against the signed SHA256SUMS before any
   -- swap. Refuses for pinned / dev / source-run hosts (a note, not a failure).
@@ -533,13 +533,13 @@ do
   }
   local action, _, since = pin.decide(decision)
   -- A command this host runs itself in a repository that pins another lw
-  -- leaves the workspace daemon to the pinned lw (spec §16.23): the CLI's
+  -- leaves the workspace daemon to the pinned lw: the CLI's
   -- ensure step neither starts nor replaces one (loomworks.daemon.ensure).
   if action ~= "redirect" then _G.__loomworks_foreign_pin = pin.foreign_pin(decision) end
-  -- The pinned lw predates the command (spec §16.23 "A pin older than the
-  -- command"): never redirect to a host that would only say "unknown command".
+  -- The pinned lw predates the command: never redirect to a host that would
+  -- only say "unknown command".
   -- A daemon this host would start instead is the pinned lw's to start: refuse
-  -- (the editor then runs without a daemon, §19.16). Anything else runs here,
+  -- (the editor then runs without a daemon). Anything else runs here,
   -- leaving the workspace daemon alone (foreign_pin above).
   if action == "unsupported" then
     local what = "lw " .. command .. (command_sub and pin.REDIRECT_SUBCOMMANDS[command]
@@ -559,12 +559,12 @@ do
       exit(1)
     end
     -- Machine-local (never the repo's .nvim/cache): a clone could ship a
-    -- binary there together with a pin naming its hash (spec §16.22/§16.23).
+    -- binary there together with a pin naming its hash.
     local bin = require("boot.update").pinned_binary_path(p.version, asset)
     -- Say "fetching" only when a download really happens (host binary and/or
     -- bundle not yet provisioned machine-locally). The cached host binary is
     -- re-hashed against the pin on every run; a provisioned bundle is reused
-    -- by presence (spec §16.22). Both lines go to stderr: stdout can be
+    -- by presence. Both lines go to stderr: stdout can be
     -- machine-consumed (`lw run --print`).
     local announced = false
     local function on_fetch()
@@ -582,7 +582,7 @@ do
     -- Provision + verify the pinned bundle here too (machine-local), then make
     -- sure a pinned host that predates machine-local provisioning — it would
     -- load `<pin root>/.nvim/cache/lua-<ver>/` if present — can only find the
-    -- verified bundle there, never a repository-shipped one (spec §16.23).
+    -- verified bundle there, never a repository-shipped one.
     local upd = require("boot.update")
     local vdir, verr = upd.ensure_version(p.version, {
       bundle_sha256 = p.hashes[pin.bundle_asset(p.version)],
@@ -593,7 +593,7 @@ do
         ": " .. tostring(verr) .. "\n")
       exit(1)
     end
-    -- Record the last use of both (spec §16.40): `lw cleanup --all` prunes
+    -- Record the last use of both: `lw cleanup --all` prunes
     -- pinned releases unused for long.
     pcall(uv.fs_utime, vdir, os.time(), os.time())
     pcall(uv.fs_utime, bin, os.time(), os.time())
@@ -610,7 +610,7 @@ do
     uv.os_setenv("LOOMWORKS_PINNED", p.version)
     -- (A daemon's root is its --root: it runs from the per-user state dir.)
     uv.os_setenv("LW_ROOT", pin_start or uv.cwd())
-    -- A pinned lw that predates the color options would reject them (§16.23).
+    -- A pinned lw that predates the color options would reject them.
     local code = require("boot.exe").run_in_place(bin, pin.redirect_args(forwarded, p.version))
     if not code then
       io.stderr:write("lw: cannot exec pinned lw at " .. bin .. "\n")
@@ -700,7 +700,7 @@ if not _G.vim then
   _G.vim = require("loomworks.shim")
 end
 
--- `lw version --json`: the binary descriptor (spec §16.41), from the system
+-- `lw version --json`: the binary descriptor, from the system
 -- Lua this invocation resolved — never a workspace, never a daemon.
 if version_json then
   local ok, doc = pcall(function()

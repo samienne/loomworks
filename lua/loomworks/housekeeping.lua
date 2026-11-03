@@ -1,5 +1,4 @@
---- loomworks/housekeeping.lua — per-user state outside the workspace (spec
---- §16.40).
+--- loomworks/housekeeping.lua — per-user state outside the workspace.
 ---
 --- * Temporary files of a workspace operation (the results file of a named
 ---   test executable, the editor buffer of a description) live in the
@@ -8,7 +7,7 @@
 ---   by `collect` and removed by `remove`: once a day at the start of a CLI
 ---   command (`startup`, silent) and on request by `lw cleanup` (`cmd`).
 ---
---- DELETION SAFETY (CLAUDE.md item 9, spec §16.40 "Removal safety"):
+--- DELETION SAFETY:
 ---   * only direct children of the fixed directories, each a real directory
 ---     (lstat) whose resolved path is the one expected (`fixed`);
 ---   * only names matching an exact pattern (validated version / sha256 /
@@ -24,12 +23,12 @@
 ---     exe's / the running bundle's / recently used (renamed to `.trash-*`
 ---     before the tree is removed).
 ---   * in the workspace, the legacy (unslotted) daemon files of lw before
----     slots (spec §19.6 "Legacy files"), through loomworks.daemon.legacy:
+---     slots, through loomworks.daemon.legacy:
 ---     exact names in a verified `<root>/.nvim`, regular files, the lock and
 ---     handle only of a dead holder (nonce-checked reclaim / re-checked
 ---     unlink), the logs past the legacy-log age; never another slot's files.
---- Bundle-side on purpose: every host (old ones included, §16.14) runs it;
---- it needs no boot module (`boot.pin`, 0.1.6, only through pcall).
+--- Bundle-side on purpose: every host (old ones included) runs it; it needs
+--- no boot module (`boot.pin` only through pcall).
 
 local M = {}
 
@@ -62,7 +61,7 @@ end
 
 local HOUR, DAY = 3600, 86400
 
---- Ages (seconds) past which a leftover is removed (spec §16.40).
+--- Ages (seconds) past which a leftover is removed.
 M.AGE = {
     transient = DAY,      -- downloads, staging, temp files, `.new`
     vcvars = HOUR,        -- `lw_vcvars_*.bat`
@@ -128,7 +127,7 @@ end
 
 --- A fresh path for a temporary file of a workspace operation:
 --- `<root>/.nvim/tmp/<prefix><nonce><ext>`, or the same name in the system
---- temp directory when the workspace's cannot be had (§16.40).
+--- temp directory when the workspace's cannot be had.
 --- @param root string|nil
 --- @param prefix string e.g. "lw-test-"
 --- @param ext string e.g. ".xml"
@@ -249,7 +248,7 @@ local function tree_size(path, st)
     return total
 end
 
---- Is `data` lw's own data directory (spec §16.40)? Any one marker: the
+--- Is `data` lw's own data directory? Any one marker: the
 --- machine key, the housekeeping stamp, `pinned/`, or an installed release
 --- `lua-<ver>/loomworks/cli.lua` (real entries, lstat). Without one (e.g.
 --- LOOMWORKS_DATA_DIR pointed at a home directory) nothing in it is
@@ -289,7 +288,7 @@ local function default_tmp_dirs()
     return out
 end
 
---- POSIX per-user socket directories (spec §19.7).
+--- POSIX per-user socket directories.
 local function default_run_dirs()
     if IS_WIN then return {} end
     local out = {}
@@ -383,7 +382,7 @@ local function scan_data(items, ctx, data)
 end
 
 --- Rename a pinned release aside (`.trash-<nonce>`), then remove the tree and
---- an emptied `<sha256>/` parent (spec §16.40).
+--- an emptied `<sha256>/` parent.
 local function remove_pinned_dir(item)
     local trash = item._pinned_root .. "/.trash-" .. M.nonce()
     local ok, err = uv().fs_rename(item.path, trash)
@@ -464,7 +463,7 @@ local function scan_modules(items, ctx, mods)
     end
 end
 
---- Remove a dead holder's device lock by the nonce-checked reclaim (§19.5).
+--- Remove a dead holder's device lock by the nonce-checked reclaim.
 local function remove_device_lock(item)
     local lr = require("loomworks.lock_record")
     local cur = lr.read(item.path, math.huge)
@@ -491,7 +490,7 @@ local function scan_device_locks(items, ctx, dir)
             if st and st.type == "file" then
                 local info = lr.read(path, build_lock.STALE_SECONDS)
                 -- Provably gone (same host, no such process) and no program
-                -- left running on the device (§18.7: that record must stay).
+                -- left running on the device (that record must stay).
                 if info and lr.classify(info) == "dead" and info.device_pid == nil
                         and info.program == nil then
                     consider(items, ctx, dir, n, "file", "device lock", 0, {
@@ -523,7 +522,7 @@ end
 M._unlink_file = unlink_file
 
 --- `tools.json.<pid>.<nonce>.tmp` directly in the tool cache directory
---- `<cache>` (spec §16.40, §16.43): a write of the tool cache interrupted
+--- `<cache>`: a write of the tool cache interrupted
 --- before its rename. Regular files only, unlinked by name (no tree removal).
 local function scan_tool_cache(items, ctx, dir)
     local tc = require("loomworks.tool_cache")
@@ -575,7 +574,7 @@ end
 M._refuses = refuses
 
 --- Remove a stale socket: move it aside, check it is the file tested (same
---- inode), else put it back (spec §16.40 rule 5).
+--- inode), else put it back.
 local function remove_socket(item)
     local aside = item.path .. ".reclaim." .. M.nonce()
     local ok, err = uv().fs_rename(item.path, aside)
@@ -604,7 +603,7 @@ local function remove_socket(item)
 end
 
 --- The root hashes of every workspace daemon running on this host, by a
---- process scan (loomworks.daemon.discover, spec §19.6.1), or nil when the
+--- process scan (loomworks.daemon.discover), or nil when the
 --- scan fails or finds a daemon whose root is unknown (then no socket is
 --- probed at all). A running daemon's socket is never connected to.
 local function live_daemon_hashes()
@@ -651,7 +650,7 @@ end
 
 --- The running executable when it is an `lw` host (the standalone host, not
 --- a bare luvi runtime running a source tree), else nil: only then are
---- `<exe>.old` / `<exe>.new` self-update leftovers of ours (§16.32). The
+--- `<exe>.old` / `<exe>.new` self-update leftovers of ours. The
 --- editor-hosted fallback (nvim) has none.
 --- @return string|nil
 function M.lw_host_exe()
@@ -668,7 +667,7 @@ local function scan_exe(items, ctx, exe)
     exe = norm(exe)
     local dir, base = exe:match("^(.*)/([^/]+)$")
     if not dir or not fixed(dir) then return end
-    -- Only Windows renames the running binary aside (§16.32); elsewhere a
+    -- Only Windows renames the running binary aside; elsewhere a
     -- `<exe>.old` is the user's own (a rollback copy) and stays.
     if ctx.is_windows then consider(items, ctx, dir, base .. ".old", "file", "self-update", 0) end
     consider(items, ctx, dir, base .. ".new", "file", "self-update", M.AGE.transient)
@@ -690,8 +689,8 @@ local function scan_workspace_tmp(items, ctx, root)
     end
 end
 
---- The workspace's legacy (unslotted) daemon files (spec §19.6 "Legacy
---- files", loomworks.daemon.legacy): the runtime lock and handle only as a
+--- The workspace's legacy (unslotted) daemon files
+--- (loomworks.daemon.legacy): the runtime lock and handle only as a
 --- reclaimer would remove them (holder dead), the runtime log (`.log`,
 --- `.log.1`) as a leftover of the legacy-log age. Exact names, regular files
 --- in a verified `<root>/.nvim`; each removal re-checks through the module.
@@ -726,7 +725,7 @@ local function scan_workspace_legacy(items, ctx, root)
     end
 end
 
---- Find what housekeeping (or `lw cleanup`) would remove (spec §16.40).
+--- Find what housekeeping (or `lw cleanup`) would remove.
 --- Never raises for a missing or odd directory: it is just skipped.
 --- @param opts? loomworks.HousekeepingOpts
 --- @return loomworks.HousekeepingItem[] items, { kept_pinned: integer, pinned: boolean } info
@@ -878,8 +877,8 @@ end
 -- The startup pass
 -- ---------------------------------------------------------------------------
 
---- Record the last use of the pinned release this process runs (spec
---- §16.40), bundle-side, so one run by a host that does not record it (an
+--- Record the last use of the pinned release this process runs,
+--- bundle-side, so one run by a host that does not record it (an
 --- older host) is not pruned as unused: the running bundle root and the
 --- running executable get the current time as their modification time, only
 --- when they resolve to `<data>/pinned/<sha256>/lua-<ver>` /
@@ -943,7 +942,7 @@ local function touch_stamp(data, now)
     end
 end
 
---- The housekeeping pass at the start of a CLI command (spec §16.40): at most
+--- The housekeeping pass at the start of a CLI command: at most
 --- once per `M.INTERVAL` per user, silent, never raises. A summary line goes
 --- to the workspace's runtime log when there is a workspace and the pass
 --- removed something or failed to.
@@ -953,7 +952,7 @@ end
 function M.startup(root, opts)
     opts = opts or {}
     -- The test suites set this so a spawned lw never touches the machine's
-    -- temp and socket directories (spec §16.40).
+    -- temp and socket directories.
     if not opts.force and os.getenv("LOOMWORKS_NO_HOUSEKEEPING") == "1" then return nil end
     local removed, failed, bytes, err_text
     local ok, err = pcall(function()
@@ -1058,8 +1057,7 @@ function M.parse_args(args)
     return o
 end
 
---- `lw cleanup [--dry-run | --yes] [--all] [--pinned-older-than <dur>]`
---- (spec §16.40).
+--- `lw cleanup [--dry-run | --yes] [--all] [--pinned-older-than <dur>]`.
 --- @param root string|nil the workspace root (its `.nvim/tmp`)
 --- @param args string[] argv (args[1] = "cleanup")
 --- @param host { out: fun(s: string), die: fun(msg: string, code?: integer) }
@@ -1075,7 +1073,7 @@ function M.cmd(root, args, host, opts)
     for k, v in pairs(opts or {}) do c[k] = v end
     -- The legacy runtime logs are listed whatever their age: this lw writes
     -- the log inside the workspace, so the old location only holds what
-    -- earlier versions left (housekeeping keeps 30 days, spec §16.40).
+    -- earlier versions left (housekeeping keeps 30 days).
     c.root, c.all, c.pinned_age, c.legacy_logs_any_age = root, o.all, o.pinned_age, true
     local now = c.now or os.time()
     c.now = now

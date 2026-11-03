@@ -1,5 +1,4 @@
---- loomworks/test_units/saved_targets.lua — core-owned SavedTargetsTestUnit
---- (spec §1.3.4, §8.9.1–§8.9.2).
+--- loomworks/test_units/saved_targets.lua — core-owned SavedTargetsTestUnit.
 ---
 --- Serves a configuration's saved test entries through generic seams only:
 --- the module's `parse_targets` (executable targets and their artifacts,
@@ -8,7 +7,7 @@
 --- (through `LaunchTarget`, the same code path `lw run <name>` uses), and the
 --- shared gtest helper. Knows no module's internals and is never a batch
 --- runner (`run_command_all` is nil): a headless run executes saved entries
---- on the per-executable route (§16.16).
+--- on the per-executable route.
 ---
 --- Entries: one `<kind>:<name>` per saved entry in list order (`#<k>` for the
 --- k-th occurrence, k ≥ 2, of a repeated name), `executable` = the program,
@@ -19,7 +18,7 @@
 --- level — shown, never hidden. Each entry runs in its `working_dir`
 --- (expanded in its launch context, where `${target_dir}` is its build
 --- target's artifact directory), else a launch entry in the launch's, else
---- the project directory (§1.3.4 "Working directory").
+--- the project directory.
 
 local TestUnit = require("loomworks.test_unit")
 local gtest = require("loomworks.gtest")
@@ -154,7 +153,7 @@ function SavedTargetsTestUnit:_resolve_entries()
         local top
         if r.state == "ok" and profile then
             -- Args and working_dir expand in the entry's launch context,
-            -- with `${target_dir}` where a build target is resolved (§8.7).
+            -- with `${target_dir}` where a build target is resolved.
             local lctx = expand.launch_context(ws, profile, project, { target = r.target })
             top = { entry = se, kind = r.kind, target = r.target, lctx = lctx,
                 cwd = (require("loomworks.test_plan").resolve_working_dir(se.working_dir, lctx, ws and ws.root)) }
@@ -274,7 +273,7 @@ function SavedTargetsTestUnit:_entry(id)
     return nil
 end
 
---- Entry-, suite- or case-level command (spec §8.9.2): the program (a
+--- Entry-, suite- or case-level command: the program (a
 --- `target` entry's run spec, or a `launch` entry's resolved run spec), the
 --- results option and framework filter when the program is a recognised
 --- framework executable, the launch's own args, then the entry's args
@@ -286,7 +285,7 @@ end
 --- runner on a shared loop (the daemon's Tests/1 runs); `cb(ok, err)`.
 --- @param test_id string
 --- @param opts? { gtest_filter?: string, output_path?: string } `output_path`: the results file (a
----   per-run path, spec §19.15 "Tests"); default a fixed one in the build directory
+---   per-run path); default a fixed one in the build directory
 --- @return table|nil { cmd, env, cwd, output_path, prepare?: fun(): boolean, string|nil,
 ---   prepare_async?: fun(opts: table|nil, cb: fun(ok: boolean, err: string|nil)), test_id: string }
 function SavedTargetsTestUnit:test_command(test_id, opts)
@@ -299,7 +298,7 @@ function SavedTargetsTestUnit:test_command(test_id, opts)
     if not top then return nil end
     -- A launch entry's deploy steps run when the step executes, not while
     -- the command is built: the runner calls `prepare` first, and a failed
-    -- deploy fails that step (spec §16.16, §8.8.4).
+    -- deploy fails that step.
     local prepare, prepare_async
     if top.launch_target then
         local lt = top.launch_target
@@ -342,10 +341,10 @@ function SavedTargetsTestUnit:test_command(test_id, opts)
         prepare = prepare, prepare_async = prepare_async, test_id = top_e.id }
 end
 
---- nil — run-all iterates the top-level entries (spec §8.9.4).
+--- nil — run-all iterates the top-level entries.
 function SavedTargetsTestUnit:test_command_all(_) return nil end
 
---- nil — never a batch runner (spec §8.9.2).
+--- nil — never a batch runner.
 function SavedTargetsTestUnit:run_command_all(_) return nil end
 
 --- Parse a results file; the ids of a repeated or `launch` entry's cases

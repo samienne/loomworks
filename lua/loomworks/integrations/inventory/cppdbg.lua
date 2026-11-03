@@ -1,13 +1,13 @@
 --- loomworks/integrations/inventory/cppdbg.lua — the cppdbg (OpenDebugAD7)
---- debug adapter's environment-inventory companion (cppdbg §6, core §8.9.6 /
---- §16.33). Mason `cpptools` package or the search path; version from the Mason
+--- debug adapter's environment-inventory companion. Mason `cpptools` package
+--- or the search path; version from the Mason
 --- receipt, no spawn. Never a workspace requirement.
 
 local M = {}
 
 --- Languages this tool serves: a plain `lw health` lists it only in a workspace
 --- with one of them (or, for a language server, one whose modules name it in
---- `lsp_servers`) — core §16.36.
+--- `lsp_servers`).
 M.languages = { "c", "c++" }
 
 --- @param _ctx loomworks.InventoryContext

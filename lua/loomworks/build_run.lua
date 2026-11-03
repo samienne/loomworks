@@ -13,16 +13,14 @@
 ---
 --- A runner differs only in HOW a step is spawned (blocking vs streamed) and
 --- how a refusal is reported (die vs a streamed error). Everything here returns
---- values/errors instead of exiting; nothing here touches the terminal. Spec
---- §16.4 (build), §5.9/§16.28 (artifact conflicts), §5.1/§8.1 (configure
---- record, full reconfigure), §5.10 (program resolution).
+--- values/errors instead of exiting; nothing here touches the terminal.
 
 local M = {}
 
 -- ---------------------------------------------------------------------------
--- Profile resolution (§16.9) — host-neutral: every refusal is returned as the
--- exact message the CLI prints (`lw: <message>`, exit 1), so the in-process
--- host and the workspace daemon (§19.15) refuse identically.
+-- Profile resolution — host-neutral: every refusal is returned as the exact
+-- message the CLI prints (`lw: <message>`, exit 1), so the in-process host
+-- and the workspace daemon refuse identically.
 -- ---------------------------------------------------------------------------
 
 --- The stable positional numbering of profiles (sorted by key, 1..N) — the
@@ -67,7 +65,7 @@ end
 --- interactive — the active profile, else the only one. Non-interactive mode
 --- never uses the active profile nor infers one (a deterministic CI result).
 --- Returns the profile, or nil + the refusal + its exit code: 2 for no profile
---- named in non-interactive mode (a usage error, spec 16.7), nil (exit 1) for
+--- named in non-interactive mode (a usage error), nil (exit 1) for
 --- the workspace-state refusals.
 --- @param ws table
 --- @param name string|nil
@@ -103,8 +101,8 @@ function M.resolve_profile(ws, name, opts)
     return nil, "no profile specified and no unambiguous default — run `lw profile select`"
 end
 
---- Resolve the profile a build (and clean / test / reset / run) targets
---- (§16.9). Returns the profile; or nil + the refusal + nil + its exit code
+--- Resolve the profile a build (and clean / test / reset / run) targets.
+--- Returns the profile; or nil + the refusal + nil + its exit code
 --- (2 for a usage error, see `resolve_profile`; nil = exit 1); or nil, nil,
 --- "onboard" when no profile matches and the caller is interactive — the host
 --- then onboards a profile from a configuration set (prompts; never in a daemon).
@@ -150,17 +148,17 @@ function M.resolve_target(ws, name, opts)
     return nil, nil, "onboard"
 end
 
---- Build directories in the canonical lock order of spec §19.3: by
---- the normalized identity (§4.6 real path, then §2.3 normalization: forward
---- slashes, no trailing slash, lowercased on Windows), duplicates dropped.
+--- Build directories in the canonical lock order: by normalized identity
+--- (real path, forward slashes, no trailing slash, lowercased on Windows),
+--- duplicates dropped.
 --- @param dirs string[]
 --- @return string[]
 function M.lock_order(dirs)
     local win = package.config:sub(1, 1) == "\\"
     local seen, keyed = {}, {}
     for _, d in ipairs(dirs or {}) do
-        -- By identity (spec §4.6): one folder spelled two ways is one lock
-        -- (its lockfile is one file, loomworks.build_lock).
+        -- By identity: one folder spelled two ways is one lock (its lockfile
+        -- is one file, loomworks.build_lock).
         local k = require("loomworks.dir_identity").resolve(d):gsub("/+$", "")
         if win then k = k:lower() end
         if not seen[k] then seen[k] = true; keyed[#keyed + 1] = { k = k, d = d } end
@@ -173,7 +171,7 @@ end
 
 --- The projects a build scope builds, each with its configuration unit and the
 --- profile its context resolves against: a profile's projects, or the given
---- configuration units (`Build/1` `units`, spec §19.15) in the active
+--- configuration units (`Build/1` `units`) in the active
 --- profile's context, as the editor's unit actions resolve them.
 --- @param profile loomworks.Profile|nil
 --- @param units? loomworks.ConfigUnit[]
@@ -196,7 +194,7 @@ local function scope_entries(profile, units)
 end
 
 --- The distinct build directories a profile's projects map to — the set the
---- per-build-directory advisory lock (§16.6) covers for one build.
+--- per-build-directory advisory lock covers for one build.
 --- @param profile loomworks.Profile
 --- @return string[]
 function M.profile_build_dirs(profile)
@@ -209,7 +207,7 @@ function M.profile_build_dirs(profile)
 end
 
 --- The distinct build directories of configuration units (a `units`
---- operation's lock set, spec §19.15; as `profile_build_dirs`).
+--- operation's lock set; as `profile_build_dirs`).
 --- @param units loomworks.ConfigUnit[]
 --- @return string[]
 function M.unit_build_dirs(units)
@@ -222,11 +220,10 @@ function M.unit_build_dirs(units)
 end
 
 --- The one notice a build prints when loomworks.json program settings of the
---- profile's projects are ignored (spec §17.6, §17.10), or nil when none are.
---- Both hosts print it (in-process and through the daemon, §19.15), so a
---- build never silently runs without an environment or command the shared
---- file names. Counts workspace-level entries and those of the profile's
---- projects. Its highlighting role (§16.7, `warn`) is returned beside it.
+--- profile's projects are ignored, or nil when none are. Both hosts print it,
+--- so a build never silently runs without an environment or command the
+--- shared file names. Counts workspace-level entries and those of the
+--- profile's projects. Its highlighting role (`warn`) is returned beside it.
 --- @param ws table workspace
 --- @param profile table|nil
 --- @param units? table[] configuration units: their projects instead of the profile's
@@ -248,9 +245,9 @@ end
 
 local LEAD_VERB = { build = "building", clean = "cleaning", configure = "configuring" }
 
---- An operation's lead line (§16.4), printed before its steps by both hosts
---- (in-process and through the daemon, §19.15), and its highlighting role
---- (§16.7): `building <scope>`, `cleaning <scope>`, `configuring <scope>`.
+--- An operation's lead line, printed before its steps by both hosts, and its
+--- highlighting role: `building <scope>`, `cleaning <scope>`,
+--- `configuring <scope>`.
 --- @param op "build"|"clean"|"configure"
 --- @param scope string `profile: <key>`, or the units' names (`units_label`)
 --- @return string line
@@ -260,7 +257,7 @@ function M.lead_line(op, scope)
 end
 
 --- An operation's success line, printed by both hosts, and its highlighting
---- role (§16.7): `BUILD OK: <label>`, `CLEAN OK: <label>`, `CONFIGURE OK: <label>`.
+--- role: `BUILD OK: <label>`, `CLEAN OK: <label>`, `CONFIGURE OK: <label>`.
 --- @param op "build"|"clean"|"configure"
 --- @param label string the profile key, the units' names or a launch target's name
 --- @return string line
@@ -290,7 +287,7 @@ function M.runs_batch_file(cmd)
     return false
 end
 
---- The output-artifact conflict refusal (spec §5.9 / §16.28): names the
+--- The output-artifact conflict refusal: names the
 --- conflicting profile and the shared artifact path, and points at `--force`.
 --- @param block { profile: string, path: string|nil }
 --- @return string
@@ -313,10 +310,9 @@ function M.nothing_to_build_message(profile, label)
 end
 
 -- ---------------------------------------------------------------------------
--- Target operands (headless §16.4 *Naming a build target*) — shared by every
--- runner (in-process `lw build`, the workspace daemon §19.15) through `plan`,
--- and by the launch-target matchers (`lw run`, `lw test --target`, `lw target
--- set`) through `split_target_ref`.
+-- Target operands — shared by every runner (in-process `lw build`, the
+-- workspace daemon) through `plan`, and by the launch-target matchers
+-- (`lw run`, `lw test --target`, `lw target set`) through `split_target_ref`.
 -- ---------------------------------------------------------------------------
 
 --- Up to three of `candidates` close to `name` (case-insensitive substring
@@ -373,8 +369,8 @@ function M.ensure_unit_targets(ws, unit, opts)
 end
 
 --- The module and `parse_targets` context of a unit whose targets can be
---- parsed (the module parses targets; a build dir this machine configured,
---- spec §17.8), else nil.
+--- parsed (the module parses targets; a build dir this machine configured),
+--- else nil.
 --- @param ws loomworks.Workspace
 --- @param unit loomworks.ConfigUnit
 --- @return table|nil mod, table|nil ctx
@@ -383,7 +379,7 @@ function M._targets_ctx(ws, unit)
     local mod = project and project._module and project._module.impl
     local build_dir = unit.build_dir and unit:build_dir()
     if not (mod and mod.parse_targets and build_dir) then return nil end
-    -- Only a build dir this machine configured (signed cache, spec §17.8).
+    -- Only a build dir this machine configured (signed cache).
     if unit.configured_here and not unit:configured_here() then return nil end
     -- config_name is the module build type (e.g. "Debug"); matters for
     -- multi-config generators, ignored by single-config ones.
@@ -404,7 +400,7 @@ end
 M.TARGETS_PARSE_TIMEOUT_MS = 30000
 
 --- Parse a unit's build targets without blocking the caller: the module's
---- `parse_targets_async` (spec §8), else its `parse_targets` on a later
+--- `parse_targets_async`, else its `parse_targets` on a later
 --- event-loop turn. `cb(targets|nil)` always runs, once, on a later turn
 --- (nil: nothing parsed — not parseable, no data, the module failed, or its
 --- `parse_targets_async` did not call back within TARGETS_PARSE_TIMEOUT_MS).
@@ -427,8 +423,8 @@ function M.parse_unit_targets_async(ws, unit, cb)
     local okc, mod, ctx = pcall(M._targets_ctx, ws, unit)
     if not (okc and mod) then return vim.schedule(function() once(nil) end) end
     if mod.parse_targets_async then
-        -- The watchdog: spec §8 does not require a module's callback on an
-        -- error, and one thrown on a later turn is out of this pcall's reach.
+        -- The watchdog: a module need not call back on an error, and one
+        -- thrown on a later turn is out of this pcall's reach.
         timer = vim.defer_fn(function() timer = nil; once(nil) end, M.TARGETS_PARSE_TIMEOUT_MS)
         local ok = pcall(mod.parse_targets_async, ctx, function(t)
             vim.schedule(function() once(type(t) == "table" and t or nil) end)
@@ -447,7 +443,7 @@ end
 --- only when `<project>` names one of the scope's projects — a module's own
 --- target syntax may contain ':' (e.g. meson `name:type`); otherwise the whole
 --- operand is the bare name. The scope is a profile (its projects) or a list
---- of projects (a `units` scope, spec §19.15).
+--- of projects (a `units` scope).
 --- @param scope loomworks.Profile|loomworks.Project[]
 --- @param name string
 --- @return loomworks.Project|nil project, string bare
@@ -468,7 +464,7 @@ function M.split_target_ref(scope, name)
 end
 
 --- The `<project>/<configuration>` names of configuration units (the scope
---- of a `units` operation, spec §19.15), comma-separated.
+--- of a `units` operation), comma-separated.
 --- @param units loomworks.ConfigUnit[]
 --- @return string
 function M.units_label(units)
@@ -479,13 +475,13 @@ function M.units_label(units)
     return table.concat(names, ", ")
 end
 
---- Resolve `--target` operands to the projects that build them (§16.4), against
+--- Resolve `--target` operands to the projects that build them, against
 --- each project's KNOWN target list — a unit configured here that needs no
 --- configure now (a configure can change its targets) and whose module
 --- introspects targets. A qualified operand goes to its project; a bare name
 --- to the one project whose list has it (several → refused as ambiguous), or,
 --- in no known list, to every project (the build tool decides). An operand
---- `{ project, target }` (`Build/1`, spec §19.15) is that target of that
+--- `{ project, target }` (`Build/1`) is that target of that
 --- project only; a project the scope does not build is refused. Returns a map
 --- Project → bare target names (projects absent from it are not built), or
 --- nil + lw's refusal. Never runs anything.
@@ -576,7 +572,7 @@ end
 --- After a failed `--target` build: name each target this step requested
 --- that its project's parsed target list does not contain, with close matches
 --- from every project of the profile, in the `<project>:<target>` form `lw
---- target` lists (§16.4). Advisory: the lists omit targets a module does not
+--- target` lists. Advisory: the lists omit targets a module does not
 --- introspect, so such a name was handed to the build tool, which decided.
 --- `targets` are the bare names the step built (`step.build_targets` when
 --- planned). nil when there is nothing to say.
@@ -630,14 +626,14 @@ function M.unknown_target_hint(ws, step, targets)
 end
 
 --- Plan a profile build: the build gate, the module plan, and the build
---- request (core §8.1 / §16.4) checked for every build step before anything
+--- request checked for every build step before anything
 --- runs. A module that applied the request already put it on its native
 --- command; for one that did not, `--target` is refused (no generic way to
 --- select a target) and forwarded args are appended to the step's command —
 --- unless that command runs a batch file, where they would be silently
 --- ignored, so it is refused instead.
 --- With `opts.units` the scope is those configuration units instead of the
---- profile (`Build/1` `units`, spec §19.15): each unit's tool/configuration
+--- profile (`Build/1` `units`): each unit's tool/configuration
 --- compatibility gate instead of the profile's buildability gate, and the
 --- units' own tasks (task_plan.plan_units_build).
 --- @param profile loomworks.Profile|nil (nil with `opts.units`)
@@ -650,7 +646,7 @@ end
 ---   parallel-jobs option (task_plan.append_parallel_jobs).
 --- @return table[]|nil steps (possibly empty), string|nil err
 --- @return loomworks.RefusalLine[]|nil refused the profile's ProfileProjects left out as
----   invalid for the action (core §5.4 "Invalid ProfileProjects"), one result
+---   invalid for the action, one result
 ---   line each: the host runs the steps, then fails with `refused_message`
 function M.plan(profile, opts)
     opts = opts or {}
@@ -670,7 +666,7 @@ function M.plan(profile, opts)
         if not buildable then return nil, tostring(why) end
     end
     -- `--target` operands resolve to (project, bare name) BEFORE anything
-    -- runs (§16.4): a refusal is lw's, never the build tool's; a project no
+    -- runs: a refusal is lw's, never the build tool's; a project no
     -- operand selects is neither configured nor built.
     local picks
     if opts.build_targets and (opts.units or profile.projects) then
@@ -724,7 +720,7 @@ function M.plan(profile, opts)
 end
 
 --- The failure of a profile-level operation whose invalid ProfileProjects
---- were not run (core §5.4 "Invalid ProfileProjects"): their result lines,
+--- were not run: their result lines,
 --- one per line. Reported after the other projects ran.
 --- @param refused loomworks.RefusalLine[] `plan`'s third return (or `plan_clean`'s second)
 --- @return string
@@ -733,13 +729,13 @@ function M.refused_message(refused)
 end
 
 --- The gates evaluated immediately before a step runs (after recording the
---- step in this process's build-directory lock, spec §19.5):
----   * the output-artifact conflict gate (§5.9 / §16.28), directional and
----     evaluated at compile-start — for a configure→build chain the configure
+--- step in this process's build-directory lock):
+---   * the output-artifact conflict gate, directional and evaluated at
+---     compile-start — for a configure→build chain the configure
 ---     (after_step) already populated this unit's artifact set. `force` is the
 ---     only bypass, never a prompt;
----   * a full reconfigure's module-named configure-state reset (core §5.1 /
----     §8.1 `pre_configure_reset`) — validated + deleted by core, under the
+---   * a full reconfigure's module-named configure-state reset
+---     (`pre_configure_reset`) — validated + deleted by core, under the
 ---     build-dir lock the runner already holds.
 --- @param ws loomworks.Workspace
 --- @param step table
@@ -748,7 +744,7 @@ end
 function M.before_step(ws, step, opts)
     opts = opts or {}
     -- The held build-dir lock names the step now running, so a recovery after
-    -- this process dies knows what was interrupted (spec §19.5).
+    -- this process dies knows what was interrupted.
     if step.kind == "configure" or step.kind == "build" then
         require("loomworks.build_lock").set_operation(step.build_dir, step.kind)
     end
@@ -764,16 +760,15 @@ function M.before_step(ws, step, opts)
     return true
 end
 
---- The status lines announcing a step (§16.4): `==> [kind] name`, WHY a
+--- The status lines announcing a step: `==> [kind] name`, WHY a
 --- configure runs (the gate's reason + the module's full / in-place choice),
 --- and with `verbose` the command line + cwd (`command_lines`) — plus, with
 --- `env`, the env overrides line (`env_line`): `true` computes it against THIS
 --- process's environment (the in-process host); a table is the environment
 --- the step inherits — the daemon's runner passes the one the requesting
---- client sent (spec §19.15 "Roles and verbose"), never its own. Also writes
---- the command line to the workspace log (always, §16.4). Each line's
---- highlighting role (§16.7) is returned alongside it: `phase` for the
---- header, `reason`, `command`.
+--- client sent, never its own. Also writes the command line to the workspace
+--- log (always). Each line's highlighting role is returned alongside it:
+--- `phase` for the header, `reason`, `command`.
 --- @param ws loomworks.Workspace
 --- @param step table
 --- @param opts? { verbose?: boolean, env?: boolean|table<string, string> }
@@ -802,8 +797,8 @@ function M.step_lines(ws, step, opts)
     return lines, roles
 end
 
---- The lines `-v` / `--verbose` prints for one command a step runs (headless
---- §16.4 *Verbose*), each of the `command` role (§16.7): `    $ <command>`
+--- The lines `-v` / `--verbose` prints for one command a step runs, each of
+--- the `command` role: `    $ <command>`
 --- (formatted as for the workspace log, `task_plan.command_text`), then
 --- `    (in <cwd>)` when a working directory is given, then
 --- `    env: <NAME>=<value> …` for the environment overrides the step adds
@@ -827,14 +822,14 @@ end
 
 --- `    env: <NAME>=<value> …` for a step's environment overrides (names sorted,
 --- each `NAME=value` quoted like a command argument), or nil when it adds none.
---- Never the inherited environment (§16.4 *Verbose*): a variable whose value
+--- Never the inherited environment: a variable whose value
 --- equals the inherited one is left out, and a value that extends the
 --- inherited one (`<added><sep><inherited>` or `<inherited><sep><added>`, sep
 --- the platform path separator) shows the added part with the inherited part
 --- as `$NAME`. Display only — the env that runs is untouched. The inherited
 --- environment is this process's, or `inherited` when given (the daemon: the
---- requesting client's, before the daemon's own adjustments, spec §19.15
---- "Roles and verbose") — then only that table, never this process's.
+--- requesting client's, before the daemon's own adjustments) — then only
+--- that table, never this process's.
 --- @param env table<string, string>|nil
 --- @param inherited_env? table<string, string>
 --- @return string|nil
@@ -883,7 +878,7 @@ function M.env_line(env, inherited_env)
     return "    env: " .. require("loomworks.term").format_argv(parts)
 end
 
---- The `-v` line for one deploy step (§16.4 *Verbose*, §8):
+--- The `-v` line for one deploy step:
 --- `    copy <source> -> <destination>`, or `    up to date <destination>`
 --- when the step was skipped as fresh.
 --- @param ev { action: "copy"|"fresh", source: string, dest: string }
@@ -893,7 +888,7 @@ function M.deploy_line(ev)
     return "    copy " .. tostring(ev.source) .. " -> " .. tostring(ev.dest)
 end
 
---- The `-v` line for a clean's removal of a directory (§16.4 *Verbose*).
+--- The `-v` line for a clean's removal of a directory.
 --- @param dir string
 --- @return string
 function M.remove_line(dir)
@@ -902,7 +897,7 @@ end
 
 --- The spawnable form of a step: the program resolved to an absolute path
 --- (never the cwd / a relative PATH entry) and, on Windows,
---- NoDefaultCurrentDirectoryInExePath=1 in the child env (spec §5.10). An
+--- NoDefaultCurrentDirectoryInExePath=1 in the child env. An
 --- unresolvable program is reported, never spawned by name. An empty env is
 --- dropped (it would wipe PATH; the child inherits the parent env instead).
 --- @param step table { cmd, cwd?, env? }
@@ -929,8 +924,7 @@ function M.record(ws, step, ok)
     pcall(function()
         -- Pass the module's configure record (cache_launcher, passed_options, …)
         -- exactly like the editor's task path, so launcher staleness and the
-        -- faithful-reconfigure retraction (core §5.1) work for headless
-        -- configures too.
+        -- faithful-reconfigure retraction work for headless configures too.
         ws:record_task_result({
             unit = step.unit, action = step.kind, success = ok,
             module_info = step.module_info,
@@ -964,7 +958,7 @@ M.SIGNAL_NAMES = {
     [14] = "SIGALRM", [15] = "SIGTERM",
 }
 
---- A step's exit status from libuv's exit callback `(code, signal)` (§16.7).
+--- A step's exit status from libuv's exit callback `(code, signal)`.
 --- On POSIX a process that a signal ended (the OOM killer, `kill -9` on the
 --- build tool) is reported as code 0 + the signal: that is a FAILURE, with the
 --- conventional status 128 + signal — never a success. Returns the status and,
@@ -1009,7 +1003,7 @@ end
 --- The failure line for a step that exited nonzero. A build that fails after
 --- the post-configure scan predicted it (an error-severity cache-compat
 --- finding, e.g. /Zi under sccache) closes with one line pointing back at that
---- finding — advisory: the scan never gates the build (§5.1). `extra_hint`
+--- finding — advisory: the scan never gates the build. `extra_hint`
 --- (e.g. an unknown `--target`) leads the hint lines. `signal` (from
 --- exit_status): the signal that ended the step, named instead of the code.
 --- @param step table
@@ -1029,8 +1023,8 @@ function M.failure_message(step, code, extra_hint, signal)
 end
 
 -- ---------------------------------------------------------------------------
--- Headless clean (§16.1) — `lw clean`, shared by the in-process host (cli.lua
--- `cmd_clean`) and the workspace daemon (daemon/runner.lua, §19.15 "Clean"):
+-- Headless clean — `lw clean`, shared by the in-process host (cli.lua
+-- `cmd_clean`) and the workspace daemon (daemon/runner.lua):
 -- the plan, the lines, the failure lines and the core-performed wipe (one
 -- deletion path, `wipe_step` over Workspace:clean_wipe_build_dir). A host
 -- differs only in how a module clean step is spawned and in how it waits for
@@ -1043,10 +1037,10 @@ end
 --- project, a configured build directory that exists on disk), or nil when
 --- there is nothing to clean (`nothing_to_clean_message`).
 --- With `units` the scope is those configuration units (`Build/1.clean`
---- `units`, spec §19.15; task_plan.plan_units_clean).
---- A profile's invalid ProfileProject (`invalid_reason`) is not cleaned (core
---- §5.4 "Invalid ProfileProjects"): `refused` names it; the host cleans the
---- others, then fails with `refused_message`.
+--- `units`; task_plan.plan_units_clean).
+--- A profile's invalid ProfileProject (`invalid_reason`) is not cleaned:
+--- `refused` names it; the host cleans the others, then fails with
+--- `refused_message`.
 --- @param profile table|nil (nil with `units`)
 --- @param units? loomworks.ConfigUnit[]
 --- @return table[]|nil steps
@@ -1068,7 +1062,7 @@ function M.nothing_to_clean_message(profile, label)
         .. " — no configured build directories."
 end
 
---- The line announcing a clean step, and its highlighting role (§16.7).
+--- The line announcing a clean step, and its highlighting role.
 --- @param step table
 --- @return string line
 --- @return string role `phase` (a step header)
@@ -1078,8 +1072,8 @@ end
 
 --- After a module clean step (not a wipe) exits — both hosts: a successful
 --- clean leaves the unit `configured` (the build system's artifact clean keeps
---- the configuration, spec §3, §16.1), persisted so `lw status` (§16.18) no
---- longer shows it built. A failing step records nothing.
+--- the configuration), persisted so `lw status` no longer shows it built. A
+--- failing step records nothing.
 --- @param ws loomworks.Workspace
 --- @param step table a plan_clean step
 --- @param code integer
@@ -1095,7 +1089,7 @@ end
 M.WIPE_VERIFY_MS = 30000
 
 --- The key a wipe groups a build directory under: the workspace's build-dir
---- identity (resolved real path, spec §4.6), so one folder spelled two ways
+--- identity (resolved real path), so one folder spelled two ways
 --- is one group; plain normalization for a workspace without it.
 local function wipe_key(ws, dir)
     if ws._build_dir_identity then return ws:_build_dir_identity(dir) end
@@ -1105,7 +1099,7 @@ end
 
 --- The wipe groups of a clean (`plan_clean` steps): the clean's units per
 --- normalized build directory. Every unit of the clean using a directory is
---- ONE deletion batch (spec §4.6), so a directory shared only among them is
+--- ONE deletion batch, so a directory shared only among them is
 --- wiped once (one unit per batch would see the others as outside references
 --- and keep it); the later steps of the group find it done.
 --- @param ws table
@@ -1125,7 +1119,7 @@ function M.wipe_groups(ws, steps)
 end
 
 --- Does a clean plan contain a core-performed wipe (a deletion: it takes the
---- workspace operation lock, before the build-directory locks, spec §19.3)?
+--- workspace operation lock, before the build-directory locks)?
 --- @param steps table[]
 --- @return boolean
 function M.has_wipe(steps)
@@ -1135,9 +1129,9 @@ function M.has_wipe(steps)
     return false
 end
 
---- A core-performed wipe (spec §8.1 `wipe_build_dir`) — the ONE wipe path of
---- both hosts (in-process `lw clean` and the workspace daemon, §19.15
---- "Clean"): a build-directory DELETION (§4.6, §4.7) through
+--- A core-performed wipe (`wipe_build_dir`) — the ONE wipe path of both
+--- hosts (in-process `lw clean` and the workspace daemon): a build-directory
+--- DELETION through
 --- `Workspace:clean_wipe_build_dir`: validated against the workspace root
 --- (`_validate_build_dir`: non-empty, within the root, never the root itself —
 --- Deletion Safety), the cache `unknown` on disk before the asynchronous
@@ -1205,9 +1199,9 @@ function M.wipe_step(ws, step, groups, opts, done)
 end
 
 -- ---------------------------------------------------------------------------
--- Headless test runs (§16.16) — the batch `lw test` around the build steps,
--- shared by the in-process host (cli.lua `cmd_test`) and the workspace daemon
--- (daemon/runner.lua, §19.15): every line and refusal is returned as the text
+-- Headless test runs — the batch `lw test` around the build steps, shared by
+-- the in-process host (cli.lua `cmd_test`) and the workspace daemon
+-- (daemon/runner.lua): every line and refusal is returned as the text
 -- the CLI prints.
 -- ---------------------------------------------------------------------------
 

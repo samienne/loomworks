@@ -6,8 +6,7 @@
 --- — the CLI's painted stderr printer, the daemon's per-request reply notes
 --- — so a warning is painted
 --- `warn` (an error `fail`) in both CLI hosts and a load's warnings become
---- its persistent load diagnostics (spec §16.7 *Highlighting*, core
---- daemon.md §19.13 "Load warnings").
+--- its persistent load diagnostics.
 
 local M = {}
 
@@ -39,7 +38,7 @@ local reported = {}
 
 --- A workspace load starts (`Core:_begin_load_notes`): what `once` reported
 --- for the previous load is reported again, so each load's diagnostics carry
---- it (core daemon.md §19.13 "Load warnings").
+--- it.
 function M.new_load()
     reported = {}
 end

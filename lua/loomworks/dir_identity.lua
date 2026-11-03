@@ -1,5 +1,5 @@
---- loomworks/dir_identity.lua — the physical identity of a directory path
---- (spec §4.6): one folder spelled differently (a junction or symlink, a
+--- loomworks/dir_identity.lua — the physical identity of a directory path:
+--- one folder spelled differently (a junction or symlink, a
 --- Windows 8.3 short name, an aliased workspace root, `..` segments) resolves
 --- to ONE path. Used as the comparison key of shared build-directory
 --- protection and of the build-directory locks (in-process queue and the

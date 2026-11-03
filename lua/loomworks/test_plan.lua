@@ -1,6 +1,6 @@
---- loomworks/test_plan.lua — the test plan of `lw test` (spec §16.16), shared
---- by the in-process host (cli._test_plan, cli._test_targets) and the
---- workspace daemon's test run (daemon/runner.lua, §19.15): what is planned
+--- loomworks/test_plan.lua — the test plan of `lw test`, shared by the
+--- in-process host (cli._test_plan, cli._test_targets) and the workspace
+--- daemon's test run (daemon/runner.lua): what is planned
 --- before the build (`units`, `precheck`), the ordered steps resolved after it
 --- (`prepare`), and their execution (`run`, `exec_step`) — every line, JUnit
 --- file, summary and failure the same on both hosts.
@@ -29,7 +29,7 @@
 ---                           (default: run_prep.foreign_of)
 ---   host.progress(f)?       the fraction of the steps done
 ---
---- `role` is the line's highlighting role (spec §16.7: phase, ok, fail, warn,
+--- `role` is the line's highlighting role (phase, ok, fail, warn,
 --- plain), which the in-process host paints by (loomworks.cli_color); a host
 --- that does not render roles ignores it.
 ---
@@ -42,8 +42,8 @@ local M = {}
 
 local uv = vim.uv or vim.loop
 
---- Resolve an entry's `working_dir` like a launch's (spec §1.3.4 "Working
---- directory", §8.7): variable-expanded in the launch context `lctx`, then
+--- Resolve an entry's `working_dir` like a launch's: variable-expanded in the
+--- launch context `lctx`, then
 --- absolute as-is or workspace-root-relative. nil when the entry has none.
 --- An unresolved reference stays literal, as in a launch's `working_dir`,
 --- and is returned in `unresolved`.
@@ -62,7 +62,7 @@ function M.resolve_working_dir(wd, lctx, root)
     return root .. "/" .. ex, unresolved
 end
 
---- Expand an entry's args like a launch configuration's (spec §1.3.4, §8.7):
+--- Expand an entry's args like a launch configuration's:
 --- built-in then project variables of the launch context `lctx`
 --- (`expand.launch_context`). Names are never expanded.
 --- @param args string[]|nil
@@ -81,22 +81,22 @@ function M.expand_args(args, lctx)
     return out, unresolved
 end
 
---- Whether device options were given (spec §16.34).
+--- Whether device options were given.
 --- @param d table|nil
 --- @return boolean
 function M.has_device_opts(d)
     return d and (d.device or d.fresh or d.timeout or d.no_wait or d.log_options) and true or false
 end
 
---- The pre-build test plan of a profile (spec §16.16): per unit, in the
+--- The pre-build test plan of a profile: per unit, in the
 --- profile's project order, whether its batch step is planned and its saved
 --- entries. `sel` is nil, "saved" or "discovered". Pure model data — reads no
 --- build directory beyond the static batch-runner question. An invalid `tests`
---- declaration (§1.3.4) is planned as one invalid entry, so it fails like a
+--- declaration is planned as one invalid entry, so it fails like a
 --- missing entry. A ProfileProject invalid for the action
---- (`ProfileProject:invalid_reason`: a module `error`, §8 `info`; a refused
---- build directory, §1.7; a tool compat error, §8.4 `validate_config_tool`) is not planned (core §5.4 "Invalid
---- ProfileProjects"): `refused` names it, and the run fails after the others.
+--- (`ProfileProject:invalid_reason`: a module `error`; a refused build
+--- directory; a tool compat error from `validate_config_tool`) is not
+--- planned: `refused` names it, and the run fails after the others.
 --- @return table[] units { unit, project, pp, batch, batch_dropped, platform, kit_platform, saved, entries }
 --- @return integer n_batch, integer n_exec
 --- @return loomworks.RefusalLine[]|nil refused nil when none
@@ -125,7 +125,7 @@ function M.units(profile, sel)
                 end
                 local mod = project._module and project._module.impl
                 if #u.entries > 0 and not (mod and mod.parse_targets) then
-                    -- §1.3.4 Applicability: kept, reported as unsupported, never acted on.
+                    -- Not applicable here: kept, reported as unsupported, never acted on.
                     u.unsupported = true
                     u.entries = {}
                 end
@@ -165,8 +165,8 @@ function M.launches_of(project)
     return next(labels) and table.concat(labels, ", ") or "(none)"
 end
 
---- The resolution context of a unit's saved entries (spec §1.3.4
---- "Resolution"): the project's launch configurations, the trust-ignored
+--- The resolution context of a unit's saved entries: the project's launch
+--- configurations, the trust-ignored
 --- launches, and the unit's parsed build targets (nil = unknown).
 function M.rctx(ws, unit, project, level)
     local test_targets = require("loomworks.test_targets")
@@ -199,10 +199,10 @@ end
 --- @field err string|nil the invocation's refusal (printed after `notes`)
 --- @field code integer|nil its exit code
 --- @field device_platform string|nil a unit built by a foreign kit has saved entries: its steps run on a device
---- @field refused loomworks.RefusalLine[]|nil the ProfileProjects not tested as invalid (core §5.4
----   "Invalid ProfileProjects"): the host runs the others' tests, then fails (`with_refused`)
+--- @field refused loomworks.RefusalLine[]|nil the ProfileProjects not tested as invalid:
+---   the host runs the others' tests, then fails (`with_refused`)
 
---- What `lw test` checks before the build (spec §16.16): the plan, its notes
+--- What `lw test` checks before the build: the plan, its notes
 --- and a refusal. `opts = { sel?, extra?, dev? }`.
 --- @return loomworks.TestPlanPre
 function M.precheck(profile, opts)
@@ -214,7 +214,7 @@ function M.precheck(profile, opts)
         return pre
     end
 
-    -- Foreign units: the batch step is never run on the host (invariant 19).
+    -- Foreign units: the batch step is never run on the host.
     -- A unit whose skip note already says its saved targets are unsupported
     -- gets no second "— ignored" note below.
     local noted_unsupported = {}
@@ -283,8 +283,8 @@ end
 --- @field junit_for fun(label: string): string|nil the JUnit path of a step
 --- @field notes string[] stderr notes printed before the steps (`--no-build`: possibly stale builds)
 
---- A test run's result with the ProfileProjects it did not test (core §5.4
---- "Invalid ProfileProjects"; `pre.refused`): once the other projects' tests
+--- A test run's result with the ProfileProjects it did not test
+--- (`pre.refused`): once the other projects' tests
 --- ran, the run fails (exit 1 unless already failing) and its message ends
 --- with their result lines. Unchanged when there are none.
 --- @param pre loomworks.TestPlanPre|nil
@@ -297,7 +297,7 @@ function M.with_refused(pre, code, err)
     return (code ~= 0) and code or 1, err and (err .. "\n" .. msg) or msg
 end
 
---- `lw test --no-build` (spec §16.16 "Skipping the build"): whether a build
+--- `lw test --no-build`: whether a build
 --- target's artifact exists. `t` is the target, `unit` its config unit.
 --- @return boolean built, string|nil path
 function M.artifact_built(unit, t)
@@ -314,7 +314,7 @@ end
 
 --- The failure of a `--no-build` invocation before any step runs (exit 1):
 --- `head` (the missing saved entries), one line per problem, then the two
---- ways forward (§16.16).
+--- ways forward.
 --- @return string
 function M.no_build_message(profile, problems, head)
     local lines = {}
@@ -326,7 +326,7 @@ function M.no_build_message(profile, problems, head)
 end
 
 --- `--no-build`: one note per unit whose recorded state says its build may
---- not match the current configuration (§16.16 "Stale builds are noted") —
+--- not match the current configuration —
 --- the build gate's reconfigure reasons, or a failed last build. Recorded
 --- state only: no source scan, no build-tool query.
 --- @return string[] notes
@@ -347,8 +347,9 @@ end
 
 --- After the build (the units' targets parsed): resolve every saved entry —
 --- a missing one fails the invocation before any step runs — and plan the
---- batch steps, their order and JUnit labels (spec §16.16). `opts = { junit?,
---- extra?, no_build? }`: `no_build` (`lw test --no-build`, §16.16 "Skipping
+--- batch steps, their order and JUnit labels. `opts = { junit?,
+--- extra?, no_build? }`: `no_build` (`lw test --no-build`) also refuses a
+--- unit not configured here, an executable not
 --- the build") also refuses a unit not configured here, an executable not
 --- built and a self-rebuilding runner that cannot skip its rebuild — one
 --- line each, before any step — and notes a possibly stale build (`notes`).
@@ -368,7 +369,7 @@ function M.prepare(ws, profile, pre, opts, deps)
     local no_build = opts.no_build and true or false
     local artifact_built = deps.artifact_built or M.artifact_built
 
-    -- `--no-build`: what must already exist (§16.16 "Skipping the build"). A
+    -- `--no-build`: what must already exist. A
     -- unit with a batch step, or with an entry that needs its build targets,
     -- must be configured here — one line per unit, never a configure.
     local problems, unconfigured = {}, {}
@@ -395,7 +396,7 @@ function M.prepare(ws, profile, pre, opts, deps)
     end
 
     -- Resolve every saved entry before the first step runs (missing → fail):
-    -- a launch configuration first, else an executable build target (§1.3.4).
+    -- a launch configuration first, else an executable build target.
     local missing = {}
     for _, u in ipairs(plan) do
         u.exec = {}
@@ -418,7 +419,7 @@ function M.prepare(ws, profile, pre, opts, deps)
                 end
             end
             -- Args and working_dir expand in the entry's launch context, where
-            -- `${target_dir}` is its build target's artifact directory (§8.7).
+            -- `${target_dir}` is its build target's artifact directory.
             local lctx = r.state == "ok"
                 and require("loomworks.expand").launch_context(ws, profile, u.project, { target = r.target }) or nil
             if r.state == "ok" then
@@ -445,7 +446,7 @@ function M.prepare(ws, profile, pre, opts, deps)
 
     -- Batch steps (after the build: a runner without a test set plans none).
     -- Under --no-build a self-rebuilding runner that cannot skip its rebuild
-    -- is refused here, before any step runs (§8.9.2 `opts.no_rebuild`).
+    -- is refused here, before any step runs (`opts.no_rebuild`).
     local skip = {}
     for _, u in ipairs(plan) do if not u.batch or unconfigured[u] then skip[u.unit] = true end end
     local probe = (n_batch > 0) and task_plan.plan_profile_test(profile, { skip_units = skip,
@@ -470,7 +471,7 @@ function M.prepare(ws, profile, pre, opts, deps)
         notes = M.stale_notes(profile, units)
     end
 
-    -- The final ordered steps and their JUnit labels (§16.16).
+    -- The final ordered steps and their JUnit labels.
     local steps, labels = {}, {}
     for _, u in ipairs(plan) do
         if batch_count[u.unit] then
@@ -514,14 +515,14 @@ function M.prepare(ws, profile, pre, opts, deps)
     return res
 end
 
---- Run the prepared steps (spec §16.16): per unit, its batch step(s), then one
+--- Run the prepared steps: per unit, its batch step(s), then one
 --- executable step per saved entry; every step runs even when an earlier one
 --- failed. Prints each step, the per-step summary and `TESTS OK: <profile>
 --- (<n> step[s])`. `done(code, err, results)`: `err` is the failure
 --- (`<k> of <n> test step[s] failed`, exit 1); `results = { steps = {{ name,
 --- exit_code, status }}, junit = { paths } }` (Tests/1.run's task result).
 --- `opts = { extra?, dev?, no_build? }` (`no_build`: each executable step
---- skips its launch's deploy, §16.16).
+--- skips its launch's deploy).
 --- @param prepared loomworks.TestPlanSteps
 function M.run(ws, profile, prepared, opts, host, done)
     local test_targets = require("loomworks.test_targets")
@@ -604,12 +605,12 @@ function M.run(ws, profile, prepared, opts, host, done)
     return next_step()
 end
 
---- Run ONE test executable step (spec §16.16, §18.6) — the shared executor of
+--- Run ONE test executable step — the shared executor of
 --- named (`--target`) and saved test entries. `lt` is the resolved
 --- `LaunchTarget` (the same object `lw run <name>` uses): a build target, or a
 --- launch configuration. A launch's deploy steps run first (a failed deploy
 --- fails the step without running the program). The program runs on a device
---- when its build-target artifact is foreign (§18.5), locally otherwise, with
+--- when its build-target artifact is foreign, locally otherwise, with
 --- argv = program, the framework results option (only for a build target's
 --- artifact the gtest helper recognises), a launch's own args, the step's
 --- `args` (already expanded), then the caller-forwarded args. The outcome is
@@ -622,7 +623,7 @@ end
 --- the entry's `working_dir` as written (a device step notes it is not used),
 --- `cwd_override` a named target's per-invocation `--cwd` (raw, expanded in
 --- the target's launch context; refused for a device run). `no_build`
---- (`lw test --no-build`) skips a launch's deploy steps (§16.16). With
+--- (`lw test --no-build`) skips a launch's deploy steps. With
 --- `saved` (a saved entry's step) a refused or unresolvable run fails the step
 --- instead of the invocation, and a program without per-case results is
 --- judged on its exit status alone and written to JUnit as one test case.
@@ -637,7 +638,7 @@ function M.exec_step(ws, lt, opts, host, cb)
     for _, a in ipairs(opts.args or {}) do tail[#tail + 1] = a end
     for _, a in ipairs(opts.extra or {}) do tail[#tail + 1] = a end
     local cfg = lt._launch
-    -- The results option applies only to a build target's artifact (§16.16).
+    -- The results option applies only to a build target's artifact.
     local artifact = not (cfg and not cfg.target)
     local f = artifact and (host.foreign_of or require("loomworks.run_prep").foreign_of)(lt) or nil
     local results, results_requested, results_missing, failed, reasons
@@ -654,7 +655,7 @@ function M.exec_step(ws, lt, opts, host, cb)
             .. "') — set the project's device.working_dir instead", 2)
     end
     -- A device step takes its working directory from the `device` block, never
-    -- from the entry (§1.3.4 "Working directory"): say so.
+    -- from the entry: say so.
     host.out(require("loomworks.cli_color").header("test", (opts.header or label) ..
         (f and (opts.entry_working_dir and " (on a device; its working_dir is not used there)" or " (on a device)") or "")),
         "phase")
@@ -671,7 +672,7 @@ function M.exec_step(ws, lt, opts, host, cb)
     -- The step's outcome: its line, its JUnit file, then `cb`.
     local function conclude()
         -- A saved program without per-case results is judged on its exit status
-        -- alone, and is one JUnit case (§16.16 "Results option").
+        -- alone, and is one JUnit case.
         local exit_only = opts.saved and not results_requested and true or false
         local c = test_run.count(results)
         if failed then
@@ -747,7 +748,7 @@ function M.exec_step(ws, lt, opts, host, cb)
             failed = true
             return conclude()
         end
-        -- A saved entry's working directory replaces the program's (§1.3.4).
+        -- A saved entry's working directory replaces the program's.
         if opts.cwd then spec.cwd = opts.cwd end
         -- The program runs once probed (a build target's artifact only): through
         -- the host when it probes asynchronously (the workspace daemon, whose
@@ -756,7 +757,7 @@ function M.exec_step(ws, lt, opts, host, cb)
             local xml
             if framework == "gtest" then
                 results_requested = true
-                -- In the workspace's .nvim/tmp, not the system temp dir (§16.40).
+                -- In the workspace's .nvim/tmp, not the system temp dir.
                 xml = require("loomworks.housekeeping").tmp_path(ws.root, "lw-test-", ".xml")
                 -- argv: program, results option, the launch's own args, then the tail.
                 table.insert(spec.args, 1, "--gtest_output=xml:" .. xml)
@@ -787,11 +788,11 @@ function M.exec_step(ws, lt, opts, host, cb)
         return probed((gtest.probe_sync(spec.cmd, label, popts)))
     end
 
-    -- A launch's deploy steps run before its program (§8.8.4): through the
+    -- A launch's deploy steps run before its program: through the
     -- host when it has its own deploy (the workspace daemon's asynchronous
     -- one, which keeps its loop free and stops between copies on a cancel;
     -- the in-process host's under `-v`, which prints each step), else here —
-    -- unless the build is skipped, which skips deploy too (§16.16).
+    -- unless the build is skipped, which skips deploy too.
     if not reasons and cfg and not opts.no_build then
         local function deployed(dok, derr)
             if not dok then

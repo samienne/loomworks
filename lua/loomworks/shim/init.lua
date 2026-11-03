@@ -331,7 +331,7 @@ function vim.system(cmd, opts, on_exit)
   -- nvim's vim.system streams each chunk to an `opts.stdout` / `opts.stderr`
   -- FUNCTION when one is given (called `(err, data)`, `data = nil` once at
   -- EOF) and then leaves that stream out of the result. The workspace daemon
-  -- streams a build's output this way (spec §19.15). A streamed run finishes
+  -- streams a build's output this way. A streamed run finishes
   -- only after both pipes reached EOF (bounded by STREAM_GRACE_MS after the
   -- exit, for a grandchild that keeps a pipe open — e.g. MSVC's mspdbsrv), so
   -- no output written just before the exit is lost.
@@ -370,7 +370,7 @@ function vim.system(cmd, opts, on_exit)
     -- As nvim's SystemCompleted, `signal` is the signal that ended the child
     -- (0 if none). Unlike nvim, `code` is then 128 + signal (as the shim's
     -- jobs and nvim's jobs report it): a signal-ended process — POSIX libuv
-    -- reports code 0 — is never read as success (spec §16.7). Windows reports
+    -- reports code 0 — is never read as success. Windows reports
     -- an exit code (signal 0, or its emulated kill's with exit code 1): kept.
     if (code == 0 or code == nil) and signal and signal ~= 0 then code = 128 + signal end
     exit_signal = signal or 0
@@ -682,7 +682,7 @@ function vim.notify(msg, level)
   if not level or level >= vim.log.levels.WARN then
     -- Control characters in the message (which may carry workspace data) are
     -- escaped before they reach the terminal (loomworks.term). Highlighted
-    -- by level (spec §16.7): a warning or a failure.
+    -- by level: a warning or a failure.
     local text = "[loomworks] " .. tostring(msg)
     local ok, cc = pcall(require, "loomworks.cli_color")
     if ok then

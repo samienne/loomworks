@@ -1,5 +1,4 @@
---- loomworks/submodules.lua — git submodule drift report (headless §16.31,
---- provider #3).
+--- loomworks/submodules.lua — git submodule drift report (health provider #3).
 ---
 --- Reports how the workspace repository's submodules (recursively) stand
 --- against what the repository records:
@@ -244,8 +243,8 @@ local function run_jobs(git, jobs)
     local local_running = 0
     local next_i = 1
     local function start(job)
-        -- Repository-local configuration must not run commands on lw's behalf
-        -- (spec §17.8): no file-system monitor hook, no hooks directory.
+        -- Repository-local configuration must not run commands on lw's behalf:
+        -- no file-system monitor hook, no hooks directory.
         local cmd = { git, "-c", "core.fsmonitor=false", "-c", "core.hooksPath=", "-C", job.cwd }
         for _, a in ipairs(job.args) do cmd[#cmd + 1] = a end
         local env = {}
@@ -674,7 +673,7 @@ local function track_line(e)
         t.behind, t.ahead, t.ref)
 end
 
---- Group a report into terse informational items (§16.31 provider #3). Each
+--- Group a report into terse informational items. Each
 --- carries its per-submodule lines as a `detail` shown only by the verbose
 --- report (`detail_verbose`).
 --- @param report loomworks.SubmoduleReport|nil
@@ -777,7 +776,7 @@ M._last = nil
 --- @return loomworks.SubmoduleReport|nil
 function M.last_report() return M._last end
 
---- The JSON form of a report (§16.33 `submodules`), or nil.
+--- The JSON form of a report (`submodules`), or nil.
 --- @param report loomworks.SubmoduleReport|nil
 --- @return table|nil
 function M.json(report)

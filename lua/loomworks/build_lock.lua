@@ -8,15 +8,15 @@
 --- processes, unlike a `building=true` flag in a JSON file (a read-check-write
 --- of a shared file is a TOCTOU race — two processes can both see "free").
 ---
---- The lockfile holds the common lock record (loomworks.lock_record, spec
---- §19.5) and the holder heartbeats its mtime on a timer. A would-be acquirer
+--- The lockfile holds the common lock record (loomworks.lock_record) and the
+--- holder heartbeats its mtime on a timer. A would-be acquirer
 --- that finds the lock held classifies the holder: a dead one (same host, no
 --- process with that id and start time) is reclaimed at once, as is a stale
 --- one on another host or one whose start time cannot be checked; a live one
 --- refuses (fail-fast); a hung one (same host, alive, heartbeat stale) is NOT
 --- reclaimed — `--break-locks` recovers it (loomworks.lock_break). The
---- path-level API is shared with the device lock (§18.7) and the workspace
---- operation lock (§19.3).
+--- path-level API is shared with the device lock and the workspace
+--- operation lock.
 
 local uv = vim.uv or vim.loop
 local lock_record = require("loomworks.lock_record")
@@ -30,7 +30,7 @@ M.HEARTBEAT_MS = 5000
 M.STALE_SECONDS = 20
 
 --- The lockfile of a build directory: `<dir>.loomworks-lock` beside the
---- directory's IDENTITY (loomworks.dir_identity, spec §4.6) — its real path,
+--- directory's IDENTITY (loomworks.dir_identity) — its real path,
 --- or for a directory not created yet the real path of its nearest existing
 --- ancestor plus the rest — so every spelling of one folder (junction or
 --- symlink, 8.3 short name, aliased workspace root) finds the same lockfile,
@@ -52,7 +52,7 @@ end
 
 --- Read the lock info of a lockfile path (the record plus computed
 --- `age`/`stale`), or nil when unlocked. Path-level API shared with the
---- device lock (spec §18.7).
+--- device lock.
 --- @param path string lockfile path
 --- @return table|nil
 function M.read_path(path)
@@ -78,12 +78,12 @@ local function create_locked(path, action, extra)
 end
 
 --- Try once to take the lockfile at `path` (path-level API shared with the
---- device lock, spec §18.7, and the operation lock, §19.3). A holder that is
---- dead, or stale where it cannot be checked (spec §19.5), is reclaimed — only
+--- device lock and the operation lock). A holder that is dead, or stale
+--- where it cannot be checked, is reclaimed — only
 --- if its record is still the one judged (nonce); the handle then carries
 --- that holder's record as `handle.reclaimed` (with `state`), from which the
---- caller recovers the interrupted operation's state (§19.5 step 5) and the
---- device lock reads a leftover program (§18.7).
+--- caller recovers the interrupted operation's state and the
+--- device lock reads a leftover program.
 --- Returns a handle, or `(nil, info)` with the holder's lock info, classified
 --- (`info.state` = "live" | "hung" | …).
 --- @param path string
@@ -174,7 +174,7 @@ end
 
 --- Acquire the lock for `build_dir`. Fail-fast: returns a handle on
 --- success, or `(nil, reason, info)` if a live or hung process holds it
---- (`info.state`, spec §19.5). A dead holder's lock is reclaimed
+--- (`info.state`). A dead holder's lock is reclaimed
 --- automatically (`handle.reclaimed`).
 --- @param build_dir string
 --- @param action "build"|"configure"|"clean"|string
@@ -190,8 +190,8 @@ function M.acquire(build_dir, action, ctx)
     return h
 end
 
---- Record the step a held build-directory lock is in (spec §19.5: a holder
---- rewrites the operation when it moves from configure to build, so recovery
+--- Record the step a held build-directory lock is in (a holder rewrites the
+--- operation when it moves from configure to build, so recovery
 --- knows which step was interrupted). No-op unless this process holds the
 --- lock of `build_dir`.
 --- @param build_dir string|nil
@@ -216,7 +216,7 @@ end
 function M.release(handle)
     -- Idempotent: a second release (an exit hook after an explicit release)
     -- must never unlink a lockfile another process has since created — nor
-    -- one that replaced ours (reclaimed while we were suspended, §19.5).
+    -- one that replaced ours (reclaimed while we were suspended).
     if not handle or handle.released then return end
     handle.released = true
     if handle.timer then
@@ -248,7 +248,7 @@ function M.force_path(path)
 end
 
 --- Remove the lockfile at `path` if its holder is reclaimable (dead, or stale
---- where it cannot be checked, spec §19.5) and its record is still the one
+--- where it cannot be checked) and its record is still the one
 --- judged. Returns the removed record, or nil + the classified info of a
 --- holder that is not reclaimable (nil, nil: no lock).
 --- @param path string

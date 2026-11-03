@@ -21,7 +21,7 @@ local NON_TYPE_KEYS = {
     launch = true,
     variables = true,
     deploy = true,  -- project-level deploy dict, not a module-type key
-    device = true,  -- former location of the remote-execution block (spec §18.9)
+    device = true,  -- former location of the remote-execution block
 }
 
 --- Extract project type from the project definition table.
@@ -49,7 +49,7 @@ function M._extract_type(project_def)
     return found_type, found_config, nil
 end
 
---- Lift a project's `device` block (spec §18.9) out of its module section.
+--- Lift a project's `device` block out of its module section.
 --- The block lives at `projects.<p>.<type>.device` — an older lw preserves an
 --- unknown module field, but reads an unknown project-level key as a second
 --- module type and refuses the file. The former project-level location is
@@ -85,7 +85,7 @@ function M._extract_device(key, def, ptype, type_config)
     return device, type_config
 end
 
---- Lift a project's `description` (spec §1.10) out of its module section.
+--- Lift a project's `description` out of its module section.
 --- It lives at `projects.<p>.<type>.description` for the same reason as the
 --- device block (an older lw keeps an unknown module field but refuses an
 --- unknown project-level key); core owns it, so the module never sees it in
@@ -104,7 +104,7 @@ function M._extract_description(type_config)
     return description, copy
 end
 
---- Lift a project's project-wide saved test targets (`tests`, spec §1.3.4) out
+--- Lift a project's project-wide saved test targets (`tests`) out
 --- of its module section, like `description`: core owns the field and the
 --- module never sees it in `type_config`. Returns the raw value and a copy of
 --- `type_config` without it (the raw table is never mutated).
@@ -213,7 +213,7 @@ function M.validate(raw, root)
             end
         end
 
-        -- Device blocks (spec §18.9) and launch-level device_log options (§18.13).
+        -- Device blocks and launch-level device_log options.
         do
             local man = require("loomworks.remote.manifest")
             local ok, derr = man.validate_block(device, "project '" .. key .. "'")
@@ -383,10 +383,10 @@ function M.validate(raw, root)
         end
     end
 
-    -- Configuration-set descriptions live in a top-level sidecar (spec §1.10):
+    -- Configuration-set descriptions live in a top-level sidecar:
     -- a set's own table is a flat project -> configuration map. Entries are
     -- kept as read (a non-string value is ignored by the set but written back
-    -- unchanged, spec §1.10); a non-table sidecar is ignored.
+    -- unchanged); a non-table sidecar is ignored.
     local set_descriptions = nil
     if type(raw.configuration_set_descriptions) == "table" then
         for set_name, text in pairs(raw.configuration_set_descriptions) do

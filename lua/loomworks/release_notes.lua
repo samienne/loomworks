@@ -1,10 +1,9 @@
---- loomworks/release_notes.lua — the release notes reader and renderer
---- (spec §16.37).
+--- loomworks/release_notes.lua — the release notes reader and renderer.
 ---
 --- PURE: text in, tables / lines out. No `require`, no I/O, no `vim`, no
 --- globals beyond the Lua builtins below — a host loads this file from a newly
 --- installed bundle into a sandbox (boot/whats_new.lua) to render self-update's
---- "what's new" lines (§16.32), so it must stay free of every dependency.
+--- "what's new" lines, so it must stay free of every dependency.
 --- Finding the file, the running version and the last-seen record live in
 --- loomworks/release_notice.lua.
 ---
@@ -275,7 +274,7 @@ end
 
 --- The entries visible to a run of `running` (nil = a development source),
 --- newest first. An Unreleased entry is copied with `version = running` when
---- the running version is a pre-release (§16.37 "Visible entries").
+--- the running version is a pre-release.
 --- @param doc table parse() result
 --- @param running string|nil
 --- @return table[]
@@ -308,7 +307,7 @@ local function newer_than(e, v)
   return M.compare(e.version, v) > 0
 end
 
---- Select entries (§16.37 "Command"). `sel`:
+--- Select entries. `sel`:
 ---   { kind = "default" } | { kind = "count", n = N } | { kind = "all" }
 ---   | { kind = "version", version = V } | { kind = "since", version = V }
 --- Returns { running, entries, more, since? } or nil, message.
@@ -434,7 +433,7 @@ function M.render(res, opts)
   return out
 end
 
---- The `--json` document (§16.37). `null` is the JSON null sentinel of the
+--- The `--json` document. `null` is the JSON null sentinel of the
 --- caller's encoder (vim.NIL).
 function M.to_json(res, null)
   local entries = {}
@@ -456,7 +455,7 @@ function M.to_json(res, null)
   return { schema = 1, running = res.running or null, entries = entries, more = res.more or 0 }
 end
 
---- Self-update's "what's new" block (§16.32): per release after `from` up to
+--- Self-update's "what's new" block: per release after `from` up to
 --- `to` (newest first), the version, its summary and its Breaking / Upgrade
 --- notes items; at most `opts.max` releases. Empty when nothing is newer.
 --- opts: width (nil: no wrapping), max, items.

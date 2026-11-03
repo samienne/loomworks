@@ -46,8 +46,8 @@ function M.expand_dict(dict, ctx)
     return result
 end
 
---- The host directory of a resolved build target's artifact (spec §8.7
---- `${target_dir}`), or nil while it is not known: no artifact, no build
+--- The host directory of a resolved build target's artifact
+--- (`${target_dir}`), or nil while it is not known: no artifact, no build
 --- directory, or a unit not configured on this machine.
 --- @param target loomworks.Target|nil
 --- @param unit loomworks.ConfigUnit|nil the unit the target belongs to (fallback)
@@ -73,7 +73,7 @@ end
 --- Build a launch expansion context from workspace state.
 --- `opts.target` is the build target the thing being run resolves to (a
 --- target-backed launch's, a default target's, a saved entry's, a named test
---- target's): it defines `${target_dir}` (spec §8.7), absent otherwise — so
+--- target's): it defines `${target_dir}`, absent otherwise — so
 --- a reference to it is unresolved, never empty.
 --- @param ws loomworks.Workspace
 --- @param profile loomworks.Profile
@@ -119,7 +119,7 @@ function M.launch_context(ws, profile, project, opts)
         local family = require("loomworks.cpp_compilers").family_from_tool_data(tool_data)
         local variables = require("loomworks.variables")
         -- The launch context resolves within the active profile, so its
-        -- blank-variable fill values (§1.3.1) apply. A still-blank value is
+        -- blank-variable fill values apply. A still-blank value is
         -- skipped (left out of the context).
         local resolved = variables.resolve(project, configuration, family, profile)
         for name, entry in pairs(resolved) do
@@ -135,7 +135,7 @@ end
 
 --- Return the sorted list of `${name}` references in a string that cannot be
 --- resolved from `ctx` nor from the process environment. These are the
---- "undeclared variable" references (core §1.3.1) — a `${name}` that is
+--- "undeclared variable" references — a `${name}` that is
 --- neither a built-in, a declared project variable (both provided via `ctx`),
 --- nor an environment variable. Callers use this to raise a diagnostic rather
 --- than let the reference expand to a literal `${name}`.

@@ -1,7 +1,7 @@
---- loomworks/lock_break.lua — `--break-locks` (spec §19.5): recover a lock
+--- loomworks/lock_break.lua — `--break-locks`: recover a lock
 --- whose holder is hung, or live and responsive, on this host.
 ---
----   1. Ask   — the interrupt an `lw` holder handles (§16.6), then wait about
+---   1. Ask   — the interrupt an `lw` holder handles, then wait about
 ---              ASK_MS for it to let go (skipped by `--break-locks=now`, and on
 ---              Windows where another console's process cannot reliably be
 ---              interrupted).
@@ -9,9 +9,9 @@
 ---   3. Verify that no process with the holder's id and start time remains.
 --- The caller then acquires as usual: the record of a holder that is gone
 --- classifies as dead and is reclaimed only if it still carries the observed
---- nonce (§19.5 step 4), and the reclaim's state recovery (step 5) runs.
+--- nonce, and the reclaim's state recovery runs.
 ---
---- Limits (§19.5): never another host, never an editor holder, never a holder
+--- Limits: never another host, never an editor holder, never a holder
 --- whose start time is unknown (a reused process id must never be signalled),
 --- never this process. Every kill is reported through `opts.report`.
 
@@ -74,7 +74,7 @@ function M.can_break(info, ctx)
     return M.verify_identity(info, ctx)
 end
 
---- Is the process a lock record names really such a holder (spec §19.5)?
+--- Is the process a lock record names really such a holder?
 --- A record is data from a shared directory: one naming an unrelated process
 --- of this user (its id and start time are easy to read) must never get it
 --- killed. The holder's command line must be an `lw` host — for a daemon

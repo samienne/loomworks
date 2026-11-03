@@ -1,5 +1,4 @@
---- loomworks/cli_color.lua — whether, and how, `lw` colors its own lines
---- (spec §16.7 *Highlighting*).
+--- loomworks/cli_color.lua — whether, and how, `lw` colors its own lines.
 ---
 --- Every line the CLI prints on its own behalf has a ROLE (the invocation's
 --- lead line, a step header, a configure reason, a printed command, a success
@@ -37,8 +36,8 @@ M.SGR = {
   cyan = "36",
 }
 
---- Role → SGR parameters. `phase` is a step header (`==> [<kind>] <name>`,
---- spec §16.7): its arrow gets `phase_arrow`, the rest `phase`. `plain` is
+--- Role → SGR parameters. `phase` is a step header (`==> [<kind>] <name>`):
+--- its arrow gets `phase_arrow`, the rest `phase`. `plain` is
 --- false: a line with a role that is never colored.
 M.ROLES = {
   lead = M.SGR.bold,
@@ -52,7 +51,7 @@ M.ROLES = {
 }
 local PHASE_ARROW = M.SGR.bold .. ";" .. M.SGR.cyan
 
---- The step-header arrow (spec §16.7). Headers are built with `header`, so the
+--- The step-header arrow. Headers are built with `header`, so the
 --- arrow is the one piece the painter places by structure, not by text.
 M.ARROW = "==>"
 

@@ -71,7 +71,7 @@ function M.absolute_build_dir(rel_key, root)
     return root .. "/.nvim/" .. rel_key
 end
 
---- The id of a ConfigUnit in a build directory (spec §1.7 "Unit identity"),
+--- The id of a ConfigUnit in a build directory,
 --- which keys its `build_dirs` entry: the relative directory, or — in a
 --- module's shared tree — the directory, `#`, and the unit's config_key.
 --- Ids are built here and never parsed.
@@ -113,8 +113,7 @@ local function migrate_v7_to_v8(raw)
     return true
 end
 
---- Version 8 → 9 (spec three-file-model §2.3 "Version 9; migration from
---- 8"). Version 9 keys a shared tree's entries by unit id; which version 8
+--- Version 8 → 9. Version 9 keys a shared tree's entries by unit id; which version 8
 --- entry belongs to a shared tree is only known once units are matched to
 --- entries, so this marks the cache and `data_model` moves each matched
 --- shared-tree entry (`_v8_moved`: entry table → true once moved). The mark
@@ -132,7 +131,7 @@ end
 --- Returns defaults on invalid content. Second return value is true when a
 --- version mismatch was detected (valid JSON but wrong version number); the
 --- third is the file's `_meta` when that mismatch is a NEWER schema than this
---- version understands (spec §2.7: such a file is never rewritten).
+--- version understands (such a file is never rewritten).
 --- Applies transparent migrations for recent schema bumps (see
 --- `migrate_v7_to_v8`).
 --- @param content string raw JSON content
@@ -200,7 +199,7 @@ function M.load(root)
 end
 
 --- Save cache for a workspace. Stamps the schema and the writer's loomworks
---- version (`_meta.written_by`, spec §2.7).
+--- version (`_meta.written_by`).
 --- @param root string
 --- @param data loomworks.CacheData
 --- @return boolean ok, string|nil err, string|nil sign_err, string|nil written exact bytes written
@@ -214,7 +213,7 @@ function M.save(root, data)
     local ok, dir_err = io_mod.ensure_dir(dir)
     if not ok then return false, "mkdir: " .. (dir_err or "unknown") end
 
-    -- Signed with the machine key (spec §17.3).
+    -- Signed with the machine key.
     return io_mod.write_json_signed(M.filepath(root), "cache", data)
 end
 

@@ -1,5 +1,5 @@
 --- loomworks/integrations/inventory/qmlls.lua — qmlls's environment-inventory
---- companion (qmlls §10, core §9.3 / §16.33).
+--- companion.
 ---
 --- Host-neutral half of `integrations/lsp/qmlls.lua` (which registers a
 --- filetype at load). Search path (version from `qmlls --version`) and the
@@ -10,7 +10,7 @@ local M = {}
 
 --- Languages this tool serves: a plain `lw health` lists it only in a workspace
 --- with one of them (or, for a language server, one whose modules name it in
---- `lsp_servers`) — core §16.36.
+--- `lsp_servers`).
 M.languages = { "qml" }
 
 --- @param _ctx loomworks.InventoryContext

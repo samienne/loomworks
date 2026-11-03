@@ -1,5 +1,5 @@
 --- loomworks/trust.lua — Machine signatures for loomworks-written workspace
---- state (spec §17).
+--- state.
 ---
 --- A workspace directory may come from anywhere (a clone, an archive, a copy
 --- from another machine), so the `.nvim/` files inside it are untrusted input
@@ -10,7 +10,7 @@
 --- per-user data directory, never in a repository. A file whose signature does
 --- not verify was not written by loomworks on this machine (it was copied in,
 --- edited by hand, or written by an earlier loomworks) and is not used until
---- the user decides (spec §17.4).
+--- the user decides.
 ---
 --- File format. The signature is the FIRST member of the top-level object, on
 --- its own line, exactly:
@@ -183,8 +183,7 @@ local function data_dir()
     return ((env("HOME") or env("USERPROFILE") or "."):gsub("\\", "/")) .. "/.local/share/loomworks"
 end
 
---- The per-user data directory (also the default home of the device locks,
---- spec §18.7).
+--- The per-user data directory (also the default home of the device locks).
 --- @return string
 function M.data_dir()
     return data_dir()
@@ -232,7 +231,7 @@ M._force_posix_owner_check = nil
 
 --- POSIX: is `path` (a `kind` "directory" or "file") owned by this
 --- process's effective uid and not writable by group or others, by lstat (a
---- link is refused)? (spec formats.md §2.1). A missing path passes only with
+--- link is refused)? A missing path passes only with
 --- `may_miss`. Returns true, or nil + an error naming the path. Windows: true
 --- (the per-user local application-data directory is already private).
 --- @param path string
@@ -272,7 +271,7 @@ end
 function M.key(create)
     local path = M.key_path()
     if _key_cache and _key_cache.path == path then return _key_cache.key end
-    -- POSIX (formats.md §2.1): the key and its directory are owned by the
+    -- POSIX: the key and its directory are owned by the
     -- effective uid and not group/other-writable — else an error naming the
     -- file; a root process with the user's $HOME neither uses nor creates
     -- the user's key.

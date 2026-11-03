@@ -35,7 +35,7 @@ end
 function TestUnit:discover_async(callback) end
 
 --- Construct a command to run a specific test. `opts.output_path` names the
---- results file the harness writes (a per-run path, spec §19.15 "Tests");
+--- results file the harness writes (a per-run path);
 --- without it the TestUnit picks its own (a fixed path in the build
 --- directory). `opts.gtest_filter` narrows a target or suite's run.
 --- @param test_id string
@@ -60,7 +60,7 @@ function TestUnit:test_command_all(opts) end
 --- runner's own fixed location, which the caller copies to the request).
 --- `opts.profile` is the profile the run is for — its blank-variable fills
 --- resolve the configuration environment (nil = the active profile).
---- `opts.no_rebuild` (`lw test --no-build`, spec §16.16) asks a runner that
+--- `opts.no_rebuild` (`lw test --no-build`) asks a runner that
 --- rebuilds its targets (`run_command_all_rebuilds`) not to; one that honours
 --- it returns `no_rebuild = true`, else its step is refused. A runner that
 --- does not rebuild ignores it.

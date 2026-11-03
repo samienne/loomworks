@@ -97,7 +97,7 @@ local function output_looks_like_gtest(output)
 end
 
 --- Whether list-probe output (`--gtest_list_tests`) looks like gtest's. Public
---- for probes executed elsewhere (a device run, spec §18.6).
+--- for probes executed elsewhere (a device run).
 --- @param output string
 --- @return boolean
 M.looks_like_gtest = output_looks_like_gtest
@@ -143,7 +143,7 @@ local function summarise_result(result)
 end
 
 --- Discovery probes execute the binary: a foreign one (its header names a
---- format/architecture the host cannot run) is never probed (spec §18.1).
+--- format/architecture the host cannot run) is never probed.
 --- Returns the diagnostic when refused, else nil.
 --- @param executable string
 --- @return string|nil
@@ -366,7 +366,7 @@ local function strip_cdata(text)
 end
 
 --- The most a test case keeps of each captured text (its failure message, its
---- output), in bytes (spec §8.9). An assertion failing in a loop can write a
+--- output), in bytes. An assertion failing in a loop can write a
 --- results file of hundreds of MB; past the cap a capture is cut, at a line
 --- boundary where one exists, and ends with a truncation marker.
 M.MAX_CAPTURED_BYTES = 1024 * 1024

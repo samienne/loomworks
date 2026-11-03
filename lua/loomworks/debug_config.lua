@@ -4,7 +4,7 @@
 ---
 --- Host-neutral (pure Lua, no `vim.*`): the editor's debug path and section
 --- read it in-process today, and the workspace daemon serves the same tables
---- (`DebugConfig/1`, step 5k). Starting a debug session (nvim-dap) is the
+--- (`DebugConfig/1`). Starting a debug session (nvim-dap) is the
 --- editor's: loomworks/debug.lua.
 
 local M = {}
@@ -61,8 +61,8 @@ function M.known_languages()
     return langs
 end
 
---- Every language a module or integration declares (spec §8.9.6
---- "Language-based adapter resolution"; `DebugConfig/1.known_languages`):
+--- Every language a module or integration declares
+--- (`DebugConfig/1.known_languages`):
 --- the languages with a default adapter, and those of the workspace's
 --- modules (`Module.languages`), sorted.
 --- @param workspace loomworks.Workspace|{ _modules?: { languages?: string[] }[] }
@@ -101,8 +101,8 @@ function M.module_languages(workspace)
     return langs
 end
 
---- The workspace's debug-adapter mapping (`DebugConfig/1.adapters`, API.md
---- §12): one record per language of the workspace's modules
+--- The workspace's debug-adapter mapping (`DebugConfig/1.adapters`): one
+--- record per language of the workspace's modules
 --- (`Module.languages`), sorted; none when no module declares a language. A
 --- language with only a default adapter and no module gets no record
 --- (workspace_languages has those). Each record: the adapter in effect

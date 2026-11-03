@@ -1,5 +1,5 @@
 --- loomworks/integrations/inventory/clangd.lua — clangd's environment-inventory
---- companion (clangd §14, core §9.3 / §16.33).
+--- companion.
 ---
 --- Host-neutral: the editor integration (`integrations/lsp/clangd.lua`) needs
 --- editor facilities at load, so its inventory declaration lives here where the
@@ -12,7 +12,7 @@ local M = {}
 
 --- Languages this tool serves: a plain `lw health` lists it only in a workspace
 --- with one of them (or, for a language server, one whose modules name it in
---- `lsp_servers`) — core §16.36.
+--- `lsp_servers`).
 M.languages = { "c", "c++" }
 
 --- @param _ctx loomworks.InventoryContext

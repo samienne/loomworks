@@ -20,13 +20,13 @@ M.RESERVED_NAMES = {
 }
 
 --- Built-ins defined only in a launch context that resolves a build target
---- (spec §8.7 `${target_dir}`): reserved, but unresolved in configure options
+--- (`${target_dir}`): reserved, but unresolved in configure options
 --- and other contexts outside a launch.
 M.LAUNCH_ONLY_NAMES = {
     target_dir = true,
 }
 
---- Pre-declared policy variables (core §1.3.2). Unlike `RESERVED_NAMES`, these
+--- Pre-declared policy variables. Unlike `RESERVED_NAMES`, these
 --- are NOT expandable built-ins — they are core-owned *policy* names that ride
 --- the ordinary override machinery. A pre-declared name:
 ---   * cannot be *declared* or re-typed by a project `variables` block
@@ -38,7 +38,7 @@ M.PREDECLARED_NAMES = {
     cache = true,
 }
 
---- Names reserved as override NAMESPACES (spec §1.3.1 / §1.3.3). `env` inside
+--- Names reserved as override NAMESPACES. `env` inside
 --- a compiler-family `overrides` block is the environment sub-block
 --- (`overrides.<family>.env.<NAME>`), so a project variable may not be
 --- declared with that name — it would be ambiguous there. Not an expansion
@@ -53,7 +53,7 @@ local VALID_TYPES = {
 }
 
 --- Validate project-level variable declarations.
---- Only `type` is required; `default` is OPTIONAL (core §1.3.1). A declaration
+--- Only `type` is required; `default` is OPTIONAL. A declaration
 --- with no `default` — and no configuration/compiler override, and no
 --- active-profile fill — is *blank*: it has a type but no value, and must be
 --- filled by the active profile before a build that references it can run.
@@ -99,7 +99,7 @@ function M.validate_overrides(overrides, declarations)
             return false, "variable override '" .. name
                 .. "' is not declared in project variables"
         end
-        -- A pre-declared policy variable (§1.3.2, e.g. `cache`) may carry a
+        -- A pre-declared policy variable (e.g. `cache`) may carry a
         -- boolean `false` (== policy "off"); a normal variable must be a string.
         if M.PREDECLARED_NAMES[name] then
             if type(value) ~= "string" and type(value) ~= "boolean" then
@@ -120,9 +120,9 @@ end
 M.KNOWN_FAMILIES = require("loomworks.cpp_compilers").KNOWN_FAMILIES
 
 --- Validate a configuration's compiler-family `overrides` block against the
---- project's variable declarations (core §1.3.1). Shape is
+--- project's variable declarations. Shape is
 --- `family → { name → value, env? = { NAME → value } }` — the `env` key is
---- the family's environment sub-block (core §1.3.3): a map of string values,
+--- the family's environment sub-block: a map of string values,
 --- exempt from the declared-name rule. Every overridden `name` MUST be declared in
 --- the project `variables` — this is enforced at edit time so a bad block
 --- never reaches the working copy. Unknown family keys are NOT rejected here;
@@ -201,8 +201,8 @@ end
 --- (most-specific → least); the project `default` is the final fallback.
 --- Within a single chain level a matching `overrides[active_family][name]`
 --- wins over the compiler-agnostic `variables[name]`; chain position
---- dominates compiler-specificity (core §1.3.1).
---- The final fallback (core §1.3.1) is the **active profile's fill value**:
+--- dominates compiler-specificity.
+--- The final fallback is the **active profile's fill value**:
 --- when a variable is still blank after the config chain and the project
 --- `default`, the profile (if given) supplies its per-machine value. This is
 --- consulted ONLY for a blank — a profile value never shadows a value the
@@ -258,7 +258,7 @@ function M.resolve(project, configuration, active_family, profile)
 end
 
 --- Report the declared variables of a (project, configuration) pair that are
---- **blank** (core §1.3.1) — no default, no configuration/compiler override,
+--- **blank** — no default, no configuration/compiler override,
 --- and (if a profile is given) no active-profile fill value. Drives the build
 --- gate (`Profile:assert_buildable`) and the profile-scoped diagnostic.
 --- @param project loomworks.Project
@@ -319,7 +319,7 @@ function M._search_override(config, name, active_family, visited)
 end
 
 --- Resolve the effective compiler-cache **policy** for a (project, configuration)
---- pair (core §1.3.2). `cache` is a pre-declared policy variable that rides the
+--- pair. `cache` is a pre-declared policy variable that rides the
 --- ordinary override machinery: it is resolved through the configuration
 --- inheritance chain and compiler-family `overrides` (via `_search_override`),
 --- then the active profile's fill value, and finally the built-in `auto`

@@ -116,7 +116,7 @@ local ASCII_FOLD = {
     ["\226\128\157"] = '"',   -- ”
 }
 
---- Fold the report glyphs in `s` to ASCII (`lw health`, spec §16.31: its
+--- Fold the report glyphs in `s` to ASCII (`lw health`: its
 --- output must read in any console code page). The strings themselves stay
 --- Unicode for the editor, which renders them itself.
 --- @param s string

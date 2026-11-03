@@ -634,8 +634,8 @@ end
 
 --- Whether a resolved tool builds with the **MSVC ABI** — plain MSVC (`cl`) or
 --- clang-cl. clang-cl uses cl.exe's command line and PDB/`/Z7` debug model, so
---- callers that must treat it like MSVC — the compiler-cache `auto` rule (core
---- §1.3.2: no launcher under `auto`), cmake's `/Z7` + CMP0141 injection and the
+--- callers that must treat it like MSVC — the compiler-cache `auto` rule (no
+--- launcher under `auto`), cmake's `/Z7` + CMP0141 injection and the
 --- post-configure `/Zi` scan — use this
 --- rather than `family_from_tool_data`, which folds clang-cl → `clang` (correct
 --- for compiler-family *overrides*, wrong for the MSVC-ABI decisions here).
@@ -653,7 +653,7 @@ function M.is_msvc_style(tool_data)
 end
 
 -- ---------------------------------------------------------------------------
--- Compiler-cache compatibility: PDB-writing debug flags (cmake §5d, meson §5a)
+-- Compiler-cache compatibility: PDB-writing debug flags
 -- ---------------------------------------------------------------------------
 
 --- MSVC-style debug-info options that write to a SHARED program database
@@ -688,8 +688,8 @@ function M.pdb_scan_add(acc, group, flag, source)
     if source and #g.sample < 3 then g.sample[#g.sample + 1] = source end
 end
 
---- Turn a scan accumulator into `cache_compat_scan` findings (module interface
---- §8), sorted by group. Severity is "error" for sccache (it fails those
+--- Turn a scan accumulator into `cache_compat_scan` findings, sorted by
+--- group. Severity is "error" for sccache (it fails those
 --- compiles) and "warning" otherwise (ccache compiles them uncached).
 --- @param acc table from `pdb_scan_add`
 --- @param tool string|nil applied launcher name
@@ -715,9 +715,9 @@ end
 --- No compile-command listing shows them.
 local MSVC_FLAG_ENV_VARS = { "CL", "_CL_" }
 
---- `cache_compat_scan` findings (module interface §8) for PDB-writing debug
+--- `cache_compat_scan` findings for PDB-writing debug
 --- flags that reach every compile through the configuration environment's
---- `CL` / `_CL_` (cmake §5d, meson §5a): one finding per offending variable,
+--- `CL` / `_CL_`: one finding per offending variable,
 --- `group = "environment"`, no unit count (it applies to every compile),
 --- `sample` naming the variable. The lookup is case-insensitive (Windows
 --- environment names are). Severity as `pdb_scan_findings`.
@@ -750,7 +750,7 @@ function M.pdb_env_findings(env, tool)
 end
 
 --- Environment-inventory declaration for the GNU-driver compilers on PATH
---- (headless §16.33, cmake §13 `compilers:path`), shared by every module that
+--- (`compilers:path`), shared by every module that
 --- builds C/C++ so the scan is probed once. It IS the kit detection
 --- (`detect_async`), so a compiler it reports is exactly one a kit could be
 --- built from: one result per compiler, id `cxx:<normalized C++ driver path>`,

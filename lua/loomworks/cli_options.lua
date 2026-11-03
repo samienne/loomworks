@@ -1,6 +1,5 @@
 --- loomworks/cli_options.lua — the options each `lw` command knows, so an
---- unknown one is a usage error instead of being silently ignored (spec §16.7,
---- "Unknown options").
+--- unknown one is a usage error instead of being silently ignored.
 ---
 --- The tables mirror the command parsers in cli.lua; keep them in step when a
 --- parser gains an option (tests/cli_unknown_options_spec.lua pins the rules).
@@ -15,7 +14,7 @@
 ---   valued     options that take a value: the next token, or joined as
 ---              `--opt=value` (split at the first `=`, `normalize`). The value
 ---              is required: the last token, `--` or a token starting with
----              `--` is not one (spec §16.7 "Option values");
+---              `--` is not one;
 ---   eq         prefixes accepted as `--opt=value` on an option that is not
 ---              valued (a flag with an optional value, e.g. "--print=");
 ---   one        extra groups of options that hold one value between them
@@ -48,8 +47,8 @@ local function set(list)
   return s
 end
 
---- Valued options that may be given more than once (spec §16.7 "Option
---- values"): every other valued option holds one value.
+--- Valued options that may be given more than once: every other valued option
+--- holds one value.
 M.REPEATABLE = set({ "--env", "--unset-env", "--description", "-m", "--message", "--prefix", "--target",
   "--log" })
 
@@ -83,8 +82,8 @@ end
 local NONE = spec({})
 local PERMISSIVE = spec({ permissive = true })
 
--- Device options (DEV.parse_device_opt, spec §16.34) on run / test, plus
--- `--break-locks[=now]` (spec §19.5), accepted by every command that takes a
+-- Device options (DEV.parse_device_opt) on run / test, plus
+-- `--break-locks[=now]`, accepted by every command that takes a
 -- build-directory or device lock and stripped by the dispatcher after this
 -- check (loomworks.lock_break).
 local DEVICE_FLAGS = { "--fresh", "--no-wait", "--break-locks" }
@@ -98,15 +97,15 @@ local function concat(...)
   return r
 end
 
--- Sub-commands that take the workspace operation lock (spec §19.3).
+-- Sub-commands that take the workspace operation lock.
 local OPLOCK = spec({ flags = BREAK, eq = BREAK_EQ })
 
--- `-m <para>` on item-creating verbs (M._extract_create_paras, §16.35).
+-- `-m <para>` on item-creating verbs (M._extract_create_paras).
 local CREATE = spec({ valued = { "-m", "--message" }, eq = { "-m=", "--message=" } })
 local CREATE_PROFILE = spec({ flags = { "--activate", "-a" }, valued = { "-m", "--message" },
   eq = { "-m=", "--message=" } })
 -- `describe` text sources (M._describe_parse). A lone `-` is an operand (stdin).
--- `-m ""` clears the description, like `--clear` (§16.35).
+-- `-m ""` clears the description, like `--clear`.
 local DESCRIBE = spec({ flags = { "-e", "--edit", "--clear", "--json" },
   valued = { "-m", "--message", "-F", "--file" }, eq = { "-m=", "--message=" },
   empty_ok = { "-m", "--message" } })
@@ -135,13 +134,13 @@ M.COMMANDS = {
   unlock = spec({ flags = { "--all", "--force", "--workspace", "--journal" }, valued = { "--device" } }),
   profiles = NONE,
   publish = spec({ flags = BREAK, eq = BREAK_EQ }),
-  -- `lw export` / `lw import` (§16.39). A lone `-` is an operand (stdout/stdin).
+  -- `lw export` / `lw import`. A lone `-` is an operand (stdout/stdin).
   export = spec({ flags = { "--published", "--no-profiles" }, valued = { "-o", "--output" },
     eq = { "--output=" } }),
   import = spec({ flags = { "-y", "--yes", "-n", "--dry-run", "--take-name", "--break-locks" }, eq = BREAK_EQ }),
   status = spec({ flags = { "--check", "--cache-stats" } }),
   -- `--force` / `--refresh` predate health re-checking everything; kept as no-ops.
-  -- Positional words are health areas (§16.36).
+  -- Positional words are health areas.
   health = spec({ flags = { "--json", "--verbose", "-v", "--all", "--force", "--refresh" } }),
   init = spec({ valued = { "--name" } }),
   tools = spec({ flags = { "--cached" } }),
@@ -187,7 +186,7 @@ M.COMMANDS = {
     default = NONE,
   },
   workspace = { subs = { rename = NONE }, aliases = { mv = "rename" }, default = NONE },
-  -- `lw daemon <sub>` (spec §19.11; list and --all §19.6.1).
+  -- `lw daemon <sub>`.
   daemon = {
     subs = { status = NONE,
       list = spec({ flags = { "--json" }, valued = { "--under" }, eq = { "--under=" } }),
@@ -263,7 +262,7 @@ M.COMMANDS = {
     aliases = { create = "add", edit = "set", rm = "remove", mv = "rename" },
     default = NONE,
   },
-  -- `lw test-target` (spec §16.9): args after `--` (add) are the entries' own.
+  -- `lw test-target`: args after `--` (add) are the entries' own.
   ["test-target"] = {
     subs = {
       list = NONE,
@@ -296,13 +295,13 @@ M.ALIASES = {
 
 --- Commands answered by the host (or, in the nvim-hosted fallback, by a short
 --- "standalone binary only" note) rather than by a COMMANDS entry. `update` is
---- the removed command that still names its replacements (§16.24).
+--- the removed command that still names its replacements.
 M.HOST_COMMANDS = {
   version = true, ["-v"] = true, ["--version"] = true, ["self-update"] = true,
   install = true, bootstrap = true, update = true,
 }
 
---- Is `name` a command lw knows (spec §16.7 "Unknown commands")? Covers the
+--- Is `name` a command lw knows? Covers the
 --- COMMANDS table, its aliases, the host commands and the help spellings.
 --- `profiles` is in COMMANDS; `status` too.
 --- @param name string
@@ -314,7 +313,7 @@ function M.is_command(name)
   return M.COMMANDS[M.ALIASES[name] or name] ~= nil
 end
 
---- The global options (spec §16.7): known to every command, recognised
+--- The global options: known to every command, recognised
 --- before the command and among its own arguments, never after `--` nor in a
 --- program's arguments (see `own_end`). None takes a separate value: the
 --- valued ones are spelled `--dev=<path>` and `--color=<when>` (a bare
@@ -337,7 +336,7 @@ local function split_eq(s, v)
   return nil
 end
 
---- Is `v` not a value for a valued option (spec §16.7 "Option values")?
+--- Is `v` not a value for a valued option?
 local function not_a_value(v)
   return v == nil or v:sub(1, 2) == "--"
 end
@@ -397,7 +396,7 @@ local function walk(argv)
     held[key] = prev or o
   end
   -- An empty value is a usage error except where "" clears (a launch edit's
-  -- `--working-dir ""` / `--description ""`, spec §16.7 "Option values").
+  -- `--working-dir ""` / `--description ""`).
   local function check_empty(o, val)
     if val == "" and not s.empty_ok[o] then
       problem = problem or ("option '" .. o .. "' for `lw " .. label .. "` needs a non-empty value")
@@ -455,7 +454,7 @@ end
 --- global options already removed): the index of the first token that
 --- belongs to a program or a native tool — the first `--`, or the program
 --- arguments after `launch add`'s command — or #argv + 1. Global
---- options are recognised only before it (spec §16.7); on `launch set` and the
+--- options are recognised only before it; on `launch set` and the
 --- set-value commands that is up to `--`, which escapes an argument or value
 --- spelling a global option.
 --- @param argv string[]
@@ -468,9 +467,9 @@ end
 --- Split the raw command line into the global options and the rest: global
 --- options before the command and among the command's own arguments
 --- (`own_end`) are taken out; everything after — a program's arguments, the
---- tail after `--` — is left untouched (spec §16.7).
+--- tail after `--` — is left untouched.
 --- Also returns the first option-value problem among the command's own
---- arguments (spec §16.7 "Option values"), found before the global options
+--- arguments, found before the global options
 --- are taken out, so `--working-dir --no-input` is a missing value rather
 --- than a directory named after the token that follows.
 --- @param raw string[]
@@ -496,8 +495,8 @@ end
 
 --- `argv` (globals already taken out) with every `--opt=value` token of a
 --- valued option among lw's own arguments split into `--opt`, `value` (at the
---- first `=`), so a handler only sees the separate form (spec §16.7 "Option
---- values"). Nothing at or after `own_end` is touched.
+--- first `=`), so a handler only sees the separate form. Nothing at or after
+--- `own_end` is touched.
 --- @param argv string[]
 --- @return string[]
 function M.normalize(argv)

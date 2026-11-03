@@ -1,5 +1,5 @@
---- Safety checks for removing module-owned LSP databases (spec §4.6 *Owned
---- LSP database cleanup*, §8.4 `lsp_database_root` / `lsp_database_dir`).
+--- Safety checks for removing module-owned LSP databases (the module's
+--- `lsp_database_root` / `lsp_database_dir`).
 ---
 --- A module that owns an LSP database (e.g. cmake's generated
 --- compile_commands.json) keeps it under `<root>/.nvim/cache/<area>/…`, a
@@ -7,7 +7,7 @@
 --- checks (no deletion itself): callers delete only what these functions
 --- approve, with the link-safe `io.rm_rf` / `io.rm_rf_async`.
 ---
---- Rules enforced here (spec §4.6 rules 3–5):
+--- Rules enforced here:
 ---   * nil / empty root, area segment or mirror → nothing to remove;
 ---   * the area segment is one plain path segment (no separators, not `.`
 ---     or `..`, no drive colon);
@@ -120,8 +120,8 @@ local function check_parents(root, seg)
     return "ok"
 end
 
---- Check a module's whole owned-database area for the nuke (spec §4.6 last
---- paragraph, ui §1.11 check 4): the target must be exactly the direct child
+--- Check a module's whole owned-database area for the nuke: the target must
+--- be exactly the direct child
 --- `<root>/.nvim/cache/<seg>` and neither it, `.nvim/cache` nor `.nvim` may be
 --- a link or junction; its realpath must lie under `.nvim`'s.
 --- @param root string|nil absolute workspace root
@@ -148,7 +148,7 @@ function M.check_area(root, seg, normalize)
     return "ok", area
 end
 
---- Check one build directory's owned-database mirror (spec §4.6 rules 3–5).
+--- Check one build directory's owned-database mirror.
 --- @param root string|nil absolute workspace root
 --- @param seg string|nil the module's `lsp_database_root`
 --- @param mirror string|nil the module's `lsp_database_dir(ctx)` result

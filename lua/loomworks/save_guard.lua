@@ -1,5 +1,5 @@
 --- loomworks/save_guard.lua — concurrent-writer guard for the `.nvim/` state
---- files (spec §2.7).
+--- files.
 ---
 --- Several processes write the same working copy and build cache: the editor,
 --- CLI invocations, a background process, and older loomworks versions. A save
@@ -14,7 +14,7 @@
 ---     rewrites `_meta` without it). The comparison is a plain string compare.
 ---   * Write lock — `<file>.lock`, an O_EXCL create held only around the
 ---     re-read + merge + write (milliseconds), carrying the common lock record
----     (§19.5). No heartbeat: a dead holder's lockfile, or one older than
+---     (loomworks.lock_record). No heartbeat: a dead holder's lockfile, or one older than
 ---     `STALE_SECONDS` whose holder cannot be checked, is reclaimed by an
 ---     atomic, nonce-checked rename (as `build_lock.lua` does). A save that
 ---     cannot get the lock within `WAIT_MS` proceeds without it (the stale
@@ -34,7 +34,7 @@ M.STALE_SECONDS = 5
 --- How long a save waits for a live holder before writing without the lock.
 M.WAIT_MS = 2000
 
---- The cache's keyed maps merged per entry (spec §2.7).
+--- The cache's keyed maps merged per entry.
 M.CACHE_MAPS = { "build_dirs", "deploy_state", "device_sync" }
 
 -- ---------------------------------------------------------------------------
@@ -153,7 +153,7 @@ end
 -- Write lock
 -- ---------------------------------------------------------------------------
 
---- Files whose save lock a transaction (loomworks.txn, spec §19.4) holds for
+--- Files whose save lock a transaction (loomworks.txn) holds for
 --- its whole commit: a save inside it re-enters the lock.
 local _txn_held = {}
 
@@ -172,7 +172,7 @@ function M._hold(path) _txn_held[held_key(path)] = true end
 function M._unhold(path) _txn_held[held_key(path)] = nil end
 
 --- Take the save lock for `path` (`<path>.lock`). The lockfile holds the
---- common lock record (loomworks.lock_record, spec §19.5); its nonce is the
+--- common lock record (loomworks.lock_record); its nonce is the
 --- handle's token. Waits up to `opts.wait_ms` (default `WAIT_MS`) for a live
 --- holder; a dead holder's lock — or one older than `STALE_SECONDS` whose
 --- holder cannot be checked (another host, an older version's token) — is
@@ -254,7 +254,7 @@ function M.snapshot_cache(cache)
 end
 
 --- Merge this process's cache (`ours`) into the cache on disk (`theirs`) per
---- entry of the keyed maps (spec §2.7): an entry whose serialization differs
+--- entry of the keyed maps: an entry whose serialization differs
 --- from `snapshot` (this process changed, added or removed it since its last
 --- sync with disk) comes from `ours`; every other entry, and every top-level
 --- member this version does not write, comes from `theirs`. `_meta` is ours
