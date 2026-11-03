@@ -522,7 +522,14 @@ function Core:_load_files(root, paths, results)
             vim.log.levels.WARN)
     end
 
-    self._workspace:_start_tracking(paths)
+    -- Tracked from the bytes the model holds: a write since this load read
+    -- the files is then delivered as a change.
+    local held = self._workspace._disk_baseline
+    self._workspace:_start_tracking(paths, {
+        [paths.config] = config_content,
+        [paths.user] = held.user and held.user.text,
+        [paths.cache] = held.cache and held.cache.text,
+    })
 
     self._deps.log:info("Workspace '%s' loaded: %d projects, %d profiles",
         self._workspace.name,
