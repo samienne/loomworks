@@ -306,33 +306,6 @@ describe("a refused working copy that becomes valid loads again (§17.4)", funct
         return core, trackers, signed
     end
 
-    it(":LoomworksTrust on a working copy restored valid loads the refused workspace", function()
-        local files = {}
-        local core, _, signed = refused(files)
-        files["loomworks.json"] = h.make_config_json()
-        files["loomworks.user.json"] = signed -- restored byte-identical
-        local lw = require("loomworks")
-        local gc = lw._core()
-        local saved = { gc._deps, gc._workspace, gc._setup_error, gc._state, gc._pending_root }
-        gc._deps, gc._workspace, gc._setup_error, gc._state =
-            core._deps, nil, core:get_setup_error(), "uninitialized"
-        -- The in-process model is what reloads here: a `daemon`-mode editor
-        -- (the default) loads no model of its own (step 6b-α).
-        local saved_mode = lw._runtime_mode_config
-        lw._runtime_mode_config = "in-process"
-        local ok, res = pcall(lw.trust_user_prefs, "/root", {
-            confirm = function() error("no prompt for a valid file") end })
-        lw._runtime_mode_config = saved_mode
-        local ws, serr = gc._workspace, gc._setup_error
-        gc:shutdown()
-        gc._deps, gc._workspace, gc._setup_error, gc._state, gc._pending_root =
-            saved[1], saved[2], saved[3], saved[4], saved[5]
-        assert.is_true(ok, tostring(res))
-        assert.equals("valid", res)
-        assert.is_nil(serr)
-        assert.is_not_nil(ws)
-    end)
-
     it("a refused working copy restored on disk loads without user action", function()
         local files = {}
         local core, trackers, signed = refused(files)
@@ -399,29 +372,6 @@ describe("a refused working copy that becomes valid loads again (§17.4)", funct
         core:shutdown()
     end)
 
-    it(":LoomworksTrust on another root never replaces the refused workspace", function()
-        local files = {}
-        local core = refused(files)
-        files["loomworks.user.json"] = h.signed("user", USER) -- valid under any root
-        local lw = require("loomworks")
-        local gc = lw._core()
-        local saved = { gc._deps, gc._workspace, gc._setup_error, gc._state, gc._pending_root }
-        local refusal = core:get_setup_error()
-        gc._deps, gc._workspace, gc._setup_error, gc._state =
-            core._deps, nil, refusal, "uninitialized"
-        local ok, res = pcall(lw.trust_user_prefs, "/other", {
-            confirm = function() error("no prompt for a valid file") end })
-        local ws, serr = gc._workspace, gc._setup_error
-        gc:shutdown()
-        gc._deps, gc._workspace, gc._setup_error, gc._state, gc._pending_root =
-            saved[1], saved[2], saved[3], saved[4], saved[5]
-        core:shutdown()
-        assert.is_true(ok, tostring(res))
-        assert.equals("valid", res)
-        assert.is_nil(ws, "no workspace was loaded for the other root")
-        assert.equals(refusal, serr)
-    end)
-
     it("a valid change whose file is invalid again on disk is refused again", function()
         local files = {}
         local core, trackers, signed = refused(files)
@@ -465,7 +415,7 @@ describe("trust / discard / nuke from the CLI (§17.10)", function()
             _meta = { version = 2 },
             projects = { App = { cmake = { clangd = "C:/benign/clangd.exe" } } },
         }))
-        require("loomworks")._core()._workspace = nil
+        require("loomworks.app").core()._workspace = nil
     end)
     after_each(function() vim.fn.delete(root, "rf") end)
 
@@ -514,7 +464,7 @@ describe("trust / discard / nuke from the CLI (§17.10)", function()
         assert.is_nil(l.exit_code, l.stderr)
         -- Hand edit → modified outside loomworks.
         write(path, (read(path):gsub("benign", "benign2")))
-        require("loomworks")._core()._workspace = nil
+        require("loomworks.app").core()._workspace = nil
         local l2 = load_ws()
         assert.equals(1, l2.exit_code)
         assert.matches("modified outside loomworks", l2.stderr, 1, true)
@@ -729,7 +679,7 @@ describe("executable paths come from detection (§17.7)", function()
         assert.is_nil(table.concat(reasons or {}, "\n"):find("not detected", 1, true))
         -- ...yet running is still refused.
         local unit = ws._profiles[1]:projects()[1]._config_unit
-        assert.is_nil(require("loomworks.overseer")._exec_tool_data(unit))
+        assert.is_nil(require("loomworks.task_plan")._exec_tool_data(unit))
         local _ = ok
     end)
 
@@ -743,13 +693,13 @@ describe("executable paths come from detection (§17.7)", function()
         assert.is_false(ok)
         assert.matches("not detected on this machine", table.concat(reasons, "\n"), 1, true)
         local unit = profile:projects()[1]._config_unit
-        local ov = require("loomworks.overseer")
+        local ov = require("loomworks.task_plan")
         assert.is_nil(ov._exec_tool_data(unit))
         local notify = vim.notify
         vim.notify = function() end
-        local spec = ov.build_spec_for(unit)
+        local steps = ov.plan_unit_build(ws, unit)
         vim.notify = notify
-        assert.is_nil(spec, "no build spec from cached tool data")
+        assert.is_nil(steps, "no build plan from cached tool data")
     end)
 end)
 
@@ -862,9 +812,9 @@ describe("trust on the status page and in a build (§17.10)", function()
     local function root_dir()
         local r = tmpdir(); roots[#roots + 1] = r; return r
     end
-    before_each(function() require("loomworks")._core()._workspace = nil end)
+    before_each(function() require("loomworks.app").core()._workspace = nil end)
     after_each(function()
-        require("loomworks")._core()._workspace = nil
+        require("loomworks.app").core()._workspace = nil
         for _, r in ipairs(roots) do vim.fn.delete(r, "rf") end
         roots = {}
     end)
@@ -920,7 +870,7 @@ describe("trust on the status page and in a build (§17.10)", function()
         assert.is_nil(r.exit_code, r.stderr)
         assert.matches("Trust%s+local config signed on this machine", r.stdout)
 
-        require("loomworks")._core()._workspace = nil
+        require("loomworks.app").core()._workspace = nil
         local b = root_dir()
         write(b .. "/loomworks.json", vim.json.encode(SHARED))
         local r2 = status(b)
@@ -950,7 +900,7 @@ describe("trust on the status page and in a build (§17.10)", function()
         assert.equals("lw: 3 program settings in loomworks.json ignored — only your local config "
             .. "may name programs or environment (`lw status` lists them; lw help trust)", line)
         -- The working copy supplying one: it is used, and no longer counted.
-        require("loomworks")._core()._workspace = nil
+        require("loomworks.app").core()._workspace = nil
         write(a .. "/.nvim/loomworks.user.json", signed_user({ projects = { App = { shell = vim.empty_dict(), launch = {
             serve = { command = "C:/benign/tool.exe" } } } } }))
         local l2 = capture(function() return cli._load_workspace(a, false) end)

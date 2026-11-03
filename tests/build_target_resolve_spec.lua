@@ -83,7 +83,7 @@ local function configured(unit, targets)
 end
 
 local function with_ws(ws, fn)
-    local loomworks = require("loomworks")
+    local loomworks = require("loomworks.app")
     local orig = loomworks.get_workspace
     loomworks.get_workspace = function() return ws end
     local ok, res = pcall(fn)

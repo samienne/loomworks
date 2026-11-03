@@ -106,7 +106,7 @@ function M.units(profile, sel)
     for _, pp in ipairs(profile:projects()) do
         local unit = pp._config_unit
         local project = unit and unit._project
-        local refusal = require("loomworks.overseer").pp_refusal(pp)
+        local refusal = require("loomworks.task_plan").pp_refusal(pp)
         if refusal then
             refused[#refused + 1] = refusal
         elseif unit and project then
@@ -359,7 +359,7 @@ end
 --- @return loomworks.TestPlanSteps|nil, string|nil
 function M.prepare(ws, profile, pre, opts, deps)
     deps = deps or {}
-    local overseer = require("loomworks.overseer")
+    local task_plan = require("loomworks.task_plan")
     local test_targets = require("loomworks.test_targets")
     local launch_target = deps.launch_target or require("loomworks.run_prep").candidate_launch_target
     local plan, n_batch = pre.plan, pre.n_batch
@@ -448,7 +448,7 @@ function M.prepare(ws, profile, pre, opts, deps)
     -- is refused here, before any step runs (§8.9.2 `opts.no_rebuild`).
     local skip = {}
     for _, u in ipairs(plan) do if not u.batch or unconfigured[u] then skip[u.unit] = true end end
-    local probe = (n_batch > 0) and overseer.plan_profile_test(profile, { skip_units = skip,
+    local probe = (n_batch > 0) and task_plan.plan_profile_test(profile, { skip_units = skip,
         no_rebuild = no_build or nil }) or {}
     local batch_count = {}
     for _, st in ipairs(probe or {}) do
@@ -496,10 +496,10 @@ function M.prepare(ws, profile, pre, opts, deps)
     end
     local multi = #steps > 1
     res.junit_for = function(label)
-        return opts.junit and overseer._junit_dest_for(opts.junit, label, multi) or nil
+        return opts.junit and task_plan._junit_dest_for(opts.junit, label, multi) or nil
     end
     if n_batch > 0 then
-        local planned = overseer.plan_profile_test(profile, {
+        local planned = task_plan.plan_profile_test(profile, {
             skip_units = skip, extra_args = (#extra > 0) and extra or nil, junit = opts.junit,
             no_rebuild = no_build or nil,
             junit_dest_for = function(label) return res.junit_for(label) end,

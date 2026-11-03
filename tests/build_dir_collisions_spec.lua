@@ -61,7 +61,7 @@ local function make_core(opts)
     })
     local core = Core.new(deps)
     -- The load's notifications (loomworks.notify) go to the process core.
-    require("loomworks")._core = function() return core end
+    require("loomworks.app").core = function() return core end
     core:setup({ root = ROOT })
     return core, core:get_workspace(), user_saves
 end
@@ -94,9 +94,9 @@ local function load_errors(ws)
 end
 
 describe("build directory collisions (core §1.7, invariant 22)", function()
-    local lw = require("loomworks")
-    local orig_core = lw._core
-    after_each(function() lw._core = orig_core end)
+    local lw = require("loomworks.app")
+    local orig_core = lw.core
+    after_each(function() lw.core = orig_core end)
 
     it("two configurations of one project on one directory: the first by name keeps it", function()
         local _, ws = make_core()
@@ -197,7 +197,7 @@ describe("build directory collisions (core §1.7, invariant 22)", function()
         local profile = pp._profile
         local want = msg("out", "App", "Release", "App", "Debug")
         assert.equals(want, (pp:invalid_reason()))
-        local loomworks = require("loomworks")
+        local loomworks = require("loomworks.app")
         local orig_gw = loomworks.get_workspace
         loomworks.get_workspace = function() return ws end
         local ok, e = pcall(function()
@@ -556,9 +556,9 @@ describe("build directory collisions on disk (core §1.7)", function()
     local cli = require("loomworks.cli")
     local uv = vim.uv or vim.loop
     local is_win = vim.fn.has("win32") == 1
-    local lw = require("loomworks")
-    local orig_core = lw._core
-    after_each(function() lw._core = orig_core end)
+    local lw = require("loomworks.app")
+    local orig_core = lw.core
+    after_each(function() lw.core = orig_core end)
 
     --- Run `fn`, capturing stderr and an exit code (`die` → os.exit).
     local function run(fn)

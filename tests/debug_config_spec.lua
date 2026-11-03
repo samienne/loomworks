@@ -34,7 +34,7 @@ local function make_ws()
   capture(function() cli.cmd_cset("create", root, { "configuration-set", "create", "Dev", "App=Debug" }) end)
   capture(function() cli.cmd_profile_create(root, { "profile", "create", "Dev", "--activate" }) end)
   assert(io_mod.read_file(user_mod.filepath(root)), "make_ws: no working copy")
-  local lc = require("loomworks")._core()
+  local lc = require("loomworks.app").core()
   if lc._workspace then lc._workspace:_stop_tracking() end
   return root
 end
@@ -126,7 +126,7 @@ describe("Workspace:set_debug_adapter (§8.9.6, DebugConfig/1.set_adapter)", fun
     local ws = open_ws(root)
     -- Another process changes the working copy behind this one's back.
     capture(function() cli.cmd_configuration("add", root, "App", "Release", "variant:default") end)
-    local lc = require("loomworks")._core()
+    local lc = require("loomworks.app").core()
     if lc._workspace then lc._workspace:_stop_tracking() end
     local _, theirs = user_doc(root)
     local ok, err = ws:set_debug_adapter("c++", "cppdbg")

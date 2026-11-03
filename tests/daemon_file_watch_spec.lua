@@ -91,7 +91,7 @@ describe("the workspace daemon watches its files (§19.13 Freshness of views)", 
     end)
     after_each(function()
         if not srv.stopped then srv:stop("test end", 0) end
-        pcall(function() require("loomworks")._core():shutdown() end)
+        pcall(function() require("loomworks.app").core():shutdown() end)
         trust._set_key_path(nil)
     end)
 

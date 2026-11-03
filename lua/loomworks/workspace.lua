@@ -2471,6 +2471,31 @@ function Workspace:get_config_sets()
     return self._config_sets
 end
 
+--- The toolchain a new project of keyed module type `mod_type` inherits:
+--- the first profile with a configuration set whose tools name one for that
+--- module type. nil for a module without keyed tools, or when no profile
+--- names one.
+--- @param mod_type string module type (e.g. "cmake")
+--- @return { tool_key: string, tool_data: table, tool_label: string|nil, tool_mod_type: string }|nil
+function Workspace:inherited_tool(mod_type)
+    local mod = self._core._deps.modules.get(mod_type)
+    if not (mod and mod.has_keyed_tools) then return nil end
+    for _, profile in ipairs(self._profiles) do
+        if profile._configuration_set_name then
+            local tool_ref = profile:tool_for(mod_type)
+            if tool_ref then
+                return {
+                    tool_key = tool_ref.key,
+                    tool_data = tool_ref.data,
+                    tool_label = tool_ref.label,
+                    tool_mod_type = mod_type,
+                }
+            end
+        end
+    end
+    return nil
+end
+
 --- Get tool entries for the configuration sets UI.
 --- Builds entries from detected tools and domain Profile objects.
 --- @return table<string, loomworks.ToolEntry[]> set_name -> entries

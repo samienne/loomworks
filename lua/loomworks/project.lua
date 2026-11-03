@@ -1035,6 +1035,18 @@ function Project:save_type_config_field(field, value)
     return true
 end
 
+--- The project's variable declarations, sorted by name.
+--- @return { name: string, type: string, default: string }[]
+function Project:variable_declarations()
+    if not self.variables then return {} end
+    local result = {}
+    for name, decl in pairs(self.variables) do
+        result[#result + 1] = { name = name, type = decl.type, default = decl.default }
+    end
+    table.sort(result, function(a, b) return a.name < b.name end)
+    return result
+end
+
 --- Save a project variable declaration (create or update).
 --- @param var_name string variable name
 --- @param declaration { type: string, default: string }

@@ -37,7 +37,7 @@ describe("loomworks.Sdks/1 and Toolchains/1.rescan (step 5o part B4)", function(
         -- the real one back after each (else a later load's cache miss —
         -- a PATH directory's mtime changed — runs a stub that never
         -- finishes and its toolchains never reach `scanned`).
-        detect_saved = require("loomworks")._core()._deps.detect_tools_async
+        detect_saved = require("loomworks.app").core()._deps.detect_tools_async
         trust._set_key_path(H.tmp() .. "/trust.key")
         root = H.shell_workspace({ profile = true })
         -- A fake SDK provider offering the shell module a capability, and
@@ -80,8 +80,8 @@ describe("loomworks.Sdks/1 and Toolchains/1.rescan (step 5o part B4)", function(
         L.cleanup()
         if conn then pcall(conn.close, conn) end
         if srv and not srv.stopped then srv:stop("test end", 0) end
-        pcall(function() require("loomworks")._core():shutdown() end)
-        require("loomworks")._core()._deps.detect_tools_async = detect_saved
+        pcall(function() require("loomworks.app").core():shutdown() end)
+        require("loomworks.app").core()._deps.detect_tools_async = detect_saved
         local shell = require("loomworks.modules").get("shell")
         for k, v in pairs(shell_saved or {}) do shell[k] = v ~= false and v or nil end
         trust._set_key_path(nil)

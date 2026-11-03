@@ -35,7 +35,7 @@ local function write_user(root)
 end
 
 --- The daemon's live workspace.
-local function daemon_ws() return require("loomworks")._core():get_workspace() end
+local function daemon_ws() return require("loomworks.app").core():get_workspace() end
 
 describe("daemon snapshot and projection (§19.13, §19.14)", function()
     local root, srv, svc
@@ -49,7 +49,7 @@ describe("daemon snapshot and projection (§19.13, §19.14)", function()
     end)
     after_each(function()
         if not srv.stopped then srv:stop("test end", 0) end
-        pcall(function() require("loomworks")._core():shutdown() end)
+        pcall(function() require("loomworks.app").core():shutdown() end)
         trust._set_key_path(nil)
     end)
 
@@ -309,7 +309,7 @@ describe("daemon snapshot of stripped program-bearing fields (§17.6, §19.13)",
     end)
     after_each(function()
         if not srv.stopped then srv:stop("test end", 0) end
-        pcall(function() require("loomworks")._core():shutdown() end)
+        pcall(function() require("loomworks.app").core():shutdown() end)
         trust._set_key_path(nil)
         vim.env.LW_TEST_VALIDATE_PROTOCOL = saved_validate
     end)

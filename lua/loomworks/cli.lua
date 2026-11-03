@@ -525,14 +525,6 @@ local function rel_to_root(root, abs)
   return nil
 end
 
---- Mirror workspace_view.derive_key_and_path (kept inline to avoid pulling
---- editor-only requires into the standalone host).
-local function derive_key_and_path(root, abs, name)
-  local rel = abs:sub(#root + 2)
-  if rel == "" then return name, "."
-  elseif rel == name then return name, nil
-  else return (rel:gsub("/", "_")), rel end
-end
 
 --- Forced non-interactive mode. Set by main() from `--no-input` /
 --- `--non-interactive`, or the LW_NO_INPUT / CI environment. Belt-and-braces
@@ -751,8 +743,8 @@ end
 --- @param opts? { soft_trust?: boolean, replace_untrusted_user?: boolean, handlers?: table }
 --- @return table|nil ws, table core, table|nil failure
 function M._load_workspace_soft(root, wait_tools, opts)
-  local lw = require("loomworks")
-  local core = lw._core()
+  local app = require("loomworks.app")
+  local core = app.core()
   local handlers = opts and opts.handlers
   -- Route notifications to stderr (warnings/errors only, see load_notify).
   core._deps.notify = handlers and handlers.notify or load_notify
@@ -807,7 +799,7 @@ function M._load_workspace_soft(root, wait_tools, opts)
   if not ok then
     return nil, core, { message = "timed out loading workspace at " .. root }
   end
-  local ws = lw.get_workspace()
+  local ws = app.get_workspace()
   if not ws then
     return nil, core, M._setup_failure(core)
   end
@@ -1690,7 +1682,7 @@ function M.cmd_nuke(root, args)
     if v == "-y" or v == "--yes" then yes = true
     else die("unknown argument '" .. v .. "' — usage: lw nuke [-y]", 2) end
   end
-  local core = require("loomworks")._core()
+  local core = require("loomworks.app").core()
   -- The locks first (spec §19.3), BEFORE the list of what would go and any
   -- prompt: a refused nuke prints only its refusal. With -y they are held
   -- from here to the deletion. Otherwise they are only checked here (taken
@@ -4792,7 +4784,7 @@ function M.cmd_project_add(root, path_arg, type_arg, name_arg)
   if name_arg then
     key, store_path = name_arg, rel
   else
-    key, store_path = derive_key_and_path(root_real, abs, basename(abs))
+    key, store_path = require("loomworks.model_commands").project_key_and_path(root_real, abs, basename(abs))
   end
 
   local ws = load_workspace(root, false) -- no tools needed to author user.json
@@ -4947,7 +4939,7 @@ function M.cmd_project_show(root, name)
     end
   end
 
-  local vars = require("loomworks.workspace_view").get_variables(proj)
+  local vars = proj:variable_declarations()
   out("")
   out("  Variables:")
   if #vars == 0 then
@@ -9748,7 +9740,7 @@ end
 --- `--target` failure hint.
 --- @return table
 function M._daemon_build_host()
-  local function core() return require("loomworks")._core() end
+  local function core() return require("loomworks.app").core() end
   return {
     -- `opts.wait_tools = false`: a snapshot's or query's load (§19.13), which
     -- does not wait for tool detection.

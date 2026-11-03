@@ -142,7 +142,7 @@ describe("shell module default clean", function()
 end)
 
 describe("core-performed wipe (wipe_build_dir)", function()
-    local overseer_mod = require("loomworks.overseer")
+    local overseer_mod = require("loomworks.task_plan")
     local Workspace = require("loomworks.workspace").Workspace
     local tmp
 

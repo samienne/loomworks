@@ -638,9 +638,8 @@ end
 --- ignored, so it is refused instead.
 --- With `opts.units` the scope is those configuration units instead of the
 --- profile (`Build/1` `units`, spec §19.15): each unit's tool/configuration
---- compatibility gate instead of the profile's buildability gate, as the
---- editor's unit actions gate (overseer.run_configuration_action), and the
---- units' own tasks (overseer.plan_units_build).
+--- compatibility gate instead of the profile's buildability gate, and the
+--- units' own tasks (task_plan.plan_units_build).
 --- @param profile loomworks.Profile|nil (nil with `opts.units`)
 --- @param opts? { for_test?: boolean, configure_only?: boolean, reconfigure?: boolean, extra_args?: string[], build_targets?: (string|{ project: string, target: string })[], jobs?: integer, units?: loomworks.ConfigUnit[] }
 ---   build_targets are the caller's `--target` operands, resolved per
@@ -648,14 +647,14 @@ end
 ---   names it builds as `step.build_targets`. configure_only: the configure
 ---   step of every unit and no build (`Build/1.configure`). jobs: the build
 ---   tool's parallelism, appended to each build step as the editor's
----   parallel-jobs option (overseer.append_parallel_jobs).
+---   parallel-jobs option (task_plan.append_parallel_jobs).
 --- @return table[]|nil steps (possibly empty), string|nil err
 --- @return loomworks.RefusalLine[]|nil refused the profile's ProfileProjects left out as
 ---   invalid for the action (core §5.4 "Invalid ProfileProjects"), one result
 ---   line each: the host runs the steps, then fails with `refused_message`
 function M.plan(profile, opts)
     opts = opts or {}
-    local overseer = require("loomworks.overseer")
+    local task_plan = require("loomworks.task_plan")
     if opts.units then
         for _, unit in ipairs(opts.units) do
             local compat = unit.tool_compat_error and unit:tool_compat_error() or nil
@@ -682,14 +681,14 @@ function M.plan(profile, opts)
     end
     local steps, plan_err, refused
     if opts.units then
-        steps, plan_err = overseer.plan_units_build(opts.units, {
+        steps, plan_err = task_plan.plan_units_build(opts.units, {
             configure_only = opts.configure_only,
             reconfigure = opts.reconfigure,
             build_args = opts.extra_args,
             build_targets_for = picks,
         })
     else
-        steps, plan_err, refused = overseer.plan_profile_build(profile, {
+        steps, plan_err, refused = task_plan.plan_profile_build(profile, {
             for_test = opts.for_test,
             configure_only = opts.configure_only,
             reconfigure = opts.reconfigure,
@@ -717,7 +716,7 @@ function M.plan(profile, opts)
                 step.cmd = vim.list_extend(vim.list_extend({}, step.cmd), opts.extra_args)
             end
             if opts.jobs then
-                step.cmd = overseer.append_parallel_jobs(vim.list_extend({}, step.cmd), opts.jobs)
+                step.cmd = task_plan.append_parallel_jobs(vim.list_extend({}, step.cmd), opts.jobs)
             end
         end
     end
@@ -730,7 +729,7 @@ end
 --- @param refused loomworks.RefusalLine[] `plan`'s third return (or `plan_clean`'s second)
 --- @return string
 function M.refused_message(refused)
-    return require("loomworks.overseer").refused_message(refused)
+    return require("loomworks.task_plan").refused_message(refused)
 end
 
 --- The gates evaluated immediately before a step runs (after recording the
@@ -782,18 +781,18 @@ end
 --- @return string[] roles parallel to `lines` (loomworks.cli_color roles)
 function M.step_lines(ws, step, opts)
     opts = opts or {}
-    local overseer = require("loomworks.overseer")
+    local task_plan = require("loomworks.task_plan")
     local lines = { require("loomworks.cli_color").header(step.kind, step.name) }
     local roles = { "phase" }
     if step.kind == "configure" then
-        local why = overseer.configure_reason_line(step)
+        local why = task_plan.configure_reason_line(step)
         if why then
             lines[#lines + 1] = "    " .. why
             roles[#roles + 1] = "reason"
         end
     end
     local cwd = step.cwd or ws.root
-    overseer.log_task_command(ws, step.name, step, cwd)
+    task_plan.log_task_command(ws, step.name, step, cwd)
     if opts.verbose then
         for _, l in ipairs(M.command_lines(step, cwd, { env = opts.env or false })) do
             lines[#lines + 1] = l
@@ -805,7 +804,7 @@ end
 
 --- The lines `-v` / `--verbose` prints for one command a step runs (headless
 --- §16.4 *Verbose*), each of the `command` role (§16.7): `    $ <command>`
---- (formatted as for the workspace log, `overseer.command_text`), then
+--- (formatted as for the workspace log, `task_plan.command_text`), then
 --- `    (in <cwd>)` when a working directory is given, then
 --- `    env: <NAME>=<value> …` for the environment overrides the step adds
 --- (`spec.env`, names sorted; `env_line`) — never the inherited environment,
@@ -817,7 +816,7 @@ end
 --- @param opts? { env?: boolean|table<string, string> }
 --- @return string[]
 function M.command_lines(spec, cwd, opts)
-    local lines = { "    $ " .. require("loomworks.overseer").command_text(spec) }
+    local lines = { "    $ " .. require("loomworks.task_plan").command_text(spec) }
     if cwd then lines[#lines + 1] = "    (in " .. tostring(cwd) .. ")" end
     local inherited = opts and opts.env
     local env = inherited ~= false
@@ -1040,11 +1039,11 @@ end
 -- step reports `failure_message` (kind "clean").
 -- ---------------------------------------------------------------------------
 
---- The clean steps of a profile (overseer.plan_profile_clean: one step per
+--- The clean steps of a profile (task_plan.plan_profile_clean: one step per
 --- project, a configured build directory that exists on disk), or nil when
 --- there is nothing to clean (`nothing_to_clean_message`).
 --- With `units` the scope is those configuration units (`Build/1.clean`
---- `units`, spec §19.15; overseer.plan_units_clean).
+--- `units`, spec §19.15; task_plan.plan_units_clean).
 --- A profile's invalid ProfileProject (`invalid_reason`) is not cleaned (core
 --- §5.4 "Invalid ProfileProjects"): `refused` names it; the host cleans the
 --- others, then fails with `refused_message`.
@@ -1053,9 +1052,9 @@ end
 --- @return table[]|nil steps
 --- @return loomworks.RefusalLine[]|nil refused
 function M.plan_clean(profile, units)
-    local overseer = require("loomworks.overseer")
+    local task_plan = require("loomworks.task_plan")
     local steps, refused
-    if units then steps = overseer.plan_units_clean(units) else steps, refused = overseer.plan_profile_clean(profile) end
+    if units then steps = task_plan.plan_units_clean(units) else steps, refused = task_plan.plan_profile_clean(profile) end
     if not steps or #steps == 0 then return nil, refused end
     return steps, refused
 end
@@ -1239,7 +1238,7 @@ end
 --- own location when it wrote elsewhere (meson), confirmed when it wrote
 --- there directly (ctest). Returns the written path, or a warning line (with
 --- its newline) when the runner wrote none; nothing when none was requested.
---- @param step table a test step (overseer.plan_profile_test)
+--- @param step table a test step (task_plan.plan_profile_test)
 --- @return string|nil path, string|nil warning
 function M.junit_result(step)
     if not (step.junit_dest and step.junit_out) then return nil end

@@ -223,7 +223,7 @@ describe("a build failing after an error-severity finding", function()
         local unit = { module_info = { cache_compat = record(2, 500, 40) } }
         local profile = { key = "p", assert_buildable = function() return true end, projects = function() return {} end }
         local ws = { root = "/ws", record_task_result = function() end }
-        local overseer = require("loomworks.overseer")
+        local overseer = require("loomworks.task_plan")
         local orig_plan, orig_spawn = overseer.plan_profile_build, cli._run_spec
         overseer.plan_profile_build = function()
             return { { kind = "build", name = "App/Debug", unit = unit, cmd = { "ninja" } } }

@@ -48,7 +48,7 @@ describe("loomworks.Profiles/1 and ConfigSets/1 commands (step 5o part B2)", fun
         L.cleanup()
         if conn then pcall(conn.close, conn) end
         if srv and not srv.stopped then srv:stop("test end", 0) end
-        pcall(function() require("loomworks")._core():shutdown() end)
+        pcall(function() require("loomworks.app").core():shutdown() end)
         trust._set_key_path(nil)
     end)
 
@@ -274,7 +274,7 @@ describe("loomworks.Profiles/1 and ConfigSets/1 commands (step 5o part B2)", fun
     local function reloaded()
         pcall(conn.close, conn)
         srv:stop("reload", 0)
-        pcall(function() require("loomworks")._core():shutdown() end)
+        pcall(function() require("loomworks.app").core():shutdown() end)
         return assert(cli._load_workspace(root, true))
     end
 

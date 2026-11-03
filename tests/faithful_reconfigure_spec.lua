@@ -9,7 +9,7 @@ _G.LOOMWORKS_CLI_NO_AUTORUN = true
 
 local Core = require("loomworks.core")
 local h = require("tests.helpers")
-local overseer = require("loomworks.overseer")
+local overseer = require("loomworks.task_plan")
 local real_modules = require("loomworks.modules")
 
 local function modules_get(id)
@@ -158,7 +158,7 @@ describe("previous-configure record round trip (planner + CLI)", function()
 
         -- Force a configure step (the unit is configured and not stale).
         unit._project.needs_refresh = true
-        local loomworks = require("loomworks")
+        local loomworks = require("loomworks.app")
         local orig = loomworks.get_workspace
         loomworks.get_workspace = function() return ws end
         local ok, steps = pcall(overseer.plan_profile_build, profile)

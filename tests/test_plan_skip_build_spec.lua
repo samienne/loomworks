@@ -14,7 +14,7 @@
 
 local Core = require("loomworks.core")
 local h = require("tests.helpers")
-local overseer = require("loomworks.overseer")
+local overseer = require("loomworks.task_plan")
 local real_modules = require("loomworks.modules")
 
 local MESON_TOOL = { key = "gcc-12", data = { compiler_id = "gcc-12", meson = { "meson" } } }
@@ -53,7 +53,7 @@ end
 
 --- Run the real planner through the loomworks singleton seam.
 local function plan(ws, profile, opts)
-    local loomworks = require("loomworks")
+    local loomworks = require("loomworks.app")
     local orig = loomworks.get_workspace
     loomworks.get_workspace = function() return ws end
     local ok, steps, err = pcall(overseer.plan_profile_build, profile, opts)

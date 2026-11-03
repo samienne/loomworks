@@ -3,9 +3,7 @@
 --- Supports module targets (e.g. cmake executables from file-api), command-type launch
 --- configs from loomworks.json.
 
-local notify = require("loomworks.notify").notify
 local expand = require("loomworks.expand")
-local debug_mod = require("loomworks.debug")
 
 --- @class loomworks.LaunchTarget
 --- @field _workspace loomworks.Workspace
@@ -20,7 +18,6 @@ local debug_mod = require("loomworks.debug")
 --- @field _working_dir string|nil descriptor working-dir override (module targets)
 --- @field _device_target_id string|nil device target ID (module-generated)
 --- @field _device_target_label string|nil display label for device target
---- @field _launch_task_id number|nil overseer task ID of running launch
 --- @field _removed boolean
 local LaunchTarget = {}
 LaunchTarget.__index = LaunchTarget
@@ -35,7 +32,6 @@ function LaunchTarget.new(workspace, profile, descriptor)
     self._workspace = workspace
     self._profile = profile
     self._removed = false
-    self._launch_task_id = nil
     self:_update(descriptor)
     return self
 end
@@ -185,62 +181,11 @@ function LaunchTarget:assert_valid()
         .. table.concat(reasons, "; ")
 end
 
---- Build this target and all its dependencies. Returns a Future.
---- Builds dependency projects first (explicit depends_on + implicit deploy
---- sources), then builds this target.
---- @param on_complete? fun(success: boolean) called when build finishes
---- @return loomworks.Future
-function LaunchTarget:build(on_complete)
-    local future_mod = require("loomworks.future")
-    local overseer = require("loomworks.overseer")
-
-    -- In-process builds (the deprecated `in-process` mode): buildability
-    -- gate via :is_valid().
-    -- Covers profile incompleteness, invalid configurations (stubs, unresolved
-    -- inherits), and stale config_set mappings in one check.
-    local ok, err = self:assert_valid()
-    if not ok then
-        if on_complete then on_complete(false) end
-        return future_mod.rejected(err)
-    end
-
-    -- Guard: an abstract Configuration (no variant resolved) is refused
-    -- with a specific error rather than handing a no-op variant to the
-    -- module and watching the chain hang on a phantom task.
-    local abs_err = self:abstract_error()
-    if abs_err then
-        if on_complete then on_complete(false) end
-        return future_mod.rejected(abs_err)
-    end
-
-
-    local function build_self()
-        if self._target then
-            return self._target:build()
-        elseif self._config_unit then
-            return overseer.run_configuration_action(self._config_unit, "build")
-        else
-            return future_mod.resolved(true)
-        end
-    end
-
-    local f = self:_build_deps(self:build_dependencies())
-        :next(function() return self:_deploy_phase("pre_build") end)
-        :next(function() return build_self() end)
-
-    if on_complete then
-        f:next(function() on_complete(true) end)
-         :catch(function() on_complete(false) end)
-    end
-    return f
-end
-
 --- The guard of a launch target whose ConfigUnit maps an abstract
 --- Configuration (no `variant` on module_config — what a stub user
 --- configuration is when a module's default_configurations could not parse
---- its source manifest): the refusal, or nil. Shared by build() and the
---- daemon's target-scoped launch build (spec §19.15 "Build scope of a
---- launch").
+--- its source manifest): the refusal, or nil. Checked by the daemon's
+--- target-scoped launch build (spec §19.15 "Build scope of a launch").
 --- @return string|nil
 function LaunchTarget:abstract_error()
     local unit = self._config_unit
@@ -260,8 +205,8 @@ end
 --- order: the project's explicit `depends_on` (the active profile's mapping,
 --- no configuration hint), then the deploy source projects (a source may pin
 --- `configuration:` in its descriptor, so it builds even when its project is
---- not part of the profile). De-duplicated by (project, hint). Shared by
---- build() and the daemon's target-scoped launch build (§19.15).
+--- not part of the profile). De-duplicated by (project, hint). Used by the
+--- daemon's target-scoped launch build (§19.15).
 --- @return { project: loomworks.Project, config_hint: string|nil }[]
 function LaunchTarget:build_dependencies()
     local all_deps = {}
@@ -325,57 +270,6 @@ function LaunchTarget.unresolved_dependency_message(project)
         .. "profile's configuration_set, or pin "
         .. "`configuration:` in the deploy source descriptor",
         project.key)
-end
-
---- Build dependency projects sequentially. Returns a Future.
----
---- Each entry can be a Project or `{ project = Project, config_hint
---- = string|nil }`. `config_hint` is used to resolve a ConfigUnit
---- when the dep isn't part of the active profile (e.g. a deploy
---- source that pinned its `configuration:` in the descriptor). A
---- bare Project means "use the active profile's mapping for this
---- project" and errors if the project isn't in the profile.
----
---- Build invocation is unconditional — we hand the build off to
---- the module's build command (`cmake --build`, `ninja`, `make`)
---- and let the build system decide whether anything actually
---- needs rebuilding. Short-circuiting on `state == "built"` would
---- miss source-file changes (ConfigUnit's `is_stale` only watches
---- options / module_config), and the build tool already handles
---- the "nothing to do" case fast enough that invoking it
---- unconditionally is cheaper than a stale-artifact correctness
---- bug.
---- @param deps (loomworks.Project | { project: loomworks.Project, config_hint: string|nil })[]
---- @return loomworks.Future
-function LaunchTarget:_build_deps(deps)
-    local future_mod = require("loomworks.future")
-    if #deps == 0 then return future_mod.resolved(true) end
-
-    local overseer = require("loomworks.overseer")
-    local chain = future_mod.resolved(true)
-
-    for _, raw in ipairs(deps) do
-        local dep, hint
-        if raw.project then
-            dep, hint = raw.project, raw.config_hint
-        else
-            dep, hint = raw, nil
-        end
-        local captured_dep = dep
-        local captured_hint = hint
-        chain = chain:next(function()
-            local unit = self:_resolve_dep_config_unit(captured_dep, captured_hint)
-            if not unit then
-                return future_mod.rejected(
-                    LaunchTarget.unresolved_dependency_message(captured_dep))
-            end
-            notify("loomworks: building dependency " .. captured_dep.key,
-                vim.log.levels.INFO)
-            return overseer.run_configuration_action(unit, "build")
-        end)
-    end
-
-    return chain
 end
 
 --- Resolve a ConfigUnit for a dependency project. Prefers the
@@ -466,7 +360,7 @@ end
 --- @param on_complete? fun(ok: boolean, err?: string) invoked synchronously
 ---   (deploy is synchronous). Lets the headless runner drive deploy without
 ---   depending on Future scheduling, which needs an event loop the CLI does
----   not pump. The editor omits it and consumes the returned Future.
+---   not pump. Without it, the returned Future carries the outcome.
 --- @param opts? { on_step?: fun(ev: table), async?: boolean, cancelled?: fun(): boolean, resume?: fun(fn: function) }
 ---   `on_step` hears each deploy step, for `lw -v`; the others are
 ---   `deploy.execute_deploy_steps`' options (an asynchronous deploy)
@@ -534,10 +428,9 @@ function LaunchTarget:deploy_count(phase)
     return n
 end
 
---- Run every deploy phase synchronously and return (ok, err). Headless seam:
---- the editor drives pre-build deploy inside build() and post-build
---- deploy via deploy(); a headless run has already built the profile, so it
---- runs both phases here. Funnels through the same _deploy_phase code path.
+--- Run every deploy phase synchronously and return (ok, err). A headless
+--- run has already built the profile, so it runs both phases here. Funnels
+--- through the same _deploy_phase code path.
 --- @param opts? { on_step?: fun(ev: table) } see `_deploy_phase`
 --- @return boolean ok, string|nil err
 function LaunchTarget:deploy_sync(opts)
@@ -565,35 +458,9 @@ function LaunchTarget:deploy_async(opts, cb)
     end, o)
 end
 
---- Execute post-build deploy steps before launching. Returns a Future.
---- Pre-build steps are handled inside build().
---- @param on_complete? fun(ok: boolean, err?: string) legacy callback (deprecated)
---- @return loomworks.Future
-function LaunchTarget:deploy(on_complete)
-    local f = self:_deploy_phase("post_build")
-    if on_complete then
-        f:next(function() on_complete(true) end)
-         :catch(function(err) on_complete(false, err) end)
-    end
-    return f
-end
-
---- Launch this target.
---- For command-type: constructs and runs overseer task from launch config.
---- For module targets: delegates to Target:launch().
---- Expands variables in command, args, env, working_dir.
-function LaunchTarget:launch()
-    if self._launch then
-        self:_launch_command()
-    elseif self._target and self._target:is_executable() then
-        self._target:launch({ working_dir = self:_effective_cwd() })
-    end
-end
-
 --- Resolve a command-type launch config to a run spec (command, args,
 --- working directory, environment) with all variables expanded. Pure —
---- spawns no task. Shared seam for `_launch_command` (editor) and the
---- headless runner.
+--- spawns no task.
 --- @return { cmd: string, args: string[], cwd: string, env: table }|nil spec
 --- @return string|nil err
 function LaunchTarget:resolve_command_spec()
@@ -716,7 +583,7 @@ end
 --- no task. `opts.extra_args` are appended to the argument list (the headless
 --- runner forwards `-- args` here; a command config's own declared
 --- arguments precede them). `opts.working_dir` overrides the working directory
---- for a module-target launch. The editor calls with no extra args.
+--- for a module-target launch.
 --- @param opts? { extra_args?: string[], working_dir?: string }
 --- @return { cmd: string, args: string[], cwd: string, env: table|nil, name: string }|nil spec
 --- @return string|nil err
@@ -750,110 +617,9 @@ function LaunchTarget:resolve_launch_spec(opts)
     return spec
 end
 
---- Launch from a command-type config (loomworks.json launch section).
-function LaunchTarget:_launch_command()
-    local spec = self:resolve_command_spec()
-    if not spec then return end
-    spec.name = self._project.key .. ": " .. (self._launch_name or "launch")
-    self:launch_resolved(spec)
-end
-
---- Start a resolved launch in the editor's task runner (overseer) as this
---- target's launch task — a command configuration's in-process launch, and
---- every launch whose preparation the workspace daemon returned (step 5k C2,
---- §19.16 "Editor operations": the program is the editor's, its `env` the
---- launch's own contribution, which the task inherits the editor's
---- environment under). A previous completed launch task is disposed.
---- @param spec { name: string, cmd: string, args?: string[], cwd?: string, env?: table<string, string> }
-function LaunchTarget:launch_resolved(spec)
-    -- Dispose previous completed launch task
-    if self._launch_task_id then
-        local ok_os, overseer_mod = pcall(require, "overseer")
-        if ok_os then
-            local task_list = require("overseer.task_list")
-            local prev = task_list.get(self._launch_task_id)
-            if prev and prev:is_complete() then
-                prev:dispose()
-            end
-        end
-    end
-
-    local overseer = require("loomworks.overseer")
-    self._launch_task_id = overseer.launch_run_task({
-        name = spec.name,
-        cmd = spec.cmd,
-        args = spec.args,
-        cwd = spec.cwd,
-        env = spec.env,
-    })
-end
-
---- Debug this target via nvim-dap.
---- Falls back to launch() if nvim-dap is not available. The program is
---- resolved exactly as its run (spec §8.9.6 "One spec for run and debug",
---- run_prep.resolve_debug); single-adapter: the first debug language's
---- adapter. Multi-adapter launches are started by the session tracker
---- (multi_adapter_specs).
-function LaunchTarget:debug()
-    if not debug_mod.available() then
-        self:launch()
-        return
-    end
-    local spec, err, severity = require("loomworks.run_prep").resolve_debug(self)
-    if not spec then
-        if err then
-            notify("loomworks: " .. err,
-                severity == "error" and vim.log.levels.ERROR or vim.log.levels.WARN)
-        end
-        return
-    end
-    debug_mod.run({
-        name = spec.name,
-        adapter = spec.adapters[1].adapter,
-        program = spec.program,
-        args = spec.args,
-        cwd = spec.cwd,
-        env = spec.env,
-    })
-end
-
---- The adapter that launches this target's debug session, and its language
---- (spec §8.9.6: a launch configuration's first `debug` language, else the
---- module's primary language). The editor checks it is installed before it
---- asks the workspace daemon to prepare the debug launch (§19.16), with
---- `resolve` the daemon's language → adapter mapping
---- (default: the workspace's).
---- @param resolve? fun(language: string): string|nil
---- @return string|nil adapter, string language
-function LaunchTarget:primary_debug_adapter(resolve)
-    return require("loomworks.run_prep").primary_adapter(self, resolve)
-end
-
---- Check if this launch target has a multi-adapter debug config.
---- @return boolean
-function LaunchTarget:is_multi_adapter()
-    local cfg = self._launch
-    return cfg and cfg.debug and type(cfg.debug) == "table" and #cfg.debug > 1
-end
-
---- Get the resolved multi-adapter specs for this launch target: the adapter
---- entries in order and the program spec (run_prep.resolve_debug, the same
---- spec as the run's). nil and the reason when it does not resolve.
---- @return { adapter: string }[]|nil adapters, table|string spec_data_or_err
-function LaunchTarget:multi_adapter_specs()
-    local spec, err = require("loomworks.run_prep").resolve_debug(self)
-    if not spec then return nil, err or "nothing to debug" end
-    local parsed = {}
-    for _, a in ipairs(spec.adapters) do
-        parsed[#parsed + 1] = { adapter = a.adapter }
-    end
-    return parsed, { program = spec.program, args = spec.args, cwd = spec.cwd, env = spec.env }
-end
-
---- Check if this target has a build step.
---- Module targets build via Target:build(). Command-type launches build
---- the whole project configuration via overseer.
---- Device targets build via config unit (assembleHap).
+--- Check if this target has a build step: a module target builds its
+--- Target, a command-type launch the whole project configuration, a device
+--- target its config unit (assembleHap).
 --- @return boolean
 function LaunchTarget:is_buildable()
     if self._target then return true end
@@ -874,30 +640,6 @@ function LaunchTarget:requires_device()
     return self._device_target_id ~= nil
 end
 
---- Check if the launched process is currently running.
---- @return boolean
-function LaunchTarget:is_running()
-    if not self._launch_task_id then return false end
-    local ok, overseer = pcall(require, "overseer")
-    if not ok then return false end
-    local task_list = require("overseer.task_list")
-    local task = task_list.get(self._launch_task_id)
-    return task ~= nil and not task:is_complete()
-end
-
---- Stop the running launch task.
-function LaunchTarget:stop()
-    if not self._launch_task_id then return end
-    local ok, overseer = pcall(require, "overseer")
-    if not ok then return end
-    local task_list = require("overseer.task_list")
-    local task = task_list.get(self._launch_task_id)
-    if task and not task:is_complete() then
-        task:stop()
-    end
-    self._launch_task_id = nil
-end
-
 -- ---------------------------------------------------------------------------
 -- Device target operations
 -- ---------------------------------------------------------------------------
@@ -913,9 +655,8 @@ end
 --- @field check_output? fun(lines: string[]): string|nil a failure despite exit 0
 
 --- The command that installs the built artifact on a device: the module's
---- `device_install` over the artifact its `resolve_artifact` names. One
---- builder for the editor (`device_install`) and the workspace daemon
---- (`Devices/1.install`, daemon.md §19.16 "Devices").
+--- `device_install` over the artifact its `resolve_artifact` names, for the
+--- workspace daemon's `Devices/1.install` (daemon.md §19.16 "Devices").
 --- @param device_serial string
 --- @return loomworks.DeviceCommand|nil cmd, string|nil err
 function LaunchTarget:device_install_command(device_serial)
@@ -953,16 +694,6 @@ function LaunchTarget:device_install_command(device_serial)
     }
 end
 
---- Install the built artifact onto a device. Returns a Future.
---- Runs `device_install_command` as an overseer task.
---- @param device_serial string
---- @return loomworks.Future
-function LaunchTarget:device_install(device_serial)
-    local command, err = self:device_install_command(device_serial)
-    if not command then return require("loomworks.future").rejected(err) end
-    return require("loomworks.overseer").run_cmd_task(command)
-end
-
 --- Resolve module-specific launch info (bundle_name, ability_name) for
 --- this target. Shared by `device_launch` and the log-session flow
 --- that needs `bundle_name` to look up the running app's PID.
@@ -980,8 +711,8 @@ function LaunchTarget:device_launch_info()
 end
 
 --- The command that launches the app on a device: the module's
---- `device_launch` over its `resolve_launch_info` (one builder for the
---- editor and the workspace daemon, as `device_install_command`). Also
+--- `device_launch` over its `resolve_launch_info`, for the workspace daemon
+--- (as `device_install_command`). Also
 --- returns the launch info (its `bundle_name` finds the program's pid).
 --- @param device_serial string
 --- @return loomworks.DeviceCommand|nil cmd, table|string launch_info_or_err
@@ -1005,16 +736,6 @@ function LaunchTarget:device_launch_command(device_serial)
         env = spec.env,
         check_output = spec.check_output,
     }, launch_info
-end
-
---- Launch the app on a device. Returns a Future.
---- Runs `device_launch_command` as an overseer task.
---- @param device_serial string
---- @return loomworks.Future
-function LaunchTarget:device_launch(device_serial)
-    local command, err = self:device_launch_command(device_serial)
-    if not command then return require("loomworks.future").rejected(err) end
-    return require("loomworks.overseer").run_cmd_task(command)
 end
 
 --- Resolve the PID of the launched app on the device. Polls the
@@ -1098,9 +819,8 @@ end
 
 --- The command that clears the device's log buffer before a log stream
 --- starts: the module's optional `device_log_clear` (nil when the module has
---- none, or it returns no command). One builder for the editor's log view
---- (session_tracker) and the workspace daemon (`Launch/1.device_log`,
---- API.md §9.5).
+--- none, or it returns no command). Used by the workspace daemon's
+--- `Launch/1.device_log` (API.md §9.5).
 --- @param device_serial string
 --- @return loomworks.DeviceCommand|nil
 function LaunchTarget:device_log_clear_command(device_serial)
@@ -1122,8 +842,8 @@ end
 --- the module's optional `device_log_options` asks for strict-pid filtering.
 --- Also returns those options (`level`, default `I`: the client's initial
 --- soft filter; `strict_pid`). nil when the module has no `device_log`, or
---- it returns no command. One builder for the editor's log view
---- (session_tracker) and the workspace daemon (`Launch/1.device_log`).
+--- it returns no command. Used by the workspace daemon's
+--- `Launch/1.device_log`.
 --- @param device_serial string
 --- @param pid integer|nil
 --- @return loomworks.DeviceCommand|nil cmd, { level: string, strict_pid: boolean }|nil log_options
@@ -1144,20 +864,6 @@ function LaunchTarget:device_log_command(device_serial, pid)
         args = spec.args,
         env = spec.env,
     }, log_options
-end
-
---- Stop the app on a device. Returns a Future.
---- Runs `device_stop_command` as an overseer task. Session tracker calls
---- this from `stop_run()` when it knows the active run is a
---- device launch; it's fire-and-forget from the user's
---- perspective — we don't block teardown on the RPC.
---- @param device_serial string
---- @param bundle_name string
---- @return loomworks.Future
-function LaunchTarget:device_stop(device_serial, bundle_name)
-    local command = self:device_stop_command(device_serial, bundle_name)
-    if not command then return require("loomworks.future").resolved(true) end
-    return require("loomworks.overseer").run_cmd_task(command)
 end
 
 -- ---------------------------------------------------------------------------

@@ -3,7 +3,7 @@
 --- function returns values / `nil, err` and never prints or exits.
 
 local build_run = require("loomworks.build_run")
-local overseer = require("loomworks.overseer")
+local overseer = require("loomworks.task_plan")
 local exe = require("loomworks.exe")
 local compiler_cache = require("loomworks.compiler_cache")
 

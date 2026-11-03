@@ -19,7 +19,7 @@
 
 local Core = require("loomworks.core")
 local h = require("tests.helpers")
-local overseer = require("loomworks.overseer")
+local overseer = require("loomworks.task_plan")
 local real_modules = require("loomworks.modules")
 
 --- Real module registry get(), guarded against nil ids.
@@ -147,7 +147,7 @@ end
 --- Drive the real planner (overseer.plan_profile_build) through the loomworks
 --- singleton seam, returning its steps.
 local function plan(core, profile)
-    local loomworks = require("loomworks")
+    local loomworks = require("loomworks.app")
     local orig = loomworks.get_workspace
     loomworks.get_workspace = function() return core:get_workspace() end
     local ok, steps = pcall(overseer.plan_profile_build, profile)
