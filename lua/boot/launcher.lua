@@ -6,6 +6,8 @@
 -- (loomworks.launcher_health, nvim or luvi) can require it. Callers pass the
 -- SHA-256 function they have (boot.verify.sha256_hex / vim.fn.sha256).
 
+local origin = require("boot.origin")
+
 local M = {}
 
 -- ---------------------------------------------------------------------------
@@ -363,9 +365,11 @@ end
 -- one fixes.
 
 -- Every generation before the move to samienne/loomworks fetches all versions
--- from samienne/loomworks.nvim (boot.origin).
+-- from samienne/loomworks.nvim (boot.origin). That only matters for a pin of
+-- 0.2 or later: classify drops it for a legacy pin, where those launchers work.
 local LEGACY_ORIGIN = { severity = "breaks", text = "downloads every lw version from " ..
   "samienne/loomworks.nvim, so a pin of 0.2.0 or later (published in samienne/loomworks) cannot be fetched" }
+M.LEGACY_ORIGIN_DEFECT = LEGACY_ORIGIN
 
 M.GENERATIONS = {
   sh = {
@@ -453,20 +457,26 @@ M.GENERATIONS = {
 --- @param kind "sh"|"cmd"
 --- @param bytes string the file's content
 --- @param sha256 fun(s: string): string lowercase hex SHA-256
+--- @param pinned_version? string lw.pin's version: a legacy one (below 0.2,
+---   boot.origin) drops the legacy-origin defect, which only breaks a 0.2+ pin
 --- @return { status: "current"|"known"|"unknown", gen?: integer, releases?: string, defects?: table[], breaks?: boolean }
-function M.classify(kind, bytes, sha256)
+function M.classify(kind, bytes, sha256, pinned_version)
   local norm = M.normalize(bytes)
   if norm == M.normalize(kind == "sh" and M.LW_SH or M.LW_CMD) then
     return { status = "current" }
   end
   local g = (M.GENERATIONS[kind] or {})[sha256(norm):lower()]
   if not g then return { status = "unknown" } end
-  local breaks = false
+  local legacy_pin = pinned_version ~= nil and origin.is_legacy(pinned_version)
+  local defects, breaks = {}, false
   for _, d in ipairs(g.defects or {}) do
-    if d.severity == "breaks" then breaks = true end
+    if not (legacy_pin and d == LEGACY_ORIGIN) then
+      defects[#defects + 1] = d
+      if d.severity == "breaks" then breaks = true end
+    end
   end
   return { status = "known", gen = g.gen, releases = g.releases,
-    defects = g.defects or {}, breaks = breaks }
+    defects = defects, breaks = breaks }
 end
 
 -- ---------------------------------------------------------------------------
