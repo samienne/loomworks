@@ -10,7 +10,7 @@ local Core = require("loomworks.core")
 local h = require("tests.helpers")
 local cpp = require("loomworks.cpp_compilers")
 local cmake = require("loomworks.modules.cmake")
-local overseer = require("loomworks.overseer")
+local task_plan = require("loomworks.task_plan")
 local term = require("loomworks.term")
 local real_modules = require("loomworks.modules")
 
@@ -61,7 +61,7 @@ local function make_core()
 end
 
 local function with_ws(ws, fn)
-    local loomworks = require("loomworks")
+    local loomworks = require("loomworks.app")
     local orig = loomworks.get_workspace
     loomworks.get_workspace = function() return ws end
     local ok, res = pcall(fn)
@@ -101,7 +101,6 @@ describe("configure / build command line", function()
     after_each(function()
         cpp.lookup_path = orig_lookup
         cmake._cmake_version_cache = {}
-        package.loaded["overseer"] = nil
         if root then vim.fn.delete(root, "rf"); root = nil end
     end)
 
@@ -152,30 +151,6 @@ describe("configure / build command line", function()
         assert.truthy(text2:find("    $ ", 1, true), text2)
     end)
 
-    it("the editor task path logs the configure argv + cwd", function()
-        local ws, profile, r = make_core()
-        root = r
-        local created = {}
-        package.loaded["overseer"] = {
-            new_task = function(spec)
-                created[#created + 1] = spec
-                return {
-                    id = #created, subscribe = function() end, start = function() end,
-                    is_complete = function() return false end,
-                }
-            end,
-        }
-        local unit = profile:projects()[1]._config_unit
-        with_ws(ws, function() return overseer.run_configuration_action(unit, "configure") end)
-        vim.wait(3000, function() return #created > 0 end)
-        assert.equals(1, #created)
-        assert.is_nil(created[1].display_cmd, "display_cmd is not handed to overseer")
-        local log = log_text(ws)
-        assert.truthy(log:find("App: configure", 1, true), log)
-        assert.truthy(log:find('"-DFOO=a b"', 1, true), log)
-        assert.truthy(log:find("(in " .. root .. "/App)", 1, true), log)
-    end)
-
     if vim.fn.has("win32") == 1 then
         it("a vcvarsall-wrapped cmake command is shown as the inner cmake argv", function()
             local vroot = (vim.fn.tempname():gsub("\\", "/"))
@@ -196,7 +171,7 @@ describe("configure / build command line", function()
                 seen[t.loomworks.action] = true
                 assert.same({ "cmd", "/d", "/v:on", "/c", "!LOOMWORKS_VCVARS_BAT!" }, spec.cmd)
                 assert.equals("C:/cm/cmake.exe", spec.display_cmd[1])
-                local text = overseer.command_text(spec)
+                local text = task_plan.command_text(spec)
                 assert.is_nil(text:find("VCVARS", 1, true), text)
                 assert.truthy(text:find("C:/cm/cmake.exe", 1, true), text)
             end

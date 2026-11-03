@@ -30,7 +30,7 @@ end
 --- the workspace as the current one. Returns capture() + the spawned steps.
 local function stubbed(ws, fn, code)
   local spawned = {}
-  local loomworks = require("loomworks")
+  local loomworks = require("loomworks.app")
   local orig_spawn, orig_get = cli._run_spec, loomworks.get_workspace
   cli._run_spec = function(step) spawned[#spawned + 1] = step; return code or 0 end
   loomworks.get_workspace = function() return ws end

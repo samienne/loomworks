@@ -13,7 +13,6 @@
 
 _G.LOOMWORKS_CLI_NO_AUTORUN = true
 local cli = require("loomworks.cli")
-local wv = require("loomworks.workspace_view")
 local commands = require("loomworks.model_commands")
 local dp = require("loomworks.deletion_plan")
 local uv = vim.uv or vim.loop
@@ -104,7 +103,7 @@ describe("find_stray_build_dirs: directory identity, not spelling", function()
     live_build_dir(ws, profile, short .. "/.nvim/build/App/Debug", long .. "/.nvim/build/App/Debug")
     vim.fn.mkdir(long .. "/.nvim/build/Old", "p")
 
-    local stray = wv.find_stray_build_dirs(ws)
+    local stray = ws:find_stray_build_dirs()
     assert.equals(1, #stray, vim.inspect(stray))
     assert.is_truthy(stray[1]:lower():find("/%.nvim/build/old$"), vim.inspect(stray))
   end)
@@ -133,7 +132,7 @@ describe("find_stray_build_dirs: directory identity, not spelling", function()
     end)
 
     it("reports only the genuinely stray dir", function()
-      local stray = wv.find_stray_build_dirs(ws)
+      local stray = ws:find_stray_build_dirs()
       assert.equals(1, #stray, vim.inspect(stray))
       assert.is_truthy(stray[1]:lower():find("/%.nvim/build/old$"), vim.inspect(stray))
     end)
@@ -188,7 +187,7 @@ describe("find_stray_build_dirs: directory identity, not spelling", function()
     end)
 
     it("reports the genuinely stray dir", function()
-      local stray = wv.find_stray_build_dirs(ws)
+      local stray = ws:find_stray_build_dirs()
       assert.equals(1, #stray, vim.inspect(stray))
       assert.is_truthy(stray[1]:lower():find("/%.nvim/build/old$"), vim.inspect(stray))
     end)
@@ -234,7 +233,7 @@ describe("find_stray_build_dirs: directory identity, not spelling", function()
     end)
 
     it("does not report the link's parent as stray", function()
-      local stray = wv.find_stray_build_dirs(ws)
+      local stray = ws:find_stray_build_dirs()
       assert.equals(1, #stray, vim.inspect(stray))
       assert.is_truthy(stray[1]:lower():find("/%.nvim/build/old$"), vim.inspect(stray))
     end)

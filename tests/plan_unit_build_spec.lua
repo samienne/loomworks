@@ -9,7 +9,7 @@ local Core = require("loomworks.core")
 local h = require("tests.helpers")
 local cpp = require("loomworks.cpp_compilers")
 local cmake = require("loomworks.modules.cmake")
-local overseer = require("loomworks.overseer")
+local overseer = require("loomworks.task_plan")
 local real_modules = require("loomworks.modules")
 
 local orig_lookup = cpp.lookup_path

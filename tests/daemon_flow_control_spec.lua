@@ -114,7 +114,7 @@ describe("daemon task stream flow control (§19.15)", function()
     end)
     after_each(function()
         if not srv.stopped then srv:stop("test end", 0) end
-        pcall(function() require("loomworks")._core():shutdown() end)
+        pcall(function() require("loomworks.app").core():shutdown() end)
         trust._set_key_path(nil)
     end)
 

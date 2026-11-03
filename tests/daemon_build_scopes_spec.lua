@@ -144,7 +144,7 @@ describe("Build/1 editor scopes in the daemon's build service (§19.15)", functi
     end)
     after_each(function()
         if srv and not srv.stopped then srv:stop("test end", 0) end
-        pcall(function() require("loomworks")._core():shutdown() end)
+        pcall(function() require("loomworks.app").core():shutdown() end)
         trust._set_key_path(nil)
     end)
 

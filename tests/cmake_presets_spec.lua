@@ -74,7 +74,7 @@ local function preset_ctx(dir, active_config, tool_data)
     local info = cmake.info(dir, {})
     -- Use overseer's own merge helper so this test also covers site (A):
     -- if the merge dropped presets, config_info would be nil below.
-    local configs = require("loomworks.overseer")._task_configurations(info)
+    local configs = require("loomworks.task_plan")._task_configurations(info)
     return {
         name = "App",
         path = "App",

@@ -9,7 +9,7 @@
 _G.LOOMWORKS_CLI_NO_AUTORUN = true
 local cli = require("loomworks.cli")
 local cc = require("loomworks.cli_color")
-local overseer = require("loomworks.overseer")
+local overseer = require("loomworks.task_plan")
 local build_run = require("loomworks.build_run")
 
 local ESC = "\27["

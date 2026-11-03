@@ -136,11 +136,11 @@ describe("Issue 1: _serialize_user filters auto-gens", function()
 end)
 
 describe("Issue 3: edit dialog uses Configuration.is_default flag", function()
-    local workspace_view = require("loomworks.workspace_view")
+    local mc = require("loomworks.model_commands")
 
     --- The declaration's entry of the configuration `name` of `project`.
     local function declared(project, name)
-        for _, c in ipairs(workspace_view.project_declaration(project).configurations) do
+        for _, c in ipairs(mc.project_declaration(project, function() return nil end).configurations) do
             if c.key == name then return c end
         end
     end

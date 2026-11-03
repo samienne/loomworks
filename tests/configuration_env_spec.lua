@@ -15,7 +15,7 @@ local h = require("tests.helpers")
 -- builder, which mkdirs the file-api query dir under the build dir (a fake
 -- absolute root is a real, shared dir on Windows; see helpers.temp_root).
 local ROOT = h.temp_root()
-local overseer = require("loomworks.overseer")
+local overseer = require("loomworks.task_plan")
 local real_modules = require("loomworks.modules")
 local config_env = require("loomworks.config_env")
 local Configuration = require("loomworks.configuration")
@@ -175,7 +175,7 @@ local function make_ws(cfg_data, tool_env, project_vars)
 end
 
 local function plan(ws, profile, seen)
-    local loomworks = require("loomworks")
+    local loomworks = require("loomworks.app")
     local cmake = require("loomworks.modules.cmake")
     local orig, orig_tasks = loomworks.get_workspace, cmake.tasks
     loomworks.get_workspace = function() return ws end

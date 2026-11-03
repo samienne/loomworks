@@ -96,7 +96,7 @@ describe("in-process step (run_spec)", function()
     end)
 
     it("`lw build`: a SIGKILLed build step fails the build, exit 137, nothing recorded as built", function()
-        local overseer = require("loomworks.overseer")
+        local overseer = require("loomworks.task_plan")
         local recorded = {}
         local unit = {}
         local profile = { key = "p", assert_buildable = function() return true end, projects = function() return {} end }
@@ -161,7 +161,7 @@ describe("daemon-routed step (runner)", function()
     after_each(function()
         runner.spawn = orig_spawn
         if not srv.stopped then srv:stop("test end", 0) end
-        pcall(function() require("loomworks")._core():shutdown() end)
+        pcall(function() require("loomworks.app").core():shutdown() end)
         trust._set_key_path(nil)
     end)
 

@@ -269,7 +269,7 @@ describe("Workspace:set_lsp_option on a stale working copy", function()
         if not ok and not (type(err) == "table" and err.__exit) then error(err, 0) end
     end
     local function stop_cli_tracking()
-        local lc = require("loomworks")._core()
+        local lc = require("loomworks.app").core()
         if lc._workspace then lc._workspace:_stop_tracking() end
     end
 

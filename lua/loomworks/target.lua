@@ -1,6 +1,5 @@
 --- loomworks/target.lua — Target class.
 --- Represents a discovered build target from a module (cmake target, etc.).
---- Owns the build action for this specific target.
 
 --- @class loomworks.Target
 --- @field id string opaque target identifier (module-specific)
@@ -11,7 +10,6 @@
 ---   join via loomworks.paths.artifact_path, never a bare `build_dir .. artifact`)
 --- @field sources? string[] absolute source file paths (for test source mapping)
 --- @field _config_unit loomworks.ConfigUnit back-reference to owning unit
-local notify = require("loomworks.notify").notify
 local Target = {}
 Target.__index = Target
 
@@ -55,63 +53,6 @@ end
 --- @return string
 function Target:display_name()
     return self.id
-end
-
---- Build this target. Returns a Future that resolves on success.
---- Delegates to the module's build_target_task via overseer.
---- Falls back to full configuration build if module doesn't support it.
---- @param on_complete? fun(success: boolean) legacy callback (deprecated)
---- @return loomworks.Future
-function Target:build(on_complete)
-    local future_mod = require("loomworks.future")
-    local unit = self._config_unit
-    if not unit or not unit._project then
-        if on_complete then vim.schedule(function() on_complete(false) end) end
-        return future_mod.rejected("no config unit or project")
-    end
-
-    local mod = unit._project._module and unit._project._module.impl or nil
-    if not mod then
-        if on_complete then vim.schedule(function() on_complete(false) end) end
-        return future_mod.rejected("no module")
-    end
-
-    local f
-    if mod.build_target_task then
-        local ws = unit._workspace
-        local project_ctx = unit._project:to_module_context(ws.root)
-        project_ctx.configuration = unit:variant()
-        project_ctx.configuration_key = unit:config_key()
-        -- The unit's own build directory (the one its lock names).
-        project_ctx.cached_build_dir = unit:build_dir()
-        -- Detected tool data only (spec §17.7).
-        project_ctx.tool_data = require("loomworks.overseer")._exec_tool_data(unit)
-        -- Tool env with the configuration environment layered on top (spec
-        -- §1.3.3) — the same composition every overseer build context uses.
-        project_ctx.env, project_ctx.configuration_env =
-            require("loomworks.overseer")._resolve_task_env(unit._project,
-                unit._configuration, project_ctx.tool_data, ws._active_profile, ws.root)
-
-        local task_def = mod.build_target_task(project_ctx, self.id)
-        if task_def then
-            -- The target it builds: what a routed build names (spec §19.16
-            -- "Editor operations", overseer.launch_single_task).
-            task_def.loomworks = task_def.loomworks or {}
-            task_def.loomworks.target_id = self.id
-            f = require("loomworks.overseer").launch_single_task(task_def, unit)
-        end
-    end
-
-    if not f then
-        -- Fallback: full build
-        f = require("loomworks.overseer").run_configuration_action(unit, "build")
-    end
-
-    if on_complete then
-        f:next(function() on_complete(true) end)
-         :catch(function() on_complete(false) end)
-    end
-    return f
 end
 
 --- Resolve the run spec (artifact path, working directory, and run
@@ -160,25 +101,6 @@ function Target:resolve_run_spec(opts)
         name = project_name .. ": run " .. self.id,
         env = unit:run_env(),
     }
-end
-
---- Launch this target (run the built artifact).
---- Only works for executables with an artifact path.
---- @param opts? { working_dir?: string } pre-resolved absolute cwd override
-function Target:launch(opts)
-    local spec, err = self:resolve_run_spec(opts)
-    if not spec then
-        if err then notify("loomworks: " .. err, vim.log.levels.WARN) end
-        return
-    end
-
-    local overseer = require("loomworks.overseer")
-    return overseer.launch_run_task({
-        name = spec.name,
-        cmd = spec.cmd,
-        cwd = spec.cwd,
-        env = spec.env,
-    })
 end
 
 return Target

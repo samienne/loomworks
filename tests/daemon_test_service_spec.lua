@@ -98,7 +98,7 @@ describe("daemon test run (§19.15, §16.16)", function()
     after_each(function()
         shell.parse_targets, gtest.probe_argv, gtest.PROBE_TIMEOUT_MS = saved_parse, saved_argv, saved_timeout
         if srv and not srv.stopped then srv:stop("test end", 0) end
-        pcall(function() require("loomworks")._core():shutdown() end)
+        pcall(function() require("loomworks.app").core():shutdown() end)
         trust._set_key_path(nil)
         srv = nil
     end)

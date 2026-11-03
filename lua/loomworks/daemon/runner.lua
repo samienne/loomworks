@@ -827,7 +827,7 @@ function M.run(svc, ctx)
         local rp = require("loomworks.run_prep")
         local lt, phases = scope.lt, scope.phases
         local LaunchTarget = require("loomworks.launch_target")
-        local overseer = require("loomworks.overseer")
+        local task_plan = require("loomworks.task_plan")
         local pi = 0
         local next_phase
         -- The phase (its step) succeeded: on to the next one.
@@ -903,7 +903,7 @@ function M.run(svc, ctx)
                 ctx.command or ("lw " .. op))
             if not lok then return finish(1, lmsg) end
             -- (Planned against the requested profile, not the active one.)
-            local planned, perr = overseer.plan_unit_build(ws, unit,
+            local planned, perr = task_plan.plan_unit_build(ws, unit,
                 { target_id = ph.target_id, profile = profile })
             if not planned then return finish(1, "cannot build: " .. tostring(perr)) end
             if #planned == 0 then release_all(); return phase_done() end

@@ -143,7 +143,7 @@ function M._env_digest(env_key)
             return d.digest
         end
     end
-    local digest = require("loomworks.provision.sha256").lua(env_key)
+    local digest = require("loomworks.sha256").lua(env_key)
     table.insert(_env_digests, 1, { sig = env_key, digest = digest })
     _env_digests[M.ENV_SLOTS + 1] = nil
     return digest

@@ -46,7 +46,7 @@ local function make_ws()
   assert(io_mod.read_file(user_mod.filepath(root)), "make_ws: no working copy: " .. r.stderr)
   -- The CLI's singleton core stays loaded on this root with a live file
   -- tracker; stop it so a later test's edits here are not reconciled by it.
-  local lc = require("loomworks")._core()
+  local lc = require("loomworks.app").core()
   if lc._workspace then lc._workspace:_stop_tracking() end
   return root
 end

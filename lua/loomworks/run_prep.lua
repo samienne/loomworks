@@ -393,29 +393,6 @@ function M.debug_spec(ws, lt, launch)
     }
 end
 
---- The adapter that launches a launch target's debug session and its
---- language: the first of M.debug_spec's `adapters` (a launch
---- configuration's first `debug` language, else the module's primary one).
---- `resolve(language)`: the language → adapter mapping to resolve it from
---- (default: the workspace's, debug_config; in daemon mode the daemon's,
---- editor_ops.debug_adapter_resolver).
---- @param lt loomworks.LaunchTarget
---- @param resolve? fun(language: string): string|nil
---- @return string|nil adapter, string language
-function M.primary_adapter(lt, resolve)
-    local lang = module_language(lt)
-    resolve = resolve or function(language)
-        return require("loomworks.debug_config").resolve_adapter(lt._workspace, language)
-    end
-    local first
-    if lt._launch then
-        first = config_adapters(lt._workspace, lt._launch, lang, resolve)[1]
-    else
-        first = { language = lang, adapter = resolve(lang) }
-    end
-    return first.adapter, first.language
-end
-
 --- Why a launch target cannot be debugged on this host (spec §19.15 "Debug",
 --- §18.1 / §18.11: there is no device debug), or nil: a device target, or a
 --- build-target artifact found foreign — by its kit's platform token, or (not
@@ -438,8 +415,7 @@ function M.debug_refusal(lt, by_kit_only)
     return nil
 end
 
---- Resolve the debug spec of a launch target — the seam the editor's debug
---- paths (LaunchTarget:debug / multi_adapter_specs) consume. One spec for run
+--- Resolve the debug spec of a launch target. One spec for run
 --- and debug (spec §8.9.6 "One spec for run and debug", step 5k C2): the
 --- program, arguments, working directory and environment are the run's of the
 --- same target (LaunchTarget:resolve_launch_spec — a module target's
@@ -448,7 +424,7 @@ end
 --- reduced to the launch's own contribution (M.env_overrides), shaped by
 --- M.debug_spec exactly as `Launch/1.prepare_debug` returns it.
 --- Adapter-agnostic: availability and the adapter-specific transform are the
---- host's (loomworks/debug.lua). Host-neutral: no output of its own, but a
+--- debugging client's. Host-neutral: no output of its own, but a
 --- launch configuration's env goes through `env_policy.filter`, which
 --- schedules a warning through the host's notifier (`loomworks.notify`;
 --- once per variable) when it refuses a denylisted variable.

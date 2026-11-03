@@ -19,7 +19,7 @@ local cmake = require("loomworks.modules.cmake")
 local meson = require("loomworks.modules.meson")
 local shell = require("loomworks.modules.shell")
 local typescript = require("loomworks.modules.typescript")
-local overseer = require("loomworks.overseer")
+local overseer = require("loomworks.task_plan")
 local real_modules = require("loomworks.modules")
 
 local orig_lookup = cpp.lookup_path
@@ -81,7 +81,7 @@ local function fake_vcvarsall(dir)
 end
 
 local function with_ws(ws, fn)
-    local loomworks = require("loomworks")
+    local loomworks = require("loomworks.app")
     local orig = loomworks.get_workspace
     loomworks.get_workspace = function() return ws end
     local ok, res = pcall(fn)
