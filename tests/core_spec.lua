@@ -156,6 +156,45 @@ describe("Core", function()
             core:shutdown()
         end)
 
+        describe("a read that completes after shutdown", function()
+            local function deferred_reads(deps)
+                local pending = {}
+                local read = deps.read_files_async
+                deps.read_files_async = function(paths_list, callback)
+                    pending[#pending + 1] = function() read(paths_list, callback) end
+                end
+                return pending
+            end
+
+            it("is dropped when another workspace loaded meanwhile", function()
+                local core, deps = make_core()
+                local pending = deferred_reads(deps)
+                core:setup({ root = "/a" })
+                core:shutdown()
+                core:setup({ root = "/b" })
+                pending[2]()
+                local ws = core:get_workspace()
+                assert.equals("/b", ws.root)
+                pending[1]()
+                assert.equals(ws, core:get_workspace())
+                assert.equals("initialized", core:state())
+                assert.is_false(ws._tracker.paused)
+                core:shutdown()
+            end)
+
+            it("is dropped when nothing loaded meanwhile", function()
+                local core, deps = make_core()
+                local pending = deferred_reads(deps)
+                local notify = deps.notify
+                core:setup({ root = "/a" })
+                core:shutdown()
+                pending[1]()
+                assert.is_nil(core:get_workspace())
+                assert.equals("uninitialized", core:state())
+                assert.equals(notify, deps.notify)
+            end)
+        end)
+
     end)
 
     describe("remerge", function()

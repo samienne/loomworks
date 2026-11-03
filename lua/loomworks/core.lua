@@ -13,6 +13,7 @@
 --- @field _setup_error { root: string, message: string, trust?: { kind: "user"|"cache", status: string, path: string }, user_untrusted?: string, cache_untrusted?: boolean, user_version_mismatch?: boolean, newer?: boolean }|nil set when setup fails (`trust`: a refused `.nvim` file; `newer`: a file with a newer schema)
 --- @field _state "uninitialized"|"initializing"|"initialized"
 --- @field _pending_root string|nil root passed to setup(), known before async init resolves
+--- @field _load_gen integer bumped by every `setup` and `shutdown`; a file read started under an older value is dropped
 --- @field _load_capture { list: loomworks.LoadNote[], inner: function, fn: function, quiet: boolean|nil }|nil the running load's notification capture (`_begin_load_notes`); `quiet` records without passing on to the host's notifier
 local Core = {}
 Core.__index = Core
@@ -112,6 +113,7 @@ function Core.new(deps)
     self._setup_error = nil
     self._state = "uninitialized"
     self._pending_root = nil
+    self._load_gen = 0
     return self
 end
 
@@ -189,6 +191,8 @@ function Core:setup(opts)
     self:_stop_refused_watch()
     self._setup_error = nil
     self._state = "initializing"
+    self._load_gen = self._load_gen + 1
+    local gen = self._load_gen
     -- What this load raises is kept as its load diagnostics, from here to
     -- the end of `_on_files_read`.
     self:_begin_load_notes()
@@ -240,6 +244,9 @@ function Core:setup(opts)
         { paths.config, paths.user, paths.cache },
         function(results)
             self._deps.schedule(function()
+                -- Superseded by a shutdown (and maybe another load): that
+                -- tore down the workspace this load paused.
+                if gen ~= self._load_gen then return end
                 self:_on_files_read(root, paths, results)
             end)
         end
@@ -1252,6 +1259,8 @@ end
 --- @param opts? { successor?: boolean }
 function Core:shutdown(opts)
     local had = self._workspace ~= nil or self._pending_root ~= nil
+    self._load_gen = self._load_gen + 1
+    self:_end_load_notes()
     self:_stop_refused_watch()
     if self._workspace then
         self._workspace:teardown()
