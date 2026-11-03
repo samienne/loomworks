@@ -1,12 +1,10 @@
 --- loomworks/model_commands.lua — the model's commands, host-neutral.
 ---
---- One function per user action that changes the model (spec §19.14 "As
---- interfaces", §19.16 "Model writes"; API.md §6, §11, §19–§21): the
---- CLI and the daemon's interface handlers (step 5o parts B) call the same
---- function. Each takes resolved
+--- One function per user action that changes the model: the CLI and the
+--- daemon's interface handlers call the same function. Each takes resolved
 --- domain objects — never keys: a caller resolves a reference (an id, or a
 --- name a user or a file supplied) once at its input boundary — plus plain
---- arguments, and answers an outcome (API.md §4.1):
+--- arguments, and answers an outcome:
 ---
 ---   { outcome = "ok", notes?, note_roles?, <created entity>? }
 ---   { outcome = "refused", message, exit_code }  -- nothing written
@@ -16,12 +14,12 @@
 --- naming what was not done (decision D1). A removed object (a stale
 --- reference the caller still holds) is refused before any write.
 ---
---- Deletions (`Maintenance/1.execute_deletion`, API.md §22) are planned
+--- Deletions (`Maintenance/1.execute_deletion`) are planned
 --- and confirmed with a token (loomworks.deletion_plan) and run under the
 --- workspace operation lock and the build-directory locks
 --- (`Workspace:_locked_deletion`). Locks: single-file working-copy writes take only the save
---- guard of `_save_user` (spec §2.7); the operation lock of publish and
---- propagating renames (spec §19.3) is taken where the Workspace methods
+--- guard of `_save_user`; the operation lock of publish and
+--- propagating renames is taken where the Workspace methods
 --- take it.
 
 local M = {}
@@ -142,7 +140,7 @@ local function signal_changed(ws)
 end
 
 -- ---------------------------------------------------------------------------
--- Workspace/1 (API.md §6)
+-- Workspace/1
 -- ---------------------------------------------------------------------------
 
 --- `publish {}` — regenerate loomworks.json from the working copy (`:w`).
@@ -164,7 +162,7 @@ function M.revert_to_baseline(ws)
     return ok()
 end
 
---- A launch configuration has no publish state of its own (API.md §6).
+--- A launch configuration has no publish state of its own.
 local function launch_publish_refusal(item)
     if not is_launch(item) then return nil end
     return refused("a launch configuration is published with its project "
@@ -197,7 +195,7 @@ end
 local INTENTS = { ["local"] = true, shared = true, ["local+shared"] = true }
 
 --- `set_intent { item, intent }` — the item's intent, recorded as the user's
---- choice (spec §2.4, sticky). A failed save restores it.
+--- choice (sticky). A failed save restores it.
 --- @param item table
 --- @param intent "local"|"shared"|"local+shared"
 --- @return loomworks.CommandOutcome
@@ -220,7 +218,7 @@ function M.set_intent(item, intent)
     return ok()
 end
 
---- `set_description { item, text? }` — the item's description (spec §1.10),
+--- `set_description { item, text? }` — the item's description,
 --- a launch configuration included; no text removes it. `changed` is false
 --- when the description was already that.
 --- @param item table
@@ -235,7 +233,7 @@ function M.set_description(item, text)
 end
 
 -- ---------------------------------------------------------------------------
--- Workspace/1: the working copy's trust (API.md §6; spec §17.4, §17.10)
+-- Workspace/1: the working copy's trust
 -- ---------------------------------------------------------------------------
 
 --- The refusal of a confirmation whose plan no longer matches the file.
@@ -250,7 +248,7 @@ local function prefs_plan(path, content)
     return vim.fn.sha256(path .. "\0" .. content)
 end
 
---- The review of a working copy this machine did not sign (spec §17.4), as
+--- The review of a working copy this machine did not sign, as
 --- the trust prompt shows it: its path and status, then its program-bearing
 --- fields first and its other contents.
 --- @param review table `Core:review_user_prefs`'s `{ path, status, data }`
@@ -272,7 +270,7 @@ function M.trust_review_lines(review)
     return lines
 end
 
---- `trust_accept { plan? }` — the review & trust of spec §17.4. Without
+--- `trust_accept { plan? }` — review and trust the working copy. Without
 --- `plan`: `confirm` with the review and a token of exactly that content;
 --- with it: the working copy is signed as shown (`Core:trust_user_prefs`,
 --- which loads the workspace again), or refused when it changed since. An
@@ -303,7 +301,7 @@ function M.trust_accept(core, root, plan)
 end
 
 --- `delete_user_prefs { plan? }` — remove the working copy and its backup
---- (spec §17.10; `Core:delete_user_prefs`: the operation lock, the `.nvim`
+--- (`Core:delete_user_prefs`: the operation lock, the `.nvim`
 --- path check, then a reload), confirmed as `trust_accept` is: the token
 --- covers the file's exact text, so a file changed since it was shown is
 --- refused.
@@ -334,13 +332,13 @@ function M.delete_user_prefs(core, root, plan)
 end
 
 -- ---------------------------------------------------------------------------
--- Profiles/1 (API.md §11)
+-- Profiles/1
 -- ---------------------------------------------------------------------------
 
 --- The intent (and source) of each item Profile:activate's cascade
 --- materializes into the working copy (the profile, its set, the set's
 --- projects and configurations), to put back when nothing was written
---- (API.md §11: a refused write changes neither user.json nor the model).
+--- (a refused write changes neither user.json nor the model).
 --- @param profile loomworks.Profile
 --- @return table[] snapshot
 local function activation_intents(profile)
@@ -363,7 +361,7 @@ local function restore_intents(snapshot)
     for _, e in ipairs(snapshot) do e[1]._intent, e[1]._source = e[2], e[3] end
 end
 
---- `set_active { profile }` — make it the active profile (spec §4.2).
+--- `set_active { profile }` — make it the active profile.
 --- @param profile loomworks.Profile
 --- @return loomworks.CommandOutcome
 function M.profile_set_active(profile)
@@ -410,7 +408,7 @@ local function target_record(c)
         default = c.default == true }
 end
 
---- A profile's launchable targets (API.md §9.6 `Launch/1.targets`): `ok`
+--- A profile's launchable targets: `ok`
 --- with `targets` (LaunchTargetRecord[], per project in the profile's order),
 --- `incomplete` (the keys of its unconfigured projects whose build targets
 --- are unknown) and `override` (a stored default-target choice). Writes
@@ -429,8 +427,8 @@ function M.launch_targets(ws, profile, opts)
     return ok({ targets = targets, incomplete = listing.incomplete, override = listing.override })
 end
 
---- Set or clear a profile's default launch target (API.md §11
---- `Profiles/1.set_default_target`): `target` `{ kind, project, name }`
+--- Set or clear a profile's default launch target
+--- (`Profiles/1.set_default_target`): `target` `{ kind, project, name }`
 --- (`project` the resolved Project) one of the profile's launchable targets
 --- (M.launch_targets) is stored as its default in the working copy; nil
 --- removes the stored choice. A target not among them is refused; a failed
@@ -542,7 +540,7 @@ function M.config_set_add_candidate(ws, token)
 end
 
 --- `create { config_set, tool?, activate? }` — materialize a profile of a
---- configuration set (spec §4.1): `set` the set, or `{ candidate = token }`
+--- configuration set: `set` the set, or `{ candidate = token }`
 --- for an automatic one (added first). An existing profile of that set and
 --- toolchain is returned. A new profile's intent is `local`. A failed save
 --- is refused with the profile (and the active one) as before; an automatic
@@ -564,7 +562,7 @@ function M.profile_create(ws, set, tool_entry, activate)
     end
     local existing = cs:find_profile(tool_entry)
     -- A new profile whose configurations would take another configuration's
-    -- build directory is refused there, writing nothing (spec §1.7).
+    -- build directory is refused there, writing nothing.
     local profile, perr = cs:ensure_profile(tool_entry)
     if not profile then
         if perr and cs ~= set then
@@ -697,7 +695,7 @@ end
 
 --- A profile's toolchain change, which re-derives its key and propagates
 --- it as a profile rename does: run holding the workspace operation lock
---- (spec §19.3, API.md §11; op_lock.guard below). Answers an outcome; a
+--- (op_lock.guard below). Answers an outcome; a
 --- refused lock is `false, message` from the guard.
 local Toolchain = {}
 
@@ -711,7 +709,7 @@ function Toolchain.change(profile, change)
 end
 
 -- A failed commit puts the profile's toolchain back in place (it keeps its
--- identity), then the guard reloads the model from disk (API.md §11).
+-- identity), then the guard reloads the model from disk.
 require("loomworks.op_lock").guard(Toolchain, "change", "rename", function(profile) return profile._workspace end, {
     snapshot = function(profile)
         local snapshot = profile_tools_snapshot(profile)
@@ -723,7 +721,7 @@ require("loomworks.op_lock").guard(Toolchain, "change", "rename", function(profi
 --- `false` is a held lock (nothing ran) or a commit that failed after the
 --- change was saved (staged) and re-derived: the guard put the profile back
 --- as it was and reloaded the model from disk, so no later save writes the
---- change (API.md §11).
+--- change.
 local function change_toolchain(profile, change)
     local r, msg = Toolchain.change(profile, change)
     if r == false then return refused(msg or "the workspace operation lock is held") end
@@ -731,7 +729,7 @@ local function change_toolchain(profile, change)
 end
 
 --- The Tool a toolchain key names in the workspace's module registries
---- (the exact key; API.md §1.2), or nil.
+--- (the exact key), or nil.
 --- @param ws loomworks.Workspace
 --- @param tool_key string
 --- @return loomworks.Tool|nil
@@ -752,7 +750,7 @@ local function has_tool(profile, tool_key)
 end
 
 --- `add_tool { profile, tool }` — add a toolchain (its key, a value) to a
---- profile; its key is derived again (spec §1.6), under the workspace
+--- profile; its key is derived again, under the workspace
 --- operation lock.
 --- @param profile loomworks.Profile
 --- @param tool_key string
@@ -761,7 +759,7 @@ function M.profile_add_tool(profile, tool_key)
     local r = stale(profile, "profile")
     if r then return r end
     if type(tool_key) ~= "string" or tool_key == "" then return refused("no toolchain given", 2) end
-    -- An argument that does not resolve is refused (API.md §4.1).
+    -- An argument that does not resolve is refused.
     local tool = resolve_tool(profile._workspace, tool_key)
     if not tool then return refused("no toolchain '" .. tool_key .. "'") end
     return change_toolchain(profile, function(p) p:add_tool(tool.key) end)
@@ -783,7 +781,7 @@ function M.profile_remove_tool(profile, tool_key)
 end
 
 -- ---------------------------------------------------------------------------
--- Projects/1 (API.md §19)
+-- Projects/1
 -- ---------------------------------------------------------------------------
 
 --- `add { key, type, path?, mappings?, tool? }` — declare a project, map it
@@ -856,7 +854,7 @@ M.CONFIG_DIALOG_FIELDS = {
 --- `configuration_save { project, configuration?, name, fields }` — create a
 --- user configuration (`cfg` nil) or update one, changing only the dialog's
 --- fields; a new name renames it (propagated to configuration sets, the
---- cache and profiles, spec §4.8).
+--- cache and profiles).
 --- @param project loomworks.Project
 --- @param cfg loomworks.Configuration|nil
 --- @param name string
@@ -883,7 +881,7 @@ function M.configuration_save(project, cfg, name, fields)
 end
 
 --- `configuration_remove { project, configuration }` — remove the
---- declaration; its build state stays, orphaned (spec §4.5).
+--- declaration; its build state stays, orphaned.
 --- @param project loomworks.Project
 --- @param cfg loomworks.Configuration
 --- @return loomworks.CommandOutcome
@@ -917,8 +915,8 @@ function M.options_save(project, options)
 end
 
 --- The launch's declared table after the launch editor's fields replaced
---- its own: fields the editor does not show (the `device` block, spec
---- §18.9, …) are kept; empty fields are omitted.
+--- its own: fields the editor does not show (the `device` block, …) are
+--- kept; empty fields are omitted.
 --- @param launch loomworks.LaunchConfiguration|nil
 --- @param data table
 --- @return table
@@ -944,7 +942,7 @@ end
 
 --- `launch_save { project, launch?, name, data }` — create a launch
 --- configuration (`launch` nil) or replace the editor's fields of one; a
---- name other than its own renames it (spec §8.7: profiles' default
+--- name other than its own renames it (profiles' default
 --- targets, units' target entries and saved test entries follow), the
 --- object — so its id — kept. Working copy only; no operation lock.
 --- @param project loomworks.Project
@@ -963,7 +961,7 @@ function M.launch_save(project, launch, name, data)
     local config = launch_declaration(launch, data)
     local renamed = false
     if launch and launch.name ~= name then
-        -- A rename (spec §8.7): the atomic operation that moves the whole
+        -- A rename: the atomic operation that moves the whole
         -- launch and re-points every default target — never a delete plus a
         -- re-create. The edited fields are then saved on the new name.
         local changed, err = project:rename_launch_config(launch, name)
@@ -1058,7 +1056,7 @@ function M.type_config_set(project, field, value)
 end
 
 -- ---------------------------------------------------------------------------
--- Projects/1 reads (API.md §19): candidates, declaration, expand_preview
+-- Projects/1 reads: candidates, declaration, expand_preview
 -- ---------------------------------------------------------------------------
 
 --- The keyed toolchains detected for module type `mod_type`: the workspace's
@@ -1379,7 +1377,7 @@ local function dict(t)
     return t
 end
 
---- The module's editable `type_config` fields of a project (§14.4), in the
+--- The module's editable `type_config` fields of a project, in the
 --- module's order, each with the project's current value.
 --- @param project loomworks.Project
 --- @return { name: string, label?: string, kind?: string, placeholder?: string, value?: any }[]
@@ -1412,7 +1410,7 @@ local function config_ref(cfg, id_of)
 end
 
 --- What the configuration editor shows of `cfg` beside its declared fields,
---- derived under the active profile (API.md §19 `declaration`): `default`,
+--- derived under the active profile: `default`,
 --- `source_missing`, the resolved `variant` and the base supplying it
 --- (`variant_from`), the options it has from the project or a base and does
 --- not declare (`inherited_options`), each project variable's value for it
@@ -1526,7 +1524,7 @@ function M.project_declaration(project, id_of)
 end
 
 --- `expand_preview { project, profile?, templates }` — each template
---- expanded as a launch of `project` would expand it (spec §1.3.1, §8.7),
+--- expanded as a launch of `project` would expand it,
 --- under `profile` or the active profile, in the caller's environment; an
 --- unresolved reference stays as written.
 --- @param project loomworks.Project
@@ -1549,7 +1547,7 @@ function M.expand_preview(project, profile, templates)
 end
 
 -- ---------------------------------------------------------------------------
--- ConfigSets/1 (API.md §20)
+-- ConfigSets/1
 -- ---------------------------------------------------------------------------
 
 --- `add { name, mappings }`.
@@ -1595,7 +1593,7 @@ end
 
 --- `update { config_set, name?, mappings }` — replace the set's mappings
 --- (a project absent from `mappings`, or mapped to false, is unmapped); a
---- different name renames it first (spec §4.10).
+--- different name renames it first.
 --- @param cs loomworks.ConfigurationSet
 --- @param name string|nil
 --- @param mappings table<loomworks.Project, loomworks.Configuration|false|nil>
@@ -1631,7 +1629,7 @@ function M.config_set_update(cs, name, mappings)
 end
 
 --- `remove { config_set }` — the declaration only; its profiles stay, shown
---- with a missing set (spec §4.4).
+--- with a missing set.
 --- @param cs loomworks.ConfigurationSet
 --- @return loomworks.CommandOutcome
 function M.config_set_remove(cs)
@@ -1667,7 +1665,7 @@ function M.config_set_generate_defaults(ws)
 end
 
 -- ---------------------------------------------------------------------------
--- Toolchains/1.rescan (API.md §11)
+-- Toolchains/1.rescan
 -- ---------------------------------------------------------------------------
 
 --- `rescan {}` — start detecting the toolchains again
@@ -1682,7 +1680,7 @@ function M.tools_rescan(ws)
 end
 
 -- ---------------------------------------------------------------------------
--- Sdks/1 (API.md §21)
+-- Sdks/1
 -- ---------------------------------------------------------------------------
 
 --- `detect { provider? }` — the installed SDK providers (or the one named)
@@ -1727,7 +1725,7 @@ function M.sdk_detect(provider)
 end
 
 --- `add { provider, path }` — declare an SDK, then start detecting the
---- toolchains again (Workspace:rescan_tools, spec §1.5),
+--- toolchains again (Workspace:rescan_tools),
 --- so the SDK's kits are offered once detection settles. Detection is
 --- asynchronous: this never waits for it (the daemon waits before it
 --- replies; the editor does not).
@@ -1759,13 +1757,13 @@ end
 
 
 -- ---------------------------------------------------------------------------
--- Maintenance/1 (API.md §22)
+-- Maintenance/1
 -- ---------------------------------------------------------------------------
 
 --- The request phase of `execute_deletion { target, plan?, yes? }`: the
 --- deletion is planned (loomworks.deletion_plan) after resolution and
 --- before any lock; nothing is locked or changed here. In `reset`'s order
---- (§8.5): a target that cannot be deleted (stale, a stray dir not in the
+--- a target that cannot be deleted (stale, a stray dir not in the
 --- current stray set or outside the workspace) is refused; a `plan` the
 --- fresh token differs from is refused (`deletion_plan.CHANGED`, exit 1),
 --- before the empty check, so a listed plan whose directories vanished is
@@ -1910,7 +1908,7 @@ function M.nuke_listing(core, root, areas)
 end
 
 --- `nuke { plan?, yes? }` in the editor's own process (the status page's
---- `<C-n>` in the `in-process` mode; step 5o C2c-2): the daemon's order
+--- `<C-n>` in the `in-process` mode): the daemon's order
 --- (loomworks.daemon.maintenance) on the editor's core. A lock another
 --- process holds is refused before the listing (`Core:nuke_check`, the
 --- editor's own builds passed over: `nuke_cache` stops them first); a `plan`

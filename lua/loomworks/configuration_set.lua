@@ -7,7 +7,7 @@ local description_mod = require("loomworks.description")
 --- @class loomworks.ConfigurationSet
 --- @field name string configuration set name
 --- @field mappings table<loomworks.Project, loomworks.Configuration> project -> Configuration object
---- @field description string|nil normalised description (spec §1.10); stored in
+--- @field description string|nil normalised description; stored in
 ---        the `configuration_set_descriptions` sidecar of the file the set lives in
 --- @field _description_invalid any a non-string sidecar value, ignored but
 ---        written back unchanged until the description is set or cleared
@@ -64,14 +64,14 @@ function ConfigurationSet:_update(resolved_mappings, description_value)
 end
 
 --- The value to write to the sidecar for this set: the description, or a
---- preserved non-string value (spec §1.10), or nil (no entry).
+--- preserved non-string value, or nil (no entry).
 --- @return any
 function ConfigurationSet:description_for_file()
     if self.description ~= nil then return self.description end
     return self._description_invalid
 end
 
---- Set or clear (nil / blank) the set's description (spec §1.10). Editing is
+--- Set or clear (nil / blank) the set's description. Editing is
 --- use: a `shared` set is materialised into the working copy (implicit
 --- cascade). Writes nothing when the normalised text is unchanged.
 --- @param text string|nil
@@ -199,7 +199,7 @@ function ConfigurationSet:update_mapping(project, configuration)
     end
 
     -- A change that would refuse another configuration's build directory is
-    -- refused, writing nothing (spec §1.7 "Commands refuse to create one").
+    -- refused, writing nothing.
     local ok, err = false, ws:_new_build_dir_collision()
     if not err then ok, err = ws:_save_user() end
     if not ok then
@@ -281,7 +281,7 @@ end
 --- Find a profile in the registry matching this set + tool properties.
 --- Uses property-based matching, never key computation. An SDK's entry
 --- matches the profile whose toolchains are exactly its kit toolchains
---- (`sdk_tools`, spec §1.6).
+--- (`sdk_tools`).
 --- @param tool_entry? loomworks.ToolEntry
 --- @return loomworks.Profile|nil
 function ConfigurationSet:find_profile(tool_entry)
@@ -329,8 +329,8 @@ end
 
 --- Ensure a profile exists for this configuration set + tool, materializing if needed.
 --- Does NOT activate the profile. A new profile whose configurations would
---- take a build directory another configuration keeps is refused (spec §1.7
---- "Commands refuse to create one"): it is not added, no unit is
+--- take a build directory another configuration keeps is refused: it is not
+--- added, no unit is
 --- materialized, and the refusal is returned.
 --- @param tool_entry? { tool_key: string, tool_data: table, tool_label: string, tool_mod_type: string }
 --- @return loomworks.Profile|nil
@@ -347,8 +347,8 @@ function ConfigurationSet:ensure_profile(tool_entry)
         local Profile = require("loomworks.profile").Profile
 
         -- The entry's toolchains by module type: a host tool's, or an SDK's
-        -- kit toolchains — stored as tool keys, which carry the SDK (spec
-        -- §1.6), so the profile keeps it across a reload.
+        -- kit toolchains — stored as tool keys, which carry the SDK, so the
+        -- profile keeps it across a reload.
         local tools = require("loomworks.workspace").tool_entry_tools(tool_entry)
         -- The SDK is the entry's (`_sdk`); its tool keys carry it.
         local sdk = tool_entry and tool_entry.sdk or nil
@@ -384,8 +384,8 @@ function ConfigurationSet:ensure_profile(tool_entry)
     end
 
     -- Materialize: ensures skeleton ConfigUnits exist. After the profile is
-    -- in the model, so a configuration it refuses a build directory (§1.7)
-    -- gets no unit.
+    -- in the model, so a configuration it refuses a build directory gets no
+    -- unit.
     self._workspace:_materialize_from_data(self, tool_entry)
     self._workspace:_rebuild_profile_projects_for(profile)
     return profile
