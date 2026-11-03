@@ -1,5 +1,5 @@
---- loomworks/config_transfer.lua — pure helpers for `lw export` / `lw import`
---- (spec §16.39). The workspace side (what is serialized, the in-memory load
+--- loomworks/config_transfer.lua — pure helpers for `lw export` / `lw import`.
+--- The workspace side (what is serialized, the in-memory load
 --- of an import) lives on Workspace (`shared_snapshot`, `prepare_import`,
 --- `commit_import`); this module holds what needs no workspace: inventories
 --- and diffs of raw-shape config tables, the intent an import assigns, the
@@ -114,13 +114,13 @@ function M.counts_text(c)
     return table.concat(parts, ", ")
 end
 
---- The intent map an import writes (spec §16.39 "Intent of imported items").
+--- The intent map an import writes.
 --- Every imported item gets an explicit intent: the item's intent in the
 --- current working copy when it already holds the item (`current`), else
 --- `local+shared` when the current published snapshot holds an item of the
 --- same identity, else `local`. `mode` ("local" / "local+shared", the global
 --- create-intent options) overrides both — except that a share request leaves
---- profiles on those rules (§2.4). Published items the import does not carry
+--- profiles on those rules. Published items the import does not carry
 --- become `shared` (reference-only), so no stale intent keeps them in the
 --- working copy. Configuration keys are `<project>/<configuration>` (the
 --- intent-map form of the working copy).
@@ -186,7 +186,7 @@ M.KIND_LABEL = {
 
 --- "<kind> <name>" for every project, configuration set and profile of
 --- inventory `from` that inventory `to` lacks, sorted — the items a publish
---- of `to` would remove from a published snapshot `from` (spec §16.39).
+--- of `to` would remove from a published snapshot `from`.
 --- @param from table inventory
 --- @param to table inventory
 --- @return string[]
@@ -202,7 +202,7 @@ function M.removed_names(from, to)
 end
 
 --- Intent changes between two `Workspace:_item_intents()` maps, for items in
---- both (spec §16.39 summary): `{ kind, name, from, to }`, in report order.
+--- both: `{ kind, name, from, to }`, in report order.
 --- A configuration is named `<project>:<configuration>`.
 --- @param before table
 --- @param after table
@@ -224,7 +224,7 @@ end
 --- The text `lw export` prints: exactly what a publish writes (`io.encode_json`),
 --- except that DEL and C1 control characters — which can only occur inside
 --- JSON strings — are written as `\u` escapes, so no such byte ever reaches a
---- terminal raw (spec §16.7, §16.39). The decoded value is unchanged.
+--- terminal raw. The decoded value is unchanged.
 --- @param raw table
 --- @return string|nil text, string|nil err
 function M.export_text(raw)
@@ -235,10 +235,10 @@ function M.export_text(raw)
     return text
 end
 
---- The program-settings review of an import (spec §16.39 "Trust"): the
+--- The program-settings review of an import: the
 --- program-bearing lines of the working copy the import will sign, each
 --- marked `(new)` unless the current working copy holds the same line, and
---- the other-contents lines — in the review format of `lw trust` (§17.4),
+--- the other-contents lines — in the review format of `lw trust`,
 --- without its active-profile line (the import summary states that).
 --- @param before table current working copy (raw shape)
 --- @param after table the working copy the import writes (raw shape)

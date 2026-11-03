@@ -1,4 +1,4 @@
---- loomworks/test_targets.lua — saved test targets (spec §1.3.4).
+--- loomworks/test_targets.lua — saved test targets.
 ---
 --- A pure helper with no workspace access: parses and serializes the generic
 --- `tests` field of a project (the project-wide list, lifted out of the module
@@ -89,7 +89,7 @@ function M.index_entries(entries)
     return entries
 end
 
---- The keys of the table form this version knows (spec §1.3.4).
+--- The keys of the table form this version knows.
 local TABLE_KEYS = { name = true, args = true, working_dir = true }
 
 --- Parse one raw element: `"Name"`, a non-empty array of strings
@@ -180,8 +180,8 @@ function M.declares(decl)
     return decl ~= nil and decl.entries ~= nil
 end
 
---- Serialize one entry in the shortest form that holds it (spec §1.3.4
---- "Persistence"): a bare name, `["Name", args…]` when it has args, the
+--- Serialize one entry in the shortest form that holds it: a bare name,
+--- `["Name", args…]` when it has args, the
 --- table form only when it has a `working_dir` or unknown keys (kept
 --- verbatim, so such a table is never shortened), or an invalid entry's raw
 --- element verbatim.
@@ -210,7 +210,7 @@ end
 function M.serialize(decl, invalid)
     if invalid ~= nil then return invalid end
     if not decl or decl.entries == nil then return nil end
-    -- An explicit empty list is a declaration (§1.3.4); a plain empty table
+    -- An explicit empty list is a declaration; a plain empty table
     -- encodes as `[]`.
     local list = {}
     for i, e in ipairs(decl.entries) do list[i] = M.serialize_entry(e) end
@@ -246,7 +246,7 @@ function M.fingerprint(entries)
 end
 
 --- An entry's display label: its name with ` #<k>` when the name repeats in
---- its list (spec §16.16), or the raw element of an invalid entry.
+--- its list, or the raw element of an invalid entry.
 --- @param e loomworks.SavedTestEntry
 --- @return string
 function M.entry_label(e)
@@ -256,7 +256,7 @@ function M.entry_label(e)
     return e.name
 end
 
---- An entry's test id (spec §8.9.2): `<kind>:<name>`, with `#<k>` for the
+--- An entry's test id: `<kind>:<name>`, with `#<k>` for the
 --- k-th occurrence (k ≥ 2) of a repeated name. `kind` defaults to "target"
 --- (unknown kind, or a missing entry).
 --- @param e loomworks.SavedTestEntry
@@ -270,8 +270,8 @@ function M.entry_id(e, kind)
 end
 
 --- A copy of a module section (type_config) without `tests` in any
---- configuration table — what a module sees (spec §1.3.4: a module never sees
---- the field). The project-wide `tests` is lifted out at load time
+--- configuration table — what a module sees (a module never sees the field).
+--- The project-wide `tests` is lifted out at load time
 --- (`config._extract_tests`); it is removed here too, defensively.
 --- Returns the input unchanged when there is nothing to strip.
 --- @param tc table|nil
@@ -307,7 +307,7 @@ function M.strip_from_type_config(tc)
 end
 
 --- Graft each user configuration's declared `tests` onto a module's
---- `info().configurations` (the module never saw it, §1.3.4). Generated
+--- `info().configurations` (the module never saw it). Generated
 --- entries get none: a generated configuration has no persisted table.
 --- @param configurations table<string, table>|nil info().configurations (mutated)
 --- @param declared table<string, table>|nil type_config.configurations as declared
@@ -385,7 +385,7 @@ end
 --- @field also_target boolean|nil a same-named executable build target exists (kind = "launch")
 --- @field reason string|nil why it is missing, e.g. "not a target or launch of App/Tests"
 
---- Resolve one saved entry (spec §1.3.4 "Resolution"): a launch
+--- Resolve one saved entry: a launch
 --- configuration of the project in the model first, otherwise an executable
 --- build target of the unit. A launch the trust filter ignored as a whole is
 --- missing — never resolved to a same-named build target.
@@ -452,7 +452,7 @@ end
 
 --- Whether the shared layer declared launch `name` of `project_key` but the
 --- trust filter ignored it as a whole and the working copy does not supply it
---- (spec §17.6) — a saved entry naming it is missing (§1.3.4).
+--- — a saved entry naming it is missing.
 --- @param ignored table[]|nil the workspace's `_shared_ignored`
 --- @param project loomworks.Project
 --- @param name string

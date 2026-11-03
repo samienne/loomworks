@@ -1,5 +1,5 @@
 --- loomworks/integrations/inventory/codelldb.lua — the codelldb debug adapter's
---- environment-inventory companion (codelldb §6, core §8.9.6 / §16.33).
+--- environment-inventory companion.
 ---
 --- Presence on disk (Mason package or search path), not registration with the
 --- debugger plugin — that is still checked at debug time. Version from the
@@ -9,7 +9,7 @@ local M = {}
 
 --- Languages this tool serves: a plain `lw health` lists it only in a workspace
 --- with one of them (or, for a language server, one whose modules name it in
---- `lsp_servers`) — core §16.36.
+--- `lsp_servers`).
 M.languages = { "c", "c++", "rust" }
 
 --- @param _ctx loomworks.InventoryContext

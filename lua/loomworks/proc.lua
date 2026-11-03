@@ -1,5 +1,4 @@
---- loomworks/proc.lua — local process identity and control for lock recovery
---- (spec §19.5).
+--- loomworks/proc.lua — local process identity and control for lock recovery.
 ---
 --- A lock record names its holder by process id AND process start time, so a
 --- reused process id is never mistaken for the holder. This module answers
@@ -14,7 +13,7 @@
 --- The value is opaque and carries its method prefix: a record written by a
 --- method this process cannot use is judged by heartbeat alone (`nil`), never
 --- compared across methods. Where nothing works `start_time` returns nil and
---- callers fall back to the heartbeat (§19.5 "Known limitations").
+--- callers fall back to the heartbeat.
 ---
 --- `start_time(pid)` returns a string (the process exists), `false` (no such
 --- process — or a zombie / exited process whose object lingers) or `nil`
@@ -335,7 +334,7 @@ end
 M._processes_probe = nil
 
 --- The processes of this host with their executable base names, for the
---- daemon scan (spec §19.6.1): `{ pid, name }[]`. Windows: one Toolhelp
+--- daemon scan: `{ pid, name }[]`. Windows: one Toolhelp
 --- snapshot (`szExeFile`); Linux: the `/proc` entries owned by this euid
 --- (`comm`, at most 15 characters); macOS: `proc_listallpids` + `proc_name`
 --- (fallback `ps -x -o pid=,comm=`). Names are as the OS reports them (a path
@@ -362,7 +361,7 @@ function M.processes()
     if OS == "Linux" then
         local req = uv().fs_scandir("/proc")
         if req then
-            -- This process's effective uid (§19.7; /proc/<pid> is owned by
+            -- This process's effective uid (/proc/<pid> is owned by
             -- the process's effective uid). Unreadable: nothing is listed.
             local me = require("loomworks.daemon.identity").euid()
             if not me then return list end
@@ -592,7 +591,7 @@ local function win_kill(pid, st)
 end
 
 --- Kill the process tree of the holder `pid` whose recorded start time is
---- `st` (spec §19.5 step 2): the holder and its enumerated descendants, by
+--- `st`: the holder and its enumerated descendants, by
 --- force. A process whose start time no longer matches is never signalled,
 --- nor is this process or one of its ancestors. `extra` adds descendants
 --- enumerated earlier (`descendants`, before an ask step) that are still the
@@ -646,9 +645,9 @@ function M.kill_tree(pid, st, extra)
     return true
 end
 
---- Ask a holder to let go (spec §19.5 step 1): the interrupt `lw` handles
---- (§16.6). POSIX only — on Windows an `lw` in another console cannot reliably
---- be interrupted (§19.5 "Known limitations"), so this returns false there.
+--- Ask a holder to let go: the interrupt `lw` handles. POSIX only — on
+--- Windows an `lw` in another console cannot reliably
+--- be interrupted, so this returns false there.
 --- @param pid integer
 --- @param st string recorded start time (never signal a reused id)
 --- @return boolean sent
@@ -659,8 +658,8 @@ function M.interrupt(pid, st)
 end
 
 -- ---------------------------------------------------------------------------
--- Command lines and holder identity (spec §19.5: never kill a process that is
--- not what its lock record claims)
+-- Command lines and holder identity (never kill a process that is not what
+-- its lock record claims)
 -- ---------------------------------------------------------------------------
 
 local _wcmd
@@ -802,7 +801,7 @@ end
 
 --- Is `exe` (a base name, lowercased, without `.exe`) a named lw binary:
 --- `lw`, a release asset run under its download name (`lw-linux-x86_64`), or
---- a pinned launcher-cache copy `lw-<version>-<asset>` (spec §16.24)? Any
+--- a pinned launcher-cache copy `lw-<version>-<asset>`? Any
 --- other `lw-*` (`lw-foo`) is not.
 --- @param exe string
 --- @return boolean

@@ -1,4 +1,4 @@
---- Health provider #4 — repo launcher and pin (headless §16.31).
+--- Health provider #4 — repo launcher and pin.
 ---
 --- When a version pin (lw.pin) is found — the same upward pin-root discovery
 --- the redirect uses, from the workspace root or, outside a workspace, the
@@ -7,7 +7,7 @@
 --- (usually the repair, `lw bootstrap install`, which keeps the pin).
 ---
 --- The checks themselves live in boot.launcher_check, shared with the
---- `lw bootstrap` status page (spec §16.24); this module supplies the git
+--- `lw bootstrap` status page; this module supplies the git
 --- runner (loomworks.exe, both hosts, each query under a timeout without
 --- optional locks) and the hash, and adds the `launcher:` prefix. On-demand and
 --- report-only: never on the passive `N suggestions` path, nothing cached.
@@ -27,8 +27,8 @@ local GIT_ENV = {
 }
 
 --- Run `git -C <cwd> <args...>`; returns code, stdout. Test seam.
---- Repository-local configuration must not run commands on lw's behalf
---- (spec §17.8): no fsmonitor hook, no hooks path.
+--- Repository-local configuration must not run commands on lw's behalf:
+--- no fsmonitor hook, no hooks path.
 --- @return integer code, string stdout
 function M._git(cwd, args)
     local exe = require("loomworks.exe")
@@ -47,7 +47,7 @@ end
 
 --- Inspect the pin root; returns the report or nil when there is no pin. The
 --- checks, wording and remedies are boot.launcher_check's — the one
---- implementation shared with the `lw bootstrap` status page (spec §16.24);
+--- implementation shared with the `lw bootstrap` status page;
 --- this adapter supplies the host's git runner + hash and adds the
 --- `launcher:` prefix.
 --- @param start string directory to search upward from

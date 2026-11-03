@@ -1,6 +1,6 @@
 --- loomworks/integrations/inventory/pwa_node.lua — the pwa-node (js-debug)
---- debug adapter's environment-inventory companion (pwa-node §7, core §8.9.6 /
---- §16.33). Mason `js-debug-adapter` package; version from its receipt. Also
+--- debug adapter's environment-inventory companion. Mason `js-debug-adapter`
+--- package; version from its receipt. Also
 --- declares `exe:node` (shared with the typescript module, probed once), which
 --- the adapter runs on. Never a workspace requirement.
 
@@ -8,7 +8,7 @@ local M = {}
 
 --- Languages this tool serves: a plain `lw health` lists it only in a workspace
 --- with one of them (or, for a language server, one whose modules name it in
---- `lsp_servers`) — core §16.36.
+--- `lsp_servers`).
 M.languages = { "typescript", "javascript" }
 
 --- @param _ctx loomworks.InventoryContext

@@ -1,6 +1,6 @@
---- loomworks/launch_configuration.lua — LaunchConfiguration domain object
---- (spec §1.2.1). A named way to run something of a project (§8.7), declared
---- under the project's `"launch"` (name → table) and merged per name (§2.4).
+--- loomworks/launch_configuration.lua — LaunchConfiguration domain object.
+--- A named way to run something of a project, declared under the project's
+--- `"launch"` (name → table) and merged per name.
 --- Owned by `Project._launches` (name → object); identity-preserving across
 --- refreshes (matched by name within the project) and across a rename.
 ---
@@ -10,7 +10,7 @@
 
 local description_mod = require("loomworks.description")
 
---- The declared fields this version knows (spec §8.7, §18.9). Any other key
+--- The declared fields this version knows. Any other key
 --- of a declaration goes to `_extra`.
 local FIELDS = { "target", "command", "args", "working_dir", "env", "debug",
     "deploy", "device", "device_log" }
@@ -27,9 +27,9 @@ for _, k in ipairs(FIELDS) do KNOWN[k] = true end
 --- @field env any environment overrides (name → value), as declared
 --- @field debug any debug languages (first = primary), as declared
 --- @field deploy any launch-level deploy steps (destination → source(s)), as declared
---- @field device any the remote-execution block (spec §18.9), as declared
+--- @field device any the remote-execution block, as declared
 --- @field device_log any device log settings, as declared
---- @field description string|nil normalised description (spec §1.10)
+--- @field description string|nil normalised description
 --- @field _description_invalid any a non-string `description` value, ignored
 ---        but written back unchanged until the description is set or cleared
 --- @field _extra table|nil keys this version does not know (key → value),
@@ -118,7 +118,7 @@ function LaunchConfiguration:is_removed()
     return self._removed or (self._project ~= nil and self._project._removed) or false
 end
 
---- Set or clear the description (spec §1.10, §8.7), normalised; an empty
+--- Set or clear the description, normalised; an empty
 --- text removes it. Implicit cascade on use (the project is materialised in
 --- the working copy).
 --- @param text string|nil

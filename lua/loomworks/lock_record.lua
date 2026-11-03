@@ -1,8 +1,8 @@
 --- loomworks/lock_record.lua — the common lock record and holder
---- classification of every loomworks lock (spec §19.5).
+--- classification of every loomworks lock.
 ---
---- Every lockfile (build directory §16.6, device §18.7, file save §2.7, and
---- the workspace operation lock §19.3) carries the same record:
+--- Every lockfile (build directory, device, file save, and the workspace
+--- operation lock) carries the same record:
 ---
 ---   { pid, host, start_time, lock_nonce, kind, operation, started_at }
 ---
@@ -12,9 +12,9 @@
 --- acquisition (a reclaim removes only the record it observed), `kind` the
 --- holder kind (`lw`, `daemon`, `editor`). The file's mtime is the heartbeat.
 --- (`nonce` is not used: device-lock records already carry a `nonce` naming
---- their running program, §18.7.)
+--- their running program.)
 ---
---- A process that finds a lock held classifies the holder (§19.5):
+--- A process that finds a lock held classifies the holder:
 ---   dead          same host, no process with that id AND start time → reclaim
 ---   live          same host alive + fresh heartbeat, or other host + fresh
 ---   hung          same host alive, heartbeat stale → NOT reclaimed
@@ -184,8 +184,8 @@ function M.still_ours(path, rec)
 end
 
 --- Atomically remove the lockfile at `path` if it still carries the record
---- `observed` (spec §19.5: reclaiming is a rename of the record, done only if
---- it still carries the observed nonce). A record that changed in between is
+--- `observed` (reclaiming is a rename of the record, done only if it still
+--- carries the observed nonce). A record that changed in between is
 --- put back when its name is still free. Returns true when the observed
 --- record was removed.
 --- @param path string
@@ -267,7 +267,7 @@ end
 --- Create the lock file at `path` holding `rec`, exclusively: never through
 --- an existing one. The record is written to a temp first and given the lock
 --- file's name by a hard link — an atomic create-if-absent — so the lock
---- file never exists without its record (spec §19.5). Where hard links are
+--- file never exists without its record. Where hard links are
 --- not supported (LINK_UNSUPPORTED) it is the exclusive create
 --- (O_CREAT|O_EXCL) followed by the write. Returns true, or nil + error +
 --- code ("EEXIST": the lock is held).
@@ -365,13 +365,13 @@ function M.same_host(info)
     return type(info.host) == "string" and info.host == M.this_host()
 end
 
---- The refusal message for a held lock (spec §19.3, §19.5).
+--- The refusal message for a held lock.
 --- ctx:
 ---   what     how to name the locked thing ("build/debug", "device SER1")
 ---   command  the command to retry with `--break-locks` ("lw build")
 ---   unlock   the `lw unlock --force` argument naming this lock
 ---   breaking true when `--break-locks` was given (and refused here)
----   style    "workspace" (the operation lock, §19.3: `workspace busy: …`) or
+---   style    "workspace" (the operation lock: `workspace busy: …`) or
 ---            "nuke" (a build lock `lw nuke` needs: `a build is running in …`)
 ---   prefix   prepended to every message ("cannot nuke: ")
 --- @param info table classified holder info (`state` set)

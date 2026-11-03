@@ -1,4 +1,4 @@
---- loomworks/health_cache.lua — advisory suggestion cache (headless §16.31).
+--- loomworks/health_cache.lua — advisory suggestion cache.
 ---
 --- A small, workspace-local cache for the `lw health` / `N suggestions`
 --- results, kept deliberately SEPARATE from the build-state cache
@@ -7,9 +7,9 @@
 --- with its own schema version, so the two never entangle. It lives beside the
 --- build cache under the workspace's `.nvim/` directory and is an internal
 --- cache — never a project or build-system file — so health still "authors
---- nothing" (§16.9).
+--- nothing".
 ---
---- Three tiers (§16.31, §16.33):
+--- Three tiers:
 ---   * `local_tier`   — `{ items, computed_at, key }`, the passive providers'
 ---     results plus a cheap invalidation fingerprint of their inputs;
 ---   * `network_tier` — `{ items, computed_at, key }`, the on-demand providers'
@@ -91,8 +91,8 @@ function M.read(io_dep, root)
     if type(io_dep) == "table" then
         if type(io_dep.read_file) == "function" and io_dep.write_json_signed then
             -- A real io module: read the raw text and use it only when it
-            -- carries this machine's signature (spec §17.4 — an unsigned or
-            -- foreign health cache is ignored and replaced on the next run).
+            -- carries this machine's signature (an unsigned or foreign health
+            -- cache is ignored and replaced on the next run).
             local ok, content = pcall(io_dep.read_file, path)
             if ok and type(content) == "string" then
                 local status, body = require("loomworks.trust").verify("health", content)
@@ -144,7 +144,7 @@ function M.write(io_dep, root, data)
     if type(io_dep.ensure_dir) == "function" then
         pcall(io_dep.ensure_dir, root .. "/.nvim")
     end
-    -- Signed with the machine key (spec §17.3) when the io dependency can.
+    -- Signed with the machine key when the io dependency can.
     local writer = type(io_dep.write_json_signed) == "function"
         and function(p, d) return io_dep.write_json_signed(p, "health", d) end
         or io_dep.write_json

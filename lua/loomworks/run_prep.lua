@@ -1,9 +1,9 @@
---- loomworks/run_prep.lua — the preparation of `lw run` (spec §16.17), shared
---- by the in-process host (cli.lua `cmd_run`) and the workspace daemon
---- (daemon/runner.lua, `prepare_run`, §19.15 "Run"): launch-target
+--- loomworks/run_prep.lua — the preparation of `lw run`, shared by the
+--- in-process host (cli.lua `cmd_run`) and the workspace daemon
+--- (daemon/runner.lua, `prepare_run`): launch-target
 --- enumeration and selection, the validity gate, the foreign-artifact probe,
 --- the launch-spec resolution and the launch's environment contribution; and
---- the debug-spec resolution the editor's debug paths consume (step 5k).
+--- the debug-spec resolution the editor's debug paths consume.
 ---
 --- Host-neutral: nothing here prints or exits. Every refusal is returned as
 --- the text `lw` prints (after its `lw: ` prefix), so both runners report a
@@ -108,11 +108,11 @@ end
 --- @field incomplete string[] keys of the projects whose build targets are unknown (not configured)
 --- @field override boolean the profile stores a default-target choice
 
---- A profile's launchable targets as the target listing shows them (spec
---- §16.18, API.md §9.6): every launch configuration, executable build target
+--- A profile's launchable targets as the target listing shows them: every
+--- launch configuration, executable build target
 --- and device target, the profile's default target marked — the stored
 --- choice, else (none stored) the sole launch configuration or build target
---- (§16.17) — and the projects whose build targets are unknown because they
+--- — and the projects whose build targets are unknown because they
 --- are not configured. Parses targets a unit does not know yet, never
 --- builds; with `opts.parse == false` (a long-lived daemon, which parses off
 --- its model queue first: M.stale_target_units) only the known targets.
@@ -208,12 +208,12 @@ function M.match_targets(ws, profile, name, proj_scope, kind, all)
     return matches, all
 end
 
---- Resolve the launch target of a run against the built tree (spec §16.17
---- "Launch target selection"): the named target (`name`), else the profile's
+--- Resolve the launch target of a run against the built tree: the named
+--- target (`name`), else the profile's
 --- default target, else its sole launchable one. Returns the LaunchTarget, or
 --- nil + the refusal (no such target, ambiguous, nothing to run, no default
 --- set). `opts.refresh` re-reads every unit's targets first (a long-lived
---- daemon whose units outlived a build, §19.15).
+--- daemon whose units outlived a build).
 --- @param ws loomworks.Workspace
 --- @param profile loomworks.Profile
 --- @param name string|nil
@@ -273,7 +273,7 @@ function M.validity_error(lt)
 end
 
 --- The foreign-artifact classification of a launch target's build-target
---- artifact (spec §18.1), or nil: a module target or a target-backed launch
+--- artifact, or nil: a module target or a target-backed launch
 --- configuration whose artifact is foreign. Command launches are never probed.
 --- @param lt loomworks.LaunchTarget
 --- @return loomworks.ForeignArtifact|nil
@@ -291,7 +291,7 @@ function M.foreign_of(lt)
 end
 
 --- The execution platform of the first unit of `profile` that builds with a
---- foreign (cross) kit (spec §18.1, known before anything is built), or nil.
+--- foreign (cross) kit (known before anything is built), or nil.
 --- @param profile loomworks.Profile
 --- @return string|nil
 function M.kit_platform(profile)
@@ -314,7 +314,7 @@ function M.resolve_spec(lt, opts)
     local spec, serr = lt:resolve_launch_spec({
         extra_args = opts.extra_args, working_dir = opts.cwd_override })
     -- An unresolved build-target artifact reports its reason and exits
-    -- non-zero — reported, never guessed (§16.3 / §16.18).
+    -- non-zero — reported, never guessed.
     if not spec then return nil, "cannot resolve launch: " .. tostring(serr) end
     return spec
 end
@@ -364,8 +364,8 @@ local function module_language(lt)
     return project and project._module and project._module:primary_language() or "c++"
 end
 
---- The debug spec `Launch/1.prepare_debug` ends with (spec §19.15 "Debug";
---- `loomworks.Common/1` `DebugSpec`): the run's resolved launch of the same
+--- The debug spec `Launch/1.prepare_debug` ends with
+--- (`loomworks.Common/1` `DebugSpec`): the run's resolved launch of the same
 --- target and arguments — `launch` as `prepare_run` returns it (`env` already
 --- reduced to the launch's own contribution) — with `program` the run's
 --- `cmd`, then the launch's debug languages: `language` a launch
@@ -393,8 +393,8 @@ function M.debug_spec(ws, lt, launch)
     }
 end
 
---- Why a launch target cannot be debugged on this host (spec §19.15 "Debug",
---- §18.1 / §18.11: there is no device debug), or nil: a device target, or a
+--- Why a launch target cannot be debugged on this host (there is no device
+--- debug), or nil: a device target, or a
 --- build-target artifact found foreign — by its kit's platform token, or (not
 --- `by_kit_only`) by probing the artifact. The refusal is the in-process one
 --- of debugging a foreign target (remote.foreign.refusal). `by_kit_only`:
@@ -415,12 +415,11 @@ function M.debug_refusal(lt, by_kit_only)
     return nil
 end
 
---- Resolve the debug spec of a launch target. One spec for run
---- and debug (spec §8.9.6 "One spec for run and debug", step 5k C2): the
+--- Resolve the debug spec of a launch target. One spec for run and debug: the
 --- program, arguments, working directory and environment are the run's of the
 --- same target (LaunchTarget:resolve_launch_spec — a module target's
 --- working-directory precedence and run environment, a launch
---- configuration's args / env / working_dir, the §17.9 denylist), `env`
+--- configuration's args / env / working_dir, the env denylist), `env`
 --- reduced to the launch's own contribution (M.env_overrides), shaped by
 --- M.debug_spec exactly as `Launch/1.prepare_debug` returns it.
 --- Adapter-agnostic: availability and the adapter-specific transform are the
@@ -432,7 +431,7 @@ end
 --- nil when there is nothing to debug (neither a launch configuration nor an
 --- executable target with an artifact); with a reason and its severity when
 --- the target cannot be debugged: "error" for a launch configuration or a
---- foreign artifact (§18.11), "warn" for a module target that does not
+--- foreign artifact, "warn" for a module target that does not
 --- resolve otherwise (no build directory, ...).
 --- @param lt loomworks.LaunchTarget
 --- @return loomworks.DebugSpec|nil spec
@@ -461,10 +460,10 @@ end
 --- command launch config's env is already just its declared vars; a
 --- build-target / target-backed launch resolves a FULL env (inherited + a
 --- PATH prepend), so diffing against the inherited env reduces it to exactly
---- the launch's contribution — never the whole inherited environment (spec
---- §16.17 "Command inspection"). In the daemon the process environment is the
---- requesting client's (loomworks.daemon.envscope), so this is the
---- contribution over the client's environment (§19.15 "Run").
+--- the launch's contribution — never the whole inherited environment. In the
+--- daemon the process environment is the requesting client's
+--- (loomworks.daemon.envscope), so this is the contribution over the client's
+--- environment.
 --- @param env table<string,string>|nil
 --- @return table<string,string>
 function M.env_overrides(env)

@@ -1,5 +1,4 @@
---- loomworks/tool_cache.lua — the machine-level tool cache `tools.json`
---- (spec §16.43, §16.40; §19.11 "Warm restarts").
+--- loomworks/tool_cache.lua — the machine-level tool cache `tools.json`.
 ---
 --- Detecting toolchains probes compilers, vswhere and vcvarsall — seconds of
 --- work — so the last result is kept per MODULE TYPE in `<cache>/tools.json`,
@@ -109,7 +108,7 @@ function M.env(overrides)
     return env
 end
 
---- The tool cache directory by the platform rules (spec §16.40 `<cache>`):
+--- The tool cache directory by the platform rules:
 --- `%LOCALAPPDATA%/loomworks/cache` on Windows, else
 --- `$XDG_CACHE_HOME/loomworks` or `~/.cache/loomworks`. Forward-slashed.
 --- @param env? table
@@ -155,7 +154,7 @@ function M.read(env)
 end
 
 --- The fingerprint of each module type in `types` (a set), computed once from
---- the current inputs (spec §16.43 "Fingerprint"). Core-only: no module hook.
+--- the current inputs. Core-only: no module hook.
 --- @param types table<string, any>
 --- @param env? table
 --- @return table<string, string> fp by module type

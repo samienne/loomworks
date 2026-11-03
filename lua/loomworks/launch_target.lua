@@ -185,7 +185,7 @@ end
 --- Configuration (no `variant` on module_config — what a stub user
 --- configuration is when a module's default_configurations could not parse
 --- its source manifest): the refusal, or nil. Checked by the daemon's
---- target-scoped launch build (spec §19.15 "Build scope of a launch").
+--- target-scoped launch build.
 --- @return string|nil
 function LaunchTarget:abstract_error()
     local unit = self._config_unit
@@ -201,12 +201,12 @@ function LaunchTarget:abstract_error()
         unit._configuration.name or "?", self._project and self._project.key or "?")
 end
 
---- The dependencies a launch builds before itself (spec §8.8.4 step 3), in
+--- The dependencies a launch builds before itself, in
 --- order: the project's explicit `depends_on` (the active profile's mapping,
 --- no configuration hint), then the deploy source projects (a source may pin
 --- `configuration:` in its descriptor, so it builds even when its project is
 --- not part of the profile). De-duplicated by (project, hint). Used by the
---- daemon's target-scoped launch build (§19.15).
+--- daemon's target-scoped launch build.
 --- @return { project: loomworks.Project, config_hint: string|nil }[]
 function LaunchTarget:build_dependencies()
     local all_deps = {}
@@ -236,7 +236,7 @@ end
 --- the editor's model: each dependency's (the active profile's mapping, or a
 --- pinned configuration's existing unit — never materialised here) and the
 --- target's own. The artifact-conflict question asked before a daemon call
---- (§19.16 "Editor operations", step 5t) covers these.
+--- covers these.
 --- @return loomworks.ConfigUnit[]
 function LaunchTarget:existing_build_units()
     local out, seen = {}, {}
@@ -260,7 +260,7 @@ function LaunchTarget:existing_build_units()
     return out
 end
 
---- The refusal of a dependency no configuration resolves for (§8.8.4).
+--- The refusal of a dependency no configuration resolves for.
 --- @param project loomworks.Project
 --- @return string
 function LaunchTarget.unresolved_dependency_message(project)
@@ -386,7 +386,7 @@ function LaunchTarget:_deploy_phase(phase, on_complete, opts)
         profile = self._profile,
         launch_project = self._project,
         -- The launch target's build target, for `${target_dir}` in
-        -- destinations (§8.8.4); nil for a command-type launch.
+        -- destinations; nil for a command-type launch.
         launch_build_target = (self._launch and (self._launch.target and self._config_target or nil))
             or self._target,
         on_step = opts and opts.on_step or nil,
@@ -413,7 +413,7 @@ end
 --- How many copies a deploy phase declares (each source of each
 --- destination; fresh ones are skipped when it runs): 0 for a phase with no
 --- deploy steps. The daemon's target-scoped build plans a deploy step only
---- for a phase that has copies (spec §19.15 "Steps of a task").
+--- for a phase that has copies.
 --- @param phase "pre_build"|"post_build"
 --- @return integer
 function LaunchTarget:deploy_count(phase)
@@ -468,7 +468,7 @@ function LaunchTarget:resolve_command_spec()
     if not cfg then return nil, "no launch configuration" end
 
     local ws = self._workspace
-    -- `${target_dir}` (§8.7) is defined for a target-backed config only.
+    -- `${target_dir}` is defined for a target-backed config only.
     local ctx = expand.launch_context(ws, self._profile, self._project,
         { target = cfg.target and self._config_target or nil })
 
@@ -512,7 +512,7 @@ function LaunchTarget:resolve_command_spec()
     -- Env: for a target-backed config start from the run environment (a full
     -- env table) and layer declared vars over it; for a command config, just
     -- the declared vars (unchanged behavior).
-    -- Denylisted loader/interpreter variables are refused (spec §17.9).
+    -- Denylisted loader/interpreter variables are refused.
     local decl = require("loomworks.env_policy").filter(
         expand.expand_dict(cfg.env, ctx), { label = "launch " .. tostring(self._launch_name or "?") })
     local env
@@ -646,7 +646,7 @@ end
 
 
 --- @class loomworks.DeviceCommand
---- A module's device command (spec §11.4) as this target runs it.
+--- A module's device command as this target runs it.
 --- @field name string the task name (`<project>: install on <serial>`)
 --- @field cmd string the program
 --- @field args? string[]
@@ -656,7 +656,7 @@ end
 
 --- The command that installs the built artifact on a device: the module's
 --- `device_install` over the artifact its `resolve_artifact` names, for the
---- workspace daemon's `Devices/1.install` (daemon.md §19.16 "Devices").
+--- workspace daemon's `Devices/1.install`.
 --- @param device_serial string
 --- @return loomworks.DeviceCommand|nil cmd, string|nil err
 function LaunchTarget:device_install_command(device_serial)
@@ -820,7 +820,7 @@ end
 --- The command that clears the device's log buffer before a log stream
 --- starts: the module's optional `device_log_clear` (nil when the module has
 --- none, or it returns no command). Used by the workspace daemon's
---- `Launch/1.device_log` (API.md §9.5).
+--- `Launch/1.device_log`.
 --- @param device_serial string
 --- @return loomworks.DeviceCommand|nil
 function LaunchTarget:device_log_clear_command(device_serial)

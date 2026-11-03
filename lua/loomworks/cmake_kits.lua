@@ -147,7 +147,7 @@ end
 --- `cpp_compilers.detect_async` (the same PATH-index scan, family-from-output
 --- identification, dedup and ordering as the sync `detect_compilers`), shaping
 --- the result into the `{path=...}` fields this adapter uses — so the async and
---- sync kit lists agree and the environment inventory (headless §16.33, which
+--- sync kit lists agree and the environment inventory (which
 --- reports that same scan) lists exactly the compilers a kit can be built from.
 --- @param callback fun(compilers: table[])
 local function detect_compilers_async(callback)

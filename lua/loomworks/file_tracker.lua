@@ -26,7 +26,7 @@ local uv = vim.uv or vim.loop
 local io_mod = require("loomworks.io")
 
 --- How soon a file missing beside its staged copy (a save between its two
---- renames, spec §19.4) is checked again, in ms.
+--- renames) is checked again, in ms.
 FileTracker.SAVE_RECHECK_MS = 500
 
 --- Whether a save of `path` is staged: `<path>.tmp` (io.write_file_atomic)
@@ -64,21 +64,20 @@ end
 --- @field batch? fun(deliver: fun()) wraps the delivery of one sync's changes:
 ---   called once per sync that found changes; it must call `deliver()`, which
 ---   fires `callback` for each changed path. Lets the owner act once after all
----   of them are applied (spec §2.7).
+---   of them are applied.
 --- @field manual? boolean no sync of its own: changes are delivered only by
----   `sync()` (the workspace daemon, which applies external changes itself,
----   spec §19.13 "Freshness of views", §19.15)
+---   `sync()` (the workspace daemon, which applies external changes itself)
 --- @field signal? fun() with `manual`: watch the content-watched files anyway
 ---   and call this (scheduled) when one's stat changes, so the owner can sync
----   (the daemon's watch, §19.13); also after the grace of a save in progress
+---   (the daemon's watch); also after the grace of a save in progress
 --- @field hold? fun(path: string, content: string|nil): boolean screens every
 ---   change a sync read (and a path it held before, until it passes): true
 ---   holds it back, and the sync then delivers nothing (every last known
 ---   content kept), so the next sync retries (the daemon: a file that cannot
----   be parsed, §19.13)
+---   be parsed)
 --- @field saves? boolean a file read missing while its staged copy exists
 ---   (`<file>.tmp`, or a transaction's `<file>.txn-<id>`) is a save in
----   progress (spec §19.4): it reads as its last known content, and a re-check
+---   progress: it reads as its last known content, and a re-check
 ---   is signalled after `SAVE_RECHECK_MS`; with no staged copy it reads as
 ---   missing at once (a deletion)
 --- @field staged? fun(path: string): boolean injectable for testing (default
@@ -150,7 +149,7 @@ end
 
 --- Read a watched file. With `saves`, a file missing while its staged copy
 --- exists (`<file>.tmp`, or a transaction's `<file>.txn-<id>`) is a save in
---- progress (spec §19.4: the target is absent between the save's two
+--- progress (the target is absent between the save's two
 --- renames): it reads as its last known content, and a re-check is
 --- scheduled (again on every such read, while the staged copy remains). A
 --- missing file with no staged copy reads as missing at once, as a deleted
@@ -240,9 +239,9 @@ end
 --- last known. So while one change is applied, `content()` of every other
 --- watched file is already its current disk content: a change that reads a
 --- sibling file (loomworks.json reassembles with the working copy) sees the
---- sibling's new bytes, never a stale mix (spec §2.7). The whole delivery runs
+--- sibling's new bytes, never a stale mix. The whole delivery runs
 --- inside the `batch` option's wrapper when one is set. A path a callback
---- stopped watching (a refused file reloads the workspace, spec §17.4, which
+--- stopped watching (a refused file reloads the workspace, which
 --- stops this tracker), or one an earlier callback already wrote or reconciled
 --- (`mark_written`), is skipped. When a callback throws, the change it was
 --- applying and every later one go back to undelivered (their last known
@@ -253,8 +252,7 @@ end
 --- nothing (every last known content kept), so a later sync delivers that
 --- change together with the ones read with it, never half of them — the
 --- workspace daemon's view check leaves what would reload the workspace or
---- rescan tools, and what changed with it, to the next request's sync
---- (spec §19.13 "Freshness of views").
+--- rescan tools, and what changed with it, to the next request's sync.
 --- @param opts? { accept?: fun(path: string, content: string|nil): boolean }
 function FileTracker:sync(opts)
     if self._paused then return end
@@ -409,7 +407,7 @@ end
 --- Prevents the next poll from detecting our own write as an external change.
 --- Pass the bytes actually written: re-reading the file instead could record
 --- another process's write that landed right after ours as our own, and that
---- change would then never be delivered (spec §2.7). Without `content` the
+--- change would then never be delivered. Without `content` the
 --- file is read back (legacy callers).
 --- @param path string
 --- @param content? string|false the bytes now on disk (false/nil: read back)

@@ -7,7 +7,7 @@ local uv = vim.uv or vim.loop
 --- @param path string
 --- @return string|nil content, string|nil err
 function M.read_file(path)
-    -- Inside a transaction (loomworks.txn, spec §19.4) a staged workspace file
+    -- Inside a transaction (loomworks.txn) a staged workspace file
     -- reads as its staged bytes.
     if M._txn_hook then
         local hit, data = M._txn_hook.read(path)
@@ -135,7 +135,7 @@ end
 --- @param opts? { backup: boolean|nil }
 --- @return boolean ok, string|nil err
 function M.write_file_atomic(path, data, opts)
-    -- Inside a transaction (loomworks.txn, spec §19.4) a workspace file is
+    -- Inside a transaction (loomworks.txn) a workspace file is
     -- staged to `<path>.txn-<id>`; the commit replaces the target.
     if M._txn_hook then
         local handled, ok, err = M._txn_hook.write(path, data, opts)
@@ -293,8 +293,8 @@ function M.write_json(path, tbl)
 end
 
 --- The exact text `write_json` writes for `tbl`: sorted keys at every depth,
---- two-space indentation, trailing line feed (spec §2). One encoder for every
---- workspace file and for `lw export` (§16.39), so an export is byte-compatible
+--- two-space indentation, trailing line feed. One encoder for every
+--- workspace file and for `lw export`, so an export is byte-compatible
 --- with the file a publish writes.
 --- @param tbl table
 --- @return string|nil text, string|nil err
@@ -305,7 +305,7 @@ function M.encode_json(tbl)
 end
 
 --- Write a loomworks state file under `.nvim/` (working copy, build cache,
---- health cache) as JSON signed with the machine key (spec §17.3): the same
+--- health cache) as JSON signed with the machine key: the same
 --- sorted, pretty encoding as `write_json`, with the signature member first.
 --- When the key is unavailable the file is still written, unsigned (it will be
 --- refused or discarded on the next read — never trusted) and the error is
@@ -316,7 +316,7 @@ end
 --- @param tbl table
 --- The fourth return value is the exact bytes written (on success), so a
 --- caller can record its disk baseline without re-reading the file (a re-read
---- could pick up another process's write — spec §2.7).
+--- could pick up another process's write).
 --- @return boolean ok, string|nil err, string|nil sign_err, string|nil written
 function M.write_json_signed(path, kind, tbl)
     local pretty, err = M.encode_json(tbl)
@@ -495,7 +495,7 @@ end
 --- `opts.stop` (optional) is asked before each entry: once it returns true no
 --- further entry is started — what was removed stays removed, the directories
 --- still holding entries are kept — and the callback gets `stopped = true`
---- (the workspace daemon's cancellable clean wipe, spec §19.15 "Clean"). The
+--- (the workspace daemon's cancellable clean wipe). The
 --- CALLER validates `dir` (Deletion Safety) before calling.
 --- @param dir string
 --- @param callback? fun(ok: boolean, err: string|nil, stopped: boolean|nil) legacy callback (deprecated)

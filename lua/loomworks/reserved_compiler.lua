@@ -7,8 +7,7 @@
 --- These keys are rejected at config-edit time and defensively stripped at
 --- task-build time. Defined once here and shared by the cmake/meson modules
 --- and the configuration mutation path. Mirrors the reserved-name pattern in
---- `variables.lua`. See specification.md §15 (invariant "The tool owns the
---- compiler") and spec/modules/cmake.md §5b.
+--- `variables.lua`.
 
 local M = {}
 

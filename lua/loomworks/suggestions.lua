@@ -1,14 +1,14 @@
 --- loomworks/suggestions.lua — Extensible workspace suggestion framework.
 ---
---- A **suggestion** is advisory (headless §16.31): a `{ title, detail, remedy }`
+--- A **suggestion** is advisory: a `{ title, detail, remedy }`
 --- triple that a provider derives from the resolved workspace. Suggestions are
 --- distinct from **diagnostics** — they never gate a build, never fail
 --- `--check`, and never change an exit status. The framework is the general
 --- surface; individual providers register independently and `collect` aggregates
---- whatever is registered. The compact `N suggestions` line (spec/ui.md §1.1,
---- headless §16.18) and the full `lw health` report (§16.31) both read this.
+--- whatever is registered. The compact `N suggestions` line and the full
+--- `lw health` report both read this.
 ---
---- An item is one of two **kinds** (§16.31). An **actionable** item
+--- An item is one of two **kinds**. An **actionable** item
 --- (`kind == "suggestion"`, the default) is a nag with a remedy — it is what the
 --- compact `N suggestions` count reports. An **informational** item
 --- (`kind == "info"`) affirms a healthy state ("using sccache"); it appears in
@@ -32,7 +32,7 @@ M._clock = function() return os.time() end
 --- @field remedy string|nil concrete action the user can take (nil for info items)
 --- @field kind? "suggestion"|"info" actionable (default) vs informational
 --- @field detail_verbose? boolean `detail` is shown only by the verbose report (and `--json`)
---- @field area? string report area (§16.36); filled from the provider's registration when unset
+--- @field area? string report area; filled from the provider's registration when unset
 
 --- Registered **passive** provider functions: `(workspace) -> Suggestion[]`.
 --- These are side-effect-free and MUST NOT spawn tools or touch the network —
@@ -43,19 +43,19 @@ M._providers = {}
 --- Registered **health-only** provider functions: `(workspace) -> Suggestion[]`.
 --- These may perform a NETWORK fetch or other expensive/one-shot work and run
 --- ONLY on an explicit `lw health` (`collect_health`), never on the passive
---- status count (`collect`). See the no-passive-network constraint (§16.31).
+--- status count (`collect`).
 --- @type (fun(workspace: loomworks.Workspace): loomworks.Suggestion[])[]
 M._health_providers = {}
 
 --- Health providers registered **report-only** (`register_health(fn, {
 --- persist = false })`): their items are shown by the health run that computed
---- them but never written to the cached network tier (§16.31) — e.g. the
+--- them but never written to the cached network tier — e.g. the
 --- submodule report, whose informational items no passive consumer displays
 --- and whose stored copy would never be invalidated.
 --- @type table<function, true>
 M._report_only = {}
 
---- Report area of each registered provider (§16.36), keyed by the provider
+--- Report area of each registered provider, keyed by the provider
 --- function. A provider without one runs under every area selection and its
 --- items render under "other" (unless an item names its own area).
 --- @type table<function, string>
@@ -64,8 +64,8 @@ M._areas = {}
 --- Register a **passive** suggestion provider. A provider inspects the resolved
 --- workspace and returns zero or more suggestions. It must be side-effect-free
 --- and must not spawn external tools or make network calls — it runs on every
---- passive status render. `opts.area` is the report area of its items
---- (§16.36); a health run narrowed to other areas does not run it.
+--- passive status render. `opts.area` is the report area of its items; a
+--- health run narrowed to other areas does not run it.
 --- @param fn fun(workspace: loomworks.Workspace): loomworks.Suggestion[]
 --- @param opts? { area?: string }
 function M.register(fn, opts)
@@ -76,8 +76,7 @@ end
 --- Register a **health-only** suggestion provider — one permitted to make a
 --- network call or other expensive check. It runs ONLY when `lw health` is
 --- invoked (`collect_health`), and is deliberately excluded from the passive
---- `collect` the status count uses, so a status render never hits the network
---- (§16.31).
+--- `collect` the status count uses, so a status render never hits the network.
 --- `opts.persist = false` makes it **report-only**: its items are never
 --- written to the cached network tier. `opts.area` as for `register`.
 --- @param fn fun(workspace: loomworks.Workspace): loomworks.Suggestion[]
@@ -120,7 +119,7 @@ end
 
 --- Run the **passive**/local providers and return their flattened suggestions.
 --- @param workspace loomworks.Workspace|nil
---- @param areas? table<string, true> area selection (§16.36); nil = all
+--- @param areas? table<string, true> area selection; nil = all
 --- @return loomworks.Suggestion[]
 local function run_local(workspace, areas)
     local out = {}
@@ -132,7 +131,7 @@ end
 --- suggestions: those to persist in the network tier, and the report-only
 --- ones (`M._report_only`) that are shown but never cached.
 --- @param workspace loomworks.Workspace|nil
---- @param areas? table<string, true> area selection (§16.36); nil = all
+--- @param areas? table<string, true> area selection; nil = all
 --- @return loomworks.Suggestion[] persisted, loomworks.Suggestion[] report_only
 local function run_network(workspace, areas)
     local keep, only = {}, {}
@@ -143,7 +142,7 @@ local function run_network(workspace, areas)
 end
 
 --- Whether an area selection includes every provider of a tier — the tier is
---- then computed completely and may be written (§16.36).
+--- then computed completely and may be written.
 --- @param list function[]
 --- @param areas table<string, true>|nil
 --- @return boolean
@@ -158,7 +157,7 @@ end
 --- The caching backing for a workspace — its `.nvim/` root and an io dependency
 --- — or nil when there is nothing to cache against (a nil workspace, or the bare
 --- table stubs the framework tests pass). Without a backing, `collect` /
---- `collect_health` run providers live and never persist a cache (§16.31).
+--- `collect_health` run providers live and never persist a cache.
 --- @param workspace any
 --- @return {root: string, io: table}|nil
 local function cache_env(workspace)
@@ -180,7 +179,7 @@ local function append(out, items)
     for _, s in ipairs(items or {}) do out[#out + 1] = s end
 end
 
---- The environment inventory's actionable items (§16.33) for a cached
+--- The environment inventory's actionable items for a cached
 --- inventory tier, re-derived against the CURRENT workspace — nothing when the
 --- tier is absent or was recorded for another environment. Never probes; a
 --- failure contributes nothing (advisory). With an area selection, only the
@@ -208,7 +207,7 @@ end
 --- what the compact `N suggestions` line (rendered frequently) reads, so it
 --- NEVER touches the network. `lw health` uses `collect_health` instead.
 ---
---- Cached two-tier model (§16.31): with a workspace backing, the local tier is
+--- Cached two-tier model: with a workspace backing, the local tier is
 --- read from the on-disk health cache and recomputed only when it is absent or
 --- its cheap invalidation key (`_local_key`) no longer matches the current
 --- inputs — a lazy compute-on-first-`lw status` that stays cheap on every later
@@ -218,7 +217,7 @@ end
 --- a bundle/host no longer running, so they are dropped) — but the network tier
 --- is NEVER computed here. The environment inventory's missing-required items
 --- are re-derived from the cached inventory tier when its environment key still
---- matches (§16.33) — never probed here. Without a workspace backing (nil
+--- matches — never probed here. Without a workspace backing (nil
 --- workspace, or a future workspace-independent passive provider), the passive
 --- providers run live and nothing is cached.
 --- @param workspace loomworks.Workspace|nil
@@ -251,9 +250,9 @@ end
 
 --- Run the passive providers AND the health-only providers (which may make a
 --- network call) and return the flattened suggestions. Invoked ONLY by the
---- explicit `lw health` report (§16.31), never by a passive render.
+--- explicit `lw health` report, never by a passive render.
 ---
---- Full refresh (§16.31): an explicit health run never READS the cache — the
+--- Full refresh: an explicit health run never READS the cache — the
 --- LOCAL tier and the NETWORK tier (the update check) are recomputed every run,
 --- and the caller's fresh inventory probe replaces the inventory tier. With a
 --- workspace backing the results are then WRITTEN, so the passive `collect`
@@ -263,7 +262,7 @@ end
 --- `workspace` may be nil: the workspace-INDEPENDENT health providers (update
 --- availability, channel override) ignore their argument and still run, so
 --- `lw health` outside a workspace reports them. Workspace-scoped providers
---- guard nil themselves and simply contribute nothing (§16.31). Without a
+--- guard nil themselves and simply contribute nothing. Without a
 --- workspace backing there is nowhere to key or store a cache, so every tier
 --- runs live and nothing is written.
 ---
@@ -273,7 +272,7 @@ end
 --- the probe), the inventory contributes nothing — health never reads a cached
 --- tier back.
 ---
---- `opts.areas` (a set of area names, §16.36) runs only the providers of those
+--- `opts.areas` (a set of area names) runs only the providers of those
 --- areas; a tier is then written only when every provider feeding it ran (the
 --- local tier needs the passive providers' areas, the network tier the
 --- health-only persisted providers'), and the inventory tier only when the
@@ -350,7 +349,7 @@ local function is_actionable(s)
 end
 
 --- Count of ACTIONABLE passive suggestions — exactly what the compact
---- `N suggestions` status line (spec/ui.md §1.1, headless §16.18) reports.
+--- `N suggestions` status line reports.
 --- Informational items (`kind == "info"`, e.g. the affirmative "using sccache"
 --- note) are excluded so a positive status never inflates the nag count.
 --- @param workspace loomworks.Workspace|nil
@@ -364,7 +363,7 @@ function M.count_actionable(workspace)
 end
 
 -- ---------------------------------------------------------------------------
--- Provider #1 — compiler cache (headless §16.31)
+-- Provider #1 — compiler cache
 -- ---------------------------------------------------------------------------
 
 --- The EXPLICIT `cache` values a configuration declares — in its own
@@ -388,7 +387,7 @@ local function config_explicit_cache(cfg)
     return vals
 end
 
---- Cheap invalidation fingerprint for the LOCAL suggestion tier (§16.31): a
+--- Cheap invalidation fingerprint for the LOCAL suggestion tier: a
 --- stable digest of exactly the inputs the passive providers read — the platform,
 --- each non-orphaned project's key + module + whether it caches C/C++ + the
 --- EXPLICIT `cache` values on its configurations (the opt-out signal), the
@@ -398,7 +397,7 @@ end
 --- when none is active), and the recorded post-configure compatibility
 --- results with each such unit's CURRENT module stamp of the scanned compile
 --- data (the one filesystem read: a stat / directory listing per
---- cache-enabled unit, core §8 `cache_compat_stamp`). It intentionally does NOT
+--- cache-enabled unit, the module's `cache_compat_stamp`). It intentionally does NOT
 --- include any toolchain-PATH probe result: computing the key must stay cheap,
 --- so a launcher appearing/disappearing on PATH without a
 --- config change is picked up by the next `lw health` (which always recomputes
@@ -462,12 +461,12 @@ function M._local_key(workspace)
             parts[#parts + 1] = "mapped|" .. table.concat(mapped, ",")
         end
 
-        -- Recorded post-configure cache-compatibility results (§16.31): a new
+        -- Recorded post-configure cache-compatibility results: a new
         -- configure that finds (or clears) /Zi compiles must refresh the
         -- cached local tier — and so must the build tool re-running the
         -- generator by itself (no lw configure), which only the module's
-        -- CURRENT stamp of the compile data shows (core §8
-        -- `cache_compat_stamp`: one stat / directory listing per unit with a
+        -- CURRENT stamp of the compile data shows (`cache_compat_stamp`: one
+        -- stat / directory listing per unit with a
         -- record — only units that applied a compiler cache). The records are
         -- read as recorded here, never re-scanned: the provider re-scans when
         -- the tier is recomputed.
@@ -517,7 +516,7 @@ end
 --- (sccache on Windows, ccache elsewhere). This is only an install
 --- recommendation — NOT the `auto` resolver's preference, which is ccache
 --- (sccache as fallback) for gcc/clang on every platform and no launcher for
---- MSVC-style compilers (§1.3.2).
+--- MSVC-style compilers.
 --- @return string
 function M._preferred_install_tool()
     return vim.fn.has("win32") == 1 and "sccache" or "ccache"
@@ -525,7 +524,7 @@ end
 
 --- Install remedy for a launcher: one short line pointing at `lw help cache`
 --- (per-platform install commands live there). `opt_in` adds that an
---- MSVC-style compiler also needs an explicit `cache=<tool>` (§1.3.2).
+--- MSVC-style compiler also needs an explicit `cache=<tool>`.
 --- @param tool string
 --- @param opt_in? boolean
 --- @return string
@@ -560,7 +559,7 @@ local function all_cache_statuses(workspace)
     return out
 end
 
---- One terse item per outcome (headless §16.31). The explanations — why `auto`
+--- One terse item per outcome. The explanations — why `auto`
 --- is off for MSVC-style compilers, how to opt in, /Z7 + the /Zi scan,
 --- install commands, not-applied cases — live in `lw help cache`.
 local function info(title) return { { kind = "info", title = title } } end
@@ -627,14 +626,14 @@ local function failing_compiles_phrase(workspace, profiles)
 end
 
 --- Provider: report the workspace's compiler-cache state when it has C/C++
---- projects (headless §16.31). Every item is ONE terse line; `lw help cache`
+--- projects. Every item is ONE terse line; `lw help cache`
 --- holds the explanations. Gated on at least one non-orphaned C/C++-caching
 --- project that has NOT pinned `cache` to `off` (else silent).
 ---
 --- **Active profile with a C/C++ configuration** — follows THAT profile's
 --- resolved status (`Profile:compiler_cache_status`, its Cache row):
 ---   * policy `off` → silent;
----   * not applicable (module hook, §8) → INFO "Compiler cache not applied
+---   * not applicable (module hook) → INFO "Compiler cache not applied
 ---     (<reason>) — lw help cache";
 ---   * launcher resolved → INFO "Compiler cache: using <tool>" — qualified
 ---     "— but it will fail N compiles (lw help cache)" when the scan recorded
@@ -801,7 +800,7 @@ M._compat_units = compat_units -- also read by `_local_key`
 --- can re-run the generator by itself (no lw configure) and add or remove the
 --- flags a recorded scan found, so a record whose module stamp changed is
 --- re-scanned — locally, from existing post-configure metadata, spawning
---- nothing (§16.31 "always refreshes the local checks"). The refresh is
+--- nothing (health always refreshes the local checks). The refresh is
 --- in-memory only: health never writes the build cache; the next build's
 --- result recording persists it.
 --- @param workspace loomworks.Workspace|nil
@@ -819,8 +818,8 @@ local function compat_records(workspace)
 end
 M._compat_records = compat_records -- also read by `failing_compiles_phrase`
 
---- Provider: post-configure compiler-cache compatibility results (headless
---- §16.31, core §8 `cache_compat_scan`) for the active profile's units (every
+--- Provider: post-configure compiler-cache compatibility results (the
+--- module's `cache_compat_scan`) for the active profile's units (every
 --- profile's, deduplicated per unit, when none is active) — read from the
 --- record core stored at configure, re-scanned first when the module's stamp
 --- of the compile data changed since (`compat_records`):
@@ -851,7 +850,7 @@ function M.cache_compat_provider(workspace)
                 detail = tostring(rec.reason or "no compile-command data"),
             }
         elseif severity then
-            -- An environment finding (units = nil, §8) reaches every compile.
+            -- An environment finding (units = nil) reaches every compile.
             local units, every = 0, false
             for _, f in ipairs(rec.findings or {}) do
                 if f.units == nil then every = true else units = units + f.units end
@@ -879,7 +878,7 @@ end
 M.register(M.cache_compat_provider, { area = "cache" })
 
 -- ---------------------------------------------------------------------------
--- Provider #2 — update availability (HEALTH-ONLY, headless §16.31)
+-- Provider #2 — update availability (HEALTH-ONLY)
 --
 -- These providers make a NETWORK call (GitHub releases API / manifest peek), so
 -- they are registered with `register_health`, NOT `register`: they run only on
@@ -899,7 +898,7 @@ function M._current_release_version()
     return luaroot:match("lua%-(.+)$")
 end
 
---- Facts about the running standalone `lw` host binary (§16.32), or nil when
+--- Facts about the running standalone `lw` host binary, or nil when
 --- this is not the standalone host (the editor / nvim-hosted fallback — there is
 --- no lw binary to update). Network-free and cheap; a seam tests replace.
 ---
@@ -931,7 +930,7 @@ function M._host_facts()
     return facts
 end
 
---- The lw binary (host) staleness item, or nil. Upgrade-only (§16.32): a host
+--- The lw binary (host) staleness item, or nil. Upgrade-only: a host
 --- self-update would replace — per the same `host_update.decide` it uses — gets
 --- "run `lw self-update`"; a host too old to self-update gets "reinstall once".
 --- Never for a dev build, a pinned host (lw.pin owns its version) or a host at
@@ -1030,7 +1029,7 @@ end
 --- Health provider: a newer release is available on the resolved update channel
 --- — for the bundle ("Update available") and/or the lw binary itself (a host
 --- left stale by an unwritable install dir, `--no-host`, or a host from before
---- self-update, §16.32). One item when both are stale: `lw self-update` updates
+--- self-update). One item when both are stale: `lw self-update` updates
 --- both — except a pre-self-update host, which it cannot replace.
 --- HEALTH-ONLY — it performs a network fetch (`resolve_newest_version`) under
 --- `UPDATE_CHECK_FETCH`'s tight limits, so an unreachable network costs seconds,
@@ -1092,7 +1091,7 @@ function M.update_check_provider(_workspace)
         -- and runs the bundle from the pinned cache `<data>/pinned/<sha256>/
         -- lua-<ver>`; hosts before v0.1.32 used the repo's `.nvim/cache/lua-<ver>`)
         -- takes its version from the pin, which `lw self-update` never changes:
-        -- point at `lw bootstrap upgrade` (spec §16.24), which moves the pin to
+        -- point at `lw bootstrap upgrade`, which moves the pin to
         -- the newest release on the same channel compared against here. Pinned
         -- context means run through a launcher, so name the launcher form (the
         -- one that ran, when it named itself).
@@ -1119,7 +1118,7 @@ end
 
 --- Health provider: a `release-url` override is superseding a non-default update
 --- channel — the state a user hits when they set `--channel`/`channel` but a
---- mirror override quietly wins (§16.29). Deterministic and network-free, but
+--- mirror override quietly wins. Deterministic and network-free, but
 --- HEALTH-ONLY: it surfaces the "channel ignored" state in the health view
 --- rather than adding to the passive count. Reuses `update.url_override` /
 --- `update.resolve_channel` — no duplicated precedence logic.
@@ -1154,7 +1153,7 @@ M.register_health(M.update_check_provider, { area = "lw" })
 M.register_health(M.channel_override_provider, { area = "lw" })
 
 -- ---------------------------------------------------------------------------
--- Provider #3 — git submodule drift (HEALTH-ONLY, REPORT-ONLY, §16.31)
+-- Provider #3 — git submodule drift (HEALTH-ONLY, REPORT-ONLY)
 --
 -- Spawns git (and probes uninitialized submodules' remotes, bounded), so it is
 -- on-demand; its items are all informational and are not cached — see
@@ -1171,7 +1170,7 @@ end
 M.register_health(M.submodule_provider, { persist = false, area = "submodules" })
 
 -- ---------------------------------------------------------------------------
--- Provider #4 — repo launcher and pin (HEALTH-ONLY, REPORT-ONLY, §16.31)
+-- Provider #4 — repo launcher and pin (HEALTH-ONLY, REPORT-ONLY)
 --
 -- Pin-scoped (runs whenever an lw.pin is found, with or without a workspace);
 -- spawns a few local git queries, so on-demand; not cached — see
@@ -1188,7 +1187,7 @@ end
 M.register_health(M.launcher_provider, { persist = false, area = "launcher" })
 
 -- ---------------------------------------------------------------------------
--- Provider #5 — running workspace daemons (HEALTH-ONLY, REPORT-ONLY, §19.6.1)
+-- Provider #5 — running workspace daemons (HEALTH-ONLY, REPORT-ONLY)
 --
 -- One process scan (tens of milliseconds); an informational count line when
 -- this user runs any workspace daemon on this host. Never connects to one.

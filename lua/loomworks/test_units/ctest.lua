@@ -348,7 +348,7 @@ function CTestUnit:_find_sources(entries)
     end
 end
 
---- The configuration environment (spec §1.3.3) for this unit's test runs,
+--- The configuration environment for this unit's test runs,
 --- with `env` (the test's own declared environment, which is more specific)
 --- layered on top. Returns a fresh table. `profile` is the profile whose
 --- fills the environment resolves with (nil = the active profile).
@@ -389,8 +389,8 @@ function CTestUnit:_find_exec_spec(test_id)
 end
 
 --- The results file of a structured run: `opts.output_path` (a per-run
---- path, the daemon's `<root>/.nvim/tmp/lw-test-<hex>.xml`, spec §19.15
---- "Tests"), else the build directory's fixed `.nvim/gtest_results.xml`.
+--- path, the daemon's `<root>/.nvim/tmp/lw-test-<hex>.xml`), else the build
+--- directory's fixed `.nvim/gtest_results.xml`.
 --- @param build_dir string
 --- @param opts table
 --- @return string
@@ -526,7 +526,7 @@ function CTestUnit:run_command_all(opts)
     -- DLLs (shared libraries built into subfolders of the tree); ctest does not
     -- set this up itself, so we prepend the same run environment a target launch
     -- uses. Nil on POSIX / when nothing needs adding — inherit as-is.
-    -- The configuration environment (spec §1.3.3) is layered on top, as for
+    -- The configuration environment is layered on top, as for
     -- every configure/build/clean/test task.
     local env = self._config_unit:run_env()
     local cenv = type(self._config_unit.configuration_env) == "function"

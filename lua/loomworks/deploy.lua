@@ -192,7 +192,7 @@ function M.resolve_deploy_step(dest_template, source_def, ctx)
     local launch_ctx = expand.launch_context(ws, profile, launch_project,
         { target = ctx.launch_build_target })
     -- An unresolved reference (e.g. `${target_dir}` for a command launch or
-    -- an unconfigured unit, §8.7) would stay literal and copy into a folder
+    -- an unconfigured unit) would stay literal and copy into a folder
     -- named after it: fail the step instead, naming the variable.
     local dest_unresolved = expand.unresolved_vars(dest_template, launch_ctx)
     if #dest_unresolved > 0 then
@@ -360,8 +360,8 @@ function M.resolve_deploy_step(dest_template, source_def, ctx)
         dest_path = dest_path .. "/" .. filename
     end
 
-    -- Source unit id for freshness tracking (spec §8.8.3: the id of the
-    -- config unit, which in a shared tree is not just its directory)
+    -- Source unit id for freshness tracking (the id of the config unit,
+    -- which in a shared tree is not just its directory)
     local source_build_dir_id = source_unit.id
 
     return {
@@ -425,8 +425,7 @@ end
 --- @param deploy_dict table<string, table|table[]> deploy definitions from launch config
 --- @param ctx table { workspace, profile, launch_project, on_step? }
 ---   `on_step(ev)` (optional) hears each step as it is decided, before any
----   copy: `{ action = "copy"|"fresh", source, dest }` — `lw -v` prints it
----   (headless §16.4 *Verbose*).
+---   copy: `{ action = "copy"|"fresh", source, dest }` — `lw -v` prints it.
 --- @param deploy_records table<string, table> workspace deploy records (mutated on copy)
 --- @param normalize fun(p: string): string path normalizer
 --- @param on_complete? fun(ok: boolean, err?: string)
@@ -563,7 +562,7 @@ local function strictly_under(path, prefix)
     return path:sub(1, #prefix + 1) == prefix .. "/"
 end
 
---- Classify a deploy record's destination for cleanup (spec §8.8.5 step 2).
+--- Classify a deploy record's destination for cleanup.
 ---   "remove"  — absolute, traversal-free, a regular file (lstat), lexically
 ---               and canonically strictly under the workspace root, every
 ---               directory from the root down a real directory (no link or
@@ -613,13 +612,13 @@ function M.cleanup_disposition(dest, root, normalize)
     return "remove"
 end
 
---- Clean deploy records sourced from a given build directory (spec §8.8.5).
+--- Clean deploy records sourced from a given build directory.
 --- Every matching record is dropped. Its destination file is unlinked only
 --- when `cleanup_disposition` says "remove"; a destination outside the
 --- workspace is left in place and passed to `opts.on_left`, an invalid key
 --- to `opts.on_invalid`. With no `opts.root`, nothing is unlinked.
 --- @param deploy_records table<string, table> workspace deploy records (mutated)
---- @param build_dir_id string config unit id (spec §8.8.5) to match
+--- @param build_dir_id string config unit id to match
 --- @param opts? { root?: string, normalize?: fun(p: string): string, on_left?: fun(dest: string), on_invalid?: fun(dest: string) }
 --- @return string[] removed_keys list of removed destination keys
 function M.clean_deploy_records(deploy_records, build_dir_id, opts)

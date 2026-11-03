@@ -1,9 +1,9 @@
--- Deletion plans (API.md §22 `Maintenance/1.execute_deletion`, spec §4.6,
--- §4.7, §19.3): what a deletion of one target would remove and which build
+-- Deletion plans (`Maintenance/1.execute_deletion`): what a deletion of one
+-- target would remove and which build
 -- directories it must lock, the token a confirmation carries, the listing a
 -- client shows, and the execution once the locks are held. Shared by the
 -- command layer (loomworks.model_commands `execute_deletion`) and the
--- workspace daemon (step 5o part B5).
+-- workspace daemon.
 --
 -- A target is exactly one of (objects resolved at the caller's input
 -- boundary; never keys):
@@ -15,7 +15,7 @@
 --   { project = Project }      its build state, then its declaration, then
 --                              its profiles' toolchain downgrade
 --
--- Deletion safety (project CLAUDE.md): this module never removes anything
+-- Deletion safety: this module never removes anything
 -- itself. The plan is computed after resolution and before any lock; the
 -- caller takes the workspace operation lock, then the build-directory lock of
 -- every directory of `plan.lock_dirs` (exclusive, canonical order:
@@ -36,10 +36,10 @@ local uv = vim.uv or vim.loop
 --- The token family of a deletion plan (never equal to a reset token).
 M.KIND = "delete-plan/1"
 
---- A confirmed plan that no longer matches (API.md §22, exit 1).
+--- A confirmed plan that no longer matches (exit 1).
 M.CHANGED = "the build directories to delete changed since they were listed"
 
---- A plan with nothing to delete (API.md §22: exit 0, `stream = "out"`).
+--- A plan with nothing to delete (exit 0, `stream = "out"`).
 M.NOTHING = "nothing to delete"
 
 --- @class loomworks.DeletionTargetPlan
@@ -70,9 +70,9 @@ M.NOTHING = "nothing to delete"
 --- Under a deletion's locks: apply external changes to the workspace files
 --- (`FileTracker:sync`) so the re-checks see what other processes wrote
 --- since the deletion was planned. Applying a change can reload the
---- workspace (spec §17.4): returns false when this one is then gone — it
+--- workspace: returns false when this one is then gone — it
 --- must delete nothing (its cache writes are no-ops, so the `unknown` marks
---- would never reach the disk, §5.7).
+--- would never reach the disk).
 --- @param ws loomworks.Workspace
 --- @return boolean alive
 function M.resync(ws)
@@ -162,7 +162,7 @@ end
 --- BuildDir objects, then delete the stray dirs still stray now
 --- (`M.recheck_stray`, asked again once running tasks are stopped).
 --- The orphans go through `Workspace:_run_deletion` like every cache-backed
---- deletion (spec §4.6, §5.7): their entries are marked `unknown` on disk
+--- deletion: their entries are marked `unknown` on disk
 --- before any tree is removed, a directory a live configuration still
 --- references is kept (the shared-dir refs check, plus
 --- `Workspace:_overlaps_live_build_dir`), and the entries are dropped only
@@ -459,7 +459,7 @@ end
 --- of each targeted item, in item order, once each (a kept item is in
 --- `plan.kept`, never here; none for an orphaned or stray directory or
 --- `orphans`). A matcher for a client's own tasks only (the confirm's
---- `unit_ids`, API.md §22): what is deleted is decided by the plan alone.
+--- `unit_ids`): what is deleted is decided by the plan alone.
 --- @param plan loomworks.DeletionTargetPlan
 --- @return loomworks.ConfigUnit[]
 function M.units(plan)

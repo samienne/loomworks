@@ -1,12 +1,12 @@
 --- loomworks/config_env.lua — Configuration environment (`env`) resolution.
 ---
 --- A configuration may carry an `env` map (name → string) that loomworks sets
---- for its configure, build, clean and test tasks (spec §1.3.3). It follows the
+--- for its configure, build, clean and test tasks. It follows the
 --- configuration inheritance chain like `options`, and a compiler-family
 --- `overrides.<family>.env` sub-block applies only for a matching compiler.
 --- Values expand like option values (built-ins + resolved project variables,
---- then the process environment). The compiler-driver names reserved by
---- invariant 13 (`CC`, `CXX`, …) are stripped. Module-agnostic: every module
+--- then the process environment). The compiler-driver names the tool owns
+--- (`CC`, `CXX`, …) are stripped. Module-agnostic: every module
 --- receives the result through `ModuleContext.env` / `.configuration_env`.
 
 local notify = require("loomworks.notify").notify
@@ -18,7 +18,7 @@ local M = {}
 --- the plain `env` is applied first and the matching
 --- `overrides[family].env` on top — so a family entry wins within its level,
 --- while a nearer level's plain value still shadows a farther level's family
---- entry (chain position dominates, as for variables, spec §1.3.1).
+--- entry (chain position dominates, as for variables).
 --- @param configuration loomworks.Configuration|nil
 --- @param family string|nil active compiler family (`clang`/`gcc`/`msvc`)
 --- @return table<string, string> raw (unexpanded) name → value
@@ -50,7 +50,7 @@ end
 --- environment: the built-ins (`workspace_root`, `project_path`) plus the
 --- project's resolved variables (compiler overrides and the active profile's
 --- blank-fill values included), each variable value itself expanded against
---- the built-ins (two-pass, spec §1.3.1). A blank variable is left out.
+--- the built-ins (two-pass). A blank variable is left out.
 --- @param project loomworks.Project|nil
 --- @param configuration loomworks.Configuration|nil
 --- @param family string|nil active compiler family
@@ -91,7 +91,7 @@ end
 
 --- Resolve a configuration's environment: merged across the chain for the
 --- family, values expanded, reserved compiler-driver names stripped (and
---- warned about once — invariant 13; the editor also shows the inline
+--- warned about once; the editor also shows the inline
 --- `⚠ ignored compiler override` diagnostic).
 --- @param project loomworks.Project|nil
 --- @param configuration loomworks.Configuration|nil
@@ -120,7 +120,7 @@ function M.resolve(project, configuration, family, profile, root)
     local label = (project and project.key or "?") .. "/"
         .. (configuration and configuration.name or "?")
     -- Loader/interpreter-hijack variables are refused from every source,
-    -- even a trusted working copy (spec §17.9).
+    -- even a trusted working copy.
     env = require("loomworks.env_policy").filter(env, { label = label })
     if #stripped > 0 then
         -- A hand-edited file (the CLI and editor refuse these at set time).
@@ -130,7 +130,7 @@ function M.resolve(project, configuration, family, profile, root)
             label, table.concat(stripped, ", ")))
     end
     if path_name then
-        -- Allowed, but it replaces the tool's PATH wholesale (§1.3.3).
+        -- Allowed, but it replaces the tool's PATH wholesale.
         warn_once(label .. "|PATH", string.format(
             "loomworks: %s: `env.%s` replaces the PATH the tool sets up (e.g. the "
                 .. "MSVC developer environment) for every task of this configuration",
@@ -151,7 +151,7 @@ end
 --- @return table<string, string>
 function M.compose(tool_env, config_env, case_insensitive)
     if case_insensitive == nil then case_insensitive = vim.fn.has("win32") == 1 end
-    -- The environment denylist (spec §17.9) applies to both layers. A tool
+    -- The environment denylist applies to both layers. A tool
     -- environment is often a captured developer-environment `set` output that
     -- repeats this process's own ComSpec/PATHEXT — dropped silently then (the
     -- child inherits the same value).

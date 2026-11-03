@@ -57,7 +57,7 @@ end
 
 --- Resolve the run spec (artifact path, working directory, and run
 --- environment) for this executable target. Pure — expands nothing, spawns no
---- task. A foreign artifact (spec §18.1) is refused here with the message
+--- task. A foreign artifact is refused here with the message
 --- naming its platform — the headless runner routes those to a device before
 --- ever asking for a local spec. Shared seam for `Target:launch` (editor) and the headless runner:
 --- both resolve the same spec, then execute it via their own runner.
@@ -91,7 +91,7 @@ function Target:resolve_run_spec(opts)
         cwd = (project and project.abs_path and project:abs_path()) or build_dir
     end
     local artifact_path = require("loomworks.paths").artifact_path(build_dir, self.artifact)
-    -- A foreign artifact never runs on the host (spec §18.1, invariant 19):
+    -- A foreign artifact never runs on the host:
     -- every local launch of a build target resolves through here.
     local host_ok, foreign_err = require("loomworks.remote.foreign").check_local(unit, artifact_path)
     if not host_ok then return nil, foreign_err end

@@ -1,5 +1,4 @@
---- loomworks/build_dir_claims.lua — one build directory per configuration
---- (core §1.7 "One build directory per configuration", invariant 22).
+--- loomworks/build_dir_claims.lua — one build directory per configuration.
 ---
 --- Pure: given the build directories resolved for every profile's
 --- ProfileProjects (one claim each) and the cache entries, decides which
@@ -19,7 +18,7 @@ local M = {}
 --- @field abs string the resolved build directory (absolute)
 --- @field shared boolean the module reported the directory as a shared tree
 
---- The refusal message of a refused configuration (core §1.7).
+--- The refusal message of a refused configuration.
 --- @param dir string the directory as shown
 --- @param pk string project key
 --- @param cfg string configuration name
@@ -47,7 +46,7 @@ local function display(abs, root)
     return abs
 end
 
---- The anchors of the cache's entries (core §1.7): `project_key \0
+--- The anchors of the cache's entries: `project_key \0
 --- config_key` → { key, dir }. Of two entries naming one configuration the
 --- smaller key wins, so the result never depends on table order.
 --- @param entries table<string, table>|nil
@@ -69,8 +68,8 @@ local function anchors_of(entries, entry_dir)
     return out
 end
 
---- A claim's effective directory and whether it is a shared tree (core
---- §1.7): the anchor its cache entry records — a shared tree when the
+--- A claim's effective directory and whether it is a shared tree: the
+--- anchor its cache entry records — a shared tree when the
 --- entry's key is the directory, `#`, and the claim's config_key — else the
 --- directory it resolves to, shared as the module reports.
 --- @param c loomworks.BuildDirClaim

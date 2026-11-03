@@ -421,7 +421,7 @@ function M.merge(config, active_profile_key_input, cache, root, tools_by_type, u
         local mod = modules.get(project.type)
         local abs_path = root .. "/" .. project.path
         local mod_info = { configurations = {} }
-        -- Saved test targets are core-owned (spec §1.3.4): a module never
+        -- Saved test targets are core-owned: a module never
         -- sees them; they are grafted back from the declared tables.
         local test_targets = require("loomworks.test_targets")
         local module_tc = test_targets.strip_from_type_config(project.type_config)
@@ -429,7 +429,7 @@ function M.merge(config, active_profile_key_input, cache, root, tools_by_type, u
             local ok, result = pcall(mod.info, abs_path, module_tc)
             if ok and result then
                 mod_info = result
-                -- A user configuration's description is core-owned (spec §8.1):
+                -- A user configuration's description is core-owned:
                 -- read from the declared table, never from the module's echo.
                 require("loomworks.configuration").adopt_declared_descriptions(
                     mod_info.configurations,

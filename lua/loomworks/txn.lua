@@ -1,11 +1,11 @@
---- loomworks/txn.lua — crash-consistent multi-file commits (spec §19.4).
+--- loomworks/txn.lua — crash-consistent multi-file commits.
 ---
 --- A multi-file operation (one holding the workspace operation lock O,
 --- loomworks.op_lock) runs inside a transaction: every write of one of the
 --- three workspace files is STAGED to `<file>.txn-<id>` (flushed) instead of
 --- replacing the target, and reads of a staged file in this process see the
 --- staged bytes. `finish` then commits, holding the F locks of the three files
---- (taken at `begin`, in the order of §19.3):
+--- (taken at `begin`, in lock order):
 ---
 ---   1–2. check + stage   (done by the saves themselves, under the F locks)
 ---   3.   commit point    atomic write of `.nvim/loomworks.txn.json`
@@ -18,7 +18,7 @@
 --- journal that `recover` rolls forward under O to the new state; a journal
 --- whose targets match neither hash, or whose staged file is missing, refuses
 --- the workspace (`lw unlock --journal` discards it). Build-tree removal is not
---- journalled (§5.7 crash rule).
+--- journalled.
 ---
 --- The writes are intercepted in loomworks.io (`write_file_atomic` /
 --- `read_file` consult `io._txn_hook`), so every save path — the working
@@ -28,7 +28,7 @@ local M = {}
 
 local function uv() return vim.uv or vim.loop end
 
---- The workspace files in commit order (§19.3), relative to the root.
+--- The workspace files in commit order, relative to the root.
 M.FILES = { "loomworks.json", ".nvim/loomworks.user.json", ".nvim/loomworks.cache.json" }
 M.JOURNAL = ".nvim/loomworks.txn.json"
 
@@ -267,7 +267,7 @@ function M.finish(t)
             pcall(uv().fs_unlink, jpath)
         else
             -- Past the commit point a failed apply is completed now, while
-            -- this process still holds O (the recovery path, §19.4): left to
+            -- this process still holds O (the recovery path): left to
             -- the next O holder, a write reported as failed would land later.
             -- Only a journal that cannot be completed stays (and the failure
             -- with it).

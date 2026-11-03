@@ -1,17 +1,17 @@
--- Headless reset (spec §16.30) — `lw reset [<profile> | --all]`, shared by the
--- in-process host (cli.lua `cmd_reset`) and the workspace daemon (§19.15
--- "Reset"): the plan (lock set, removal set, nothing-to-reset), its token, the
+-- Headless reset — `lw reset [<profile> | --all]`, shared by the in-process
+-- host (cli.lua `cmd_reset`) and the workspace daemon: the plan (lock set,
+-- removal set, nothing-to-reset), its token, the
 -- listing and every line the CLI prints, and the execution (the ONE deletion
 -- path, Profile:reset / Workspace:reset_all, then the gone-from-disk check).
 -- A host differs only in how it waits for the asynchronous execution (the
 -- in-process host waits on it; the daemon keeps serving and passes its
 -- cancellation as the stop predicate) and in who asks the confirmation.
 --
--- Deletion safety (project CLAUDE.md): this module never removes anything
+-- Deletion safety: this module never removes anything
 -- itself. Every removal goes through Workspace:execute_deletion /
 -- delete_orphaned_build_dir (validated against the workspace root, cache
 -- `unknown` on disk before a tree is removed and reset only after success,
--- shared directories kept by §4.6 identity). The caller holds the workspace
+-- shared directories kept by resolved identity). The caller holds the workspace
 -- operation lock and the build-directory locks of `plan.lock_dirs` (the
 -- deletion's own acquisition re-enters them).
 
@@ -49,13 +49,13 @@ M.VERIFY_MS = 30000
 ---   state even with no dir on disk (e.g. deleted out of band): the reset
 ---   still clears it.
 --- @field units loomworks.ConfigUnit[] the units the reset returns to
----   unconfigured (§19.15 `meta.units`; an orphan has no unit)
+---   unconfigured (`meta.units`; an orphan has no unit)
 --- @field orphans string[] build-dir keys of the orphaned dirs (scope "all")
---- @field mirrors string[] the owned LSP database mirrors (spec §4.6) of the
+--- @field mirrors string[] the owned LSP database mirrors of the
 ---   targeted build dirs the deletion may remove, present on disk: listed, and
 ---   removed by the deletion once their dir's removal is confirmed (a mirror
 ---   still used by another build dir is kept). One left behind is a warning
----   after the reset, never a failure (§16.30). Not part of the token.
+---   after the reset, never a failure. Not part of the token.
 --- @field token string the plan token (`M.token`)
 
 --- Plan a reset. Pure with respect to the workspace (nothing is changed); it
@@ -75,9 +75,8 @@ function M.plan(ws, scope)
     end
     -- A dir the deletion would refuse (Deletion Safety: the cache is never
     -- trusted) is never listed as removed: it is listed as left in place.
-    -- Owned LSP database mirrors of the targeted dirs, present on disk (spec
-    -- §4.6): only of dirs the deletion may remove (a refused dir keeps its
-    -- mirror).
+    -- Owned LSP database mirrors of the targeted dirs, present on disk: only
+    -- of dirs the deletion may remove (a refused dir keeps its mirror).
     local mirrors, mirror_seen = {}, {}
     local function add_removal(bd, unit, bd_obj)
         if bd and not removal_seen[bd] and uv.fs_stat(bd) ~= nil then
@@ -122,7 +121,7 @@ function M.plan(ws, scope)
             if bd then units[#units + 1] = unit end
         end
         -- (Held entries too — an invalid configuration's: a reset of all
-        -- leaves no build dirs, §16.30; Workspace:reset_all removes them.)
+        -- leaves no build dirs; Workspace:reset_all removes them.)
         for _, o in ipairs(ws:get_orphaned_configs({ include_held = true })) do
             local p = o.build_dir_obj and o.build_dir_obj.path or nil
             add_lock(p)
@@ -159,8 +158,8 @@ function M.plan(ws, scope)
     return plan
 end
 
---- Is `plan` still what a fresh plan of its scope says (spec §16.30, §19.15
---- "Reset")? Called by both hosts right AFTER the operation lock and every
+--- Is `plan` still what a fresh plan of its scope says? Called by both hosts
+--- right AFTER the operation lock and every
 --- build-directory lock of `plan.lock_dirs` are held, before anything is
 --- removed: a directory that appeared (or vanished) between the listing and
 --- the locks -- another process's build that finished and released -- makes
@@ -182,11 +181,11 @@ local function sorted_copy(list)
     return c
 end
 
---- The plan token (§19.15 "Reset"): an opaque digest of the planned scope,
+--- The plan token: an opaque digest of the planned scope,
 --- lock set and removal set, independent of their order. Equal for an equal
 --- plan; different when the scope, a directory to lock or a directory to
 --- remove differs. Pure (no filesystem access). Shared with the deletion
---- plans (loomworks.deletion_plan, API.md §22), which pass their own `kind`
+--- plans (loomworks.deletion_plan), which pass their own `kind`
 --- so a reset token never equals a deletion token.
 --- @param scope_key string "all" or "profile:<key>" (a deletion: its target)
 --- @param lock_dirs string[]
@@ -215,8 +214,8 @@ function M.is_empty(plan)
     return #plan.removal_dirs == 0 and not plan.state_to_clear
 end
 
---- The label of a reset's scope from what a client knows of it (§19.15
---- "Reset": the `confirm` reply's `profile_key`, absent for `--all`) — the
+--- The label of a reset's scope from what a client knows of it (the
+--- `confirm` reply's `profile_key`, absent for `--all`) — the
 --- plan's own `label`.
 --- @param profile_key string|nil
 --- @return string
@@ -283,10 +282,10 @@ end
 --- A declined confirmation (exit 1).
 M.ABORTED = "aborted — nothing was removed"
 
---- A confirmed plan that no longer matches (§19.15 "Reset", exit 1).
+--- A confirmed plan that no longer matches (exit 1).
 M.CHANGED = "the build directories to reset changed since they were listed — run lw reset again"
 
---- The success line, printed by both hosts, and its highlighting role (§16.7).
+--- The success line, printed by both hosts, and its highlighting role.
 --- @param plan loomworks.ResetPlan
 --- @return string line
 --- @return string role `ok`
@@ -296,7 +295,7 @@ end
 
 --- The warnings after a completed reset: each listed owned LSP database mirror
 --- still on disk (kept as shared, refused by a safety check, or failed to
---- delete). A warning, never a reset failure (spec §16.30).
+--- delete). A warning, never a reset failure.
 --- @param plan loomworks.ResetPlan
 --- @return string[] lines
 function M.mirror_warnings(plan)
@@ -328,7 +327,7 @@ end
 --- for `opts.verify_ms` — all without blocking (timers, never vim.wait).
 --- `opts.stop` (the daemon's cancellation) is asked before each entry of the
 --- removal; a stopped reset leaves the cache `unknown` for what it did not
---- finish (never reset after a partial removal, §4.7).
+--- finish (never reset after a partial removal).
 --- `done(code, message, stopped)` runs once: 0 on success; 1 and the line
 --- the CLI prints (timed out / directories left); `stopped` when the removal
 --- was stopped (nothing more to say). It runs from a scheduled callback or a

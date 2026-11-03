@@ -42,7 +42,7 @@ end
 --- version mismatch was detected (valid JSON but unsupported version).
 --- Accepts v1 and v2 formats (v1 is auto-migrated). The third return value
 --- is the file's `_meta` when the mismatch is a NEWER schema than this version
---- understands (spec §2.7: such a file is never rewritten).
+--- understands (such a file is never rewritten).
 --- @param content string raw JSON content
 --- @return loomworks.UserData data, boolean version_mismatch, table|nil newer_meta
 function M.parse(content)
@@ -72,10 +72,10 @@ end
 
 --- Load user preferences for a workspace.
 --- Returns defaults if file doesn't exist. A working copy that is not signed
---- by this machine is never read (spec §17.4): it returns nil plus the
+--- by this machine is never read: it returns nil plus the
 --- verification status (`"unsigned"` / `"invalid"`). One written with a newer
 --- schema than this version understands returns nil, `"newer"` and the
---- message (spec §2.7) — never defaults, which a caller could write back.
+--- message — never defaults, which a caller could write back.
 --- @param root string
 --- @return loomworks.UserData|nil data, string|nil trust_status, string|nil message
 function M.load(root)
@@ -115,7 +115,7 @@ function M.load(root)
 end
 
 --- Save user preferences for a workspace. Stamps the schema and the writer's
---- loomworks version (`_meta.written_by`, spec §2.7; inside the signed bytes).
+--- loomworks version (`_meta.written_by`, inside the signed bytes).
 --- @param root string
 --- @param data loomworks.UserData
 --- @return boolean ok, string|nil err, string|nil sign_err, string|nil written exact bytes written
@@ -126,7 +126,7 @@ function M.save(root, data)
     local ok, dir_err = io_mod.ensure_dir(dir)
     if not ok then return false, "mkdir: " .. (dir_err or "unknown") end
 
-    -- Signed with the machine key (spec §17.3): only a signed working copy is
+    -- Signed with the machine key: only a signed working copy is
     -- ever used, so every loomworks write signs it.
     return io_mod.write_json_signed(M.filepath(root), "user", data)
 end

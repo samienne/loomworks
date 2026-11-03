@@ -1,5 +1,4 @@
---- loomworks/program_fields.lua — Program-bearing configuration fields
---- (spec §17.6).
+--- loomworks/program_fields.lua — Program-bearing configuration fields.
 ---
 --- A program-bearing field names a program to run, adds arguments to one, sets
 --- a spawned environment or working directory, or places a deploy outside the
@@ -25,16 +24,16 @@
 --- statically inside the workspace, a `device` block's `env` / `working_dir`,
 --- saved test entries' `args`); modules add top-level `type_config` keys
 --- through their optional `trust_fields = { type_config = {...}, review = {...} }`
---- declaration (spec §8.4). No module names appear here.
+--- declaration. No module names appear here.
 
 local M = {}
 
 --- Launch-configuration keys that make a launch program-bearing. A launch that
---- sets any of them is ignored as a whole (spec §17.6) so a partially stripped
+--- sets any of them is ignored as a whole so a partially stripped
 --- launch never runs something other than what was written.
 M.LAUNCH_KEYS = { "command", "args", "env", "working_dir" }
 
---- Program-bearing fields of a `device` block (spec §18.9): the device-side
+--- Program-bearing fields of a `device` block: the device-side
 --- environment and working directory. `stage` / `archive` are statically
 --- confined to the build directory and honored from shared config.
 M.DEVICE_KEYS = { "env", "working_dir" }
@@ -76,7 +75,7 @@ M._short = short
 
 --- Whether a deploy destination template is statically inside the workspace:
 --- a relative path, optionally prefixed by `${workspace_root}/`, with no other
---- variable reference and no `.`/`..` segment (spec §17.6).
+--- variable reference and no `.`/`..` segment.
 --- @param dest any
 --- @return boolean
 function M.dest_is_local(dest)
@@ -122,8 +121,8 @@ local function nth_test_entry(list, name, k)
     return nil, nil
 end
 
---- Strip the args and the working_dir of a saved test list's entries (spec
---- §1.3.4, §17.6), in place. The entry itself stays, reduced to its name and
+--- Strip the args and the working_dir of a saved test list's entries, in
+--- place. The entry itself stays, reduced to its name and
 --- any unknown table keys (neither is program-bearing), written in its
 --- shortest form. Returns one ignored entry per stripped value (`test_args` /
 --- `test_working_dir`), recording the entry's name and occurrence index (its
@@ -173,7 +172,7 @@ function M.strip(config, modules)
     local ignored = {}
     if type(config) ~= "table" then return ignored end
     -- SDK declarations carry requirements only; a path in shared data is never
-    -- honored (spec §17.6).
+    -- honored.
     if type(config.sdks) == "table" then
         for _, key in ipairs(sorted_keys(config.sdks)) do
             local decl = config.sdks[key]
@@ -223,7 +222,7 @@ function M.strip(config, modules)
                     for _, cname in ipairs(sorted_keys(tc.configurations)) do
                         local c = tc.configurations[cname]
                         if type(c) == "table" then
-                            -- (2b) Args of saved test entries (§1.3.4).
+                            -- (2b) Args of saved test entries.
                             for _, e in ipairs(strip_test_args(c.tests,
                                     { "projects", pkey, "type_config", "configurations", cname, "tests" },
                                     { "projects", pkey, mtype, "configurations", cname, "tests" }, 5,
@@ -283,7 +282,7 @@ function M.strip(config, modules)
                             proj.launch[lname] = nil
                         else
                             -- (3b) A launch-level device block's program-bearing
-                            -- fields (spec §18.9): env and working_dir.
+                            -- fields: env and working_dir.
                             if type(l.device) == "table" then
                                 for _, f in ipairs(M.DEVICE_KEYS) do
                                     if l.device[f] ~= nil then
@@ -321,7 +320,7 @@ function M.strip(config, modules)
                 if next(proj.launch) == nil then proj.launch = nil end
             end
             -- (5) Project-level device block: env / working_dir are
-            -- program-bearing; stage / archive patterns are not (spec §18.9).
+            -- program-bearing; stage / archive patterns are not.
             -- Parsed onto the project; it lives in the module section of the
             -- raw file (`projects.<p>.<type>.device`), where it is regrafted.
             if type(proj.device) == "table" then
@@ -341,7 +340,7 @@ function M.strip(config, modules)
                 end
                 if next(proj.device) == nil then proj.device = nil end
             end
-            -- (6) Project-wide saved test entries' args (§1.3.4):
+            -- (6) Project-wide saved test entries' args:
             -- parsed onto the project, regrafted into the module section.
             for _, e in ipairs(strip_test_args(proj.tests, { "projects", pkey, "tests" },
                     { "projects", pkey, proj.type or "?", "tests" }, 2,
@@ -384,7 +383,7 @@ end
 --- entry owning it) is present in `raw` and that `raw` does not already set is
 --- restored, creating intermediate tables below the anchor. Entries whose
 --- anchor is absent (the item was removed or not published) are dropped.
---- Saved test-entry args and working_dir (§17.6) go back by entry name +
+--- Saved test-entry args and working_dir go back by entry name +
 --- occurrence index: the values stripped from the k-th shared entry named N
 --- return to the k-th entry named N of the published list, each unless it
 --- carries a value of its own (an entry getting a working_dir back is written
@@ -433,8 +432,8 @@ function M.regraft(raw, ignored)
     return raw, dropped
 end
 
---- For an ignored launch, its description's summary (spec §17.6), quoted and
---- rendered inert (§17.11), so the user can tell which launch it is. "" for
+--- For an ignored launch, its description's summary, quoted and
+--- rendered inert, so the user can tell which launch it is. "" for
 --- anything else or a launch without a description.
 --- @param e table ignored entry
 --- @return string
@@ -447,7 +446,7 @@ local function launch_summary(e)
 end
 
 --- The ignored shared values still in effect: those the working copy does
---- not supply in their place (spec §17.6).
+--- not supply in their place.
 --- @param ignored table[]|nil
 --- @param merged table|nil merged config (internal shape) the model was built from
 --- @return table[] ignored entries
@@ -530,7 +529,7 @@ function M.review(user_data, modules)
                         end
                     end
                 end
-                -- Saved test-target args and working_dir (§1.3.4) are
+                -- Saved test-target args and working_dir are
                 -- program-bearing.
                 local function test_args(tests, label)
                     local tt = require("loomworks.test_targets")
@@ -607,7 +606,7 @@ function M.review(user_data, modules)
                     p("projects." .. pkey .. ".deploy → " .. dest)
                 end
             end
-            -- The device block (spec §18.9): in the module section, or at the
+            -- The device block: in the module section, or at the
             -- former project-level location. env / working_dir are program
             -- settings; stage / archive (what is copied to a device) are listed
             -- with the other contents.

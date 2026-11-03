@@ -18,7 +18,7 @@
 --- @field cancelled boolean|nil it ended by `cancel`
 --- @field message string|nil result message (set on completion)
 --- @field refused string[] the profile's ProfileProjects not run as invalid for
----   the action (core §5.4 "Invalid ProfileProjects"), one result line each:
+---   the action, one result line each:
 ---   each counts as finished and failed, so the operation fails
 --- @field _mode "rank"|"deletion"|"tasks" completion check mode
 --- @field _unit_done table<loomworks.ConfigUnit, boolean> tracks which units are done
@@ -204,7 +204,7 @@ function Operation:_check_completion()
         end
     end
 
-    -- A refused ProfileProject counts as finished and failed (§5.4).
+    -- A refused ProfileProject counts as finished and failed.
     if #self.refused > 0 then all_ok = false end
 
     self.completed = true
@@ -305,7 +305,7 @@ function Operation:cancel(message)
 end
 
 --- The compact duration of an operation's end message (`1m05s`), shared with
---- the remote tasks observed in the workspace daemon (spec §19.16).
+--- the remote tasks observed in the workspace daemon.
 Operation.format_duration = format_duration
 
 --- Verbs of a task's end message by kind: success, failure (as a local
@@ -322,7 +322,7 @@ local TASK_VERBS = {
 --- The end message of a task of the workspace daemon (`built in 12s`,
 --- `build failed in 3s: <error>`), as a local operation's: the one wording
 --- of a task observed in the editor (loomworks.daemon.remote_task) and of
---- the daemon's own run (a profile's `last_result`, API.md §14.4).
+--- the daemon's own run (a profile's `last_result`).
 --- @param kind string the task's `meta.kind`
 --- @param exit_code integer|nil
 --- @param duration number|nil seconds it ran

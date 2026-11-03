@@ -1,14 +1,14 @@
---- loomworks/op_lock.lua — the workspace operation lock O (spec §19.3).
+--- loomworks/op_lock.lua — the workspace operation lock O.
 ---
 --- `<root>/.nvim/loomworks.op.lock`, the build-directory lock primitive (O_EXCL
---- create + heartbeat, common record of §19.5) taken by every operation that
+--- create + heartbeat, the common lock record) taken by every operation that
 --- writes more than one of the three workspace files, or removes a workspace
 --- file or a build tree as part of a larger change: publish (incl. per item),
 --- import, pull, cache-propagating renames, deletions that remove build
 --- directories, reset, nuke, `lw trust --discard`. Fail-fast; a dead holder is
 --- reclaimed at once, a hung one only with `--break-locks` (loomworks.lock_break).
 ---
---- Lock order (§19.3): O is taken before any build-directory (B), device (D)
+--- Lock order: O is taken before any build-directory (B), device (D)
 --- or file-save (F) lock. Re-entrant within a process: an operation that
 --- already holds O (the CLI's `lw reset` around the workspace's deletion) can
 --- call another that takes it; the lockfile is released with the outermost
@@ -77,7 +77,7 @@ end
 --- Acquire the operation lock of `root` for `operation`. Returns a token, or
 --- nil + the refusal message + the holder info. A token whose acquisition
 --- reclaimed a dead holder's lock carries that record as `reclaimed`; one
---- whose acquisition completed a crashed commit's journal (§19.4) carries the
+--- whose acquisition completed a crashed commit's journal carries the
 --- line to report as `recovered`. `opts.no_recover` skips the journal
 --- (`lw unlock --journal`, which discards it).
 --- @param root string
@@ -101,7 +101,7 @@ function M.acquire(root, operation, opts)
     local tok = { key = key, entry = e, reclaimed = h.reclaimed }
     if opts and opts.no_recover then return tok end
     -- A journal left by a crashed commit is completed (or refused) before
-    -- this operation changes anything (spec §19.4); stray staged files go.
+    -- this operation changes anything; stray staged files go.
     local status, line = require("loomworks.txn").recover_locked(root)
     if status == "refused" then
         M.release(tok)
@@ -136,7 +136,7 @@ end
 
 --- Does this process still hold the operation lock of `root` — the lockfile
 --- carrying its own record (not reclaimed or forced off meanwhile)? The
---- fencing check before a commit point (spec §19.4).
+--- fencing check before a commit point.
 --- @param root string
 --- @return boolean
 function M.still_held(root)
@@ -176,8 +176,7 @@ end
 --- raises, drops the method's in-memory change: `undo` (from
 --- `opts.snapshot(self, ...)`, taken before the method runs) puts back what
 --- the caller can restore in place, then the model is reloaded from the
---- files on disk (`ws:_txn_rollback`), so it never diverges from them
---- (API.md §11).
+--- files on disk (`ws:_txn_rollback`), so it never diverges from them.
 --- @param class table
 --- @param name string
 --- @param operation string
@@ -206,7 +205,7 @@ function M.guard(class, name, operation, ws_of, opts)
                 end
             end
         end
-        -- Its file writes commit together (spec §19.4).
+        -- Its file writes commit together.
         local t = ws:_txn_begin(operation)
         local r = pack(pcall(impl, self, ...))
         if r[1] and (r[2] == false or (r[2] == nil and r[3] ~= nil)) then

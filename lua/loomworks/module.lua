@@ -60,8 +60,8 @@ function Module:primary_language()
 end
 
 --- Whether this module participates in C/C++ compiler caching — it declares a
---- `c` or `c++` language. Drives the profile Cache row (spec/ui.md) and the
---- health compiler-cache suggestion provider (core §16.31).
+--- `c` or `c++` language. Drives the profile Cache row and the
+--- health compiler-cache suggestion provider.
 --- @return boolean
 function Module:caches_cpp()
     for _, lang in ipairs(self.languages or {}) do
@@ -108,8 +108,8 @@ end
 --- @param tool_key string|nil opaque identifier
 --- @param tool_data table module-specific tool data
 --- @param tool_label string|nil display label
---- @param detected? boolean false when the data comes only from the cache
----        (spec §17.7); default true
+--- @param detected? boolean false when the data comes only from the cache;
+---        default true
 --- @return loomworks.Tool
 function Module:get_or_create_tool(tool_key, tool_data, tool_label, detected)
     local rk = tool_key or ""

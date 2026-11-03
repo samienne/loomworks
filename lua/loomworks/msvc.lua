@@ -626,7 +626,7 @@ function M.bundled_tools(install, exists)
 end
 
 --- Environment-inventory declaration for the Visual Studio toolchains
---- (headless §16.33, cmake §13 `compilers:msvc`), shared by every module that
+--- (`compilers:msvc`), shared by every module that
 --- builds with cl.exe / clang-cl so it is probed once. Windows only (nil
 --- elsewhere). Enumerates the installs the locator finds — one result each,
 --- id `msvc:<normalized vcvarsall>`, version = the default toolset
@@ -668,8 +668,8 @@ function M.health_declaration()
                 end
                 -- The cmake + ninja each install bundles (build tools): an
                 -- MSVC-style build that runs inside vcvarsall finds them there
-                -- when PATH has none (cmake §13 / meson §12 requirements
-                -- accept them as alternatives). Last step: settles the probe.
+                -- when PATH has none (the modules' requirements accept them as
+                -- alternatives). Last step: settles the probe.
                 local function add_bundled()
                     local jobs = {}
                     for _, inst in ipairs(installs) do

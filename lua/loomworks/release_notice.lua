@@ -1,6 +1,6 @@
 --- loomworks/release_notice.lua — where the release notes are, which version
---- is running, the last-seen record and the one-line upgrade notice
---- (spec §16.37). Rendering lives in loomworks/release_notes.lua (pure).
+--- is running, the last-seen record and the one-line upgrade notice.
+--- Rendering lives in loomworks/release_notes.lua (pure).
 ---
 --- Uses NO boot module: the bundle runs under hosts back to v0.1.2
 --- (tests/old_host_compat_spec.lua), so the data directory is derived from the

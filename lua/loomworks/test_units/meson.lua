@@ -155,7 +155,7 @@ local function compose_env(base_env, extra_paths, compiler_bin_dir)
     return require("loomworks.runenv").compose(prefix_parts, base_env)
 end
 
---- The configuration environment (spec §1.3.3) for this unit's test runs,
+--- The configuration environment for this unit's test runs,
 --- with `env` (the test's own declared environment, which is more specific)
 --- layered on top. Returns a fresh table. `profile` is the profile whose
 --- fills the environment resolves with (nil = the active profile).
@@ -560,8 +560,8 @@ end
 --- to actually be a gtest binary — caller must confirm framework first.
 --- @param exe string
 --- @param filter? string GTEST_FILTER value
---- @param output_path? string the results file (a per-run path, spec §19.15
----   "Tests"); default the build directory's fixed `.nvim/gtest_results.xml`
+--- @param output_path? string the results file (a per-run path); default
+---   the build directory's fixed `.nvim/gtest_results.xml`
 --- @return table|nil
 function MesonTestUnit:_build_gtest_run(exe, filter, output_path)
     local spec = self._exec_specs[exe]
@@ -697,7 +697,7 @@ end
 
 --- Native meson test run: authoritative exit code, streaming output.
 --- `meson test -C <build_dir>` runs every declared test. `opts.no_rebuild`
---- (`lw test --no-build`, core §16.16) adds `--no-rebuild` and confirms it in
+--- (`lw test --no-build`) adds `--no-rebuild` and confirms it in
 --- the returned spec.
 --- @param opts? table { filter?: string, extra_args?: string[], junit?: string, profile?: loomworks.Profile, no_rebuild?: boolean }
 --- @return table|nil { cmd, env, cwd, junit_out, no_rebuild? }
@@ -712,7 +712,7 @@ function MesonTestUnit:run_command_all(opts)
     cmd[#cmd + 1] = "--print-errorlogs"
     cmd[#cmd + 1] = "-C"
     cmd[#cmd + 1] = self._build_dir
-    -- Run what is built, without meson's implicit rebuild (core §16.16).
+    -- Run what is built, without meson's implicit rebuild.
     if opts.no_rebuild then cmd[#cmd + 1] = "--no-rebuild" end
     if opts.filter then cmd[#cmd + 1] = opts.filter end  -- meson filters by test name
     -- Caller args (from `lw test -- …`, e.g. `--num-processes N`) go last.
@@ -723,7 +723,7 @@ function MesonTestUnit:run_command_all(opts)
     -- paths agree: without MSVC's vcvars env (INCLUDE / LIB / PATH-to-cl) the
     -- implicit ninja rebuild dies with "CreateProcess failed" — cl is not on
     -- PATH — turning `lw test` on a stale tree into a false failure. The
-    -- configuration environment (spec §1.3.3) is the base, as for a build.
+    -- configuration environment is the base, as for a build.
     local ok_mod, meson_mod = pcall(require, "loomworks.modules.meson")
     local task_env = (ok_mod and meson_mod.compose_task_env)
         and meson_mod.compose_task_env(with_configuration_env(self._config_unit, nil, opts.profile),

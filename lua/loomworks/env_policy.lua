@@ -1,4 +1,4 @@
---- loomworks/env_policy.lua — Environment denylist (spec §17.9).
+--- loomworks/env_policy.lua — Environment denylist.
 ---
 --- Some environment variables make an unrelated program load or run code:
 --- dynamic-loader injection, interpreter start-up hooks, command-interpreter

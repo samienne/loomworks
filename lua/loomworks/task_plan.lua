@@ -14,7 +14,7 @@ local nice = require("loomworks.nice")
 --- the task runs does not search its cwd either. Applied BEFORE the nice
 --- wrapper so the real program is the one resolved. Returns the spec, or nil +
 --- err: an unresolvable program is reported, never spawned by its bare name.
---- A module's display-only `display_cmd` (§8.1) is dropped here, so it never
+--- A module's display-only `display_cmd` is dropped here, so it never
 --- reaches a spawned process — every planned step's spec passes through this.
 --- @param spec table
 --- @return table|nil spec, string|nil err
@@ -24,9 +24,9 @@ local function harden(spec)
 end
 M._harden = harden
 
---- The command line a task spec runs, for display (headless §16.4): the
---- module's `display_cmd` when it supplied one — the command a wrapper such as
---- a toolchain-environment batch file runs (core §8.1) — else `cmd`, readably
+--- The command line a task spec runs, for display: the module's
+--- `display_cmd` when it supplied one — the command a wrapper such as a
+--- toolchain-environment batch file runs — else `cmd`, readably
 --- quoted (term.format_argv). Control characters are NOT escaped here; the
 --- output layer does that (`log_task_command` escapes for the log file).
 --- @param spec { cmd?: string[], display_cmd?: string[] }
@@ -38,8 +38,8 @@ function M.command_text(spec)
 end
 
 --- Write a configure / build step's command line and cwd to the workspace log
---- at info level — for every configure and build the runners execute
---- (headless §16.4). Never raises.
+--- at info level — for every configure and build the runners execute. Never
+--- raises.
 --- @param ws loomworks.Workspace|nil
 --- @param name string|nil task name
 --- @param spec { cmd?: string[], display_cmd?: string[], cwd?: string }
@@ -54,11 +54,11 @@ end
 
 --- Resolve user-declared project variables for the active configuration,
 --- honouring compiler-specific `overrides` for the active tool's compiler
---- family (core §1.3.1). Returns nil when the project has no variable
+--- family. Returns nil when the project has no variable
 --- declarations so module contexts stay lean. The Configuration object is the
 --- inheritance root — pass nil to get project-default values only.
 --- The active `profile` supplies fill values for variables left blank by the
---- config chain (core §1.3.1); a blank a build reaches here would already have
+--- config chain; a blank a build reaches here would already have
 --- been refused by the build gate (`Profile:assert_buildable`), so entries
 --- with no value are dropped rather than passed to the module as `nil`.
 --- @param project loomworks.Project|nil
@@ -87,7 +87,7 @@ local function resolve_project_variables(project, configuration, tool_data, prof
     return out
 end
 
---- Resolve the compiler-cache launcher for a build context (core §1.3.2, §8.1).
+--- Resolve the compiler-cache launcher for a build context.
 --- Core owns this resolution: it derives a concrete launcher from the effective
 --- `cache` policy and the tool's compiler family, PATH-gated. Returns the
 --- `{ tool, path }` a module applies, or nil (policy `off`, `auto` on an
@@ -105,7 +105,7 @@ local function resolve_compiler_cache(project, configuration, tool_data, profile
         project, configuration, tool_data, profile)
 end
 
---- Resolve the configuration environment (spec §1.3.3) for a build context and
+--- Resolve the configuration environment for a build context and
 --- the composed task environment: the tool's `env` with the configuration's
 --- resolved `env` layered on top. Single-sourced so every context-assembly site
 --- (configure/build/clean, per-unit and per-profile) sets `env` and
@@ -144,7 +144,7 @@ local function task_configurations(mod_info)
 end
 M._task_configurations = task_configurations  -- exported for tests
 
---- The tool data a unit's tasks RUN with (spec §17.7): the detected data for
+--- The tool data a unit's tasks RUN with: the detected data for
 --- its tool key. A keyed tool known only from the cache yields nil + reason —
 --- cached tool data is a record, never a source of executable paths.
 --- @param unit loomworks.ConfigUnit
@@ -165,8 +165,8 @@ local function refuse_undetected(err)
     return nil
 end
 
---- A build command with the parallel-jobs option (`Build/1.build` `jobs`,
---- spec §19.15) appended: `-- -j<jobs>`, the
+--- A build command with the parallel-jobs option (`Build/1.build` `jobs`)
+--- appended: `-- -j<jobs>`, the
 --- build tool's own option after the driver's — or, when `cmd` already has a
 --- `--`, `-j<jobs>` right after it. Changes `cmd` in place.
 --- @param cmd string[]
@@ -190,7 +190,7 @@ end
 --- @param unit loomworks.ConfigUnit
 --- @param opts? { profile?: loomworks.Profile, force_full_reconfigure?: boolean, build_args?: string[], build_targets?: string[] }
 ---   profile is the profile to resolve against (default: the active one); the
----   rest is the caller's request forwarded to the module context (§8.1), as
+---   rest is the caller's request forwarded to the module context, as
 ---   for a profile (collect_profile_tasks)
 --- @return table|nil task_defs_by_action { configure = {...}, build = {...} }
 local function collect_configuration_tasks(unit, opts)
@@ -271,8 +271,7 @@ local function collect_configuration_tasks(unit, opts)
             -- The profile this context resolved against (its blank-variable
             -- and `cache` fills): the active one for a unit-scoped action,
             -- the requested one for a daemon launch's unit build.
-            -- The build gate and the post-configure record use the same one
-            -- (core §5.1).
+            -- The build gate and the post-configure record use the same one.
             lw_meta.profile = profile
             lw_meta.progress_tool = pt
             lw_meta.variant = variant
@@ -286,8 +285,8 @@ local function collect_configuration_tasks(unit, opts)
     return by_action
 end
 
---- The result line of a ProfileProject a profile-level operation does not run
---- (core §5.4 "Invalid ProfileProjects"): `<project>/<configuration> not run:
+--- The result line of a ProfileProject a profile-level operation does not run:
+--- `<project>/<configuration> not run:
 --- <reason> — <remedy>`.
 --- @param pp loomworks.ProfileProject
 --- @param reason string the invalid reason (ProfileProject:invalid_reason)
@@ -300,8 +299,8 @@ function M.refusal_line(pp, reason, remedy)
         .. (remedy and (" — " .. remedy) or "")
 end
 
---- The result line of `pp` when a profile-level operation does not run it
---- (core §5.4 "Invalid ProfileProjects"): `refusal_line` of
+--- The result line of `pp` when a profile-level operation does not run it:
+--- `refusal_line` of
 --- `ProfileProject:invalid_reason()`, the one validity check of every
 --- profile-level gate; nil when `pp` is valid.
 --- @param pp loomworks.ProfileProject
@@ -314,13 +313,13 @@ function M.pp_refusal(pp)
 end
 
 --- The result line of a ProfileProject a profile-level operation did not run
---- (core §5.4 "Invalid ProfileProjects"; `refusal_line`): the project, its
+--- (`refusal_line`): the project, its
 --- configuration, the reason and the remedy. The host reports these after the
 --- other projects ran (`refused_message`) and fails the operation.
 --- @alias loomworks.RefusalLine string
 
 --- The failure of a profile-level operation whose invalid ProfileProjects
---- were not run (core §5.4 "Invalid ProfileProjects"): their result lines,
+--- were not run: their result lines,
 --- one per line. Reported after the other projects ran. (Here, beside
 --- `refusal_line`, so both hosts' callers reach it without a plugin→binary
 --- require; build_run.refused_message is this.)
@@ -343,14 +342,14 @@ end
 --- Project objects instead of recomputing from scratch.
 --- @param profile loomworks.Profile
 --- @param opts? { force_full_reconfigure?: boolean, build_args?: string[], build_targets?: string[], build_targets_for?: table<loomworks.Project, string[]> }
----   forwarded to the module context (§8.1): force_full_reconfigure makes every
+---   forwarded to the module context: force_full_reconfigure makes every
 ---   configure take the module's full path; build_args / build_targets are the
----   caller's build request for the build tasks (headless `lw build`, §16.4);
+---   caller's build request for the build tasks (headless `lw build`);
 ---   build_targets_for (the resolved `--target` operands) replaces
 ---   build_targets per project and skips every project it does not name
 --- A ProfileProject invalid for the action (`ProfileProject:invalid_reason`:
---- a module `error`, §8 `info`; a refused build directory, §1.7; a tool
---- compat error, §8.4 `validate_config_tool`) is not run (core §5.4 "Invalid ProfileProjects"):
+--- a module `error`; a refused build directory; a tool compat error from
+--- `validate_config_tool`) is not run:
 --- its tasks are left out and `refused` names it with its reason, so the
 --- caller fails the operation after the other projects ran.
 --- @return loomworks.ProfileTaskDefs|nil task_defs_by_action
@@ -370,7 +369,7 @@ local function collect_profile_tasks(profile, opts)
         local project = pp._project
         if not project then goto continue end
 
-        -- A resolved `--target` request (§16.4) builds only the projects it
+        -- A resolved `--target` request builds only the projects it
         -- selected, each with its own bare target names.
         if opts.build_targets_for and not opts.build_targets_for[project] then goto continue end
 
@@ -389,7 +388,7 @@ local function collect_profile_tasks(profile, opts)
         if not active_config then goto continue end
 
         local project_tool = profile:tool_for(project.type)
-        -- Detected tool data only (spec §17.7): a cache-only tool runs nothing.
+        -- Detected tool data only: a cache-only tool runs nothing.
         if project_tool and project_tool.detected == false then
             return refuse_undetected("toolchain '" .. tostring(project_tool.key)
                 .. "' is not detected on this machine — rescan tools "
@@ -399,7 +398,7 @@ local function collect_profile_tasks(profile, opts)
         local task_env, configuration_env = resolve_task_env(
             project, pp._configuration, tool_data, profile, ws.root)
         -- No configure record, but the build dir already holds configure
-        -- state (§5.1): the module takes its full reconfigure.
+        -- state: the module takes its full reconfigure.
         local orphan_state = pp._config_unit
             and pp._config_unit:has_orphan_configure_state(pp:build_dir()) or false
         local project_ctx = {
@@ -442,7 +441,7 @@ local function collect_profile_tasks(profile, opts)
                 lw_meta.unit = pp._config_unit
                 -- The profile being built: its fills resolved this context,
                 -- so the build gate's staleness check and the post-configure
-                -- record resolve against it too (core §5.1), never against
+                -- record resolve against it too, never against
                 -- whichever profile happens to be active.
                 lw_meta.profile = profile
                 lw_meta.progress_tool = pt
@@ -505,7 +504,7 @@ local function collect_configuration_clean_tasks(unit)
 
     local clean = mod.clean_tasks(project_ctx, variant)
     -- A wipe deletes this unit's build dir: the runner needs the unit for
-    -- crash safety and shared-dir protection (spec §4.6, §4.7).
+    -- crash safety and shared-dir protection.
     for _, task_def in ipairs(clean or {}) do
         if task_def.loomworks and task_def.loomworks.wipe_build_dir
                 and task_def.loomworks.unit == nil then
@@ -517,9 +516,9 @@ end
 
 --- Collect clean task definitions for all projects in a profile.
 --- An invalid ProfileProject (`ProfileProject:invalid_reason`: a module
---- `error`, §8 `info`; a refused build directory, §1.7; a tool compat error,
---- §8.4 `validate_config_tool`) is not cleaned (core §5.4 "Invalid
---- ProfileProjects"): it is left out and named in `refused`.
+--- `error`; a refused build directory; a tool compat error from
+--- `validate_config_tool`) is not cleaned: it is left out and named in
+--- `refused`.
 --- @param profile loomworks.Profile
 --- @return table[]|nil clean_tasks
 --- @return loomworks.RefusalLine[]|nil refused nil when none
@@ -553,7 +552,7 @@ local function collect_profile_clean_tasks(profile)
         if not active_config then goto continue end
 
         local project_tool = profile:tool_for(project.type)
-        -- Detected tool data only (spec §17.7): a cache-only tool runs nothing.
+        -- Detected tool data only: a cache-only tool runs nothing.
         if project_tool and project_tool.detected == false then
             return refuse_undetected("toolchain '" .. tostring(project_tool.key)
                 .. "' is not detected on this machine — rescan tools "
@@ -584,9 +583,9 @@ local function collect_profile_clean_tasks(profile)
             for _, task_def in ipairs(clean) do
                 -- The unit the task cleans. A wipe is a build-directory
                 -- deletion of this unit's dir: the runner needs the unit for
-                -- crash safety and shared-dir protection (spec §4.6). A module
-                -- clean's headless runner needs it to record the clean (the
-                -- unit back to `configured`, spec §3, §16.1).
+                -- crash safety and shared-dir protection. A module clean's
+                -- headless runner needs it to record the clean (the unit back
+                -- to `configured`).
                 task_def.loomworks = task_def.loomworks or {}
                 if task_def.loomworks.unit == nil then
                     task_def.loomworks.unit = pp._config_unit
@@ -598,12 +597,12 @@ local function collect_profile_clean_tasks(profile)
         ::continue::
     end
 
-    -- A refused ProfileProject's build directory is kept (core §5.4: it is
+    -- A refused ProfileProject's build directory is kept (it is
     -- not cleaned): a core-performed wipe of a valid one's dir is dropped
     -- when that dir is the refused one's — the same config unit (projects
     -- sharing one build dir share it) or the same directory identity. (A
     -- distinct unit merely referencing the dir is kept by the deletion's
-    -- shared-dir check, spec §4.6.)
+    -- shared-dir check.)
     if #refused > 0 and #tasks > 0 then
         local function ident(p)
             if type(p) ~= "string" or p == "" then return nil end
@@ -633,14 +632,14 @@ local function collect_profile_clean_tasks(profile)
 end
 
 --- Core-performed clean for a clean task that declares
---- `loomworks.wipe_build_dir = true` (spec §8.1): the module asks core to
---- remove the build directory instead of spawning a command. Deletion safety
---- (CLAUDE.md): nil/empty build_dir => nothing to wipe; the path (possibly
+--- `loomworks.wipe_build_dir = true`: the module asks core to
+--- remove the build directory instead of spawning a command. Deletion safety:
+--- nil/empty build_dir => nothing to wipe; the path (possibly
 --- cache-sourced) must pass `_validate_build_dir` (canonical, trailing-"/"
 --- boundary, never the workspace root); removal is in-process
 --- (`io.rm_rf_async`: libuv calls, links not followed) — no shell.
 --- With the task's config unit (`loomworks.unit`, set by the clean task
---- collectors) the wipe is a build-directory DELETION (spec §4.6, §4.7) via
+--- collectors) the wipe is a build-directory DELETION via
 --- `Workspace:clean_wipe_build_dir`: cache `unknown` on disk before the tree
 --- is removed, the unit reset to unconfigured only after the removal
 --- succeeded, a directory still referenced by a config outside the clean
@@ -680,11 +679,11 @@ M._wipe_build_dir = wipe_build_dir
 --- Filter configure tasks to only those whose ConfigUnit needs configuring.
 --- Includes units that are unconfigured, configure_failed, or stale
 --- (configuration options changed since last configure), or whose build
---- directory was removed out of band (spec §3.1 rule 7) — the load/remerge
+--- directory was removed out of band — the load/remerge
 --- resets a vanished unit, and this is the re-check for a directory that
 --- disappears between remerge and build.
 --- Each selected task's `loomworks.configure_reason` is set to the unit's
---- `configure_reason()` (why it configures, §16.4). With `forced` every
+--- `configure_reason()` (why it configures). With `forced` every
 --- configure task is selected (a forced full reconfigure, `lw build
 --- --reconfigure`).
 --- @param all_tasks table { configure: table[], build: table[] }
@@ -710,8 +709,8 @@ local function filter_unconfigured_tasks(all_tasks, forced)
 end
 M._filter_unconfigured_tasks = filter_unconfigured_tasks
 
---- The one-line "why this configure runs" report (headless §16.4, core
---- §8.1 `reconfigure`): the gate's reason plus the module's classification,
+--- The one-line "why this configure runs" report: the gate's reason plus the
+--- module's classification,
 --- e.g. `configure: first configure`, `full reconfigure (--fresh): configure
 --- record from an older lw`, `reconfigure (in place): compiler launcher
 --- changed`. `meta` is a configure task's `loomworks` table or a plan step
@@ -739,7 +738,7 @@ end
 --- command (no `run_command_all`) don't run headlessly and so don't count
 --- toward "self-rebuilding". Asked through `batch_runner_test_units()`, not the
 --- discovery-gated `test_units()`: the plan is made before configure runs, so
---- on a fresh clone the unit is not yet configured here (spec §17.8).
+--- on a fresh clone the unit is not yet configured here.
 --- @param unit loomworks.ConfigUnit
 --- @return boolean
 function M._unit_tests_self_rebuild(unit)
@@ -784,23 +783,23 @@ local function plan_steps(configure_tasks, build_tasks)
                         kind = kind,
                         name = td.name,
                         unit = td.loomworks and td.loomworks.unit or nil,
-                        -- The profile being built (core §5.1): the headless
+                        -- The profile being built: the headless
                         -- runner records the configure against it.
                         profile = td.loomworks and td.loomworks.profile or nil,
                         build_dir = td.loomworks and td.loomworks.build_dir or nil,
                         -- Module record that replaces the unit's record after a configure
                         -- (cache_launcher, passed_options, …) and the
-                        -- full-reconfigure reset list (core §5.1 / §8.1); the
+                        -- full-reconfigure reset list; the
                         -- headless runner records / performs them.
                         module_info = td.loomworks and td.loomworks.module_info or nil,
                         pre_configure_reset = td.loomworks and td.loomworks.pre_configure_reset or nil,
                         -- Why this configure runs + how the module runs it
-                        -- (the one-line report, §16.4).
+                        -- (the one-line report).
                         configure_reason = td.loomworks and td.loomworks.configure_reason or nil,
                         reconfigure = td.loomworks and td.loomworks.reconfigure or nil,
                         reconfigure_detail = td.loomworks and td.loomworks.reconfigure_detail or nil,
                         -- Whether the module put the caller's build request
-                        -- on its native command (§8.1); the headless runner
+                        -- on its native command; the headless runner
                         -- falls back / refuses otherwise.
                         applied_build_args = td.loomworks and td.loomworks.applied_build_args or nil,
                         applied_build_targets = td.loomworks and td.loomworks.applied_build_targets or nil,
@@ -809,7 +808,7 @@ local function plan_steps(configure_tasks, build_tasks)
                         -- within the step.
                         progress_tool = td.loomworks and td.loomworks.progress_tool or nil,
                         cmd = spec.cmd,
-                        -- The command a wrapper runs, for display (§8.1).
+                        -- The command a wrapper runs, for display.
                         display_cmd = spec.display_cmd,
                         cwd = (type(spec.cwd) == "string" and spec.cwd ~= "")
                             and spec.cwd or nil,
@@ -825,7 +824,7 @@ local function plan_steps(configure_tasks, build_tasks)
 end
 
 --- The configure tasks a plan runs: with `configure_only` (an explicit
---- configure, `Build/1.configure`, spec §19.15) every one — also a unit
+--- configure, `Build/1.configure`) every one — also a unit
 --- already configured, its `configure_reason` set when it has one — else the
 --- units that need it (filter_unconfigured_tasks).
 --- @param all_tasks table { configure: table[], build: table[] }
@@ -852,11 +851,11 @@ end
 ---   for_test drops the build step of any unit whose native test runner
 ---   self-rebuilds — configuration is still planned for every unit; as a
 ---   table `{ keep = { [unit] = true } }` it also keeps the build of the
----   listed units (a unit with saved test executables in the plan, §16.16);
+---   listed units (a unit with saved test executables in the plan);
 ---   configure_only plans the configure step of every unit and no build
----   (`Build/1.configure`, §19.15); reconfigure forces a FULL reconfigure of
----   every unit (`lw build --reconfigure`, §16.4);
----   build_args / build_targets go to each module's build task context (§8.1),
+---   (`Build/1.configure`); reconfigure forces a FULL reconfigure of
+---   every unit (`lw build --reconfigure`);
+---   build_args / build_targets go to each module's build task context,
 ---   and each build step reports whether its module applied them
 ---   (`applied_build_args` / `applied_build_targets`).
 ---   tasks (the task definitions of a unit-scoped plan, plan_unit_build) skips
@@ -864,7 +863,7 @@ end
 --- @return table[]|nil steps list of { kind, name, unit, profile, build_dir, module_info, pre_configure_reset, configure_reason, reconfigure, reconfigure_detail, applied_build_args, applied_build_targets, cmd, cwd, env }
 --- @return string|nil err a task builder that raised (the plan is refused, not partial)
 --- @return loomworks.RefusalLine[]|nil refused the ProfileProjects left out as
----   invalid for the action (core §5.4 "Invalid ProfileProjects"), nil when
+---   invalid for the action, nil when
 ---   none: the caller runs the steps, then fails the operation with them
 function M.plan_profile_build(profile, opts)
     opts = opts or {}
@@ -898,7 +897,7 @@ function M.plan_profile_build(profile, opts)
 end
 
 --- The plan of `plan_profile_build` for configuration units instead of a
---- profile (`Build/1` `units`, spec §19.15): each unit's tasks collected
+--- profile (`Build/1` `units`): each unit's tasks collected
 --- with the tool its unit records and the active profile's context, then the
 --- configures of every unit before the builds, in the order given.
 --- @param units loomworks.ConfigUnit[]
@@ -934,9 +933,8 @@ function M.plan_units_build(units, opts)
     return steps
 end
 
---- Plan the build of ONE configuration unit as a launch builds it (spec
---- §8.8.4 steps 3 and 5; §19.15 "Build scope of a launch"), its steps shaped
---- as plan_profile_build's: with `opts.target_id` and a module that builds a
+--- Plan the build of ONE configuration unit as a launch builds it, its steps
+--- shaped as plan_profile_build's: with `opts.target_id` and a module that builds a
 --- single target (`build_target_task`), that target's one build step;
 --- otherwise the unit's configure when it needs one, then its build. The
 --- tool/configuration compatibility gate refuses first. The steps resolve against
@@ -999,14 +997,14 @@ end
 ---   wipe (run it with `Workspace:clean_wipe_build_dir(units, build_dir)`,
 ---   passing every wipe step's unit for the same build_dir as one batch)
 --- @return loomworks.RefusalLine[]|nil refused the ProfileProjects not cleaned
----   as invalid (core §5.4): the caller cleans the others, then fails
+---   as invalid: the caller cleans the others, then fails
 function M.plan_profile_clean(profile)
     local tasks, refused = collect_profile_clean_tasks(profile)
     return M._clean_steps(tasks), refused
 end
 
 --- The clean plan of `plan_profile_clean` for configuration units instead of
---- a profile (`Build/1.clean` `units`, spec §19.15): each unit's clean tasks
+--- a profile (`Build/1.clean` `units`): each unit's clean tasks
 --- collected with the tool its unit records, in the order given.
 --- A unit whose tool is not detected refuses the whole clean (nil), as
 --- plan_profile_clean does; a unit whose module has no clean is skipped.
@@ -1093,15 +1091,15 @@ M._junit_dest_for = junit_dest_for  -- exported for tests
 --- `opts.extra_args` forwards caller args to each runner; `opts.junit` (an
 --- absolute path) requests JUnit output — each step carries `junit_dest` (where
 --- the caller wants it) and `junit_out` (where the runner actually wrote it).
---- `opts.skip_units` drops the listed units' batch steps (a foreign unit,
---- §16.16); `opts.junit_dest_for(label)`, when given, assigns the JUnit path
+--- `opts.skip_units` drops the listed units' batch steps (a foreign unit);
+--- `opts.junit_dest_for(label)`, when given, assigns the JUnit path
 --- instead of the per-runner rule (the caller's whole-plan labelling).
---- `opts.no_rebuild` (`lw test --no-build`, §16.16) is forwarded to each
+--- `opts.no_rebuild` (`lw test --no-build`) is forwarded to each
 --- runner; a self-rebuilding runner whose spec does not confirm it
 --- (`no_rebuild = true`) yields a step with `refused` set (the reason) — the
 --- caller refuses it before any step runs, never letting it rebuild.
---- A ProfileProject invalid for the action (`ProfileProject:invalid_reason`) gets no step
---- (core §5.4 "Invalid ProfileProjects"): it is named in `refused`, so the
+--- A ProfileProject invalid for the action (`ProfileProject:invalid_reason`)
+--- gets no step: it is named in `refused`, so the
 --- caller runs the other projects' tests, then fails.
 --- @param profile loomworks.Profile
 --- @param opts? table { extra_args?: string[], junit?: string, no_rebuild?: boolean, skip_units?: table<loomworks.ConfigUnit, boolean>, junit_dest_for?: fun(label: string, unit: loomworks.ConfigUnit): string|nil }
