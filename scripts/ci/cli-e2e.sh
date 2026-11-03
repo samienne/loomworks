@@ -1,0 +1,739 @@
+#!/usr/bin/env bash
+# CLI end-to-end smoke test (spec §16): create tiny meson + cmake C++ projects
+# and drive them through the `lw` CLI — configure/build, run the built binary,
+# run tests, and clean — asserting the expected output. Runs in CI on Linux,
+# macOS, and Windows.
+#
+# The CLI invocation is `$LW` (default: the local dev build). CI sets it to a
+# luvi host over the checkout, e.g.:
+#   export LOOMWORKS_LUA="$PWD/lua"
+#   LW="./luvi $PWD/lua" scripts/ci/cli-e2e.sh
+#
+# Exits non-zero if any step fails.
+set -u
+
+LW="${LW:-lw --dev}"
+
+# The runner drives each project from inside its own temp workspace (cd below),
+# so a relative binary like `./lw` would stop resolving. Make the binary
+# absolute up front; a bare command found on PATH (e.g. `lw`) is left as-is.
+set -- $LW
+_bin="$1"; shift
+if [ -e "$_bin" ]; then
+    _bin="$(cd "$(dirname "$_bin")" && pwd)/$(basename "$_bin")"
+fi
+LW="$_bin${*:+ $*}"
+
+PASS=0
+FAIL=0
+
+say() { printf '\n=== %s ===\n' "$*"; }
+ok()  { printf '  ok  : %s\n' "$*"; PASS=$((PASS + 1)); }
+bad() { printf '  FAIL: %s\n' "$*" >&2; FAIL=$((FAIL + 1)); }
+
+# Non-interactive lw.
+run_lw() { $LW --no-input "$@"; }
+
+TMP=$(mktemp -d)
+# Per-user state (trust key, runtime logs) in the sandbox, never the runner's.
+mkdir -p "$TMP/lwdata"
+if command -v cygpath >/dev/null 2>&1; then export LOOMWORKS_DATA_DIR="$(cygpath -m "$TMP/lwdata")"
+else export LOOMWORKS_DATA_DIR="$TMP/lwdata"; fi
+trap 'rm -rf "$TMP"' EXIT
+# No startup housekeeping (spec 16.40) in the lw runs below: it would scan the
+# runner's real temp and socket directories. test_cleanup turns it on with
+# those directories sandboxed.
+export LOOMWORKS_NO_HOUSEKEEPING=1
+
+# Pick a toolchain key for the given module from `run_lw tools`, preferring a
+# self-contained gcc/clang over MSVC (which needs a dev environment), then the
+# first available.
+pick_tool() {
+    local list="$TMP/tools.txt" keys="$TMP/keys.txt"
+    run_lw tools > "$list" 2>/dev/null
+    # Tool keys are the first token of each indented line (module headers, the
+    # trailing hint, and blank lines are flush-left / empty).
+    # Real tool keys start with a letter/digit; a "(none detected)" placeholder
+    # line does not, so it's filtered out (leaving an empty pick → clean error).
+    awk 'NF>0 && /^[[:space:]]/ && $1 ~ /^[A-Za-z0-9]/ {print $1}' "$list" > "$keys"
+    local t
+    # Prefer a self-contained gcc/clang toolchain (msvc and clang-cl need a VS
+    # dev environment); take the full key so e.g. "ninja-appleclang-15" survives.
+    t=$(grep -viE 'msvc|clang-cl' "$keys" | grep -iE 'gcc|clang' | head -1)
+    [ -z "$t" ] && t=$(head -1 "$keys")
+    printf '%s' "$t"
+}
+
+# Record a failure: print the captured output ($TMP/out.txt) and, under GitHub
+# Actions, emit an ::error:: annotation (readable via the API without the
+# repo-admin rights that downloading job logs requires).
+note_fail() { # $1 = description   $2 = exit code
+    bad "$1 (exit $2)"
+    { echo "  --- output of the failing step ---"; tail -n 25 "$TMP/out.txt" | sed 's/^/  | /'; } >&2
+    if [ -n "${GITHUB_ACTIONS:-}" ]; then
+        printf '::error title=cli-e2e: %s::%s\n' "$1" \
+            "$(tail -n 10 "$TMP/out.txt" | tr '\n\r' '  ' | sed 's/%/%25/g' | cut -c1-500)"
+    fi
+}
+
+# Root discovery must not cross a git working-tree boundary (spec §16.2): `lw`
+# in a fresh git worktree (a `.git` file, no `.nvim/` of its own) must NOT
+# silently bind to a parent checkout's workspace. Toolchain-independent.
+test_worktree_boundary() {
+    say "worktree boundary"
+    local base="$TMP/wt" out="$TMP/out.txt"
+    mkdir -p "$base/parent/wt-agent"
+    ( cd "$base/parent" && run_lw init --name parent-ws ) > "$out" 2>&1 \
+        || { note_fail "worktree: parent init" $?; return; }
+    # Simulate a linked git worktree root: a `.git` FILE, no workspace of its own.
+    printf 'gitdir: %s/.git/worktrees/wt-agent\n' "$base/parent" > "$base/parent/wt-agent/.git"
+    ( cd "$base/parent/wt-agent" && run_lw workspace ) > "$out" 2>&1
+    if grep -q "parent-ws" "$out"; then
+        note_fail "worktree: lw bound to the parent checkout across a git boundary" 0
+    else
+        ok "worktree: lw refuses to bind across a git boundary"
+    fi
+}
+
+# Module acquisition command surface (spec §16.20), against a LOCAL index so it
+# is hermetic and needs no network or artifact. Install-success (download +
+# verify + extract) is covered by the standalone harness (tests/standalone).
+# Toolchain-independent; needs no workspace.
+test_module_commands() {
+    say "module commands"
+    local out="$TMP/out.txt" idx="$TMP/mod-index.json"
+
+    # Empty index: `module list` runs and reports nothing.
+    printf '{"schema":1,"modules":{}}\n' > "$idx"
+    LOOMWORKS_MODULE_INDEX="$idx" run_lw module list > "$out" 2>&1
+    if grep -qi "no modules in the index" "$out"; then
+        ok "module list: empty index"
+    else note_fail "module list: empty index" 0; fi
+
+    # An entry the running host can't satisfy (absurd api_version): listed as
+    # incompatible, and refused at install BEFORE any download.
+    cat > "$idx" <<'JSON'
+{"schema":1,"modules":{"faketool":{"version":"9.9.9","api_version":999,
+"url":"file:///does-not-exist.zip","sha256":"00","description":"fake"}}}
+JSON
+    LOOMWORKS_MODULE_INDEX="$idx" run_lw module list > "$out" 2>&1
+    if grep -q "faketool" "$out" && grep -qi "incompatible" "$out"; then
+        ok "module list: flags an incompatible entry"
+    else note_fail "module list: incompatible marker" 0; fi
+
+    LOOMWORKS_MODULE_INDEX="$idx" run_lw module install faketool > "$out" 2>&1
+    if [ $? -ne 0 ] && grep -qi "update lw" "$out"; then
+        ok "module install: refuses an incompatible module before downloading"
+    else note_fail "module install: incompatible not refused" 0; fi
+
+    # Unknown module names the available set.
+    LOOMWORKS_MODULE_INDEX="$idx" run_lw module install ghost > "$out" 2>&1
+    if [ $? -ne 0 ] && grep -qi "no module 'ghost'" "$out"; then
+        ok "module install: unknown module errors with the available list"
+    else note_fail "module install: unknown module" 0; fi
+}
+
+# Lock recovery (spec §19.5) against a real `lw build` process, on every OS:
+# a holder killed during configure is reclaimed at once by the next build and
+# the unit reconfigures; a holder suspended mid-build (POSIX: SIGSTOP) is
+# reported hung, and `--break-locks=now` stops its process tree and builds; on
+# Windows (no SIGSTOP from bash) `--break-locks=now` recovers a live holder.
+# Toolchain-independent: a shell-module project whose steps sleep on demand.
+LOCK_SLEEP=61
+is_windows_host() { case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) return 0;; esac; return 1; }
+# Kill a process and everything below it (pid from a lock record: a Windows
+# pid on Windows hosts).
+kill_tree() {
+    local pid="$1" kid
+    [ -z "$pid" ] && return 0
+    if is_windows_host; then
+        taskkill //F //T //PID "$pid" >/dev/null 2>&1
+        return 0
+    fi
+    for kid in $(ps -A -o pid= -o ppid= | awk -v p="$pid" '$2 == p {print $1}'); do
+        kill_tree "$kid"
+    done
+    kill -9 "$pid" 2>/dev/null
+}
+# The runtime lock of a workspace's daemon: per slot (spec 19.7.1),
+# `.nvim/loomworks.daemon-<S>.lock`, S 16 hex digits of the OS user. The runner
+# has one user, so the one such file (empty when there is none or several).
+slot_lock() {
+  local m; m=$(ls -1 "$1/.nvim" 2>/dev/null | grep -E '^loomworks\.daemon-[0-9a-f]{16}\.lock$')
+  [ "$(printf '%s\n' "$m" | grep -c .)" = 1 ] && printf '%s/.nvim/%s' "$1" "$m"
+}
+# The pid field of a lockfile.
+lock_pid() { sed -n 's/.*"pid":\([0-9][0-9]*\).*/\1/p' "$1" 2>/dev/null | head -1; }
+# Wait (up to ~20 s) until the workspace's build-dir lockfile records the
+# given operation; prints the lockfile's path.
+wait_lock_op() {
+    local ws="$1" op="$2" n=0 f
+    while [ $n -lt 200 ]; do
+        f=$(find "$ws" -name '*.loomworks-lock' 2>/dev/null | head -1)
+        if [ -n "$f" ] && grep -q "\"operation\":\"$op\"" "$f" 2>/dev/null; then
+            printf '%s' "$f"; return 0
+        fi
+        sleep 0.1; n=$((n + 1))
+    done
+    return 1
+}
+
+test_lock_recovery() {
+    say "lock recovery (kill / hang / --break-locks)"
+    local ws="$TMP/locks" out="$TMP/out.txt" lockf pid bg step
+    mkdir -p "$ws/App"
+    # The step command sleeps while a flag file exists. On Windows a NATIVE
+    # sleeper (ping under cmd), so the holder's process tree is a real Windows
+    # tree (an MSYS `sleep` is not reachable through parent ids).
+    if is_windows_host; then
+        printf '@echo off\r\nif exist "%%~dp0slow-%%1" ping -n %d 127.0.0.1 >nul\r\nexit /b 0\r\n' \
+            "$((LOCK_SLEEP + 1))" > "$ws/slow.cmd"
+        step="\"cmd\",\"/c\",\"$(cygpath -m "$ws")/slow.cmd\""
+    else
+        printf '#!/bin/sh\n[ -f "$(dirname "$0")/slow-$1" ] && sleep %d\nexit 0\n' "$LOCK_SLEEP" > "$ws/slow.sh"
+        step="\"sh\",\"$ws/slow.sh\""
+    fi
+    # The build dir lies under .nvim/build: nuke (step 3) removes only that
+    # tree and takes only the locks found there (spec 19.3).
+    cat > "$ws/loomworks.json" <<JSON
+{"projects":{"App":{"path":"App","shell":{
+  "build_dir":"\${workspace_root}/.nvim/build/b",
+  "configure_cmd":[$step,"configure"],
+  "build_cmd":[$step,"build"],
+  "configurations":{"Debug":{}}}}},
+ "configuration_sets":{"Dev":{"App":"Debug"}}}
+JSON
+    ( cd "$ws" && run_lw profile create Dev --activate ) > "$out" 2>&1 \
+        || { note_fail "locks: profile create" $?; return; }
+
+    # 1. Killed during configure: the next build reclaims at once, reconfigures.
+    touch "$ws/slow-configure"
+    ( cd "$ws" && run_lw build Dev ) > "$TMP/bg.txt" 2>&1 &
+    bg=$!
+    if ! lockf=$(wait_lock_op "$ws" configure); then
+        cp "$TMP/bg.txt" "$out"; note_fail "locks: background build never took the lock" 1
+        kill_tree "$(lock_pid "$(find "$ws" -name '*.loomworks-lock' | head -1)")"; wait "$bg" 2>/dev/null
+        return
+    fi
+    pid=$(lock_pid "$lockf")
+    kill_tree "$pid"; wait "$bg" 2>/dev/null
+    rm -f "$ws/slow-configure"
+    ( cd "$ws" && run_lw build Dev ) > "$out" 2>&1
+    rc=$?
+    if [ $rc -eq 0 ] && grep -q "interrupted during configure" "$out" && grep -q "BUILD OK" "$out" \
+        && grep -q "\[configure\]" "$out"; then
+        ok "locks: a killed configure is reclaimed at once and reconfigured"
+    else note_fail "locks: killed-configure recovery" $rc; fi
+
+    # 2. Hung (POSIX) or live (Windows) holder mid-build: --break-locks=now.
+    touch "$ws/slow-build"
+    ( cd "$ws" && run_lw build Dev ) > "$TMP/bg.txt" 2>&1 &
+    bg=$!
+    if ! lockf=$(wait_lock_op "$ws" build); then
+        cp "$TMP/bg.txt" "$out"; note_fail "locks: background build never reached the build step" 1
+        kill_tree "$(lock_pid "$(find "$ws" -name '*.loomworks-lock' | head -1)")"; wait "$bg" 2>/dev/null
+        return
+    fi
+    pid=$(lock_pid "$lockf")
+    if ! is_windows_host; then
+        kill -STOP "$pid"
+        touch -t 200001010000 "$lockf"
+        ( cd "$ws" && run_lw build Dev ) > "$out" 2>&1
+        rc=$?
+        if [ $rc -ne 0 ] && grep -q "hung" "$out" && grep -q -- "--break-locks" "$out"; then
+            ok "locks: a suspended holder is reported hung with the recovery command"
+        else note_fail "locks: hung holder not reported" $rc; fi
+    fi
+    rm -f "$ws/slow-build"
+    ( cd "$ws" && run_lw build Dev --break-locks=now ) > "$out" 2>&1
+    rc=$?
+    wait "$bg" 2>/dev/null
+    local still=0
+    if is_windows_host; then
+        tasklist //FI "PID eq $pid" 2>/dev/null | grep -q " $pid " && still=1
+    else
+        kill -0 "$pid" 2>/dev/null && still=1
+    fi
+    if [ $rc -eq 0 ] && [ $still -eq 0 ] && grep -q "killed" "$out" && grep -q "BUILD OK" "$out"; then
+        ok "locks: --break-locks=now stops the holder's tree and builds"
+    else
+        note_fail "locks: --break-locks recovery" $rc
+        kill_tree "$pid"
+    fi
+    if is_windows_host; then
+        if tasklist //FI "IMAGENAME eq PING.EXE" 2>/dev/null | grep -qi "ping.exe"; then
+            bad "locks: the holder's build step (ping) survived"
+            taskkill //F //IM PING.EXE >/dev/null 2>&1
+        fi
+    elif ps -A -o args= | grep -q "^sleep $LOCK_SLEEP\$"; then
+        bad "locks: the holder's build step (sleep $LOCK_SLEEP) survived"
+        pkill -9 -f "^sleep $LOCK_SLEEP\$"
+    fi
+
+    # 3. lw nuke (spec 19.3) on this host: refused while a build runs (nothing
+    #    deleted), then a clean nuke (tree moved aside and removed under the
+    #    host's own event loop, caches gone, no aside tree or lock left).
+    touch "$ws/slow-build"
+    ( cd "$ws" && run_lw build Dev ) > "$TMP/bg.txt" 2>&1 &
+    bg=$!
+    if ! lockf=$(wait_lock_op "$ws" build); then
+        cp "$TMP/bg.txt" "$out"; note_fail "locks: nuke: background build never reached the build step" 1
+        kill_tree "$(lock_pid "$(find "$ws" -name '*.loomworks-lock' | head -1)")"; wait "$bg" 2>/dev/null
+        return
+    fi
+    pid=$(lock_pid "$lockf")
+    ( cd "$ws" && run_lw nuke -y ) > "$out" 2>&1
+    rc=$?
+    # The refusal alone, one line: no "Will delete" list first, no double prefix.
+    if [ $rc -ne 0 ] && grep -q "^lw: cannot nuke: a build is running in" "$out" \
+        && ! grep -q -e "Will delete" -e "nuke failed" -e "loomworks: " "$out" \
+        && [ -d "$ws/.nvim/build" ] && [ -f "$ws/.nvim/loomworks.cache.json" ]; then
+        ok "locks: nuke refuses while a build runs and deletes nothing"
+    else note_fail "locks: nuke during a running build" $rc; fi
+    rm -f "$ws/slow-build"
+    kill_tree "$pid"; wait "$bg" 2>/dev/null
+    ( cd "$ws" && run_lw nuke -y ) > "$out" 2>&1
+    rc=$?
+    local nuke_left
+    nuke_left=$(find "$ws/.nvim" -maxdepth 1 \( -name 'build' -o -name 'build.nuke-*' \
+        -o -name 'loomworks.cache.json' -o -name 'loomworks.op.lock' \) 2>/dev/null)
+    if [ $rc -eq 0 ] && grep -q "NUKED" "$out" && [ -z "$nuke_left" ]; then
+        ok "locks: nuke removes the build tree and caches, leaving no aside tree or lock"
+    else note_fail "locks: nuke left: $nuke_left" $rc; fi
+
+    # 4. Multi-file commits (spec 19.4) on this OS's rename semantics: publish
+    #    and a project rename leave no journal, no staged copies, no op lock.
+    ( cd "$ws" && run_lw publish && run_lw project rename App App2 ) > "$out" 2>&1
+    rc=$?
+    local leftovers
+    leftovers=$(find "$ws" -maxdepth 2 \( -name 'loomworks.txn.json*' -o -name '*.txn-*' \
+        -o -name 'loomworks.op.lock' \) 2>/dev/null)
+    if [ $rc -eq 0 ] && [ -z "$leftovers" ] && grep -q '"App2"' "$ws/.nvim/loomworks.user.json"; then
+        ok "locks: publish + rename commit cleanly (no journal, staged copy or op lock left)"
+    else
+        note_fail "locks: multi-file commit left $leftovers" $rc
+    fi
+}
+
+# `lw build` routed through the workspace daemon (spec §19.15, §19.19 step 3)
+# with the real host binary on every OS: a real cmake build (the notice, the
+# streamed tool output, BUILD OK, and a cache the in-process path agrees
+# with), the client's environment reaching the build step (not the daemon's),
+# and an interrupted client cancelling the build (step process gone, lock
+# released, the next build OK). CI sets CI=true, which selects in-process:
+# LOOMWORKS_NO_DAEMON=0 overrides it here.
+daemon_lw() { LOOMWORKS_RUNTIME=daemon LOOMWORKS_NO_DAEMON=0 $LW --no-input "$@"; }
+# Is a `cmake -E sleep` process still running?
+sleeper_alive() {
+    if is_windows_host; then
+        powershell -NoProfile -Command "@(Get-CimInstance Win32_Process -Filter \"Name='cmake.exe'\" | Where-Object { \$_.CommandLine -like '*-E sleep 61*' }).Count" 2>/dev/null | tr -d '\r' | grep -qv '^0$'
+    else
+        ps -A -o args= | grep -q "[c]make -E sleep 61"
+    fi
+}
+test_daemon_build() {
+    say "lw build through the workspace daemon"
+    local ws="$TMP/daemon-cmake" sh="$TMP/daemon-shell" out="$TMP/out.txt" err="$TMP/err.txt" rc
+    mkdir -p "$ws/app"
+    cat > "$ws/app/CMakeLists.txt" <<'CM'
+cmake_minimum_required(VERSION 3.16)
+project(app CXX)
+add_executable(app main.cpp)
+CM
+    cat > "$ws/app/main.cpp" <<'CPP'
+#include <cstdio>
+int main(){ std::printf("APP-RAN-daemon\n"); return 0; }
+CPP
+    cd "$ws" || { bad "daemon: cd"; return; }
+    run_lw init > "$out" 2>&1 || { note_fail "daemon: init" $?; return; }
+    run_lw project add ./app cmake > "$out" 2>&1 || { note_fail "daemon: project add" $?; return; }
+    local tool; tool=$(pick_tool)
+    if [ -z "$tool" ]; then note_fail "daemon: no toolchain detected" 0; return; fi
+    run_lw configset create Debug app=variant:Debug > "$out" 2>&1 || { note_fail "daemon: configset" $?; return; }
+    run_lw profile create Debug "$tool" > "$out" 2>&1 || { note_fail "daemon: profile create" $?; return; }
+    local prof="Debug:$tool"
+
+    daemon_lw build "$prof" > "$out" 2> "$err"; rc=$?
+    cat "$err" >> "$out"
+    if grep -q "^lw: building through the workspace daemon (pid [0-9]*)" "$err"; then ok "daemon: the build is routed (notice)"
+    else note_fail "daemon: no delegation notice" $rc; fi
+    if [ $rc -eq 0 ] && grep -qF "BUILD OK: $prof" "$out"; then ok "daemon: BUILD OK"
+    else note_fail "daemon: routed cmake build" $rc; fi
+    if grep -qE '\[[0-9]+/[0-9]+\]|Linking|Building' "$out"; then ok "daemon: real tool output streamed"
+    else note_fail "daemon: no streamed tool output" 0; fi
+    run_lw --no-daemon build "$prof" > "$out" 2>&1; rc=$?
+    if [ $rc -eq 0 ] && ! grep -q "\[configure\]" "$out" && ! grep -q "workspace daemon" "$out"; then
+        ok "daemon: in-process build agrees with the daemon's cache (no reconfigure)"
+    else note_fail "daemon: in-process after routed build" $rc; fi
+    daemon_lw daemon stop > /dev/null 2>&1
+
+    # A shell project whose build prints its environment, or sleeps.
+    mkdir -p "$sh/App"
+    write_shell_cfg() {
+        cat > "$sh/loomworks.json" <<JSON
+{"projects":{"App":{"path":"App","shell":{
+  "build_dir":"\${workspace_root}/out/b",
+  "configure_cmd":["cmake","-E","echo","configured"],
+  "build_cmd":$1,
+  "configurations":{"Debug":{}}}}},
+ "configuration_sets":{"Dev":{"App":"Debug"}}}
+JSON
+    }
+    write_shell_cfg '["cmake","-E","environment"]'
+    cd "$sh" || { bad "daemon: cd shell"; return; }
+    run_lw profile create Dev > "$out" 2>&1 || { note_fail "daemon: shell profile" $?; return; }
+    # The daemon starts in an environment the build must not see.
+    LW_E2E_VAR=daemon-side daemon_lw daemon restart > "$out" 2>&1 || { note_fail "daemon: restart" $?; return; }
+    LW_E2E_VAR=client-side daemon_lw build Dev > "$out" 2>&1; rc=$?
+    if [ $rc -eq 0 ] && grep -q "building through the workspace daemon" "$out" \
+        && grep -q "LW_E2E_VAR=client-side" "$out" && ! grep -q "daemon-side" "$out"; then
+        ok "daemon: the build runs in the client's environment"
+    else note_fail "daemon: client environment" $rc; fi
+
+    # Interrupted client: the daemon kills the step, releases the lock.
+    write_shell_cfg '["cmake","-E","sleep","61"]'
+    # (The lw process itself in the background — not a function's subshell —
+    # so the signals below reach it.)
+    LOOMWORKS_RUNTIME=daemon LOOMWORKS_NO_DAEMON=0 $LW --no-input build Dev > "$TMP/bg.txt" 2>&1 &
+    local bg=$!
+    if ! wait_lock_op "$sh" build > /dev/null; then
+        cp "$TMP/bg.txt" "$out"; note_fail "daemon: background build never reached the build step" 1
+        kill -9 "$bg" 2>/dev/null; daemon_lw daemon kill > /dev/null 2>&1; return
+    fi
+    sleep 1
+    kill -INT "$bg" 2>/dev/null; sleep 1; kill -9 "$bg" 2>/dev/null; wait "$bg" 2>/dev/null
+    local n=0
+    while [ $n -lt 100 ] && { [ -n "$(find "$sh" -name '*.loomworks-lock' 2>/dev/null)" ] || sleeper_alive; }; do
+        sleep 0.2; n=$((n + 1))
+    done
+    if [ -z "$(find "$sh" -name '*.loomworks-lock' 2>/dev/null)" ] && ! sleeper_alive; then
+        ok "daemon: an interrupted client cancels the build (step killed, lock released)"
+    else
+        cp "$TMP/bg.txt" "$out"; note_fail "daemon: cancellation left the step or the lock" 1
+    fi
+    write_shell_cfg '["cmake","-E","echo","rebuilt"]'
+    daemon_lw build Dev > "$out" 2>&1; rc=$?
+    if [ $rc -eq 0 ] && grep -q "rebuilt" "$out" && grep -q "BUILD OK: Dev" "$out"; then
+        ok "daemon: the next build runs"
+    else note_fail "daemon: build after cancellation" $rc; fi
+
+    local dpid; dpid=$(lock_pid "$(slot_lock "$sh")")
+    daemon_lw daemon stop > "$out" 2>&1 || note_fail "daemon: stop" $?
+    sleep 1
+    if [ -n "$dpid" ] && { if is_windows_host; then tasklist //FI "PID eq $dpid" 2>/dev/null | grep -q " $dpid "; \
+        else kill -0 "$dpid" 2>/dev/null; fi; }; then
+        bad "daemon: the daemon (pid $dpid) is still running"; kill_tree "$dpid"
+    else ok "daemon: no daemon left running"; fi
+    if sleeper_alive; then bad "daemon: a build step survived"; fi
+}
+
+# lw cleanup and the startup housekeeping pass (spec §16.40): leftovers of
+# interrupted runs in the per-user data directory are listed by a dry run,
+# removed by the next lw runs (several at once), and near misses and recent
+# items are kept. Toolchain-independent.
+test_cleanup() {
+    say "lw cleanup + housekeeping (spec 16.40)"
+    local out="$TMP/out.txt" d="$TMP/hkdata" t="$TMP/hktmp" dn tn rc i pids=""
+    mkdir -p "$d/modules" "$d/.stage-0.1.40/x" "$t"
+    : > "$d/trust.key"   # an lw data directory (marker)
+    if command -v cygpath >/dev/null 2>&1; then dn="$(cygpath -m "$d")"; tn="$(cygpath -m "$t")"
+    else dn="$d"; tn="$t"; fi
+    : > "$d/.dl-0.1.40.zip"; : > "$d/modules/.dl-ohos.zip"; : > "$d/.dl-0.1.40.zip.keep"
+    touch -t 200101010000 "$d/.dl-0.1.40.zip" "$d/.stage-0.1.40" "$d/modules/.dl-ohos.zip" "$d/.dl-0.1.40.zip.keep"
+    : > "$d/.dl-0.1.41.zip"
+    (cd "$TMP" && LOOMWORKS_DATA_DIR="$dn" run_lw cleanup --dry-run) > "$out" 2>&1; rc=$?
+    if [ $rc -eq 0 ] && grep -q "dry run" "$out" && grep -q "\.dl-0\.1\.40\.zip " "$out" \
+        && grep -q "\.stage-0\.1\.40" "$out" && ! grep -q "0\.1\.41" "$out" && ! grep -q "\.keep" "$out"; then
+        ok "cleanup --dry-run lists the aged leftovers only"
+    else note_fail "cleanup --dry-run" "$rc"; fi
+    sed 's/^/  | /' "$out"
+    [ -e "$d/.dl-0.1.40.zip" ] && ok "a dry run removes nothing" || bad "a dry run removed something"
+    # Four lw processes at once: each may claim the pass; all succeed.
+    for i in 1 2 3 4; do
+        ( cd "$TMP" && LOOMWORKS_NO_HOUSEKEEPING= TMP="$tn" TEMP="$tn" TMPDIR="$tn" XDG_RUNTIME_DIR="$tn" \
+            LOOMWORKS_DATA_DIR="$dn" run_lw status >/dev/null 2>&1; echo $? > "$TMP/hk.$i" ) &
+        pids="$pids $!"
+    done
+    wait $pids
+    for i in 1 2 3 4; do
+        [ "$(cat "$TMP/hk.$i")" = "0" ] || bad "lw status $i exited $(cat "$TMP/hk.$i") during housekeeping"
+    done
+    if [ ! -e "$d/.dl-0.1.40.zip" ] && [ ! -e "$d/.stage-0.1.40" ] && [ ! -e "$d/modules/.dl-ohos.zip" ]; then
+        ok "concurrent lw runs removed the leftovers"
+    else bad "leftovers remain after the startup pass: $(ls -A "$d" "$d/modules" | tr '\n' ' ')"; fi
+    [ -e "$d/.dl-0.1.41.zip" ] && [ -e "$d/.dl-0.1.40.zip.keep" ] && [ -f "$d/.housekeeping" ] \
+        && ok "recent items and near misses kept; stamp written" || bad "recent / near-miss item removed or no stamp"
+    (cd "$TMP" && LOOMWORKS_DATA_DIR="$dn" run_lw cleanup) > "$out" 2>&1; rc=$?
+    [ $rc -eq 0 ] && grep -q "nothing to clean up" "$out" && ok "then: nothing to clean up" || note_fail "cleanup after pass" "$rc"
+    (cd "$TMP" && LOOMWORKS_DATA_DIR="$dn" run_lw cleanup --yes --dry-run) > "$out" 2>&1; rc=$?
+    [ $rc -eq 2 ] && ok "--yes with --dry-run is a usage error" || note_fail "cleanup --yes --dry-run" "$rc"
+}
+
+# A build step that a signal kills (OOM killer, `kill -9` on the build tool)
+# fails the build with 128 + signal, names the signal, and is never recorded
+# as built — in-process and routed through the daemon (spec §16.7, §19.15).
+# POSIX only: libuv reports such a process as exit code 0 + the signal, which
+# used to read as success. (Windows has no such signals.)
+test_signal_exit() {
+    is_windows_host && return 0
+    say "a build step killed by a signal fails the build"
+    local ws="$TMP/signal-exit" out="$TMP/out.txt" rc
+    mkdir -p "$ws/App"
+    cd "$ws" || { bad "signal: cd"; return; }
+    local sig code name
+    for sig in KILL TERM; do
+        case $sig in KILL) code=137; name="signal 9 (SIGKILL)" ;; TERM) code=143; name="signal 15 (SIGTERM)" ;; esac
+        cat > "$ws/loomworks.json" <<JSON
+{"projects":{"App":{"path":"App","shell":{
+  "build_dir":"\${workspace_root}/out/b",
+  "configure_cmd":["sh","-c","exit 0"],
+  "build_cmd":["sh","-c","kill -$sig \$\$"],
+  "configurations":{"Debug":{}}}}},
+ "configuration_sets":{"Dev":{"App":"Debug"}}}
+JSON
+        rm -rf "$ws/.nvim"
+        run_lw profile create Dev > "$out" 2>&1 || { note_fail "signal: profile create" $?; return; }
+        local how
+        for how in in-process daemon; do
+            if [ "$how" = daemon ]; then daemon_lw build Dev > "$out" 2>&1; rc=$?
+            else run_lw --no-daemon build Dev > "$out" 2>&1; rc=$?; fi
+            if [ $rc -eq $code ] && grep -qF "lw: build failed (killed by $name): App" "$out" \
+                && ! grep -q "BUILD OK" "$out"; then
+                ok "signal: SIG$sig fails the build $how (exit $rc, signal named)"
+            else note_fail "signal: SIG$sig build $how (exit $rc, want $code)" $rc; fi
+            if grep -q '"built"' "$ws/.nvim/loomworks.cache.json" 2>/dev/null; then
+                bad "signal: SIG$sig build $how recorded as built"
+            else ok "signal: SIG$sig build $how not recorded as built"; fi
+        done
+        daemon_lw daemon stop > /dev/null 2>&1
+    done
+}
+
+# Drive one module's project through the full CLI flow.
+#   $1 = label (for messages)   $2 = module (meson|cmake)
+#   $3 = workspace dir with app/ inside   $4 = marker to grep in `lw run` output
+run_case() {
+    local label="$1" mod="$2" ws="$3" marker="$4" out="$TMP/out.txt" rc
+    say "$label project"
+    cd "$ws" || { bad "$label: cd"; return; }
+
+    run_lw init > "$out" 2>&1 || { note_fail "$label init" $?; return; }
+
+    # Workspace name: rename, then read it back (name doesn't affect the build).
+    run_lw workspace rename "e2e-$mod" > "$out" 2>&1 || { note_fail "$label workspace rename" $?; return; }
+    run_lw workspace > "$out" 2>&1
+    grep -q "e2e-$mod" "$out" || { note_fail "$label workspace name not set" 0; return; }
+
+    run_lw project add ./app "$mod" > "$out" 2>&1 || { note_fail "$label project add" $?; return; }
+
+    # Rename round-trip: app -> app2 -> app, asserting the new key lists and the
+    # old one restores, so downstream `app=...` mappings are undisturbed.
+    run_lw project rename app app2 > "$out" 2>&1 || { note_fail "$label project rename" $?; return; }
+    run_lw project list > "$out" 2>&1
+    grep -q "app2" "$out" || { note_fail "$label rename (app2 not listed)" 0; return; }
+    run_lw project rename app2 app > "$out" 2>&1 || { note_fail "$label rename back" $?; return; }
+
+    local tool
+    tool=$(pick_tool)
+    if [ -z "$tool" ]; then
+        run_lw tools > "$out" 2>&1 # capture what was (not) detected
+        note_fail "$label: no toolchain detected" 0
+        return
+    fi
+    ok "$label toolchain: $tool"
+
+    # Layered configurations: an abstract mixin (no fields at all) must
+    # persist, and a child must be able to inherit it. Both halves used to be
+    # dropped silently, which made inheritance chains unusable from the CLI.
+    run_lw config add app mixin-base > "$out" 2>&1 \
+        || { note_fail "$label config add (mixin)" $?; return; }
+    run_lw config set app mixin-base options.LW_E2E_LAYER ON > "$out" 2>&1 \
+        || { note_fail "$label config set on mixin" $?; return; }
+    run_lw config list app > "$out" 2>&1
+    grep -q "mixin-base" "$out" \
+        || { note_fail "$label mixin-base did not persist" 0; return; }
+
+    # The variant is not settable: a config becomes concrete by inheriting a
+    # base that provides one, so the build type has a single declared source.
+    if run_lw config set app mixin-base variant Debug > "$out" 2>&1; then
+        note_fail "$label accepted a directly-set variant" 0; return
+    fi
+
+    # Inheriting a base is the supported route, and the derived variant must
+    # NOT be written back as if declared here — persisting it would freeze a
+    # copy of the base's value.
+    run_lw config add app inherited variant:Debug > "$out" 2>&1 \
+        || { note_fail "$label config add with a base" $?; return; }
+    if grep -q '"variant"' .nvim/loomworks.user.json; then
+        note_fail "$label persisted a derived variant as if declared" 0; return
+    fi
+
+    # Several bases form a mixin chain, merged left to right. Accepted as
+    # separate arguments or as one comma-separated list.
+    run_lw config add app chained variant:Debug mixin-base > "$out" 2>&1 \
+        || { note_fail "$label config add with two bases" $?; return; }
+    run_lw config get app chained inherits > "$out" 2>&1
+    grep -q "mixin-base" "$out" \
+        || { note_fail "$label second base was dropped" 0; return; }
+    run_lw config add app chained2 "variant:Debug,mixin-base" > "$out" 2>&1 \
+        || { note_fail "$label config add with CSV bases" $?; return; }
+
+    run_lw configset create Debug app=variant:Debug > "$out" 2>&1 \
+        || { note_fail "$label configset create" $?; return; }
+    run_lw profile create Debug "$tool" > "$out" 2>&1 \
+        || { note_fail "$label profile create" $?; return; }
+    local prof="Debug:$tool"
+    grep -q "\[local\]" "$out" || { note_fail "$label profile not created local" 0; return; }
+
+    # A profile pins toolchains resolved on THIS machine, so it is created
+    # `local` and `lw publish` must leave it out of the shared loomworks.json —
+    # while the configuration set, the portable unit, goes in (spec §2.4).
+    run_lw publish > "$out" 2>&1 || { note_fail "$label publish" $?; return; }
+    if grep -qF "$prof" loomworks.json; then
+        note_fail "$label publish leaked machine-specific profile '$prof'" 0; return
+    fi
+    grep -q '"Debug"' loomworks.json \
+        || { note_fail "$label publish omitted the configuration set" 0; return; }
+
+    run_lw build "$prof" > "$out" 2>&1; rc=$?
+    if grep -q "BUILD OK" "$out"; then ok "$label build"; else note_fail "$label build" "$rc"; return; fi
+    # Introspection (§16.18): query the build dir and assert it's a real path.
+    # Also confirms the deterministic selector resolves the profile.
+    local qbd; qbd=$(run_lw profile query "$prof" app build-dir 2>"$out")
+    if [ -n "$qbd" ] && [ -d "$qbd" ]; then ok "$label query build-dir"
+    else cp "$out" "$TMP/out.txt"; note_fail "$label query build-dir ('$qbd' not a dir)" 0; fi
+    run_lw run "$prof" app > "$out" 2>&1; rc=$?
+    if grep -q "$marker" "$out"; then ok "$label run"; else note_fail "$label run" "$rc"; fi
+    # Exercise JUnit output (§16.16): ctest writes it directly, meson's fixed
+    # testlog is copied to the requested path — assert real <testcase> entries.
+    local junit="$TMP/junit-$label.xml"
+    run_lw test "$prof" --junit "$junit" > "$out" 2>&1; rc=$?
+    if grep -q "TESTS OK" "$out"; then ok "$label test"; else note_fail "$label test" "$rc"; fi
+    if grep -q "<testcase" "$junit" 2>/dev/null; then ok "$label junit"
+    else cp "$out" "$TMP/out.txt"; note_fail "$label junit (no <testcase> in $junit)" 0; fi
+    run_lw clean "$prof" > "$out" 2>&1; rc=$?
+    if grep -q "CLEAN OK" "$out"; then ok "$label clean"; else note_fail "$label clean" "$rc"; fi
+}
+
+# A shared library's exported symbol. Exported on Windows via __declspec;
+# default-visible everywhere else. Guarded so the same source builds under
+# MSVC, mingw-gcc, gcc and clang.
+greet_lib_source() {
+    cat <<'CPP'
+#ifdef _WIN32
+#  define GREET_API __declspec(dllexport)
+#else
+#  define GREET_API
+#endif
+extern "C" GREET_API const char *greet() { return "LINKED-OK"; }
+CPP
+}
+
+# main.cpp for a multi-lib app: calls into the shared library in ../lib.
+# Prints LINKED-OK only if the .dll/.so was found and loaded at runtime,
+# which on Windows depends on `lw run` putting the lib dir on PATH.
+multilib_main_source() {
+    cat <<'CPP'
+#include <cstdio>
+#ifdef _WIN32
+#  define GREET_API __declspec(dllimport)
+#else
+#  define GREET_API
+#endif
+extern "C" GREET_API const char *greet();
+int main() { printf("greeting=%s\n", greet()); return 0; }
+CPP
+}
+
+# E2E_ONLY=<function> runs just that toolchain-independent section (local
+# iteration, e.g. E2E_ONLY=test_lock_recovery).
+if [ -n "${E2E_ONLY:-}" ]; then
+    "$E2E_ONLY"
+    printf '\n=== summary: %d passed, %d failed ===\n' "$PASS" "$FAIL"
+    [ "$FAIL" -eq 0 ]; exit
+fi
+
+# --- meson project (single executable) -------------------------------------
+mkdir -p "$TMP/meson/app"
+cat > "$TMP/meson/app/meson.build" <<'MB'
+project('app', 'cpp')
+exe = executable('app', 'main.cpp')
+test('t', exe)
+MB
+cat > "$TMP/meson/app/main.cpp" <<'CPP'
+#include <cstdio>
+int main() { printf("APP-RAN-meson\n"); return 0; }
+CPP
+run_case meson meson "$TMP/meson" "APP-RAN-meson"
+
+# --- cmake project (single executable) -------------------------------------
+mkdir -p "$TMP/cmake/app"
+cat > "$TMP/cmake/app/CMakeLists.txt" <<'CM'
+cmake_minimum_required(VERSION 3.16)
+project(app CXX)
+enable_testing()
+add_executable(app main.cpp)
+add_test(NAME t COMMAND app)
+CM
+cat > "$TMP/cmake/app/main.cpp" <<'CPP'
+#include <cstdio>
+int main() { printf("APP-RAN-cmake\n"); return 0; }
+CPP
+run_case cmake cmake "$TMP/cmake" "APP-RAN-cmake"
+
+# --- meson multi-lib (shared library in a subfolder) -----------------------
+# The exe links a shared library built under app/lib/, so its .dll/.so lands
+# in a build subdir, NOT next to the exe. Exercises the run-environment:
+# Windows needs the lib dir on PATH (`lw run`); POSIX relies on rpath.
+mkdir -p "$TMP/meson-ml/app/lib"
+cat > "$TMP/meson-ml/app/meson.build" <<'MB'
+project('app', 'cpp')
+subdir('lib')
+exe = executable('app', 'main.cpp', link_with: greetlib)
+test('t', exe)
+MB
+cat > "$TMP/meson-ml/app/lib/meson.build" <<'MB'
+greetlib = shared_library('greet', 'greet.cpp')
+MB
+greet_lib_source   > "$TMP/meson-ml/app/lib/greet.cpp"
+multilib_main_source > "$TMP/meson-ml/app/main.cpp"
+run_case meson-multilib meson "$TMP/meson-ml" "LINKED-OK"
+
+# --- cmake multi-lib (shared library in a subfolder) -----------------------
+mkdir -p "$TMP/cmake-ml/app/lib"
+cat > "$TMP/cmake-ml/app/CMakeLists.txt" <<'CM'
+cmake_minimum_required(VERSION 3.16)
+project(app CXX)
+enable_testing()
+add_subdirectory(lib)
+add_executable(app main.cpp)
+target_link_libraries(app PRIVATE greet)
+add_test(NAME t COMMAND app)
+CM
+cat > "$TMP/cmake-ml/app/lib/CMakeLists.txt" <<'CM'
+add_library(greet SHARED greet.cpp)
+CM
+greet_lib_source   > "$TMP/cmake-ml/app/lib/greet.cpp"
+multilib_main_source > "$TMP/cmake-ml/app/main.cpp"
+run_case cmake-multilib cmake "$TMP/cmake-ml" "LINKED-OK"
+
+# Toolchain-independent root-discovery regression.
+test_worktree_boundary
+
+# Toolchain-independent module-acquisition command surface.
+test_module_commands
+
+# Toolchain-independent lock recovery (spec §19.5).
+test_lock_recovery
+
+# lw build through the workspace daemon (spec §19.15).
+test_daemon_build
+
+# A build step killed by a signal fails the build (spec §16.7; POSIX).
+test_signal_exit
+
+# lw cleanup + the startup housekeeping pass (spec §16.40).
+test_cleanup
+
+printf '\n=== summary: %d passed, %d failed ===\n' "$PASS" "$FAIL"
+[ "$FAIL" -eq 0 ]
