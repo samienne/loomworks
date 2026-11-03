@@ -51,6 +51,54 @@ describe("FileTracker", function()
             -- Should only seed once
             assert.equals(1, read_count)
         end)
+
+        describe("with a seed", function()
+            local disk, delivered, signals, tracker
+            before_each(function()
+                disk, delivered, signals = {}, {}, 0
+                tracker = FileTracker.new({
+                    callback = function(path, content) delivered[#delivered + 1] = { path, content } end,
+                    read_file = function(path) return disk[path] end,
+                    schedule = function(fn) fn() end,
+                    manual = true,
+                    signal = function() signals = signals + 1 end,
+                })
+            end)
+            after_each(function() tracker:stop() end)
+
+            it("keeps the seed as the last known content and delivers the file's change", function()
+                disk["/a"] = "new"
+                tracker:watch("/a", { seed = "old" })
+                assert.equals("old", tracker:content("/a"))
+                assert.equals(1, signals)
+                tracker:sync()
+                assert.same({ { "/a", "new" } }, delivered)
+            end)
+
+            it("false: a file missing when seeded is delivered once it exists", function()
+                disk["/a"] = "new"
+                tracker:watch("/a", { seed = false })
+                assert.is_nil(tracker:content("/a"))
+                tracker:sync()
+                assert.same({ { "/a", "new" } }, delivered)
+            end)
+
+            it("equal to the file: nothing to deliver", function()
+                disk["/a"] = "same"
+                tracker:watch("/a", { seed = "same" })
+                assert.equals(0, signals)
+                tracker:sync()
+                assert.same({}, delivered)
+            end)
+
+            it("passive: no signal, the change waits for sync", function()
+                disk["/a"] = "new"
+                tracker:watch("/a", { seed = "old", passive = true })
+                assert.equals(0, signals)
+                tracker:sync()
+                assert.same({ { "/a", "new" } }, delivered)
+            end)
+        end)
     end)
 
     describe("unwatch", function()

@@ -9700,7 +9700,10 @@ end
 
 --- Start watching workspace files for external changes.
 --- @param paths { config: string, user: string, cache: string }
-function Workspace:_start_tracking(paths)
+--- @param seed? table<string, string> per path, the content the model was
+---   built from (a path absent: the file was missing); without it each file's
+---   current content
+function Workspace:_start_tracking(paths, seed)
     if self._tracker then
         self._tracker:stop()
     end
@@ -9722,11 +9725,17 @@ function Workspace:_start_tracking(paths)
         hold = manual and function(path, content) return self:_hold_file_change(path, content) end or nil,
         saves = manual or nil,
     })
-    self._tracker:watch(paths.config)
-    self._tracker:watch(paths.user)
+    local function opts(path, o)
+        if not seed then return o end
+        o = o or {}
+        o.seed = seed[path] or false
+        return o
+    end
+    self._tracker:watch(paths.config, opts(paths.config))
+    self._tracker:watch(paths.user, opts(paths.user))
     -- (The daemon watches loomworks.json and the working copy; the cache,
     -- which it writes itself, reaches it at each check)
-    self._tracker:watch(paths.cache, { passive = true })
+    self._tracker:watch(paths.cache, opts(paths.cache, { passive = true }))
 end
 
 --- Stop file tracking.

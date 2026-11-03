@@ -39,6 +39,9 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
 - A workspace load still reading its files when the workspace was closed no
   longer replaces the next workspace loaded, or refuses it with the first
   one's error. (#15)
+- A change to `loomworks.json`, the working copy or the build cache written
+  while a workspace was loading is no longer missed until the file changes
+  again. (#16)
 
 ## 0.1.49 - 2026-10-19
 

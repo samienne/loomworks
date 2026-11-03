@@ -109,27 +109,51 @@ end
 --- Read current content and start polling a file.
 --- If the file doesn't exist, content is stored as nil.
 --- @param path string absolute file path
---- @param opts? { passive?: boolean } `passive`: a manual tracker does not
----   watch it for its `signal` (its changes are delivered by `sync()` only)
+--- @param opts? { passive?: boolean, seed?: string|false } `passive`: a manual
+---   tracker does not watch it for its `signal` (its changes are delivered by
+---   `sync()` only). `seed`: the content the caller already applied (false:
+---   missing), taken as the last known content instead of the current one, so
+---   a write that landed since is delivered as a change.
 function FileTracker:watch(path, opts)
     if self._watches[path] ~= nil then return end
 
-    -- Seed with current content
-    self._content[path] = self:_read(path)
+    local passive = opts and opts.passive
+    local changed = false
+    if opts and opts.seed ~= nil then
+        self._content[path] = opts.seed or nil
+        changed = self:_read(path) ~= self._content[path]
+    else
+        self._content[path] = self:_read(path)
+    end
     self._order[#self._order + 1] = path
-    if self._manual and (not self._signal or (opts and opts.passive)) then
+    if self._manual and (not self._signal or passive) then
         self._watches[path] = false
-        return
+    else
+        local poll = uv.new_fs_poll()
+        if poll then
+            self._watches[path] = poll
+            self:_poll(path, poll)
+        elseif self._manual then
+            self._watches[path] = false
+        end
     end
-
-    local poll = uv.new_fs_poll()
-    if not poll then
-        if self._manual then self._watches[path] = false end
-        return
+    if changed then
+        -- A poll fires only on a later stat change: deliver this one now.
+        self._schedule(function()
+            if self._watches[path] == nil or self._paused then return end
+            if not self._manual then
+                self:sync()
+            elseif self._signal and not passive then
+                self._signal()
+            end
+        end)
     end
+end
 
-    self._watches[path] = poll
-
+--- Start `poll` on a watched path.
+--- @param path string
+--- @param poll uv.uv_fs_poll_t
+function FileTracker:_poll(path, poll)
     poll:start(path, self._interval, function(err, prev, curr)
         -- fs_poll callback runs in the libuv thread; schedule to main thread
         -- A change to one file delivers every pending change together (two
