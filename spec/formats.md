@@ -123,7 +123,9 @@ deterministic sorted encoding of §1.2 — avoids any canonicalization ambiguity
 the fixed first-line position cannot be confused with a nested member of the
 same name. The workspace root is deliberately **not** bound: moving or renaming
 the workspace directory, or seeding a git worktree from the main checkout on the
-same machine, keeps the files valid. Both hosts produce identical
+same machine, keeps the files valid. A working copy or build cache copied from
+one workspace into another on the same machine is therefore valid there; one
+copied from another machine reads as `invalid`. Both hosts produce identical
 signatures for identical content. Readers remove the member before decoding, so
 it never appears in loaded data; older loomworks versions read a signed file as
 ordinary JSON.
@@ -133,7 +135,8 @@ with each is implemented in `lua/loomworks/trust.lua`.
 
 ## 3. `loomworks.json`
 
-The published snapshot.
+The published snapshot. Its program-bearing fields are ignored when it is read
+and kept unchanged when it is published.
 
 ### 3.1 Paths
 
@@ -233,6 +236,11 @@ Configuration overrides may include:
 
 ### 3.3 Descriptions
 
+A description is free display text that is never interpreted: its first line
+is the summary and the lines after the separating blank lines are the body,
+as in a git commit message. It belongs to its item and is written under the
+item's current name, so it follows the item through a rename.
+
 **Location in the files.** The same locations apply in loomworks.json and in
 user.json:
 
@@ -276,7 +284,12 @@ The same members appear in the working copy (§4).
 
 ## 4. `.nvim/loomworks.user.json`
 
-The working copy. It carries `_meta` (§1.3)
+The working copy. It is the workspace's live state, rewritten after every
+change, and using or changing an item that exists only in `loomworks.json`
+first copies that item into it. A writer saves it only while holding its
+file-save lock (§6.2) and only if the file is unchanged since the writer last
+read or wrote it; otherwise the change is discarded and the file reloaded. It
+carries `_meta` (§1.3)
 and is signed with the `kind` `user` (§2.2). It shares the project,
 configuration-set, profile and description shapes of `loomworks.json` (§3).
 
@@ -315,8 +328,14 @@ for **blank** project variables, keyed profile → project → variable:
     }
 }
 ```
+The field is never published to `loomworks.json`. A fill value applies only to
+a variable that is still blank after the configuration chain and never
+shadows a value set there.
 
-The optional `name` field overrides the workspace display name.
+The optional `name` field overrides the workspace display name. Without it,
+the name is `loomworks.json`'s `name`, else the workspace directory's basename.
+A writer stores it only when it differs from that basename, and a publish
+writes the effective name to `loomworks.json`.
 
 The `intent` field stores explicit per-item intent overrides.
 
@@ -402,6 +421,11 @@ The runtime lock's record is the common lock record of
 §6.1 plus the mode (`daemon` or `attached`), for an attached run the command,
 and the host version.
 
+A build directory's lockfile is named after the directory's resolved identity:
+its real path, or, for a directory that does not exist yet, the real path of
+its nearest existing ancestor followed by the rest of the path. Every spelling
+of one directory therefore takes the same lockfile.
+
 Versions of `lw` before this identity rule derived the lockfile from the path
 as spelled. With an aliased workspace root (a symlink or junction, or macOS
 `/tmp` → `/private/tmp`), such an older pinned `lw` and a current one take
@@ -420,6 +444,11 @@ cache.
 **Validation.** A journal is data from disk: it is honoured only when every
 entry names one of the three workspace files in `.nvim/` and the staged files
 match `<file>.txn-<hex id>` beside them; anything else refuses the workspace.
+A `replace` entry is completed only when its staged file hashes to
+`sha256_new` and the target holds `sha256_old` or is absent, and a `remove`
+only when the target holds `sha256_old`; an entry already in its new state is
+done. If any entry fits none of these, nothing is changed and the journal is
+refused.
 
 ## 8. Daemon handle `.nvim/loomworks.daemon-<S>.json`
 
