@@ -21,11 +21,9 @@ interface versions that have a document are specified here; the server's
 roadmap of further interfaces is not part of the contract.
 
 **Section numbers.** `§n` is a section of this document. `spec §n` is a
-section of the loomworks behavioural specification
-([specification.md](../../specification.md) and its topic files under
-[`spec/core/`](../core/)), which defines the workspace model, its files and
-the CLI's commands the operations below perform. `PROTOCOL.md §n` is a
-section of the protocol.
+section of the loomworks behavioural specification, which defines the
+workspace model, its files and the CLI's commands the operations below
+perform. `PROTOCOL.md §n` is a section of the protocol.
 
 **The CLI's behaviour.** Many operations below are the CLI's commands run by
 a server. Where this document says an operation prints, refuses or fails *as

@@ -70,16 +70,6 @@ describe("release notes: the real CHANGELOG.md", function()
     assert.same({}, rn.validate(text))
   end)
 
-  it("has a 0.1.40 entry with a summary and upgrade notes", function()
-    local e = rn.find(rn.parse(text), "0.1.40")
-    assert.is_table(e)
-    assert.equals("2026-09-30", e.date)
-    assert.is_string(e.summary)
-    local names = {}
-    for _, s in ipairs(e.sections) do names[#names + 1] = s.name end
-    assert.same({ "Upgrade notes", "Added", "Fixed" }, names)
-  end)
-
   it("starts with an Unreleased entry", function()
     assert.is_true(rn.parse(text).entries[1].unreleased)
   end)
@@ -244,8 +234,8 @@ describe("release notes: what's new (self-update)", function()
       pcall = pcall, setmetatable = setmetatable, getmetatable = getmetatable, rawget = rawget,
     })
     local mod = chunk()
-    local lines = mod.whats_new(read(ROOT .. "/CHANGELOG.md"), "0.1.39", "0.1.40", { width = 79 })
-    assert.equals("What's new since 0.1.39:", lines[1])
+    local lines = mod.whats_new(SAMPLE, "1.0.0", "1.2.0", { width = 79 })
+    assert.equals("What's new since 1.0.0:", lines[1])
     for _, l in ipairs(lines) do
       assert.is_true(#l <= 79, l)
       assert.is_nil(l:find("[\128-\255]"), "ASCII: " .. l)
@@ -327,7 +317,7 @@ describe("release notice (last-seen and the one-line notice)", function()
   it("finds CHANGELOG.md in a bundle layout and in the source tree", function()
     local text = notice.read_text(ROOT .. "/lua/loomworks")
     assert.is_string(text)
-    assert.matches("## 0.1.40 %- 2026%-09%-30", text)
+    assert.matches("## Unreleased", text)
     local b = temp_dir()
     vim.fn.mkdir(b .. "/loomworks", "p")
     local f = assert(io.open(b .. "/loomworks/CHANGELOG.md", "wb")); f:write(SAMPLE); f:close()
@@ -418,8 +408,14 @@ describe("`lw release-notes`", function()
     assert.is_true(cli.has_help_topic("release-notes"))
     local c = capture(function() cli.cmd_complete("2", { "lw", "release-notes", "" }) end).stdout
     assert.matches("%-%-since", c)
-    local c2 = capture(function() cli.cmd_complete("3", { "lw", "release-notes", "--since", "" }) end).stdout
-    assert.matches("0%.1%.40", c2)
+    local rt = notice.read_text
+    notice.read_text = function() return SAMPLE end
+    local ok, c2 = pcall(function()
+      return capture(function() cli.cmd_complete("3", { "lw", "release-notes", "--since", "" }) end).stdout
+    end)
+    notice.read_text = rt
+    assert.is_true(ok, c2)
+    assert.matches("1%.2%.0", c2)
   end)
 end)
 

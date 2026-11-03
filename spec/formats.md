@@ -18,11 +18,10 @@ recovery — is the loomworks behavioural specification's; each section below
 points to the sections that define it.
 
 **Section numbers.** `§n` is a section of this document. `spec §n` is a
-section of the loomworks behavioural specification
-([specification.md](../specification.md) and its topic files under
-[`spec/core/`](core/)). Text marked as moved comes from those sections,
-which keep a pointer under the same heading or label; it stays normative as
-written, including the parts of it that state meaning.
+section of the loomworks behavioural specification. Text marked as moved
+comes from those sections, which keep a pointer under the same heading or
+label; it stays normative as written, including the parts of it that state
+meaning.
 
 **Not covered.** The following are private to the implementation that writes
 them, and a reader may discard them: the launcher scripts (`lw.sh`,
@@ -288,11 +287,11 @@ The same members appear in the working copy (§4).
 | The reserved `cache` variable | spec §1.3.2 |
 | `env` (in a configuration and in a compiler-family `overrides` block) | spec §1.3.3 |
 | `projects.<key>.<type>.tests`, `projects.<key>.<type>.configurations.<name>.tests` | spec §1.3.4 |
-| Configuration inheritance (`inherits`) and module options | spec §1.3, the module's file under [`spec/modules/`](modules/) |
+| Configuration inheritance (`inherits`) and module options | spec §1.3, the module's source under `lua/loomworks/modules/` |
 | `projects.<key>.launch.<name>` (launch configurations, `deploy`) | spec §8.7 |
 | `projects.<key>.<type>.device` | spec §18.9 |
 | `profiles.<key>.default_target` (`{ project, target, working_dir? }`) and the working copy's `default_target` map keyed by profile key (§4) | spec §8.6 "Default target storage" |
-| The rest of `projects.<key>.<type>` (the module's `type_config`) | the module's file under [`spec/modules/`](modules/) |
+| The rest of `projects.<key>.<type>` (the module's `type_config`) | the module's source under `lua/loomworks/modules/` |
 
 ## 4. `.nvim/loomworks.user.json`
 
