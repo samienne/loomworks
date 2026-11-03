@@ -22,8 +22,16 @@ local function write(path, content)
 end
 
 describe("a superseded workspace load", function()
+    local core, read_files_async
+
+    before_each(function()
+        core = require("loomworks.app").core()
+        read_files_async = rawget(core._deps, "read_files_async")
+    end)
+
     after_each(function()
-        require("loomworks.app").core():shutdown()
+        rawset(core._deps, "read_files_async", read_files_async)
+        core:shutdown()
         trust._set_key_path(nil)
     end)
 
@@ -35,18 +43,35 @@ describe("a superseded workspace load", function()
             files_changed = function() end }
         local ws_a = assert(cli._load_workspace_soft(root_a, false, { handlers = handlers }))
 
-        -- A's working copy no longer verifies: the tracker reloads A, whose
-        -- read is still in flight when the core shuts down and B loads.
+        -- The next read (A's reload) is held back until B is loaded.
+        local read_files = core._deps.read_files_async
+        local held
+        core._deps.read_files_async = function(paths, callback)
+            if held then return read_files(paths, callback) end
+            held = { paths = paths, callback = callback }
+        end
+
+        -- A's working copy no longer verifies: the tracker reloads A.
         local text = read(root_a .. USER)
         write(root_a .. USER, (text:gsub('"_sig": "%x+"', '"_sig": "' .. string.rep("0", 64) .. '"', 1)))
         ws_a._tracker:sync()
-        local core = require("loomworks.app").core()
+        assert.is_not_nil(held, "the tracker did not reload A")
         core:shutdown()
 
         local ws_b, _, fail = cli._load_workspace_soft(root_b, false, { handlers = handlers })
         assert.is_not_nil(ws_b, "load of B refused: " .. vim.inspect(fail and fail.trust and fail.trust.path))
-        assert.equals(root_b, ws_b.root)
-        vim.wait(500)
+
+        -- Complete A's read, then run what it scheduled.
+        local delivered = false
+        read_files(held.paths, function(results)
+            held.callback(results)
+            delivered = true
+        end)
+        assert.is_true(vim.wait(10000, function() return delivered end, 10), "A's read never completed")
+        local flushed = false
+        vim.schedule(function() flushed = true end)
+        assert.is_true(vim.wait(10000, function() return flushed end, 10))
+
         assert.equals(ws_b, core:get_workspace())
         assert.is_nil(core._setup_error)
     end)
