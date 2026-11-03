@@ -4369,7 +4369,16 @@ do
   paths.mkdirp(bdir .. "/loomworks")
   local function put(p, s) local f = assert(io.open(p, "wb")); f:write(s); f:close() end
   local function copy(from, to) put(to, readfile(from)) end
-  copy(root .. "/CHANGELOG.md", bdir .. "/loomworks/CHANGELOG.md")
+  -- A changelog with the two releases the report spans (the repository's own
+  -- CHANGELOG.md has no 0.1.x history).
+  put(bdir .. "/loomworks/CHANGELOG.md", table.concat({
+    "# Changelog", "", "## Unreleased", "",
+    "## 0.1.40 - 2026-09-30", "", "The second release.", "",
+    "### Upgrade notes", "- Re-run `lw bootstrap install`. (#2)", "",
+    "### Added", "- A new command. (#2)", "",
+    "## 0.1.39 - 2026-09-29", "", "The first release.", "",
+    "### Added", "- Everything. (#1)", "",
+  }, "\n"))
   copy(root .. "/lua/loomworks/release_notes.lua", bdir .. "/loomworks/release_notes.lua")
 
   local lines = wn.report({ bundle_dir = bdir, from = "0.1.39", to = "0.1.40", interactive = true, width = 79 })
