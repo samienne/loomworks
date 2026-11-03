@@ -402,6 +402,11 @@ The runtime lock's record is the common lock record of
 §6.1 plus the mode (`daemon` or `attached`), for an attached run the command,
 and the host version.
 
+Versions of `lw` before this identity rule derived the lockfile from the path
+as spelled. With an aliased workspace root (a symlink or junction, or macOS
+`/tmp` → `/private/tmp`), such an older pinned `lw` and a current one take
+different lockfiles and do not exclude each other.
+
 ## 7. Commit journal `.nvim/loomworks.txn.json`
 
 The commit and recovery procedure, and what happens to a journal that cannot
