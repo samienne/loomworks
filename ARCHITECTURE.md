@@ -1,0 +1,4232 @@
+# loomworks.nvim Architecture
+
+This document describes *how* the system is built — layers, component
+responsibilities, dependency rules, and file organization. For *what* the
+system does (data model, state machines, UI behavior, invariants), see
+[specification.md](specification.md).
+
+---
+
+## System Diagram
+
+```
+                      plugin/loomworks.lua
+                  :LoomworksInit  :LoomworksInfo
+                             |
+                       init.lua  ◄── public API facade (singleton Core)
+                             |
+                         core.lua  ◄── infrastructure: I/O, deps, setup,
+                             |         validation, nuke_cache, project_for_buf
+                             |         Thin delegation wrappers → Workspace
+                             |
+                       workspace.lua
+                      Workspace class
+                      Domain container
+                             |
+          +------------------+------------------+------------------+
+          |                  |                  |                  |
+    file_tracker.lua      merge.lua         events.lua       io.lua
+    uv.fs_poll-based      three-file        on/off/emit      read_file
+    watches 3 files       merge into        listener         write_atomic
+    delivers content      ActiveSet         system           rm_rf
+                             |
+                     +-------+------+
+                     |       |      |
+                  config   user   cache
+                  .lua     .lua   .lua
+                  parse    parse  parse
+                  valid    save   save
+                           load   load
+          |
+    ======|================================================
+          |           Disk (workspace root)
+          |
+      loomworks.json
+      .nvim/loomworks.user.json
+      .nvim/loomworks.cache.json
+      .nvim/loomworks.health.json
+      .nvim/build/...
+
+                       workspace.lua (Workspace)
+                             |
+     +-------+----+----------+----------+-----------+
+     |       |    |                     |           |
+ tool.lua  cfg   configuration  config_unit.lua   profile.lua   project.lua
+  Tool    _set    .lua          Runtime state     Profile +      Project
+  domain  .lua    Configuration per (proj,cfg)    ProfileProject  + Config[]
+  object  ConfigSet domain obj  synced + lazy     objects         objects
+          |
+          +-- progress/init.lua + ninja.lua
+              Parser registry for build output
+
+                    init.lua / core.lua
+                             |
+          +------------------+------------------+
+          |                  |                  |
+    overseer.lua         lsp.lua           fidget.lua
+    Template provider    clangd cmd/root   fidget.nvim
+    + task launching     factories +       progress
+                         auto-restart      notifications
+
+    ui/status.lua  ◄── wires View + Tree + sections
+          |
+    ui/view.lua    ◄── window lifecycle, keybindings, refresh
+    ui/tree.lua    ◄── foldable tree widget, rendering
+    ui/actions.lua ◄── action factories (closures capturing context)
+    ui/helpers.lua ◄── shared formatting (progress, elapsed, status)
+          |
+    ui/sections/   ◄── pure rendering functions, one per section
+      diagnostics.lua
+      tasks.lua
+      profiles.lua
+      orphaned.lua
+      config_sets.lua
+      projects.lua
+
+    lua/overseer/component/loomworks/task_tracker.lua
+        ◄── overseer component bridging task lifecycle to ConfigUnit
+
+    lua/lualine/components/loomworks.lua
+        ◄── winbar component showing active profile/project/config
+```
+
+---
+
+## Design Principles
+
+These principles guide all development decisions. When in doubt, choose the
+simpler option.
+
+1. **Simplicity over abstraction.** Prefer one class with differentiating
+   properties over multiple classes. Example: there is one Profile class —
+   set-based vs pinned profiles differ by `configuration_set` being non-nil
+   or nil, not by type hierarchy. If two concepts have 80% overlap, make
+   them one thing with a flag rather than two separate implementations.
+
+2. **No duplicate functionality.** Before adding a new function, method, or
+   concept, check if an existing one can be extended. Audit for overlap —
+   if two methods do similar things, combine them or make one call the
+   other. This applies at every level: API functions, internal helpers,
+   data model concepts, UI sections.
+
+3. **API over data model.** Consumers (integrations, UI, external plugins)
+   use `require("loomworks")` public API. They never reach into raw
+   workspace, cache, or config data directly. The public API is the
+   contract; internal data shapes can change freely.
+
+4. **Single source of truth.** Each piece of state lives in exactly one
+   place. Runtime state (running, deleting, progress) → ConfigUnit.
+   Persistent build state → cache.json. Working state and intent →
+   user.json (the runtime source of truth, see specification.md §2.2).
+   Published snapshot → loomworks.json (regenerated on `:w`, never read
+   directly at runtime). If you find the same information stored in two
+   places, eliminate one.
+
+5. **Constructor injection for testability.** Core uses `Core.new(deps)`
+   with a default dependency table that tests can selectively override.
+   All external dependencies (I/O, vim APIs, time, scheduling) go through
+   the deps table — never call `vim.fn`, `vim.uv`, or `os.date` directly
+   from core.lua or workspace.lua. Workspace accesses deps via
+   `self._core._deps`. This makes every behavior testable without mocking
+   globals.
+
+   ```lua
+   local DEFAULT_DEPS = {
+     workspace = require("loomworks.workspace"),
+     merge     = require("loomworks.merge"),
+     events    = require("loomworks.events"),
+     user      = require("loomworks.user"),
+     cache     = require("loomworks.cache"),
+     config    = require("loomworks.config"),
+     io        = require("loomworks.io"),
+     modules   = require("loomworks.modules"),
+     FileTracker = require("loomworks.file_tracker"),
+     read_file_async  = require("loomworks.io").read_file_async,
+     read_files_async = require("loomworks.io").read_files_async,
+     detect_tools_async = require("loomworks.merge").detect_tools_async,
+     notify    = vim.notify,
+     now       = function() return os.date("!%Y-%m-%dT%H:%M:%SZ") end,
+     clock     = function() return vim.uv.hrtime() / 1e9 end,
+     normalize = vim.fs.normalize,
+     schedule  = vim.schedule,
+     get_overseer_task = function(task_id) ... end,
+     buf_name  = function(bufnr) ... end,
+   }
+   ```
+
+   Tests override only what they need:
+
+   ```lua
+   local core = Core.new({
+     io = mock_io,
+     modules = mock_modules,
+     notify = function() end,
+     schedule = function(fn) fn() end,
+   })
+   ```
+
+6. **Objects over keys.** In runtime code, pass objects (Profile, Project,
+   ConfigUnit) rather than string keys that require lookup. Objects carry
+   their context — the recipient can query state directly without reaching
+   back into core or the data model. Keys are opaque identifiers — they
+   exist for disk format (cache.json), internal registries, display, and
+   event data, but are never parsed at runtime to extract structure. Read
+   structured data from object fields instead.
+
+7. **Methods over free functions.** If a function takes an object as its
+   first parameter and is clearly about that object, it should be a method
+   on the object rather than a standalone function elsewhere. Example:
+   `profile:status()` not `compute_profile_status(profile)`. This keeps
+   related behavior co-located and discoverable.
+
+8. **Pure where possible.** Functions that don't need state should not have
+   state. merge.lua is pure (data in, data out). The static helpers in
+   workspace.lua (`resolve_root`, `paths`, `assemble`) are pure. Modules
+   are stateless — they receive paths and config, return results. Core is
+   infrastructure-only (I/O, deps, setup). Workspace is the single owner
+   of all mutable domain state.
+
+---
+
+## Layers and Dependency Rules
+
+The codebase has six layers. Dependencies flow **downward only** — a layer
+may import from its own layer or any layer below it, never above.
+
+```
+┌─────────────────────────────────────────────────────┐
+│  Entry Points       plugin/loomworks.lua, init.lua  │
+├─────────────────────────────────────────────────────┤
+│  Integrations       overseer, lsp, fidget, lualine  │
+├─────────────────────────────────────────────────────┤
+│  UI                 status, view, tree, sections,   │
+│                     actions, helpers                 │
+├─────────────────────────────────────────────────────┤
+│  Domain             workspace, profile, project,    │
+│                     config_unit, configuration_set,  │
+│                     operation, merge, cmake_kits     │
+├─────────────────────────────────────────────────────┤
+│  Infrastructure     core, events                     │
+├─────────────────────────────────────────────────────┤
+│  Data / IO          config, user, cache, io,         │
+│                     file_tracker, modules/*,          │
+│                     progress/*, types                 │
+└─────────────────────────────────────────────────────┘
+```
+
+**Key dependency rules:**
+
+1. **init.lua** is a thin facade — it creates one `Core` instance and
+   delegates every public function. No logic lives here.
+2. **core.lua** is infrastructure only — it owns the dependency table,
+   async setup, file validation, nuke_cache, and project_for_buf. It
+   creates a `Workspace` instance during setup and provides thin delegation
+   wrappers so that init.lua callers continue to work via `core:method()`.
+3. **workspace.lua** is the domain container — the `Workspace` class owns
+   all object registries and mutable domain state. All business logic
+   (remerge, sync, persistence, operations, deletion, task tracking, tool
+   scanning, mutation methods) lives here. Domain objects reference
+   Workspace (`_workspace`), not Core.
+4. **merge.lua** is a pure function — takes workspace data in, returns
+   ActiveSet out. No side effects, no I/O, no state.
+5. **UI sections** receive a `(tree, ctx)` pair and call tree methods to
+   render. They never call io.lua, cache.lua, or core.lua directly — all
+   data comes through `ctx` (assembled in status.lua) or `require("loomworks")`
+   for API calls. UI callers that mutate state (project_browser, actions)
+   obtain the Workspace via `lw.get_workspace()` and call workspace methods
+   directly (e.g., `ws:add_project()`, `ws:add_configuration_set()`).
+6. **Modules** (cmake, meson, shell, typescript) know nothing about
+   profiles, UI, or overseer. They implement the module interface (validate,
+   info, tasks, inspect, detect_tools) and operate on project paths and config
+   data.
+7. **Integrations** (overseer, lsp, fidget, lualine) consume the public API
+   via `require("loomworks")` and listen for events. They never import
+   core.lua directly.
+8. **config_unit.lua** is shared across layers — Workspace creates and owns
+   units, but UI and integrations read their state. Units are the single
+   source of truth for runtime state (see specification.md §1.7, §3.1).
+
+---
+
+## Component Responsibilities
+
+### Entry Points
+
+| File | Owns | Must NOT do |
+|------|------|-------------|
+| `plugin/loomworks.lua` | Command registration (`:LoomworksInit`, `:LoomworksInfo`), double-load guard | Contain logic; import core.lua |
+| `init.lua` | Singleton Core instance, public API surface, version string | Hold state beyond the Core ref; contain business logic |
+| `views.lua` | Editor view store: `view.Header/1` and `view.ProjectsIndex/1` tables from the daemon subscription or the in-process builder (in `daemon` mode the builders give `unloaded` / no projects); buffer -> project record lookup (path and roots by spelling or physical identity); `buf_status` derivation | Require binary-side modules; query the workspace itself (builders are registered by init.lua) |
+
+### Infrastructure Layer
+
+| File | Owns | Must NOT do |
+|------|------|-------------|
+| `core.lua` | Dependency table (`_deps`), workspace lifecycle (`_state`, `_setup_error`), async setup (`setup`, `_on_files_read`), project validation (`_validate_projects`), nuke_cache, delete_user_prefs, `_safe_nvim_path`, `project_for_buf`, shutdown. `load()` tears down any prior workspace before replacing; `shutdown()` calls `Workspace:teardown` and drops the ref. Thin delegation wrappers forward to Workspace for init.lua callers | Hold domain registries; contain business logic; do I/O directly; know about UI |
+| `events.lua` | Pub/sub system: `on()`, `off()`, `emit()` | Hold domain state; know about specific event semantics |
+| `reload.lua` | Dev-only `:LoomworksReload` orchestrator. Calls `core:shutdown()` to tear down the active workspace, then asks lazy.nvim to reload loomworks + installed sibling plugins (`loomworks-module-ohos.nvim`). Lazy clears `package.loaded` and re-runs each plugin's `config` callback, which re-calls `setup()` | Workspace business logic; bypass `core:shutdown` |
+
+### Domain Layer
+
+| File | Owns | Must NOT do |
+|------|------|-------------|
+| `workspace.lua` | **Workspace class**: all object registries (`_projects`, `_profiles`, `_config_sets`, `_profile_projects`, `_config_units`, `_operations`, `_tools_by_type`, `_active_set`), tool state (`_tool_state`, `_tool_waiters`), delete waiters, build dir reverse index (`_build_dir_refs`: dir identity (`_build_dir_identity`, `dir_identity.resolve` + normalize) → set of cache keys, rebuilt in `_sync_build_dir_refs()` during remerge), build dir operation locks (`_build_dir_locks`: per-dir exclusive/shared locks with FIFO queue keyed by the same identity, `acquire_build_dir_lock`/`release_build_dir_lock`, lookup via `_find_lock`). Shared baseline (`_shared_baseline`: raw parsed loomworks.json, updated on load and `:w`). Business logic: remerge (per-configuration merge of user.json + loomworks.json), `_sync_*`, `_save_cache`, `_save_config` (publish to loomworks.json), `_save_user` (working copy), `_serialize_config`, `shared_snapshot(opts)` (what a publish writes — serializer + regraft; `lw export` with `{all, no_profiles}`), `prepare_import` / `commit_import` (`lw import`: in-memory remerge of the candidate working copy, then backup + `_save_user`), `publish()` (`:w` handler — full regen), `publish_one(item)` (per-item partial loomworks.json write — preserves untouched entries), `revert_to_baseline()` (`:e!` handler — data-preserving force revert; locally-added items demote to `local`), `revert_one(item)` (per-item baseline restore / removed-upstream demote), `_publishable_to_shared` (transitive effective-intent closure, used by serialization), `_mark_removed_upstream(old_baseline)` (session flag set after baseline change, cleared on publish/revert), `create_operation`, `execute_deletion`, `reset_all` (headless hard-reset of every build dir + orphaned dirs, spec §16.30), `_pre_configure_reset(build_dir, entries)` (full-reconfigure support, spec §5.1/§8.1: validates the build dir under the workspace root via `_validate_build_dir`, accepts only plain relative entries whose canonical path lies strictly inside it, then unlinks/rm-rfs them; synchronous, no cache mutation), `record_task_result` (a *configure*'s `module_info` **replaces** the unit's record — so a key the module stopped returning, e.g. meson's `cross_file` after `machine_file` is dropped, reads as absent rather than surviving and forcing a full reconfigure forever; any other task's `module_info` is merged, so a build never wipes the configure record; on a configure it also freezes `cache_launcher` — the configure result's value or nil — for `is_stale`; and, after a successful configure that applied a launcher, runs the module's `cache_compat_scan` via `compiler_cache.run_compat_scan`, notifies any findings, and stores the result as `module_info.cache_compat` — replaced every configure, nil when failed / no launcher; the scan ctx carries `configuration_env`. On every configure it also freezes core's record of the resolved configuration environment in `module_info.configure_env` — nil when empty — for the env staleness axis and the module's full-reconfigure decision), `_scan_tools_async`, `_refresh_lsp_database_for(unit)` (generic — drives a module's owned LSP compilation database via the `refresh_lsp_database`/`lsp_database_watch_path` hooks; called after configure/build completion in `record_task_result` and during the startup `_scan_targets_async`; registers the reply-dir `fs_poll` watch). Modified computation: `is_project_modified`, `is_config_modified`, `is_config_set_modified`, `is_profile_modified`, `has_any_modified`. Mutation methods: `add_project`, `remove_project`, `add_configuration_set`, `remove_configuration_set`, `update_config_set_mapping`, `rename_project_configuration` (atomic rename with cache migration), `create_profile`, `activate_profile`, `upgrade_profiles_for_tool`, `downgrade_profiles_from_tool`. Preview: `compute_downgrade_preview`. Query methods: `query_available_configs`, `map_variant`, `generate_default_config_sets`, `get_module`. File tracking: `_start_tracking`, `_stop_tracking`, `_on_file_changed` (snapshots old baseline before remerge, calls `_mark_removed_upstream`, always saves user.json so sticky intent survives restart), `reload_config`. Lifecycle: `on(event, handler)` records workspace-scoped event subscriptions in `_event_handlers`; `teardown()` stops the file tracker, cancels in-flight overseer tasks (collected from `_config_units._task_id`), detaches recorded subscribers, drops `_build_dir_locks`, and clears runtime caches — called by Core on workspace swap and shutdown. **Static helpers** (on the module table, not the class): `resolve_root`, `paths`, `assemble` (pure), `create_workspace_config` (bootstrap) | Do I/O directly (delegates via `_core._deps`); know about UI; render anything |
+| `merge.lua` | Three-file merge algorithm, profile collection, orphaned project detection, tool detection (sync and async) | Mutate state; do I/O; depend on core.lua or workspace.lua |
+| `configuration_set.lua` | ConfigurationSet class: identity-preserving with `_update()`, owns activation (`activate()`/`ensure_profile()`), property-based profile lookup (`find_profile()`), resolves Project references internally. `update_mapping()` cascades `_mark_user_owned` to the set, the project, and the new config (specification.md §2.4 implicit cascade-on-use). References Workspace via `_workspace` | Own state beyond config data; do I/O |
+| `profile.lua` | Profile and ProfileProject classes. Profile owns `_tool_keys` (flat string array, user-ordered, first-match-per-language resolution wins), `tools_for(configuration)` for language-keyed effective tools, `tool_for(mod_type)` compat shim, `add_tool(key)` / `remove_tool(key)` mutators, `toolchain_entries()` UI surface, `missing_languages_for(configuration)` / `language_gaps()` / `unused_tools()` validity probes, status aggregation, plan_deletion, activate/deactivate. `Profile:activate()` cascades `_mark_user_owned` through the profile, its config set, and the set's mappings — so user.json is self-contained for the active profile. Profile also holds per-machine **fill values for blank project variables** (`_profile_variables`, project_key → name → value): `variable_value` / `set_variable_value` / `clear_variable_value` / `variables_data` accessors, `blank_variables()` enumerates the profile's still-blank declared variables, and `assert_buildable()` refuses configure/build while any is unfilled (core §1.3.1). Fill values live in user.json only (top-level `profile_variables`, mirrored on the Workspace as `_profile_variables_data` so they survive remerge) and are NEVER serialized to loomworks.json. Profile resolves mappings + ConfigurationSet reference in `_apply()`. Profile.key derives from `<set>:<sorted-deduped-tool-keys>` — no separate SDK component (kit_id prefix carries it). ProfileProject registered in Workspace, holds direct refs to Profile + Project. References Workspace via `_workspace` | Own state beyond what workspace provides; do I/O |
+| `project.lua` | Project class, config_cache_key computation, mutation methods (save_options, save_type_config_field, save_variable, save_launch_config, etc.). Owns the `LaunchConfiguration` registry (`_launches`, name → object). References Workspace via `_workspace` | Own state beyond what workspace provides |
+| `launch_configuration.lua` | LaunchConfiguration class (spec §1.2.1): a project's launch configuration as a domain object — `_apply(data, ctx)`, identity by name within the project, kept across a rename, `_removed` on removal, `_project` back-reference, `description`, the declared fields, `serialize()` to the declared table | Own state beyond its declaration; do I/O |
+| `config_unit.lua` | Per-(project, config) runtime state: running action, progress, elapsed time, deleting flag (with reason: "deleting"/"cleaning"), queued action. Synced during remerge (`_update()` refreshes variant/tool from cache, preserves runtime state) + lazy creation via `get_config_unit()`. Listener pattern via `on_state_change()`. Owns `materialize()`, `materialize_pinned()`, `resolve_tool()`, `referencing_profiles()`, `active_compiler_family()`, `context_profile(profile?)` (the profile whose fills a resolution uses — the caller's, else the active one; spec §5.1 *Resolution context*: every staleness method below takes an optional `profile`, and the build gate (`overseer` `lw_meta.profile` / plan-step `profile`), `record_task_result` (`result.profile`), `Profile:compiler_cache_status` and the status page pass the profile being built / shown, so a non-active profile's `cache` or variable fill is never judged against the active profile's), `resolved_option_fingerprint(profile?)` (options merged across inheritance + expanded through built-ins and family-aware project variables, including the context profile's blank-fill values — the RESOLVED `-D` values `is_stale()` compares against the snapshot taken at configure time; changing a profile fill value therefore makes the unit stale and forces a reconfigure). `build_dir_present()` / `missing_build_dir_needs_reconfigure()` — the build-gate re-check for a build directory removed out of band (spec §3.1 rule 7); the plain directory stat comes from the injected `dir_exists` dep, and `unknown`/`deleting` are exempt. `is_stale()` also folds in a **compiler-cache launcher axis** via `launcher_changed(profile?, lookup?)` (injectable detection for deterministic tests): it recomputes the launcher `compiler_cache.resolve_for` would produce now (policy + family + live PATH presence) (or `"none"` when the module's optional `cache_launcher_applicable({configuration, tool_data})` hook returns false — e.g. a cmake preset, which cannot take the launcher) and compares to the value frozen at configure in `module_info.cache_launcher` — an appeared/disappeared/changed launcher marks the unit stale so the build gate reconfigures. A `nil` recorded value is not compared (the module records no launcher); a configure with no cache records the sentinel `"none"`, so a later-installed cache still differs and fires. **Configure-record migration** (spec §5.1): `record_outdated()` — a configured unit (`_was_configured()`: snapshot, or a configured/built/failed_build state) whose `module_info.record_version` differs from its module's `configure_record_version` (stamped by `Workspace:record_task_result` after a SUCCESSFUL configure only) was recorded by an older lw → stale, and the module takes the full reconfigure; modules without the field skip the check. `stale_reason()` returns the first applicable reason (`configure record from an older lw`, `options changed (FOO removed)`, `module configuration changed`, `configuration environment changed`, `compiler launcher changed`) and `is_stale()` is `stale_reason() ~= nil`; `configure_reason(forced?, profile?)` is the build gate's full reason (first configure / forced / previous configure failed / stale reason / project files changed / build directory missing). **Configuration environment** (spec §1.3.3): `configuration_env()` resolves the configuration's `env` through `config_env.resolve` (chain + family overrides, expanded with the same context as the option fingerprint, reserved names stripped); `env_changed()` compares it with core's record `module_info.configure_env` (absent ⇒ empty — no env was applied before the field existed) and is folded into `is_stale()`, so an env change makes the unit stale and the module takes a full reconfigure. `refresh_cache_compat()` keeps the recorded compat scan (`module_info.cache_compat`) in step with the build's current compile data: when the module's `cache_compat_stamp` (via `cache_compat_stamp()`, from `_compat_scan_ctx()` — the recorded build dir, tool and `configure_env`) differs from the record's `source_stamp`, it re-runs the scan against the recorded launcher and replaces the record in memory (keeping `policy_source`); `Workspace:record_task_result` calls it for every build (persisted with the result, a changed record reported via `_notify_cache_compat` like a configure's) and the health provider before reporting. References Workspace via `_workspace` | Persist anything (runtime only) |
+| `build_dir_claims.lua` | **Build-directory collisions** (spec §1.7 "One build directory per configuration", invariant 22). Pure: `resolve(claims, entries, key_of, opts)` groups the (project, configuration) claims by directory identity (`key_of`, the workspace's `_build_dir_identity`), skips a module's shared tree of one project and tool, and picks each directory's owner (the configuration a cache entry for it names, else the first by project key then configuration name); every other claim is refused with `message(...)`, the exact spec text (the directory shown relative to the workspace root). Used by data_model.lua's ProfileProject sync (`sync_profile_projects_and_config_units`) at load (a refused record gets no ConfigUnit; its ProfileProject carries `_build_dir_error`, which `ProfileProject:invalid_reason()` reports, so the core §5.4 profile-level gates leave it out) and by `Workspace:_build_dir_refusals` / `_new_build_dir_collision` for the commands that would create a collision (mapping, build-directory field, configuration and project rename, profile create), which undo and write nothing | Do I/O; read the cache itself; decide what a refusal blocks |
+| `device.lua` | Device domain object: physical/emulated deployment target with serial, display_name, provider (module id or device-runner id, §18.2), state (online/offline), properties. Runtime-only (not persisted). Workspace-level registry, discovered via a module's `list_devices()` or a device runner (`remote/devices.lua`) | Persist anything (runtime only) |
+| `launch_target.lua` | LaunchTarget class: resolves profile's default target descriptor into object references (Project, ConfigUnit, Target). Three target types: module targets, command launches, device targets. `build()` builds deps → pre-build deploy → build self. `deploy()` executes post-build deploy steps. Both phases merge project-level + launch-level deploy. `launch()`/`debug()` for local targets. `device_install()`/`device_launch()` for device targets, and the device commands shared with the daemon (`device_*_command`, including `device_log_command` / `device_log_clear_command`). `requires_device()` returns true for device targets | Own state beyond resolution; do I/O directly |
+| `debug.lua` | DAP integration gateway (nvim-dap glue only). `run(spec, callbacks)` constructs DAP launch config with adapter-specific `extra` fields and calls `dap.run()`. Checks adapter availability before launch (Mason install hint). Per-session callbacks via unique listener keys | Own state; depend on workspace internals; hold the adapter tables |
+| `debug_config.lua` | **The debug-adapter tables** (host-neutral, *shared* side of the split): `resolve_adapter(workspace, language)` reads `user.json` debug settings (`_debug_settings.adapters`) with defaults (c++→codelldb, typescript→pwa-node), `default_adapter(language)`, `known_adapters(language)` (picker options), `known_languages()`, `workspace_languages(ws)` (those plus the workspace modules' `languages`; `DebugConfig/1.known_languages`), `module_languages(ws)` (the workspace modules' `languages` only) and `adapter_records(ws)` (`{language, adapter?, default?, known, overridden}` per language of `module_languages`; `DebugConfig/1.adapters`). Read by the editor's debug section / launch editor / debug paths and by `languages.lua`; the daemon serves them (`DebugConfig/1`, step 5k part B2; the write is `Workspace:set_debug_adapter(language, adapter|nil)`, which puts the model back when the save is refused or fails) | `vim.*`, start sessions |
+| `session_tracker.lua` | Unified launch/debug lifecycle manager. Tracks active run (overseer task or dap session). `start(target, mode)` handles confirmation dialog, build→deploy→execute chain with device extension (device-install→device-launch for device targets), fidget progress; in daemon mode a non-device target's build+deploy is the daemon's preparation (`Launch/1`, via `daemon/editor_ops.lua`) and only the program start stays here. `stop()` terminates overseer task or dap session (with `hierarchy=true` to kill debuggee). Auto-cleans tracked run on dap session end via listeners | Own state beyond what init.lua provides |
+| `target.lua` | Target class: wraps module-detected build target (type, dependencies, artifact). `build()` delegates to module. `launch()` runs executable via overseer. Runtime-only, recreated on parse | Persist anything |
+| `deploy.lua` | Deploy step validation, resolution, freshness checking, execution, cleanup. Pure functions — no state. Resolves source config units within profile context, compares mtime + source identity for freshness, copies files. `partition_by_phase()` splits a deploy dict by `pre_build` flag. `merge_deploy_sources()` merges project-level and launch-level deploy (directory destinations union, file destinations override) | Own state; do I/O beyond file copy |
+| `variables.lua` | Project variable validation and resolution. `resolve(project, configuration, active_family, profile)` walks the inheritance chain via object references, returns values with provenance (source Configuration object + `from_override` / `from_profile` flags); at each level a matching compiler-family `overrides[active_family]` entry wins over the plain `variables` value, chain position dominating compiler-specificity (core §1.3.1). `default` is OPTIONAL: a declaration with no default/override/profile value resolves *blank* (value `nil`). The **profile-fill layer** is the final fallback — when still blank after the config chain, `profile:variable_value(project.key, name)` supplies the machine-local value (blanks only; never shadows a set value). `blank_variables(project, configuration, active_family, profile)` reports the still-blank names (build-gate + diagnostic input). Reserved name checking; `validate_compiler_overrides` (undeclared-name reject) + `unknown_families` (diagnostic input). Compiler family comes from the active tool via `cpp_compilers.family_from_tool_data` (clang-cl → clang). **Pre-declared policy variables** live in `PREDECLARED_NAMES` (v1: `cache`) — NOT expansion built-ins (those stay in `RESERVED_NAMES`): a pre-declared name is rejected as a *declaration* yet allowed as an *override* target (plain / compiler-family / profile-fill, incl. boolean `false`). `resolve_cache_policy(project, configuration, family, profile)` reads the effective `cache` policy through the same override machinery (config chain → family override → profile fill → built-in `auto` terminal). `env` is a reserved namespace name (`NAMESPACE_NAMES`): it cannot be declared, and inside a compiler-family `overrides` block it is the environment sub-block (`overrides.<family>.env`, validated as a name → string map, exempt from the declared-name rule) | Own state; mutate anything |
+| `config_env.lua` | **Configuration environment resolution** (spec §1.3.3). `merged(configuration, family)` merges `env` across the inheritance chain (bases depth-first, then own; per level plain `env` then the matching `overrides[family].env`, so a nearer plain value shadows a farther family entry); `expansion_context(project, configuration, family, profile, root)` builds the built-ins + resolved-variable context shared with `ConfigUnit:resolved_option_fingerprint`; `resolve(...)` returns the expanded env with reserved compiler-driver names stripped (plus the stripped list, warned once; a `PATH` entry is kept but warned once too); `compose(tool_env, config_env, case_insensitive?)` layers it over the tool env (on Windows, by default, a configuration name replaces a tool name differing only in case). The single resolver for the task context (overseer), the configure snapshot and staleness (ConfigUnit), and test runs | Know about any module; do I/O |
+| `reserved_compiler.lua` | Single definition of the compiler keys owned by the tool: the `^CMAKE_.+_COMPILER$` cache-var pattern and the compiler-driver env set (`CC`, `CXX`, `FC`, `CUDACXX`, …). `is_reserved_option` / `is_reserved_env` (env names matched case-insensitively on every host) are consumed by `Project:save_configuration` (reject at edit), the cmake/meson task builders (strip at build), and `Configuration:compiler_override_warnings` (inline diagnostic). `is_path_env` (PATH, any case — not reserved) drives the `lw config set` warning and `config_env`'s one-time runtime warning. See spec §15 "The tool owns the compiler" | Know about any module; detect anything |
+| `term.lua` | **Terminal-safe CLI output** (headless §16.7): `render(s)` escapes every C0 control except TAB/LF (caret notation, `^[` for ESC), DEL and UTF-8 C1 controls (`\u00XX`), and turns only `sgr(code)` markers (NUL + per-process random nonce + SGR params) into `ESC[<code>m`. `ascii(s)` folds the report glyphs (bullets, marks, dashes, arrows) to ASCII for `lw health` (§16.31): `cmd_health` sets `M._ascii_out` so cli.lua's `out()` folds every line; provider strings stay Unicode for the editor, and `--json` is not folded. cli.lua's `out`/`note`/`die`/`errw`/prompts and the shim's `vim.notify` render every line; the status palette emits markers, never raw ESC. `format_argv(argv)` joins an argv into one readable command line for display only (logs, `lw build -v`; not re-executable quoting) | Color decisions (`cli_color.lua`) |
+| `cli_color.lua` | **Highlighting of lw's own lines** (headless §16.7 *Highlighting*). `SGR` is the CLI palette's parameters (cli.lua's `status_palette` uses them); `ROLES` maps the line roles (`lead`, `phase`, `reason`, `command`, `ok`, `fail`, `warn`) to them. `paint(role, text, stream)` wraps each line in `term.sgr` markers when `enabled(stream)`, else returns it unchanged (plain output is byte-identical). `enabled` follows `mode` (`--color=auto\|always\|never`, `--no-color`; set by cli.lua's dispatcher via `set_from_option`): `auto` tests stdout and stderr separately (tty, VT processing enabled per Windows console handle, `NO_COLOR` non-empty disables). `header(kind, name)` is the one builder of `==> [<kind>] <name>`. Producers give the role: cli.lua's `out`/`note`/`errw(s, role)` and `die` (`fail`); `build_run.step_lines` returns roles beside its lines and `build_run.clean_step_line` its role; `test_plan`'s host `out`/`err` take one (the daemon's host ignores it). Never used for relayed tool/program output; never touches a child's env | Line wording; rendering/escaping (`term.lua`) |
+| `release_notes.lua` | **Release notes reader + renderer** (headless §16.37). PURE: string in, tables/lines out; no `require`, no I/O, no `vim` — a host loads it from a freshly installed bundle into a sandbox (`boot.whats_new`). `parse(text)` reads `CHANGELOG.md` (preamble and `<!-- -->` comments skipped; `## Unreleased` / `## <ver> - <date>` entries, summary paragraph, `### <section>` bullets with 2-space continuations) and records grammar errors; `validate(doc, text)` adds the strict rules (ASCII, section set/order, summaries, descending unique full-release versions). `compare`/`normalize`/`is_pre_release` are a local semver copy (no `boot.paths`; named apart from boot functions the old-host static guard tracks). `visible(doc, running)` applies the running-version rules (prerelease: Unreleased under the running version + entries `<=` its base; dev: everything); `select(doc, running, sel)` implements default/`<version>`/`--since`/`--all`/`-n`; `render(result, {width, paint})` wraps only when given a width; `to_json(result, null)`; `whats_new(text, from, to, {width, max})` is the self-update block (summary + Breaking/Upgrade-notes items per version, capped) | Locate the file, know the running version, persist anything (that is `release_notice.lua`) |
+| `release_notice.lua` | **Release-notes glue** (headless §16.37). `read_text()` finds `CHANGELOG.md` beside this file (bundle: `loomworks/CHANGELOG.md`) or at the source tree root (`<lua>/../CHANGELOG.md`); `running_version()` from `_G.__loomworks_luaroot`'s `lua-<ver>` basename (nil for a dev source / the editor); `release_data_dir()` = that root's parent for a global install (nil when pinned: a `/pinned/` segment or `LOOMWORKS_PINNED`). Last-seen version in `<data>/release-notes-seen` (`read_seen` / raise-only atomic `write_seen`), `previous_installed` (newest older `lua-*` sibling) as the fallback baseline, `silenced(getenv, cfg)`, pure `decide{}` and `maybe_notice{}` for cli.lua's one-line upgrade notice. Uses no boot module, so it works under any old host | Render notes (that is `release_notes.lua`) |
+| `description.lua` | **Descriptions** (spec §1.10, §17.11). This is a pure module with no workspace access. `normalize(v) → string|nil` does CRLF/CR → LF, strips trailing whitespace per line and leading/trailing blank lines, and maps empty to nil. `validate(s) → ok, err` refuses control characters other than LF/TAB and anything over 4096 bytes. `summary(s)` / `body(s)` split git-style. `fit(s, cols)` truncates by display width with `…` (never bytes) for the CLI and the editor. `inert(s)` renders control characters and bidi overrides visibly for buffer lines and pickers. `statusline_escape(s)` escapes `%` → `%%` and drops control characters. `strip_comments(lines)` serves the `#`-comment editor buffers. It is used by the domain objects' `set_description`, the serialisers, cli.lua (`describe`, list rows, `show` views) and the UI | Workspace access; I/O |
+| `notify.lua` | **Notification seam** for model code that runs in every host (spec §16.7 *Highlighting*): `notify(msg, level)` calls the process core's `_deps.notify` (the editor's `vim.notify`, the CLI's painted stderr printer, the daemon's per-request reply notes), `vim.notify` before `loomworks` is loaded. A load's notifications through it — a setup, or a loomworks.json re-assembly in `Workspace:_on_file_changed` — are captured by `Core:_begin_load_notes` as the workspace's `_load_notes` (`Workspace:load_diagnostics()` / `load_notes()`, core daemon.md §19.13 "Load warnings"); `once(key, …)` notifies once per load (`new_load`, called by `_begin_load_notes`) for warnings a remerge would repeat (a rejected module / SDK provider, a stale mapping); `in_load()` lets the daemon keep a load's warnings out of an editor's reply | Be required from the plugin side of the split (UI, LSP, DAP, the overseer adapter keep `vim.notify`) |
+| `log.lua` | Workspace logger (`.nvim/loomworks.log`), shared by the editor and every `lw` invocation: append-only (never truncated), rotated to `loomworks.log.1` past `MAX_BYTES` (1 MB, one old file kept, best-effort rename). Levels ERROR/WARN/INFO/DEBUG; capture mode for tests | Truncate the log; render to the terminal |
+| `build_run.lua` | **Headless build-step logic** (headless §16.4) behind cli.lua's `run_build_steps`, with no terminal I/O or process exit (returns values / `nil, err`), so a non-blocking runner can drive the same sequence. `profile_build_dirs(profile)` (the advisory `build_lock` set, §16.6), `plan(profile, opts)` (the `assert_buildable` gate; `--target` operands resolved by `resolve_build_targets(profile, names)` to a Project → bare-names map against each project's known target list (`ensure_unit_targets`, refreshed; unknown while the unit needs a configure) before anything runs — qualified → that project, bare in one list → that project, in several → refused as ambiguous, in none → every project (the build tool decides); then `overseer.plan_profile_build` with the build request and that map as `build_targets_for` (projects it does not name are skipped), each build step carrying its bare names as `build_targets`; for a module that did not apply the request, `--target` is refused and forwarded args are appended unless `runs_batch_file(cmd)`), `split_target_ref(scope, name)` (the one `<project>:<name>` qualification rule — a prefix counts only when it names a project of the scope, a profile's or a units list's — used by `resolve_build_targets` and shared with run_prep.lua's launch-target matcher for `lw run` / `lw test --target` / `lw target set`), `unknown_target_hint(ws, step)` (the post-failure hint: close matches from the profile's projects as `<project>:<target>`, both runners), `before_step(ws, step, {force})` (artifact-conflict gate §5.9/§16.28 + the full-reconfigure `_pre_configure_reset` §5.1), `step_lines(ws, step, {verbose, env})` (`==> [kind] name`, the configure reason, `-v` command line + cwd, with `env` the env-overrides line — `true` against this process's environment (the in-process host), a table against that environment (the daemon's runner passes the requesting client's, never its own); the roles beside the lines; always writes `overseer.log_task_command`), the `-v` line helpers `command_lines` / `env_line(env, inherited?)` (overrides only, never the inherited env) / `deploy_line` / `remove_line`, the lines both hosts print with their roles (`lead_line`, `ok_line`, `clean_step_line`, `trust_notice`), `spawn_spec(step, root)` (`exe.harden_spec`; an empty env is dropped), `after_step(ws, step, code)` (`record` → `record_task_result` with the module's configure record + profile; artifact population after a successful configure) and `failure_message(step, code, extra_hint)` (cache-compat hint). A profile's invalid ProfileProject (`ProfileProject:invalid_reason`: a tool compat error or a refused build directory, §1.7) is not run (core §5.4 "Invalid ProfileProjects"): `plan` returns it as a third value `refused` and `plan_clean` as a second (`loomworks.RefusalLine[]`), and `refused_message(refused)` (overseer's) is the failure both hosts report once the other projects ran — `lw test` after their tests (`test_plan.with_refused` over `TestPlanPre.refused`). For the daemon's editor scopes (`Build/1`, step 5k): `plan` also takes `configure_only`, `jobs` and `units` (configuration units instead of the profile: `overseer.plan_units_build`, each unit's compatibility gate), `{ project, target }` operands, `plan_clean(profile, units)`, `unit_build_dirs(units)` and `units_label(units)`. cli.lua drives them with a blocking `run_spec` and `die` | Print, exit, spawn processes, take locks |
+| `reset_plan.lua` | **Headless reset** (headless §16.30) shared by cli.lua `cmd_reset` and (step 5d) the workspace daemon: `plan(ws, {profile=}|{all=true})` → `ResetPlan` (`scope`, `scope_key`, `label`, `lock_dirs` — every computed build dir, a superset of `removal_dirs` — the dirs on disk to remove, `state_to_clear`, `units`, `orphans`, `token`); `token(scope_key, lock_dirs, removal_dirs, outside_dirs?, kind?)` (pure, order-independent sha256 — §19.15 "Reset" plan token; `deletion_plan.lua` passes its own `kind`); the lines (`is_empty`/`nothing_message`, `listing`, `unconfirmed_message`, `prompt`, `ABORTED`, `CHANGED`, `TIMED_OUT`, `failed_message`, `ok_line`); `execute(ws, plan, {stop, timeout_ms, verify_ms}, done)` runs `Profile:reset` / `Workspace:reset_all` (stop predicate threaded through `execute_deletion` and the sequential orphan deletions) then the gone-from-disk check, all on timers (never `vim.wait`); the caller holds O and the build locks of `lock_dirs` | Prompt, print, exit, take locks, remove anything itself |
+| `run_prep.lua` | **The preparation of `lw run`** (headless §16.17), shared by the in-process `cmd_run` and the workspace daemon's `prepare_run` (§19.15 "Run"), with no terminal I/O or process exit (refusals returned as the text `lw` prints): `launchable_targets(ws, profile)` / `fmt_cand` / `candidate_launch_target` / `match_targets` (also `lw target` and `lw test --target`), `target_listing(ws, profile, {parse})` / `is_stored_default` / `stale_target_units(profile)` (`Launch/1.targets` and `Profiles/1.set_default_target`: also device targets, the default marked, the unconfigured projects), `select(ws, profile, name, project, kind, {refresh})` (named target, else the default target, else the sole one; the none / ambiguous / unset refusals), `validity_error(lt)`, `foreign_of(lt)` (the §18.1 artifact probe), `kit_platform(profile)` (a foreign kit's platform: the daemon declines), `resolve_spec(lt, {extra_args, cwd_override})` (`cannot resolve launch: …`), `resolve_debug(lt)` (the debug-spec seam: `loomworks.DebugSpec` `{name, program, args, cwd, env, language, adapters}`; a target-backed launch configuration resolves through its referenced target like a run — `LaunchTarget:_debug_command` / `_debug_target` consume it, `Launch/1.prepare_debug` reuses it; a refusal is `nil, reason, "warn"|"error"`), `resolve_command_debug(lt)` (a launch configuration read as a command launch — `program` is nil for a target-backed one; what `multi_adapter_specs` still consumes), `debug_spec(ws, lt, launch)` (`Launch/1.prepare_debug`'s spec: the run's resolved launch with the first debug language and the ordered adapters), `debug_refusal(lt, by_kit_only)` (a device target, or a foreign artifact by kit token or probe: the in-process refusal) and `env_overrides(env)` (the launch's contribution over the current — in the daemon the client's — environment) | Print, exit, spawn the program, take locks |
+| `exe.lua` | **Program resolution** (spec §5.10): `resolve(name, env?, cwd?)` → absolute path from absolute PATH entries only (task env PATH first; PATHEXT on Windows; never the cwd or an empty/relative entry; an explicit relative path only against the given child `cwd`); `cmd`/`cmd.exe` → `%SystemRoot%\System32\cmd.exe` (`cmd_exe`). `harden_spec(spec)` resolves a task spec's `cmd[1]` and adds `NoDefaultCurrentDirectoryInExePath=1` to its env on Windows (nil + err ⇒ caller must not spawn); `system(cmd, opts, cb)` = `vim.system` over a resolved argv (unresolvable ⇒ synthetic code-127 result, nothing spawned); `resolve_server_cmd` for LSP `rpc.start` argv; `editor_exepath` filters a cwd hit out of `vim.fn.exepath` (Neovim < 0.12 searched the cwd on Windows). Used by overseer.lua (every `new_task`), cli.lua `run_spec`/git, the shim's `which`/`vim.system`, clangd/qmlls, inventory, ctest, msvc, meson. `boot/exe.lua` is the bootstrap's copy of the rule (curl), plus `run_in_place(bin, args)` — the redirect's re-exec (spec §16.23): shared stdio, waits for the pinned host and returns its status (128+signal when killed); interrupts are ignored on Windows (the console event reaches the child) and forwarded on POSIX, so the child's cleanup is never cut short (libuv's kill-on-close job would kill it if the parent exited) | Decide *which* tool to run (callers do); trust-gate configured paths |
+| `nice.lua` | Linux nice/ionice cmd wrapper. `wrap_cmd(cmd)` prepends `ionice -c 3 nice -n 10` on Linux when both binaries exist, returns cmd unchanged otherwise. Probe is cached (`_reset_cache()` for tests). Used by `overseer.lua` for build/configure/clean tasks and `loomtest/runner.lua` for test runs | Know about specific commands or modules |
+| `operation.lua` | Operation class: tracks a user-initiated profile action. Watches ConfigUnit state changes to determine completion, or (explicit profile configure, "tasks" mode) is told by overseer.lua when its own tasks finish via `unit_finished`. Multiple Operations can coexist. Created by `Workspace:create_operation()`, cleaned up on completion via callback | Own state beyond what workspace provides; persist anything |
+| `deletion_plan.lua` | **Deletion plans** (API.md §22 `Maintenance/1.execute_deletion`; step 5o A2) shared by `model_commands.execute_deletion` and the daemon (B5): `plan(ws, target)` with `target` one of `{profile}`, `{unit}`, `{build_dir}` (an orphaned BuildDir object), `{stray_dir}` (a path, accepted only when in the current `find_stray_build_dirs` set by canonical equality, under the root and not overlapping a live build dir), `{orphans=true}`, `{project}` → `DeletionTargetPlan` (`kind`, `scope_key`, `label`, `refusal`, `deletion` (the unit/profile `plan_deletion`), `items`, `kept`, `orphans`, `strays`, `build_dir_obj`, `downgrade`, `lock_dirs` (validated, normalized), `removal_dirs` (those on disk), `outside_dirs`, `state_to_clear`, `token` = `reset_plan.token` in the `delete-plan/1` family over scope + lock + removal + outside sets); `is_empty`, `verify(ws, plan)` (re-plan, `CHANGED` on a token difference; returns the fresh plan), `listing(ws, plan)`, `execute(ws, plan, {stop})` → Future of `{ ok, stopped?, message?, warn? }` through `_execute_deletion_unlocked` / `_delete_orphan_unlocked` / `_run_deletion` / `_delete_build_dirs_async`; the re-checks and helpers the execution uses (`resync`, `recheck_stray`, `recheck_orphans`, `orphan_cleanup_unlocked`, `project_configs`, `orphaned_entries`). The caller holds O and the build locks of `lock_dirs` | Take locks, prompt, remove anything itself, widen a confirmed plan |
+| `workspace_view.lua` | View-model layer for the UI. Computes the dialogs' contexts: add project context, tool detection caching, upgrade/downgrade previews, config set candidates (with their `candidate` tokens), config set / configuration / launch / variable editing contexts. Stray build dir detection (`find_stray_build_dirs`, top-down prune of `.nvim/build/`); the deletions themselves (project removal, orphan cleanup, stray directory deletion) run through `model_commands.execute_deletion` / `deletion_plan.lua`, not through this layer. Every other model write is a thin `ok, err` adapter over `model_commands.lua` (`as_result`; the status page reaches them only through `ui/model_calls.lua`, step 5o C0), taking domain objects (a launch as its `LaunchConfiguration`, a configuration as its `Configuration`). No UI rendering | Render UI; own state; bypass Workspace methods; orchestrate a model write itself (it belongs in `model_commands.lua`) |
+| `model_commands.lua` | **The model's commands, host-neutral** (spec §19.14 "As interfaces", §19.16 "Model writes"; API.md §6, §11, §19–§21; step 5o A1): one function per user action — publish / publish_one / revert_one / revert_to_baseline / set_intent / set_description; trust_accept / delete_user_prefs (confirm + plan token on the core's working copy; `trust_review_lines`, the review the editor's in-process trust prompt also shows); profile set_active / create (from a set or an automatic set's `candidate` token, `candidate_token`) / tool_choices (`Workspace:tool_entries_for`) / add_tool / remove_tool (under O, `op_lock.guard`); project add (composite: add, map, upgrade profiles); configuration / launch / variable save and remove, options, deploy, `type_config` fields; config set candidates / add / update (rename + mapping replacement) / remove / generate_defaults; SDK detect / add / remove; toolchain rescan (`tools_rescan`); `nuke` (the in-process `Maintenance/1.nuke`, step 5o C2c-2: `Core:nuke_check`, the plan token `nuke_plan` and listing `nuke_listing` — shared with the daemon's — then `Core:nuke_cache`); `execute_deletion` (API.md §22, step 5o A2) as `deletion_request` (plan before any lock: `refused` / `confirm` with lines + token / `accepted`) and `deletion_run` (O then every B of the plan via `Workspace:_locked_deletion`, `resync`, re-plan and refuse a changed token, then `deletion_plan.execute`). Takes resolved domain objects (callers resolve ids or user-typed names once at their input boundary) and answers an outcome (`ok` with the created object, or `refused` with message and exit code; a composite's later failure is `ok` + a `warn` note, D1). A removed object (a stale reference) is refused before any write. The in-process editor reaches it through `ui/model_calls.lua` → `workspace_view`; the daemon's interface handlers (5o B parts; `Workspace/1` from B1, `Projects/1` from B3, with its reads `project_candidates` / `project_declaration` / `expand_preview` and the `add` toolchain resolution `project_tool_entry`; `Sdks/1` and `Toolchains/1.rescan` from B4) call it directly | Resolve objects by key; write terminal output; take a lock the Workspace method does not |
+| `cmake_kits.lua` | CMake tool detection: maps toolchains to CMake kits. GCC/Clang detection delegates to `cpp_compilers.lua`; MSVC + clang-cl discovery delegates to `msvc.lua`. Emits VS-generator MSVC kits, Ninja+MSVC kits, and a Ninja+clang-cl kit per MSVC install that bundles clang-cl, plus one for a standalone/PATH clang-cl on the newest install (paired vcvars + sibling clangd). Both sync (`detect()`) and async (`detect_async()`) variants. In-memory caching of results | Do I/O beyond process spawning for detection; re-implement MSVC/vswhere discovery (delegate to `msvc.lua`) |
+| `msvc.lua` | Shared MSVC/Visual Studio discovery for all modules (cmake + meson). **Batch safety** (cmake spec §1): `check_vcvarsall` (absolute, existing, basename `vcvarsall.bat`, no cmd metacharacters), `valid_arch` (`VCVARS_ARCHES` allowlist), `bat_quote` (always quoted, `%` doubled, trailing `\` doubled; `"`/CR/LF refused), `BAT_PREAMBLE` (`setlocal DisableDelayedExpansion` + `NoDefaultCurrentDirectoryInExePath=1`), `write_bat_exclusive` (unlink then O_EXCL create — never writes through a planted link); `vcvars_env` uses a random temp name. cmake's `write_vcvarsall_bat` uses all of them and raises instead of falling back to an unwrapped command. `detect()` / `detect_async()` enumerate VS installs via vswhere and locate each `vcvarsall.bat`; `vcvars_env(vcvarsall, arch)` snapshots the INCLUDE/LIB/PATH environment vcvarsall establishes; `clang_cl_for(install, {standalone})` resolves that install's clang-cl (its VS-bundled one; the standalone/PATH one only with `standalone`, which callers set for `standalone_host(install, installs)` — the newest install — so a PATH clang-cl is paired once, never named after every install) plus a sibling clangd; `normalize_exe` fixes exe-extension casing. Inventory: `health_declaration()` (the shared `compilers:msvc`), `toolset_version(install, read_file)` (the default MSVC toolset from `Microsoft.VCToolsVersion.default.txt` — the inventory row's version; the product version is its detail), `bundled_tools(install, exists)` / `bundled_id(name, vcvarsall)` — the cmake + ninja an install bundles (both-or-nothing, as vcvarsall's `ext/cmake.bat` adds them), which cmake's `runs_in_vcvars(kit, generator)` requirements and meson's MSVC-style requirements accept as alternatives. Process-lifetime caches; `clear_cache()` forces rescan | Know about any specific module; build kits/tools (that is the consumer's job) |
+| `cpp_compilers.lua` | Single source of truth for C/C++ compiler identification. `detect()` / `detect_async()` probe PATH for gcc/clang/versioned variants; `probe_path(path)` identifies an arbitrary user-supplied executable. Returns `{id, display, family, version, path, c_path, bin_dir, clangd_path}` per compiler so modules can pin `CC`/`CXX` and prepend runtime-DLL directories to `PATH`. Used by `cmake_kits.lua`, `modules/meson.lua`, and `sdks/cpp_compiler.lua`. All compiler-family knowledge (regex patterns, sibling-driver naming, clangd discovery gated on Clang) lives here. `is_msvc_style(tool_data)` is the single **MSVC-ABI** signal (cl OR clang-cl) — used by the compiler-cache `auto` rule (no launcher under `auto` for MSVC-style, clang-cl included), cmake's `/Z7` + CMP0141 injection and the post-configure `/Zi` scan, since `family_from_tool_data` folds clang-cl → `clang` (right for overrides, wrong for those MSVC-ABI decisions). `pdb_debug_flag(args)` / `pdb_scan_add` / `pdb_scan_findings(acc, tool)` are the shared compiler knowledge behind both modules' `cache_compat_scan` (PDB-writing `/Zi`,`/ZI`,`-Zi`,`-ZI`; `"error"` for sccache, `"warning"` otherwise), and `pdb_env_findings(env, tool)` reports such a flag in the configuration environment's MSVC `CL` / `_CL_` (case-insensitive; `group = "environment"`, one finding per variable) — flags no compile-command listing shows. Process-lifetime cache; `clear_cache()` forces rescan | Know about any specific module |
+| `compiler_cache.lua` | **Core-owned compiler-cache launcher resolution** (ccache/sccache). `resolve(policy, family)` maps a `cache` **policy** (`auto`/`off`/`<tool>`) + compiler family to a `{tool, path}` launcher (or nil) — `auto` resolves to **no launcher** for MSVC-ABI (msvc **and clang-cl**, via `cpp_compilers.is_msvc_style`; spec §1.3.2 — sccache fails `/Zi` compiles, so caching there is explicit opt-in) and prefers ccache for gcc·clang with sccache as fallback; explicit tools honored on any family; all gated on presence via the shared `cpp_compilers` PATH index (`lookup` injectable for tests). `resolve_for(project, configuration, tool_data, profile, lookup?)` resolves the effective policy through `variables.resolve_cache_policy` first (override family folds clang-cl → clang; the launcher-preference family keeps clang-cl MSVC-ABI) and returns `(launcher, normalized_policy, source)` — `source` is the policy's provenance (`{layer = override|configuration|profile|default, …}`), persisted with a compat record via `policy_source_record` so `cache_off_command(rec, project, config)` names the mechanism in effect (`lw profile set <p> <proj> cache off` / `overrides.<family>.cache off` / `variables.cache off`); it is the single resolver for both the build context and `Profile:compiler_cache_status()` (status/health), so what is reported is what a build applies (the status also asks the module's `cache_launcher_applicable` hook via `applicability(impl, configuration, tool_data)` — `(applicable, reason?, hint?)`, pcall-guarded, shared with `ConfigUnit` launcher staleness — and reports `not applied (<reason>)`, never a launcher the module will not inject). `run_compat_scan(impl, ctx, launcher_path)` invokes a module's optional `cache_compat_scan` hook (pcall; a throw is recorded as skipped) and returns the `{tool, scanned, reason?, findings[], totals?, advice?, source_stamp?}` record (`record_task_result` adds `policy_source`); `source_stamp` is `compat_stamp(impl, ctx)` — the module's optional `cache_compat_stamp` hook (pcall; nil without one), taken BEFORE the scan so a racing rewrite reads as changed next time; `compat_severity`/`compat_group_lines`/`compat_message`/`compat_remedy` format it for the end-of-configure message and health — `compat_pervasive` collapses unit findings covering ≥ `PERVASIVE_SHARE` (90%) of the build's `totals.units` across >1 group into one line with the module's `advice.cause_pervasive`, sample paths shortened; `compat_failure_hint` is the CLI's closing line when a build fails after an error-severity finding. `auto_off_for_family(policy, family)` tells status/health that `auto` deliberately left an MSVC-style build uncached (vs none found). `any_present()` for status/health. No module-specific logic — modules apply the launcher they receive via the `compiler_cache` ModuleContext field. `normalize_policy` folds `false`/off-synonyms | Know about any specific module; apply the launcher (that is the module's job); spawn the cache tool |
+| `suggestions.lua` | **Extensible advisory suggestion framework** (headless §16.31). Two provider lists: **passive** (`register(fn)`) — side-effect-free, no network, run by `collect(workspace)` which feeds both the compact `N suggestions` line (status page + `lw status`) and health; and **on-demand** (`register_health(fn)`) — may hit the network, run ONLY by `collect_health(workspace)` (the `lw health` full report), never by the passive count. Neither `collect` nor `collect_health` guards a nil `workspace` at the top — each provider guards nil itself, so workspace-INDEPENDENT providers still run without one. Both flatten results and skip a throwing provider. Items carry a `kind` (`"suggestion"` default = actionable, `"info"` = informational); `count_actionable(workspace)` (what the `N suggestions` line uses) counts only actionable ones, so an affirmative info item never inflates the nag total. Provider #1 `compiler_cache_provider` (passive, **workspace-scoped** — returns `{}` on nil workspace): for a workspace with a non-orphaned C/C++ project (`Module:caches_cpp()`) not pinned `cache` off, returns ONE terse item (title + short remedy, no prose — the explanations live in the `lw help cache` topic, aliases `sccache`/`ccache`). With an ACTIVE profile it follows that profile's `compiler_cache_status()` (`status_outcome`, so health never contradicts the `Cache` row): policy `off` → silent; not applicable → `info` "Compiler cache not applied (`<reason>`) — lw help cache"; launcher resolved → `info` "Compiler cache: using `<tool>`"; explicit `cache=<tool>` not found → actionable "cache=`<tool>` set but `<tool>` not found"; MSVC-style under `auto` with a cache on PATH → `info` "`<tool>` available — not enabled for MSVC-style (lw help cache)"; else actionable "No compiler cache found" (`install_remedy`: `_preferred_install_tool()` — sccache on Windows, ccache elsewhere — plus "then opt in" for MSVC-style). With NO active profile it evaluates every profile's status (`all_cache_statuses`) and never claims "using" unless some profile would use the launcher: all `off` → silent; some resolve a launcher → `info` "Compiler cache: using `<tool>` (`<profiles>`)"; an explicit tool not found → actionable (names the profile); a cache on PATH → `info` "`<tool>` available — not enabled[ for MSVC-style] (lw help cache)" (no profiles: "`<tool>` available"); else the install nag. The local-tier key folds in every profile's tool keys, mapping and `cache` fills plus the active key. Provider `cache_compat_provider` (passive, workspace-scoped): reads the recorded `module_info.cache_compat` of the active profile's units — with no active profile, every profile's units (profiles by key), deduplicated per unit (`_compat_units`), each first brought up to date by `ConfigUnit:refresh_cache_compat()` (`_compat_records`: re-scan when the module's current stamp differs — the build tool re-ran the generator; in memory only, health never writes the build cache) — an actionable item per configuration with findings (detail = the group lines, remedy = one line: /Z7 or `cache off` — `lw help cache`), an `info` item for a skipped scan (detail = why); the local-tier key (`_local_key`) folds those records in AS RECORDED plus each unit's CURRENT `cache_compat_stamp()` (one stat / directory listing per cache-enabled unit), so a generator re-run invalidates the passive tier; `collect` and `collect_health` both take the key before running providers, so an unpersisted in-memory refresh does not make every later `lw status` process re-scan. Provider #2 `update_check_provider` (on-demand, **workspace-independent**): reads the running release version from `_G.__loomworks_luaroot`, resolves the newest version on the channel via `boot.update.resolve_newest_version({ fetch = UPDATE_CHECK_FETCH })` (curl `--connect-timeout 5 --max-time 10`, one attempt — `boot.download.fetch`'s per-call limits; self-update keeps the unbounded, retrying default) and compares with `boot.paths.version_gt` → "Update available"; silent for a dev/fused/editor source, unknown channel, or already-current; a failed check (offline / unreachable / API error) → one `info` item "update check skipped — offline or release server unreachable" (detail = the error's first line). The outcome is recorded in `_update_check` (`last_update_check()` → `{status available|current|unknown, channel, current, newest?, detail?}`, reset per `cmd_health`) for the `--json` `update` field. It also checks the **lw binary** (§16.32) against that newest release: `_host_facts()` (nil off the luvi host; `boot.verify.RELEASE_VERSION`, `self_update` = the bootstrap has `boot.host_update`, `dev_build` via the shared `host_update.dev_build`, `pinned`) feeds `host_item`, which reuses `host_update.decide` (upgrade-only, pinned/dev skip) → actionable "lw binary `<ver>|(unknown release)` is older than `<newest>`" (remedy `lw self-update` — lw help self-update), or for a pre-self-update bootstrap "lw binary predates self-update — reinstall once (see README)". A self-updating host's item is folded into "Update available" when the bundle is stale too. `_network_key()` (running bundle | host release identity | channel — local, network-free) keys the network tier. `register_health(fn, { persist = false })` marks a provider **report-only** (`_report_only`): `collect_health` shows its items but never writes them to the network tier — provider #3 `submodule_provider` (`submodules.lua`). `channel_override_provider` (on-demand, network-free, **workspace-independent**): flags a release-url override superseding a non-default channel via `boot.update.url_override`/`resolve_channel`. Reads only resolved state / the PATH index — never spawns a build tool. **Results are cached** (see `health_cache.lua`): `collect`/`collect_health` read/write `.nvim/loomworks.health.json` so the passive count stays cheap and never hits the network. `_local_key(ws)` is the cheap local-tier invalidation fingerprint; `_clock` (`os.time`, injectable) stamps `computed_at`; `collect_health` never reuses a cached tier (every `lw health` re-runs the update check) and only writes the cache. **Areas** (§16.36): `register`/`register_health` take `opts.area` (`_areas[fn]`: compiler-cache + cache-compat → `cache`, update check + channel override → `lw`, submodules → `submodules`, launcher → `launcher`); `run_providers` stamps each item's `area` from it. `collect_health(ws, { inventory, areas })` runs only the selected areas' providers (a provider without an area always runs) and writes a tier only when `complete()` — every provider feeding it ran; the inventory tier only for an unnarrowed run, with the per-run `skipped` counts stripped | Gate any operation (advisory only); spawn the cache tool; run a network provider on a passive render; own persistent state (that is `health_cache.lua`) |
+| `inventory.lua` | **Environment inventory framework** (headless §16.33). No tool knowledge: `contributors()` (memoized) discovers every module (`modules.list()` + `modules.rejected()`), SDK provider (`sdks.list()` + `sdks.rejected()`) and inventory companion (`integrations/inventory/*.lua`, the host-neutral half of an LSP / DAP integration); `declarations(ctx)` collects their `health_inventory(ctx)` hooks plus core's own (compiler-cache launchers from `compiler_cache.KNOWN_LAUNCHERS`, one per loaded SDK provider — pinned installations validated once + `detect_all()` — the plugin registry incl. rejected plugins + reason, and the running `lw` via `suggestions._host_facts`), deduplicated by id (first wins). `probe_all(decls, ctx)` runs every probe concurrently, each under a libuv timer (`PROBE_TIMEOUT_MS`), pumping `vim.wait`; error/timeout → one `unknown` result; results carry `category` (unrecognized → `other`) and `decl`. `context(ws, overrides)` is the injectable probe context (`lookup` = the shared `cpp_compilers` PATH index, `run` = `vim.system` with a timeout, `.cmd`/`.bat` through `cmd /d /c`, `read_file`, `exists`, `realpath`, `getenv`, `stdpath_data`). Shared builders: `exe_declaration` (search path + version query; an optional `version_from(ctx, path)` reads the version without spawning — typescript's `npm_version_from_layout` reads npm's own `package.json` — and the query runs only when it returns nil), `tool_declaration` (search path + Mason: `mason_package` reads the install receipt by pattern — version from the source id, `bin` links — no decode, no spawn; `editor_data_dir` = `stdpath("data")` in Neovim, else the `NVIM_APPNAME` platform rules; a PATH hit `under_mason` is listed once as the Mason one). `environment_key(ws)` digests `search_path_entries(ctx)` (PATH normalized: unquoted, `norm_path`, trailing `/` and empties dropped, first-occurrence dedup keeping order, Mason's `<data>/mason/bin` removed, and on Windows a last entry holding `nvim.exe` — Neovim's appended dir — removed), PATHEXT, platform, `KEY_VERSION`, `api_versions`, contributors (+ api / rejection) and the profiles' pinned SDKs (path normalized) — host-neutral (no bundle root / release version) so the editor and the CLI agree; `probe_tier(ws)` (explicit health run only — resets the PATH index first) returns `{results, declared, key, computed_at}`. `requirements(ws)` (pure) evaluates modules' `health_requirements({project, tool, configuration})` over the active profile's projects (every profile's when none is active; every project, tool-less, when there are no profiles), adds pinned SDKs (`sdk:<key>`, via `sdks:<type>`) and `module:<type>` for a project whose module is not loaded; merged by id + `alternatives` with `required_by` names. `classify(tier, reqs)` → entries (`required`, `required_by`; a requirement whose id is not found binds to its first found `alternatives` id instead — e.g. cmake's `vs-cmake:<vcvarsall>` for a vcvars-wrapped Ninja build; a requirement with no result reads `missing`, or `unknown` when its `via` enumeration was unknown / not probed), category-ordered; `suggestions_for(entries)` → one actionable item per missing required entry; `cached_suggestions(ws, tier)` is the passive path (key mismatch → nothing, never probes). **Health scope** (§16.36): `AREAS` / `CATEGORY_AREA` / `area_of(category, area)` map items to report areas; `declarations` records on each kept declaration the keys of every contributor declaring its id (`contributors`, `contributor_key(kind, id)`, core = `"core"`); `relevance(ws)` (pure) → the modules projects use, pinned SDK types, workspace languages (module `languages` + every configuration's `effective_languages()`), the modules' `lsp_servers`, `cxx` (`Module:caches_cpp()`) and the plugin-registry ids in use; `declaration_relevant(rel, d)` → `relevant, whole` (lw always; plugins registry always probed; compiler caches when `cxx`; `sdks:<type>` when pinned; a module's when used; a companion via `companion_relevant` — an LSP companion by `lsp_servers`, else by the companion's static `languages`); `probe_tier(ws, { scope, areas })` probes only relevant declarations in the `relevant` scope and only the selected areas, returning `contributors` (partial tier) and `skipped` (per-area counts of irrelevant declarations); `KEY_VERSION` 2. `classify` reads a requirement (no result, not declared) whose `contributors` a partial tier did not probe as `unknown` "not checked" — never missing, never counted. `scoped_entries(tier, ws)` classifies against every profile's requirements (`requirements(ws, { all_profiles = true })`) and overlays the active scope's `required`/`required_by`, adding `area`, `relevant` and `used_by` | Know any particular tool (modules / companions / providers declare them); probe on a passive path; gate anything |
+| `submodules.lua` | **Git submodule drift report** (headless §16.31 provider #3). `find_repo(dir)` walks up to the nearest `.git` marker (stats only); `report(dir, opts)` → `{root, entries[], error?}` or nil (no repo / no `.gitmodules` / no git): one `git submodule status --recursive`, the recorded commits of `+` (drifted) checkouts via one literal-pathspec `ls-files --stage` per parent, `.gitmodules` parsed in Lua (`parse_gitmodules`), then bounded concurrent queries through `run_jobs` (local pool `MAX_PARALLEL`, network probes all at once): `rev-list --left-right --count` for checkout vs recorded (→ `classify`; `merge-base` / `cat-file -e` follow-ups for unrelated / missing-commit) and for recorded vs `refs/remotes/<origin/branch>` (`.gitmodules` `branch`, `.` = parent's branch, else `origin/HEAD` read from the loose symref for its label), and `ls-remote -q <url> HEAD` for uninitialized entries (`resolve_url` = git's relative-URL rules against the parent's `origin` / worktree; `is_local_url`; caps `MAX_REACH_URLS` / `MAX_LOCAL_URLS`; `REACH_TIMEOUT_MS`; a timeout is `no-answer`, never `unreachable`). Every spawn has a timeout and runs with `GIT_OPTIONAL_LOCKS=0`, `GIT_TERMINAL_PROMPT=0`, `GCM_INTERACTIVE=never`. `items(report)` groups into terse `info` items whose per-submodule `detail` is `detail_verbose`; `json(report)` / `last_report()` feed `lw health --json` `submodules`; `provider(ws)` is registered by `suggestions.lua` with `register_health(fn, { persist = false })` (report-only: never cached) | Run on a passive path; fetch, update or otherwise write the repository; count toward `N suggestions` |
+| `launcher_health.lua` | **Repo launcher/pin checks** (headless §16.31 provider #4, on-demand, report-only, pin-scoped) — a thin **adapter** over `boot/launcher_check.lua`, which owns the checks, wording and remedies shared with the `lw bootstrap` status page (§16.24). `report(start_dir)` → `{root, version, mode, items[]}` or nil (no pin root): runs `launcher_check.run(root, env)` with an env whose `git` goes through `loomworks.exe.system` (both hosts; `GIT_OPTIONAL_LOCKS=0`, per-spawn timeout, `-c core.fsmonitor=false -c core.hooksPath=`) and `sha256 = vim.fn.sha256`, then maps each finding to a Suggestion with the `launcher:` prefix. Remedies are the invoked form of `lw bootstrap install` (`--pin-only` in a pin-only repo). Registered as `suggestions.launcher_provider` with `register_health(fn, { persist = false })` (report-only). |
+| `tool_cache.lua` | **Machine-level tool cache** `<cache>/tools.json` (spec §16.43, §19.11 "Warm restarts"). Over an injectable `env` (`env(overrides)`: getenv, platform, `lw` identity, stat, clock, pid, nonce, exclusive create, rename, unlink). `fingerprints(types)` digests the `lw` identity (`daemon.version.identity`), the search path as `inventory.search_path_entries` normalizes it, PATHEXT, the platform, each search-path directory's mtime, and per type the module id + `api_versions.module`. `detect{needed, detect_one, force?, cancelled?}` reuses each type whose entry's `fp` matches and detects the rest one type at a time, writing each as it finishes (`write`: re-read, replace that type's `types[t] = {tools, timestamp, fp}` and the fields older releases read — `version` 1, `timestamp`, `scanned_types`, `tools_by_type` — into `tools.json.<pid>.<nonce>.tmp`, renamed over with a bounded EACCES/EPERM retry). Once `cancelled()` no further type starts. cli.lua's `cached_detect_tools_async` wraps the core detector with it in every load (in-process and daemon); `cached` mode serves the file as is | Detect tools itself (that is the modules via `merge.detect_tools_async`); lock the file (last writer wins per §16.43); remove leftovers (that is `housekeeping.lua`) |
+| `health_cache.lua` | **Advisory suggestion cache** (headless §16.31) for `suggestions.lua`. Pure module over an injected io: `read(io, root)`/`write(io, root, data)`/`path(root)`/`empty()`, own `SCHEMA_VERSION` independent of the build cache. Stores three tiers (`local_tier {items,computed_at,key}`, `network_tier {items,computed_at,key}`, and the environment inventory's `inventory_tier {results,declared,computed_at,key}` — §16.33, added without a schema bump; a malformed one reads as absent) in `.nvim/loomworks.health.json`. Missing/corrupt/older-schema → `empty()` (never raises); atomic write via the io's `write_json`; `read_file`+decode fallback when the io lacks `read_json` | Compute suggestions or fingerprints (that is `suggestions.lua`); know about the build cache or deletion safety |
+| `sdks/init.lua` | SDK provider registry, lazy loading via rtp discovery (`plugin_loader`). Same strict-equality `api_version` check + one-shot-notify rejection as `modules/init.lua` | Implement provider logic |
+| `plugin_loader.lua` | Loads a configuration-named plugin file (`loomworks.<kind>.<id>`: modules, SDK providers, progress parsers): id must match `^[%w_]+$` (else status `invalid`), file located with `nvim_get_runtime_file` and loaded with `loadfile` (luvi bundle reader for a bundle-relative entry in the standalone host), cached in `package.loaded`. Never `require` — the default `package.path` starts with `./?.lua` (spec §8.0) | Validate the module contract (the registries do) |
+| `sdks/cpp_compiler.lua` | User-declared C/C++ compiler SDK provider. No auto-detection (`detect_all` returns empty); user adds via the SDK section's `▸ Add SDK` action. Calls `cpp_compilers.probe_path` for identification; emits single-compiler cmake caps consumed by `cmake.kits_from_sdk`'s single-compiler branch. Provider-specific key derivation includes a path-derived token so two custom builds of the same family / version at different paths don't collide. See `spec/sdks/cpp_compiler.md` | Contain compiler family knowledge (lives in `cpp_compilers.lua`) |
+| `device_log_records.lua` | A device log's lines as records (shared side, pure Lua): line sanitiser and parser (`MM-DD HH:MM:SS.mmm PID TID LEVEL DOMAIN/PROC/TAG: msg`), the session prefilter (`make_prefilter`: strict = the pid AND the bundle, whichever the launch resolved; unparsed lines pass), `normalize` to the §19.18 record (`ts`, `level` word, `tag`, `pid`, `message`, `fields`). Used by the editor's view and the daemon's `Launch/1.device_log` | Use `vim.*`, spawn anything |
+| `device_log.lua` | Client-side device-log view: the parser and session prefilter of `device_log_records` (re-exported; the prefilter applied at receive), soft filter (level / regex / tag / pid, applied at render), ring buffer (5000 records), bottom-split scratch buffer with level-based extmark highlights. Singleton view, one stream at a time. Streaming task runs under `loomworks.overseer.run_streaming_task` (visible in overseer's task list, killable there). In `daemon` mode (step 5n C3) nothing streams here: `M.start_remote({ banner, open(sink), on_end })` shows a stream the workspace daemon carries — the sink takes the task's `start` meta level (the filter of a new view only), the `log` signal's records (`device_log_records.denormalize`) and `dropped` count (a gap line), its lines and its end (a last line); closing the view (`on_close`, also on `WinClosed`), `M.stop` or `M.stop_remote` cancel it; `M.set_source(fn)` is what opening the view does while nothing streams (the session tracker's: start the active run's stream again); a queue overflow is a gap line in the view | Spawn subprocesses directly (overseer owns the process); persist filter state (in-memory only for v1) |
+
+### Data / IO Layer
+
+| File | Owns | Must NOT do |
+|------|------|-------------|
+| `lsp_db_cleanup.lua` | Pure path checks for module-owned LSP database removal (spec §4.6): `valid_segment`, `check_mirror(root, seg, mirror, normalize)` (rules 3–5: nil→nothing, strictly inside `.nvim/cache/<seg>/` separator-bounded, no `.`/`..`, lstat every level from `.nvim` down — no symlink/junction — realpath strictly under the area's realpath, and on Windows no segment ending in `.`/space), `check_area` (nuke: exact direct child of `.nvim/cache`, no links). Returns `"ok"` / `"absent"` / `nil, reason` | Delete anything; know module names |
+| `io.lua` | Atomic file read/write (sync and async), JSON encode/decode (`write_json` pretty-prints with keys sorted at every depth via `encode_sorted` — stable diffs for user.json / loomworks.json / cache), rm_rf (sync) / rm_rf_async (libuv async fs ops — no subprocess, no shell; `lstat`-based so links/junctions are removed, never followed; read-only files chmod'ed and retried), directory creation, read_file_async/read_files_async (libuv callbacks) | Validate domain semantics; know about loomworks data model |
+| `config.lua` | `loomworks.json` parsing, validation, project type extraction. `_extract_device` lifts a project's `device` block (§18.9) out of the module section (legacy top-level location still read) | Write files (config is read-only) |
+| `user.lua` | `loomworks.user.json` parse/save/defaults; `save` signs (`io.write_json_signed`), stamps `_meta.written_by` and returns the bytes written; `load` returns nil + status for a file not signed by this machine (`"newer"` + message for a newer schema) | Validate beyond structural correctness |
+| `cache.lua` | `loomworks.cache.json` parse/save/defaults, version checking (`parse`'s third value is the `_meta` of a NEWER schema, spec §2.7); `save` signs, stamps `_meta.written_by` and returns the bytes written | Business logic; auto-migration |
+| `save_guard.lua` | Concurrent-writer primitives (spec §2.7), host-neutral, no boot dependency: `version()` (the running release, else CHANGELOG's newest release + `+dev`), `is_newer`, `newer_writer_warning` (warn once per process per file), `newer_schema_message` / `schema_newer`; the save lock `lock(path)` / `unlock(handle)` (`<file>.lock`, exclusive create via `lock_record.create`, the common `lock_record` record whose `lock_nonce` is the token, waits `WAIT_MS`, reclaims a dead holder — or one past `STALE_SECONDS` that cannot be checked — by a nonce-checked rename, never a hung one, unlocks only its own token, gives up → unlocked save); `snapshot_cache(cache)` (per-entry `encode_sorted`) and `merge_cache(ours, theirs, snapshot)` (per entry of `build_dirs`/`deploy_state`/`device_sync`: changed-here wins, all else from disk) | Decide policy (Workspace does), read workspace state |
+| `dir_identity.lua` | `resolve(path, realpath?)`: a directory's physical identity (spec §4.6) — realpath, or for a missing path the realpath of its nearest existing ancestor + the rest (never above a UNC share). Key of shared-dir protection and of the build-directory locks | Case-fold (callers normalize) |
+| `build_lock.lua` | Build-directory lock B (spec §16.6, §19.5): `<dir>.loomworks-lock` beside the dir's `dir_identity.resolve`, exclusive create (`lock_record.create`) + mtime heartbeat (`HEARTBEAT_MS`, `STALE_SECONDS`). Path-level API shared with the device lock: `try_acquire_path(path, op, extra)` (classifies a held lock via `lock_record.classify`; reclaims only `RECLAIMABLE` holders, nonce-checked; the handle carries the reclaimed record as `reclaimed`; the heartbeat stops and marks `lost` once the record is no longer ours), `read_path`, `update_record` (`lock_record.replace`, in-place rewrite only if no rename succeeds), `force_path` (lstat: exactly that regular file), `reclaim_path`. `acquire(dir, op, ctx)` → handle or `nil, message, info`; `set_operation(dir, op)` rewrites a held lock's operation (configure → build, called from `build_run.before_step`); `release` unlinks only a record that is still ours | Decide state recovery (Workspace does) |
+| `lock_record.lua` | The common lock record and holder classification (spec §19.5): `new(op, extra)` → `{ pid, host, start_time, lock_nonce, kind, operation, action, started_at }` (`holder_kind` = `editor`, the CLI sets `lw`), `read(path, stale_s)`, `classify(info)` → dead / live / hung / stale / stale_foreign, `RECLAIMABLE`, `reclaim(path, observed)` (rename aside, compare nonce, restore if not ours), `still_ours`, `create(path, rec)` (record written to `<path>.new.<nonce>` then hard-linked to the lock name — atomic create-if-absent, never an empty lock file; plain O_EXCL create + write where `LINK_UNSUPPORTED`), `replace(path, rec)` (temp + rename over a lock still ours, retried on EACCES/EPERM), `busy_message(info, ctx)` (live / hung / editor / foreign wording with the recovery command), `holder_text`, `operation_of` | Kill processes |
+| `proc.lua` | Process identity and control (spec §19.5): `start_time(pid, method)` → `"win:…"` (`GetProcessTimes`, FFI) / `"linux:<boot id>:<ticks>"` (`/proc/<pid>/stat`) / `"mac:…"` (`proc_pidinfo`, FFI), `false` = gone (incl. zombie / exited), `nil` = cannot tell; `self_start_time`, `alive(pid, st)`, `descendants(pid)` (Toolhelp32 with creation-time check on Windows, `/proc` or `ps` on POSIX), `kill_tree(pid, st, extra)` (SIGSTOP + enumerate + SIGKILL; Windows terminates through a handle whose start time it verified), `interrupt` (POSIX SIGINT only), `_suspend` / `_resume` (tests: NtSuspendProcess / SIGSTOP) | Decide whether to kill |
+| `lock_break.lua` | `--break-locks[=now]` (spec §19.5 steps 1–3): `parse_flag`, `can_break(info, ctx)` (never another host, an editor holder, this process, or a holder whose start time cannot be checked), `break_holder(info, ctx, opts)` (ask → wait `ASK_MS` → `proc.kill_tree` → verify; every line to `report` and `log`). Process-wide `requested` / `command` / `report` / `log` set by the CLI | Reclaim (the caller's next acquisition does, nonce-checked) |
+| `op_lock.lua` | Workspace operation lock O (spec §19.3): `<root>/.nvim/loomworks.op.lock` on `build_lock`'s path API, acquired through `lock_break.acquire` (fail-fast, `--break-locks`). `acquire(root, op)` → token (re-entrant per process: nested tokens share the lockfile, released with the outermost), `release`, `release_all` (CLI exit hook), `held`, `read`, `ctx()` (the `workspace busy: …` message style), `guard(class, method, op, ws_of)` wraps a method so it runs holding O via `ws:_op_lock` / `ws:_op_unlock` | Take B/D/F locks |
+| `txn.lua` | Crash-consistent multi-file commits (spec §19.4): `begin(root, op)` (re-entrant; takes the three files' save locks in §19.3 order and marks them held — `save_guard._hold` — so the saves inside re-enter them; installs `io._txn_hook`), the hook stages `write_file_atomic` of a workspace file to `<file>.txn-<id>` (flushed) and serves `read_file` the staged bytes; `finish(t)` (one file: rename; several: journal `.nvim/loomworks.txn.json` → per entry `.bak` + rename → dir flush → remove journal), `abort` / `abandon` (remove staged copies), `read_journal` (validation), `recover_locked(root)` (roll forward / refuse), `strays`, `discard_locked`; `_crash_at` test seam | Take O (callers hold it) |
+| `trust.lua` | Workspace trust crypto (spec §17.2–§17.3): the per-machine key (`<data dir>/trust.key`, created `O_EXCL` + `0600`), pure-Lua SHA-256/HMAC-SHA256 over LuaJIT `bit` (the content digest is the host's `vim.fn.sha256`), `sign(kind, text)` / `verify(kind, text) → valid|unsigned|invalid, signed_bytes` with the signature as the first member line, `sign_file` (the explicit trust decision, refuses if the file changed since review); on POSIX the key and its directory must be owned by the effective uid and not group/other-writable (lstat, `_check_owner`; formats.md §2.1), else `key()` errors naming the file and creates nothing | Decide policy (callers decide what refusal means) |
+| `program_fields.lua` | Program-bearing fields (spec §17.6): `strip(config, modules)` removes them from the parsed shared config before any merge (generic: configuration/override `env`, launches naming command/args/env/working_dir, non-local deploy destinations, shared SDK paths; plus each module's `trust_fields.type_config`), `regraft(raw, ignored)` restores them on publish, `active(ignored, merged)` (the ones the working copy does not supply: `Workspace:ignored_program_settings()`, counted by the `lw status` Trust row and `build_run.trust_notice`, which both build hosts print, §17.10), `diagnostics(ignored, merged)`, `review(user_data, modules)` for the trust prompt | Know module names |
+| `env_policy.lua` | Environment denylist (spec §17.9): `is_denied(name)` (case-insensitive, prefix entries), `filter(env, opts)` with one-time warnings (silent for a captured tool env that repeats the process's own value) | Touch the process environment |
+| `file_tracker.lua` | Watching three JSON files via `uv.fs_poll`, content-change deduplication; `watch_signal(path, cb)` adds a stat-change watch (no content read) for directories — used for the cmake file-api reply dir (owned-DB regen trigger) | Domain logic; know about merge or profiles |
+| `config_editor.lua` | **Legacy** — retained for backward compatibility but not used at runtime. Mutation methods (`add_project`, `remove_project`, `add_configuration_set`, etc.) have moved to Workspace. Only `create_workspace` remains as a standalone entry point (paralleled by `workspace.create_workspace_config`) | Domain logic; know about runtime model |
+| `api_versions.lua` | Strict-equality version constants (`module`, `sdk`) for the plugin-interface registries. Both `modules.get` and `sdks.get` refuse to load plugins whose declared `api_version` doesn't match. See specification.md §8.0 for the bump policy | Track an interface that already has a more direct registration path (LSP, debug) |
+| `modules/init.lua` | Module registry, lazy loading via rtp discovery (`plugin_loader`; a non-identifier id is rejected like a version mismatch), detection orchestration (`detect_all_types`, `scan_directory_async`). Strict-equality `api_version` check at load with one-shot notify on mismatch; rejected ids stay rejected for the session | Implement module logic |
+| `modules/cmake.lua` | CMake module: detect, validate, info (preset + loomworks config separation), default_configurations, resolve_configurations (inheritance model), resolve_options/resolve_options_with_sources (option merge with source tracking), resolve_variant_source, tasks (CMAKE_BUILD_TYPE auto-set, user -D options), inspect, detect_tools/detect_tools_async, parse_targets (target discovery), get_options (cache variables), lsp_configs (clangd + qmlls entries). **Owns the clangd compilation database for EVERY generator** (Ninja/Make included, not just VS/Xcode): reconstructs `compile_commands.json` from the file-api into `.nvim/cache/cc/` and points clangd there, unless a config sets `compile_commands_generated = false` (fall back to the native DB) or `compile_commands_from` redirects. Never decodes the monolithic native DB — decodes only the chunked per-target file-api replies and **stream-encodes** its output entry-by-entry (`write_cc_stream`, never one giant `vim.json.encode`). Augments the DB with **header entries** via Tier-1 nearest-ancestor directory attribution (`_target_attribution_index` + `_build_header_entries`; listed headers direct, unlisted via a bounded dir listing, unattributable omitted). Regen is mtime-gated (`refresh_generated_cc`) and driven from three idempotent triggers via the generic hooks `refresh_lsp_database`/`lsp_database_watch_path`: lsp_configs, configure/build completion, and a reply-dir `fs_poll` watch. Also parse_targets (target discovery), map_variant. **Applies the core-resolved `ctx.compiler_cache`** on the non-preset configure path: injects `CMAKE_C/CXX_COMPILER_LAUNCHER` (feature-owns it over a user-set value, §4f) plus MSVC/clang-cl single-config `/Z7` (`CMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded` + `CMAKE_POLICY_DEFAULT_CMP0141=NEW`, cmake ≥3.25, unless the user pinned either key or a `/Zi`-style option), warns on a preset, and records the launcher in `module_info.cache_launcher`. **Faithful reconfigure** (§5d, core §5.1): records every `-D` it passes in `module_info.passed_options` (on the preset path too — the appended user options); on the next configure ANY difference against that record, the recorded generator, or core's recorded `configure_env` vs the current `configuration_env` — or a configured unit with no record, or one whose `record_version` differs from `M.configure_record_version` (an older lw), or `force_full_reconfigure` — is a **full reconfigure**: `--fresh` (cmake ≥3.24, also with `--preset`) or `pre_configure_reset = {CMakeCache.txt, CMakeFiles}` below 3.24. The only in-place change is one confined to `CMAKE_C/CXX_COMPILER_LAUNCHER` (`IN_PLACE_KEYS`): re-passed, or retracted with `-U<key>`. **Launcher applicability**: `cache_launcher_applicable` returns `false, reason, hint` for a preset (`"preset"`) and for a generator outside the Ninja/Makefile families (`"<generator> generator"`, e.g. Visual Studio, Xcode — CMake ignores the launcher there); `M.tasks` then injects no launcher (nor the MSVC debug-info keys), records `"none"` and warns once. `cache_compat_scan` also reports a `/Zi`-style token in the configuration environment's `CL` / `_CL_` (`group = "environment"`). `cache_compat_scan(ctx)` scans every target's file-api `compileCommandFragments` (same reader as the owned compile_commands) for `/Zi`-style flags on an MSVC-style kit; `scanned=false` without a codemodel reply. `cache_compat_stamp(ctx)` = the name of the newest file-api reply `index-*.json` (CMake writes a new one on every (re)configure, including the re-run ninja triggers itself; a constant for a gcc/clang kit). Static `has_keyed_tools = true`, `has_options = true` | Know about profiles, UI, or overseer |
+| `modules/meson.lua` | Meson module: detect (meson.build), validate, info (defaults Debug/Release/RelWithDebInfo mapping to buildtype), resolve_configurations (inheritance on top of defaults), tasks (meson setup + compile; auto-picks --reconfigure on re-setup, or the full `--wipe` reconfigure below (a launcher change included — meson fixes the compiler command at first setup); pins the compiler+launcher via a **generated `--native-file`** `[binaries]` LIST — space-safe, unlike the `CC`/`CXX` env string meson shlex-splits — or the bare compiler when off, suppressing meson's implicit PATH ccache, and records the launcher (or the `"none"` sentinel) in `module_info.cache_launcher`; records its `-D` options in `module_info.passed_options` (plus `buildtype` and `cross_file`) and, on ANY changed configure input vs those records, the recorded launcher, or core's recorded `configure_env` — or a configured unit with no record, or one whose `record_version` differs from `M.configure_record_version` (an older lw), or `force_full_reconfigure` — does the full reconfigure: `pre_configure_reset = {meson-private/cmd_line.txt}` + `setup --wipe` (no in-place set; an unchanged re-setup uses `--reconfigure`); `cache_compat_scan(ctx)` reads `meson-info/intro-targets.json` directly (no spawn) for `/Zi`-style per-source parameters on an MSVC-style tool, `cache_compat_stamp(ctx)` stats it (mtime+size); -D option args; optional --cross-file), clean_tasks (meson compile --clean), parse_targets/parse_targets_async (via `meson introspect --targets`), get_options (via `meson introspect --buildoptions`, grouped by section; blocking, the in-process float's read) / get_options_async (the same read spawned through `opts.system` or `vim.system`, spec §8 — the daemon's `unit_options` read), lsp_configs (clangd entry with build_dir as compile_commands_dir), inspect (meson.build / meson.options / meson_options.txt staleness), detect_tools/detect_tools_async (meson on PATH, then pip-user Scripts dir via Python sysconfig probe; non-keyed), create_test_unit (MesonTestUnit), map_variant. Static `has_keyed_tools = false`, `has_options = true` | Anything beyond the module interface |
+| `test_units/meson.lua` | MesonTestUnit: wraps `meson introspect --tests` for discovery, gtest framework probing via shared helper, direct-exe gtest XML runs for per-test results. Same runtime surface as CTestUnit | Know about the meson module internals |
+| `test_targets.lua` | Pure helper for the generic `tests` field (spec §1.3.4): parse / serialize the array of entries (`"Name"` / `["Name", args…]` / `{ name, args?, working_dir? }`, unknown table keys kept verbatim, written back in the shortest form; duplicates kept and indexed by occurrence; an invalid entry or a non-array declaration kept verbatim and reported once), strip it from what a module sees (`strip_from_type_config`) and graft it back onto `info()` echoes (`adopt_declared`), resolve an entry (`resolve_entry`: a launch configuration first, else an executable target; a trust-ignored launch is missing), entry labels / ids, source / level labels. The declarations live on `Project` (project-wide, lifted out of the module section like `description`) and `Configuration` (own list; `test_targets()` walks own → bases → project-wide) | Hold workspace state; touch a build directory |
+| `test_units/saved_targets.lua` | Core-owned SavedTargetsTestUnit (spec §1.3.4, §8.9.2): serves a configuration's saved test targets through generic seams only — `parse_targets` executables, `Target:resolve_run_spec`, the gtest helper. Emits `target:<name>` / `launch:<name>` (`#<k>` for a repeated name's k-th occurrence; gtest children for gtest build-target programs, ids suffixed `@<entry id>` under a launch or later-occurrence entry), errored non-runnable entries for missing names; runs each entry in its `working_dir` (else the launch's, else the project directory); `launch` entries run the launch's deploy steps and run spec — the deploy as the command's `prepare`, which the runners (`ConfigUnit:_run_test_task`, loomtest's runner) call when the step executes, a failure failing that step; args and `working_dir` expanded with the launch-context expander (`expand.launch_context(…, { target })`, which defines `${target_dir}`); no `run_command_all`. Appended by `ConfigUnit:test_units()` when `ConfigUnit:saved_test_targets()` resolves non-empty — also for an invalid declaration (a `tests` that is not an array), whose failure then shows as an errored entry | Know any module's internals; act as a batch runner |
+| `modules/shell.lua` | Generic shell-command runner. Wraps user-declared `configure_cmd`/`build_cmd`/`clean_cmd` with variable expansion. `progress_parser` returns the ninja parser unconditionally (try-only: matches `[N/M]` lines, no-ops otherwise so non-ninja shell builds simply emit no progress). `lsp_configs` emits a clangd entry only when `shell.compile_commands` is set. `detect = nil` (manually-declared only). Static `has_keyed_tools = false`, `has_options = false`, `has_devices = false` | Auto-detect; introspect build options; own build-system knowledge |
+| `modules/typescript.lua` | TypeScript shim module (detect + validate + info + default_configurations + detect_tools_async + map_variant). Defaults always present, user configs merged on top. Static `has_keyed_tools = false`, `has_options = false` | Anything beyond the shim interface |
+| `progress/init.lua` | Parser registry mapping tool names to parser functions | Parse output itself |
+| `progress/ninja.lua` | Ninja `[n/m]` output parser | Know about other build tools |
+| `types.lua` | LuaCATS type annotations for all data shapes | Contain runtime code (never `require`d) |
+
+### UI Layer
+
+| File | Owns | Must NOT do |
+|------|------|-------------|
+| `ui/status.lua` | Wiring: creates Tree + View, assembles `ctx` from API, requires sections in order | Contain rendering logic; do I/O |
+| `ui/view.lua` | Window lifecycle via Snacks.win (open/close/toggle), keymap registration, event-driven refresh, animation timer | Know about section content; contain domain logic |
+| `ui/dialog.lua` | Snacks.win-based dialog helper for floating dialogs (help, confirm, options) | Domain logic |
+| `ui/tree.lua` | Foldable tree widget: node/leaf/item/group/blank primitives, fold state, action dispatch (walk-up with action picker on Enter), buffer rendering. **Descriptions** (ui §1.16): the render-only `description` opt appends the fitted summary (`_append_summary`, uses `tree.width`, set by the View from the window before each render); `Tree:description(desc, from_module)` renders the expanded leaves (8-line cap); `line_hover` maps a line to its `K` content (the render-only `hover` opt and description leaves) | Know about loomworks domain; do I/O |
+| `ui/actions.lua` | Action factories: capture context at render time, return closures for deferred execution. The deletions' and the nuke's one confirmation flow (`confirm_deletion`, step 5o C2c-2: the `confirm` listing, `y` sends its plan, the outcome at the end). Profile creation multi-step picker (`create_profile`). Model writes go through `ui/model_calls.lua` | Render tree nodes; own state |
+| `ui/model_calls.lua` | **The status page's one route to model writes** (step 5o C0, spec §19.19): `call(ws, method, params, cb)` with `method` a catalogue method named with its interface (`"Profiles/1.set_active"`, `"Maintenance/1.execute_deletion"`, …; §19.20); `cb(r)` gets the outcome (API.md §4.1: `ok` with the result fields, `confirm { lines, plan }` — a deletion's also `unit_ids` —, or `refused`; `result(r)` → `ok, err`, a `warn` note reported as the error). *(5o C2a)* An entity param of `Workspace/1`, `Profiles/1` and `ConfigSets/1` is the **row** the action was taken on (a `view.Workspace/1` row, a `ConfigSets/1.candidates` entry, or a `helpers.row_item` description handle, `_row`); *(5o C2b, first half)* likewise `Projects/1.candidates` / `add` (the project browser's add), `declaration` (the variable editor's read), `configuration_remove`, `launch_remove`, `variable_save` / `variable_remove` and `type_config_set`, *(C2b2-1)* `configuration_save` (the configuration editor, which reads all it shows from `declaration`: a row without an id is refused, `fields` sent without the name, an empty `options` / `variables` as an object), and *(C2b2-2)* `launch_save` (a `launch` row without an id refused; an empty `env` / `deploy` absent on the wire), `deploy_save` (the whole declared deploy; an empty one absent) and `expand_preview` (the path previews; in-process `workspace_view.expand_preview`), whose `project` / `configuration` / `launch` is the project's row or one of its `configurations[]` / `launches[]` rows and a variable or field is named within it: in `daemon` mode those methods are only calls to the workspace daemon (`ROUTED`: the row's `{ id }`, a candidate's `{ candidate }`, a dialog's Project → Configuration mappings as `[{ project = { id }, configuration = { id } }]`; refused — never run in-process — when the daemon cannot carry them or a row has no id), through the observer's plain `request`; in the `in-process` mode the in-process bodies (`CALLS`, the `workspace_view` adapters over `model_commands`) act on the object the in-process view bound to the row (`status_source.object_of`; a set row's mapping entries, preset rows and the set dialog's configuration choices are bound too, so `helpers.same_entity` compares ids in `daemon` mode and bound objects in-process, never keys). `ws` nil: the loaded workspace (`observer.loaded_workspace()`, the last attached until torn down), its mode its runtime selection — never whether an observer is attached, so in `daemon` mode with the observer gone a routed method is refused. No workspace loaded at all (its load failed, or a trust or schema refusal unloaded it): the mode is the setup selection (`loomworks.runtime_mode()`), and in `daemon` mode every method is refused at once, nothing sent and nothing run — `Maintenance/1.nuke`, `Workspace/1.trust_accept` and `Workspace/1.delete_user_prefs` naming `lw nuke` / `lw trust` / `lw trust --discard` (`NO_WORKSPACE`; spec §19.16 "Model writes"); the refused-state hint of `ui/status.lua` then shows those commands instead of the keys. *(C2c-1)* `Sdks/1.detect` (the SDK picker's read: each installation's path and version, the provider's `path_prompt`), `add` (a typed path made absolute by the SDK section first) and `remove` (`sdk` the SDK's row, sent by its id), and `Toolchains/1.rescan` (`L`, a `warn` note notified) are likewise routed. *(C2c-2)* `Maintenance/1.execute_deletion` (`target` a profile row, a profile's unit row — sent by its `unit_id` — an orphaned entry's row, a project row (the project row's `D` and the project browser's `d`), a stray directory's path exactly as listed, or `orphans = true`) and `Maintenance/1.nuke` (no root ever sent) — so every method is routed (a guard asserts it); *(C2d-1)* `Build/1.build` / `configure` / `clean` (`profile` a profile row or `units` unit rows, `jobs`, `force`): in `daemon` mode `editor_ops.run_ids` by the rows' ids (a profile row's `id`, a unit row's `unit_id`), a task the editor owns answered at its end (`refused` with `notified` when editor_ops reported it); in-process the bound objects' `build` / `configure` / `clean` and `overseer.run_configuration_action` (a unit row's project-in-profile's unit); *(C2d-2)* `Projects/1.unit_options` (`unit` a profile's unit row, sent by its `unit_id`; in-process the bound unit's synchronous `options()`) and `Profiles/1.set_device` / `clear_device` (`profile` a profile row, `device` a scanned `Devices/1` record, both sent by id; in-process `device_source.select` / `clear` on the bound profile). `ui/actions.lua` builds the clean / rebuild confirmation from the rows (`clean_confirmation`: the units listing a configured build directory; the running tasks it stops — in `daemon` mode the editor's own calls on those ids, in-process the rows' running builds and configures; the listed units are display only), always sends the clean — nothing to clean is the clean's own answer (the daemon's `refused` on stdout, INFO and `ok`; in-process resolved at once), never decided from the rows — and chains a rebuild's build on its clean's `ok`: one confirm + plan flow in both modes (`ui/actions.confirm_deletion`: called without `plan` → `confirm { lines, plan }`, `y` → the same call with that `plan` and `yes`; `yes` without a plan is refused before any call); in `daemon` mode the confirmed call is a task the editor owns (`Observer:start_owned`), followed to its `done` (`cb` once: `ok` for exit 0, else the task's end as a refusal; never at `accepted`), the editor's own owned tasks on the target (every one for a nuke) cancelled first (`editor_ops.cancel_owned_matching`; matched by the meta's ids — the `unit_ids` the daemon's `confirm` listed (the units whose build state the plan removes: a project's every unit, also one no profile maps; a profile's not kept; none for orphans and stray directories; `actions.confirm_deletion` passes them back with `yes`, editor-side only, never sent) and, for a profile, its row id — or, before a call's `start`, by the ids it was sent with; never by key or path; C2d-2) and listed in the confirmation; in-process `workspace_view.execute_deletion` / `nuke` over `model_commands.execute_deletion` / `nuke`. Guarded by `tests/ui_model_calls_spec.lua` (only this ui/ file reaches a model write — the view-model's adapters, the command layer, the workspace's and the domain objects' write methods such as `:activate(`, `:set_intent(`, `:update_mapping(`, `:add_tool(` / `:remove_tool(`, `:map_variant(`, `:remove_project(`; recorded exception: the LSP section's `lw.set_lsp_option`, which in `daemon` mode is already only `LspConfig/1.set_option`, `editor_ops.set_lsp_option`) | Be bypassed by another ui/ file; resolve objects by key; run a routed method in-process in `daemon` mode |
+| `ui/project_browser.lua` | Directory browser float for adding/removing projects. Async scanning via modules, lazy fold-to-scan, add/remove through `ui/model_calls.lua` (`Projects/1.candidates` for the key and path, then `Projects/1.add`, unmapped; `Maintenance/1.execute_deletion { project }` naming the workspace view's project row of the entry's directory, 5o C2c-2). The "already added" marks come from the workspace view's project rows in `daemon` mode (5o C2b), else the editor's model | Own persistent state |
+| `ui/config_set_editor.lua` | Edit dialog for config set mappings (create and edit). Editable name row with inline validation, project→variant picker rows. Used for both new and existing sets | Own persistent state |
+| `ui/description_editor.lua` | Git-commit-style description editor float (spec/ui.md §1.16): an `acwrite` scratch buffer with filetype `loomworks_description`, pre-filled with the text plus `#` help lines. BufWriteCmd → `description.strip_comments` → `Workspace/1.set_description` through `ui/model_calls.lua`; an empty result clears. Refusals are shown inline. `open(item, { on_saved })`, `item` a domain object or (5o C2a) a `helpers.row_item(kind, row, label)` handle naming the item by its view row; `editable(item)` refuses generated configurations (a handle's `_readonly`). Opened by the status page `e` action, the `<CR>` picker's "Edit description" and the `Description ▸` rows of the config-set/configuration editor dialogs | Own persistent state |
+| `ui/config_editor_dialog.lua` | Edit dialog for project configuration properties, opened by the Projects section on the project's `Projects/1.declaration` (5o C2b2-1: declared fields, and the derived variant and its source, inherited options, resolved variables and every build dir of the configuration's units). Supports name, inherits (multi-base with reordering), options (unified view with inheritance sources), variables (override/clear with provenance), compiler-family `overrides` (read-only, marks the family active under the current profile's tool), toolchain, generator. Abstract mixin detection | Own persistent state |
+| `ui/launch_editor.lua` | Edit dialog for launch config properties: name, command, args, working_dir, env, deploy steps, debug languages. Deploy entries open deploy_editor on enter. Everything beyond the launch's fields comes from the caller (5o C2b2-2): the project's declared variables, the workspace view's project and profile rows (passed on to deploy_editor), a `preview(template, cb)` (`Projects/1.expand_preview`) for its path editors and `debug_adapters()` (`DebugConfig/1` records via `editor_ops.debug_adapters`, read at each render) for the adapters, and `debug_languages(cb)` (`DebugConfig/1.known_languages` via `editor_ops.debug_languages`, read when "Add debug language" is chosen) for the language picker — never the editor's model | Own persistent state; read the editor's model |
+| `ui/deploy_editor.lua` | Edit dialog for a single deploy step. Segment-based destination path builder (variable picker + literal text). Source picker for project, configuration, target from the workspace view's rows (projects, `configurations[].key`; the profiles' units' `targets`). Destination preview from the caller's `preview` (async, `path_editor.preview_cache`); source preview from the active profile's unit row (`build_dir`, `targets[].artifact`) | Own persistent state; read the editor's model |
+| `ui/path_editor.lua` | Reusable segment-based path editor dialog: the variables and the `preview(template, cb)` come from the caller; `preview_cache(fetch, refresh)` — a dialog's previews, asked once per template, shown when the answer arrives (at once in-process) | Own persistent state; read the editor's model |
+| `ui/variable_editor.lua` | Edit dialog for a project variable declaration: name, type (string/path), default value | Own persistent state |
+| `ui/helpers.lua` | Shared formatting: progress strings, elapsed time, config status resolution; description affordances (ui §1.16): `with_description(opts, item)` (summary + `hover` + `on_describe`), `picker_summary(desc, cols)`, `description_row(t, item, label, refresh)` for editor dialogs; `actionable(ctx, row)` — whether a routed action is offered on a view row (5o C2b2-1: in `daemon` mode the row has an id, even for a project the editor's model does not have yet; in-process the view bound an object to it) | Side effects; domain logic |
+| `ui/sections/*.lua` | Pure render functions `(tree, ctx) → void`. Each section is a single function that calls tree methods; their actions write the model only through `ui/model_calls.lua` | Call core directly; do I/O; hold state; write the model any other way |
+
+### Integrations
+
+| File | Owns | Must NOT do |
+|------|------|-------------|
+| `overseer.lua` | Template provider registration, task collection from modules, task launching with readiness checks and build dir lock acquisition, auto-configure-before-build (`filter_unconfigured_tasks` stamps each selected configure task's `configure_reason`, computed by `unit:configure_reason(forced, lw_meta.profile)` — every task's `lw_meta.profile` is the profile whose context assembled it (the profile being built; the active one for a unit-scoped action) and plan steps carry it as `profile`, so staleness and the post-configure record resolve in the same context, spec §5.1 *Resolution context*; `configure_reason_line(meta)` composes it with the module's `reconfigure`/`reconfigure_detail` into the one-line report the CLI prints and `start_one_task` logs; `command_text(spec)` (a spec's `display_cmd` — the command a wrapper runs, e.g. cmake's vcvarsall batch — else `cmd`, via `term.format_argv`) and `log_task_command(ws, name, spec, cwd)` (info-level `name: $ <argv>  (in <cwd>)`, control characters escaped) are shared by `start_one_task` (logged from the raw builder result, then `display_cmd` is stripped before `harden`/overseer) and the CLI's `run_build_steps` (via `build_run.step_lines`; always logged; printed under `==> [kind]` with `lw build -v`), and `plan_profile_build` steps carry `display_cmd`; `plan_profile_build(profile, { reconfigure = true })` forwards `force_full_reconfigure` into the module context and selects every configure task — `lw build --reconfigure`), profile-level operations (an invalid ProfileProject — `pp_refusal`, over `ProfileProject:invalid_reason`: a tool compat error or a refused build directory — is left out of every profile-level plan — `collect_profile_tasks` (`loomworks.ProfileTaskDefs`) and `collect_profile_clean_tasks` name it in `refused` via `refusal_line` (`refused_message(refused)` is the failure text both hosts report — here, not in build_run, so the editor reaches it without a plugin→binary require; `collect_profile_clean_tasks` also drops a core-performed wipe of a refused ProfileProject's build directory, kept even when a valid one shares it); `plan_profile_build` / `plan_profile_clean` / `plan_profile_test` return it, and the editor's profile action / `Profile:clean` pass it to their Operation's `refused`, which counts it finished and failed, core §5.4 "Invalid ProfileProjects"); **nice/ionice cmd wrapping** for action ∈ {configure, build, clean} (Linux only, via `loomworks.nice`) so long tasks yield CPU/IO to the editor. **Assembles the `ModuleContext`** each module's `tasks()` sees, and single-sources the compiler-cache fields at every build-context site: `compiler_cache = {tool,path}|nil` (core-resolved via `compiler_cache.resolve_for`) that the module applies, and `recorded_cache_launcher` (the unit's frozen `module_info.cache_launcher`) that lets a module detect a launcher change, plus the previous-configure record `recorded_module_info` (the unit's `module_info`) / `recorded_options` (core's option snapshot) that lets a module classify a reconfigure, and the **configuration environment** (spec §1.3.3): `configuration_env` (resolved via `config_env.resolve`) and `env` = tool env with `configuration_env` layered on top (`config_env.compose`), at every context-assembly site (configure/build/clean, per-unit and per-profile, `build_spec_for`; `target.lua`'s per-target build uses the same composition) — all additive-optional (no `api_version` bump). **Faithful reconfigure** (spec §5.1): a configure task's optional `pre_configure_reset` (build-dir-relative configure-state entries) is executed by core — `start_one_task` runs `Workspace:_pre_configure_reset` after acquiring the exclusive lock and before the builder (refusal releases the locks and rejects), and `plan_profile_build` steps carry it (plus `module_info`) so the headless runner does the same. A clean task declaring `wipe_build_dir` (shell's default clean) has no command: `run_*_clean` call `_wipe_build_dir` (`_validate_build_dir` — never the root — then `io.rm_rf_async`), `plan_profile_clean` emits a `wipe_build_dir` step the CLI validates + `io.rm_rf`s. Every `new_task` spec first passes `harden` (`loomworks.exe.harden_spec`) | Import core.lua directly; own state beyond task generation |
+| `lsp.lua` | LSP dispatch layer + plugin-style integration registry. On load, scans every runtime path for `integrations/lsp/*.lua` and requires each — integrations self-register via `register(server, M)`. Exposes generic `cmd(server, base)` / `root_dir(server, fallback)` factories, a `setup_servers(opts)` that installs enabled integrations via `vim.lsp.config` + `vim.lsp.enable`, buffer excludes (`default_excludes()` / `excluded(bufnr)` + `LspAttach` detach autocmd) applied uniformly across all managed integrations, `get_status()` dispatching per-server status fields to integrations, and the **generic restart machinery**: `wrap_on_exit(server, user_on_exit)` distinguishes managed-stop / clean external stop / unexpected death; `mark_managed_stop(client_id)` lets integrations flag their own intentional stops; per-`(server, root_dir)` throttle (4 attempts / 5min sliding window) deferring with `vim.defer_fn`; `is_suppressed` / `clear_suppression` / `reset_attempts` for the UI Reset path; subscribes to `lsp_options_changed` and dispatches to integrations' `on_lsp_options_changed` for cmd-affecting toggles. Reads projects, entries, options and readiness only through `lsp_source.lua` (never the model). **The entries are content-memoized** (in `lsp_config.lua`): on `active_set_changed` every integration iterates every project's entries, so a per-project cache keyed on `{generation, ws.root, project.key, active-profile key, resolved build_dir/config_key/build-state/tool, fallback cached.build_dir + tool_data clangd, hash(type_config)}` returns the prior `module.lsp_configs()` result on a hit — a no-op switch and the second integration on a tick pay nothing. The memo is blown on `workspace_changed` / `workspace_closed` and its keys invalidated (generation bump) on `lsp_options_changed`; the early return-on-hit is structured so a future mtime-guarded side effect inside `lsp_configs` is skipped on hits too | Contain server-specific wiring (lives in `integrations/lsp/<server>.lua`) |
+| `lsp_config.lua` | The LSP configuration state (shared side, host-neutral): the `lsp_configs` content memo (per environment in the daemon: at most `ENV_SLOTS` (4) environments per project, least recently used dropped first, each named by the SHA-256 of its signature), `db_state` derivation, the core `db_dir` / `db_rev` entry fields, `state(ws, opts)` in the `LspConfig/1.get` shape and its `signature` | Use `vim.*`, start servers, decide withhold reasons (integrations do) |
+| `lsp_source.lua` | Where `lsp.lua` and the integrations read the LSP state: in `daemon` mode the daemon's alone (the observer's `lsp_phase`: in use, waiting or unavailable instead of any fallback), the in-process state from the `loomworks` facade only in `in-process` mode until step 6b; the change diff, option writes through the daemon | Let the LSP layer reach into the model any other way; fall back to the in-process state in `daemon` mode |
+| `status_source.lua` | Where the status page's body reads (step 5n part C1): in `daemon` mode only the daemon's `view.Workspace/1` (or why it is not held), its progress overlaid from the observed `Tasks/1` tasks; in `in-process` mode the view built from the model with each row bound to its object (`bind` / `object_of`, the rows' weak registry `ui/model_calls.lua` resolves in-process params by; `forget()` on `Workspace:teardown`). `modified(ws)`: the status buffer's 'modified' — in `daemon` mode the daemon's view's `modified` while held and fresh, else the model's (5o C2a) | Build any of the body in-process in `daemon` mode |
+| `device_source.lua` | Where the editor reads devices (step 5n parts A and C2): the device list and scan, a profile's chosen device, selecting and clearing it — for the status page's device row, `lw.scan_devices` / `lw.get_devices` and the session tracker's device prompt — as `DeviceRecord`s (the `Devices/1.list` shape). `daemon` mode: only the daemon (`editor_ops.devices` / `scan_devices` / `set_device`: the observer's cached `Devices/1.list`, re-read on `changed`; a `Devices/1.scan` task; `Profiles/1.set_device` / `clear_device`), refused when not carried; `in-process` mode: the workspace's device registry and the profile's selection | Let those callers read devices from the model any other way; run any of it in-process in `daemon` mode |
+| `integrations/lsp/clangd.lua` | clangd-specific wiring: `build_config(user_cfg)` for zero-config setup, function-based cmd + root_dir (resolve per-buffer: SDK clangd inside workspace, user base cmd outside), auto-restart on workspace/active set changes, capability auto-detection for blink.cmp/cmp_nvim_lsp, binary_required enforcement; **always-on `--pch-storage=disk`** + **user-configurable `--clang-tidy`/`--background-index`/`--background-index-priority`/`extra_args`** appended to every cmd (last-wins via LLVM `cl::opt`); reads via `Workspace:get_lsp_options("clangd")` (defaults applied); coalesced restart on `on_lsp_options_changed`; **OOM-adaptive `-j` step-down** via `on_unexpected_exit` (seed `-j 12` on first OOM, halve to 1 floor, give up after); single-retry policy for non-OOM crashes; nvim LSP log snapshot rotation (5 generations) on every (re)start; `reset(root_dir)` clears adaptive state and re-enables clangd | Reference specific modules; read `project.cmake` or other module-specific fields |
+| `fidget.lua` | fidget.nvim progress handles for operations and tasks | Require fidget.nvim unconditionally (graceful no-op) |
+| `task_tracker.lua` | Overseer component bridging task lifecycle to ConfigUnit, cache recording, and build dir lock release on completion/dispose (idempotent) | Be imported by anything except overseer |
+| `lualine/components/loomworks.lua` | Winbar component showing active profile context for current buffer, from `lw.buf_status()` (the view store) | Import core.lua or loomworks.events; do anything beyond formatting |
+
+---
+
+## Data Flow
+
+### Startup (async)
+
+Startup is non-blocking. File reads and tool detection run asynchronously
+so the Neovim UI is never frozen.
+
+```
+plugin/loomworks.lua
+  → init.lua: setup({ root = path })
+    → fidget.setup() (register event listeners — fast, no I/O)
+    → core.lua: setup()
+      → state = "initializing", emit "workspace_initializing"
+      → read_files_async([config, user, cache])        ← libuv async I/O
+        → vim.schedule → core._on_files_read()
+          → workspace.assemble(root, config, user, cache, { trust, modules })
+              ← verifies the .nvim signatures (only signed bytes are parsed) and
+                strips loomworks.json program-bearing fields (program_fields)
+          → core:_trust_error(): unsigned/invalid working copy or invalid cache
+              → refuse (setup_error.trust; status page T/U/<C-n>, `lw trust`/`lw nuke`)
+          → cache version check (refuse if incompatible; version 8 is migrated in memory)
+          → core._validate_projects()
+          → Workspace.new(core, data)                  ← creates domain container
+          → ws:_migrate_set_names()
+          → ws:_cleanup_orphaned_skeletons()
+          → ws:remerge()                               ← merge + sync all registries
+          → state = "initialized", emit "workspace_changed"
+          → unsigned (pre-trust) cache → notice only; held as empty in memory,
+            replaced by the next cache write (loading never writes)
+          → ws:_start_tracking(paths)                  ← file watcher owned by Workspace
+          → ws:_scan_tools_async()
+            → tool_state = "scanning", emit "tools_scanning"
+            → detect_tools_async(config, cache)        ← vim.system for MSVC (msvc.lua) / compilers
+              → vim.schedule → store results → ws:remerge()
+              → tool_state = "scanned", emit "tools_detected"
+              → flush _tool_waiters
+              → ws:_scan_targets_async()                 ← active-profile units first
+                → parse targets + refresh owned LSP DBs (§9.7)
+                → active-profile DBs settled → _lsp_ready = true, emit "lsp_ready"
+```
+
+Every `*_async` detector is genuinely non-blocking. The "which binaries
+exist" gate resolves each candidate name through a **cached PATH executable
+index** (`cpp_compilers.lookup_path` / `_build_path_index`): the index is
+built once by scanning each `$PATH` directory a single time with `fs_scandir`,
+so a candidate lookup is O(1) instead of a full PATH search. Only **regular
+files** are indexed — a `"file"` scandir entry directly, a link/unknown type only
+when `fs_stat` (which follows links) says it is a file — so a directory named like
+a tool (a `ccache/` folder on PATH) can neither be returned nor shadow the real
+executable later on PATH. On Windows a name is an executable only when its
+extension is in `PATHEXT` (the env var, default `.COM;.EXE;.BAT;.CMD`): the key is
+the lower-cased base name without that extension, and within one directory the
+earlier `PATHEXT` extension wins; the first PATH directory holding a name wins
+overall. On Unix the filename is the key verbatim. (This replaced a
+per-candidate `vim.fn.executable`/`exepath` gate that did ~76 full PATH
+searches on every workspace load — ~850ms on Windows.) The slow part — each
+`--version` / `vswhere` / `vcvarsall`-adjacent shell-out — runs off the main
+loop via `vim.system(cmd, opts, cb)`. `cpp_compilers.detect_async`
+fans out every compiler `--version` probe concurrently and aggregates them
+with a completion counter before assembling; `msvc` exposes async
+`clang_cl_async`/`clang_cl_for_async` siblings; `meson.detect_tools_async`
+and `cmake_kits.detect_async` compose those async variants. Each async path
+feeds the SAME assembly/order logic as its sync twin and populates the same
+process-lifetime cache, so the async result is byte-for-byte identical to the
+sync one (a sync `detect()` remains for the CLI and other callers).
+`vcvars_env` stays synchronous: it is only reached from `compose_task_env` at
+configure/build/test time (inside overseer tasks), never on the init path.
+
+Workspace state: `uninitialized` → `initializing` → `initialized`
+Tool state: `not_scanned` → `scanning` → `scanned`
+
+The first remerge produces an ActiveSet with empty tools. Profile sections
+render immediately. When tool detection completes, a second remerge fills in
+detected tools and the UI refreshes via `active_set_changed`.
+
+Materialization calls (`_materialize_from_data`, `materialize_configuration`,
+`materialize_pinned`) that arrive during `scanning` are queued in
+`_tool_waiters` and replayed when detection completes.
+
+**Deferred LSP start.** loomworks installs its language servers (`vim.lsp.config` + `vim.lsp.enable`) during `setup()`, but their `root_dir` functions hold the start of any buffer under the workspace root until the active profile's owned compile_commands databases are generated (queued via the async `on_dir` callback), then release them so each server starts once with the resolved binary and a populated `compile_commands_dir`. The workspace root is recorded before servers are installed so the gate holds a buffer already open at startup. Buffers outside the workspace root resolve immediately with the integration's fallback (stock server). For integrations that implement `withhold_reason` (clangd), the root_dir function is `lsp.managed_root_dir(server, …)`: after the hold, core decides per buffer (`decide`) — project buffer → its entry; buffer under the root outside every project → the first usable entry in project-key order; outside the root → fallback — and starts the server only when `withhold_reason(entry)` is nil. Otherwise the buffer joins a withheld set and gets no client (`withheld_unconfigured` / `withheld_no_db`); init failure withholds buffers under the failed root (`withheld_error`) and the safety timeout never starts a database-less server (a buffer under the root of a workspace still being loaded stays `held`; a buffer whose workspace is merely detected on disk but not loaded or pending falls back to the stock server). `lsp.reevaluate()` (coalesced, on `active_set_changed`, `task_stopped`, `lsp_ready`, `workspace_changed`, `workspace_closed` from `Core:shutdown`, owned-DB written) re-runs the decision: newly usable withheld buffers get that one server's attach re-run the way `vim.lsp.enable` does it (`start_enabled_server`: filetype check, `root_dir`, `vim.lsp.start` with the config's `reuse_client`; only for servers enabled via `vim.lsp.enable`, never re-running the whole `FileType` autocmd), clients whose buffers became withheld are stopped through the managed-stop path. Core derives `entry.db_state` from the active unit's `configured_here()` when a module omits it (memo key includes every unit's configured-here flag). The per-buffer status (`lsp.buf_state`, `loomworks.lsp_buf_state`, `buf_status().lsp`) feeds the `loomworks_lsp` lualine component. See spec §9.7, §9.8.
+
+### File Change (hot-reload)
+
+```
+file_tracker (uv.fs_poll, 2s interval, owned by Workspace)
+  → stat change detected → read content → compare to last known
+  → ws:_on_file_changed(which_file, new_content)
+    → user/cache content verified first: unsigned/modified working copy or
+      invalid cache → core:setup() (enters the refused state); unsigned cache
+      change → ignored (next save replaces it)
+    → config changed → reassemble + validate + update ws fields + remerge
+    → user changed   → re-parse user data + remerge
+    → cache changed  → re-parse cache data + remerge
+    (a newer schema → core:setup(), the refused state; the delivered bytes
+     become the disk baseline via _adopt_disk)
+  → ws:remerge() → events.emit("active_set_changed")
+  → UI/integrations react to event
+```
+
+### Concurrent writers (spec §2.7)
+
+The editor, CLI invocations and older versions write the same working copy and
+cache. `Workspace._disk_baseline[kind].text` holds the exact bytes this process
+last read (`Core:_on_files_read` and `_on_file_changed` → `_adopt_disk`) or
+wrote (`_record_written`, from the bytes `io.write_json_signed` returns — never a
+re-read). `FileTracker:mark_written(path, content)` takes those bytes too, so a
+foreign write landing right after ours is still delivered.
+
+```
+_save_cache()                          _save_user()
+  serialize; lock <cache>.lock           serialize; lock <user>.lock
+  disk == baseline? ─yes─> write          disk == baseline? ─yes─> write
+     │ no                                    │ no
+  _disk_cache_for_merge(disk)             unlock; tracker:mark_written(disk)
+   unsigned/older → write ours as is      _on_file_changed(user, disk)  (reload)
+   invalid sig / newer schema → refuse    _report_save_refused(STALE_USER_MESSAGE)
+   valid → save_guard.merge_cache(        return false, msg
+     ours, theirs, _cache_snapshot)
+  write; unlock; _record_written
+  merged → remerge(nil, merged)
+  _cache_snapshot = snapshot_cache(...)
+```
+
+`_cache_snapshot` is the per-entry serialization at the last sync with disk;
+an entry whose current serialization differs is "changed here". It is re-taken
+after every load, reconciliation (including a loomworks.json change) and save.
+`_report_save_refused` calls `deps.on_save_refused` when the host set one (the
+CLI: `die` → `lw: …`, exit 1), else notifies an error. `_save_stats` counts
+merges and refusals. A newer-schema file refuses `Core:_on_files_read`
+(`setup_error.newer`; a live workspace is unloaded as for a trust refusal);
+a same-schema newer `written_by` warns once (`save_guard.newer_writer_warning`).
+
+### Workspace runtime / daemon (spec §19 — target design, not yet on master)
+
+Today every host loads the workspace in-process; the pieces of §19 that exist
+on master are the operation-safety primitives above and in §16.6 / §18.7
+(`build_lock.lua`, `remote/device_lock.lua`, `save_guard.lua`), all on the
+common lock record of §19.5 (its shape is `spec/formats.md` §6.1;
+`lock_record.lua`, with `proc.lua` for process
+start times and tree kills). A reclaimed build-directory lock reports its
+holder's interrupted step; `Workspace:_recover_interrupted_build_dir(dir,
+record)` then resets the units of that directory (configure → `unconfigured`,
+build → `configured`, deletions untouched) and saves the cache — called from
+the editor's `_acquire_file_lock`, the CLI's `with_build_dir_locks` and
+`lw unlock`. The CLI strips `--break-locks[=now]` in `main()`
+(`M._take_break_locks`, which also records the process as an `lw` holder) and
+acquires through `M._lock_holder_or_die` (break once, retry, else die with
+`lock_record.busy_message`); build directories are taken in canonical order
+(`M._lock_order`, §19.3).
+
+The workspace operation lock O (`op_lock.lua`) is taken by the multi-file
+operations of §19.3. Synchronous ones are wrapped at the bottom of
+`workspace.lua` / `project.lua` with `op_lock.guard` (`publish`, `publish_one`,
+`commit_import`, `rename_project`, `rename_configuration_set`, `remove_profile`,
+`Project:rename_configuration`); `Workspace:_op_lock(op)` reports a refusal
+through `deps.on_lock_refused` (the CLI dies) or an error notification. The
+asynchronous deletions are split into a locked entry point and an
+`_…_unlocked` body: `execute_deletion`, `reset_all`, `delete_orphaned_build_dir`
+go through `Workspace:_locked_deletion(op, dirs, start, on_done, on_refused)`,
+which takes O, then `_deletion_build_locks(dirs)` (sorted, skipping locks this
+process holds), runs the body and releases both when its Future settles
+(`on_refused(msg)` receives a refused lock's holder line;
+`model_commands.deletion_run` turns it into its refusal). The CLI takes
+O itself where it writes outside the workspace methods: `lw reset` (O, then
+`with_build_dir_locks`, then the re-entrant deletion), `lw trust --discard`,
+`lw pull` (re-planned under O), `lw migrate` (checks `_working_copy_fresh()`
+under O, as its plan predates the lock). `Core:_nuke_files` (editor nuke and
+`lw nuke`) takes O and `Core:_nuke_build_locks` (lockfiles under `.nvim/build/`
+by a depth-bounded `fs_scandir`, plus the loaded workspace's build dirs), removes
+the caches, renames the tree aside (`_nuke_move_aside` →
+`.nvim/build.nuke-<hex>`, plus `_nuke_leftovers` of crashed nukes) and removes
+it with `io.rm_rf_async` under `vim.wait` (`_nuke_remove`, re-waiting after
+an interrupted wait) so the heartbeat timers keep running; a failed rename
+refuses the nuke (tree kept). `Core:nuke_cache` first retires the live
+workspace (`_retire_workspace`: teardown, waiting for its tasks to stop;
+a torn-down workspace's `_save_cache` / `_save_user` write nothing), and
+`_nuke_build_locks` refuses a directory this process still holds.
+`Workspace:teardown` waits up to `TEARDOWN_WAIT_MS` for in-flight deletions
+(`_deletions`) before releasing their locks. `Core:delete_user_prefs` takes O. Deletions hold their
+build locks as counted references in `Workspace._build_dir_file_locks` (the
+editor task path's table), and `Workspace:teardown` releases those and every
+O token in `_op_tokens`. The lock modules come from
+`op_lock.locks(deps, root)`: an injected `deps.locks = { op, build }`, the
+inert `op_lock.INERT` for a root that does not exist on disk (a test's fake
+`/root` never gets lockfiles), else the real modules.
+
+Every O holder's file writes commit through `txn.lua` (§19.4): `op_lock.guard`
+runs the method between `ws:_txn_begin(op)` and `ws:_txn_finish(t)` (or
+`_txn_abort` on an error); `_execute_deletion_unlocked` commits its working
+copy + cache saves that way before any build tree is removed; `lw migrate`
+wraps its whole write phase. `op_lock.acquire` (outermost) runs
+`txn.recover_locked` and refuses with the journal's message when it cannot be
+completed; `Core:setup` runs `Core:_recover_journal(root)` before reading the
+files (waiting up to ~2 s for a writer that still holds O; a refusal is
+`setup_error.journal`). The CLI's exit hook abandons an open transaction
+(`txn.abandon`) before releasing O. `txn.finish` fences on
+`op_lock.still_held(root)` (the O lockfile still carries this process's
+record); `op_lock.guard` aborts the transaction when the method returns
+`false`. When the commit fails, or the method raises, the guard drops the
+method's in-memory change (API.md §11): an optional per-method `undo`
+(`opts.snapshot`, e.g. a profile's toolchain or a project's configuration
+names) restores in place, then `Workspace:_txn_rollback` puts back the
+sticky intents, removed-upstream flags and identity fields `_txn_snapshot`
+took (project keys, set names, profile keys/set names/tool keys/mappings,
+config-unit ids with their variant, config key and build directory, the
+`_build_dirs` array) and reloads the model from the files on disk (as an
+external change, objects matched by their on-disk keys, so each comes back as
+the same object). A load the files would refuse goes through `Core:setup`, as
+`_on_file_changed`'s refuse path does — in the daemon too, where the swap's
+teardown cancels the workspace's running tasks; that setup's
+`_recover_journal` skips a journal while this process holds O
+(`op_lock.held`). A failed apply past the commit point is rolled forward by
+`txn.finish` itself (`recover_locked`, still under O): when that completes,
+the operation is committed; only a journal that cannot be completed fails
+the operation and stays for the next O holder. A nested guard leaves the
+reload to the outermost one. `_execute_deletion_unlocked` stops (no tree removed) when its commit
+fails, and `_run_deletion` asserts that no transaction is open when it writes
+the `unknown` marks.
+
+The target —
+one `lw daemon run` per workspace, with `lw` and the plugin as thin clients and
+`--no-daemon` running the same daemon code over a loopback transport — is
+reached in the steps of spec §19.19 (rationale and plan:
+[`DAEMON.md`](DAEMON.md)). The first step lands here, not in a daemon: a
+workspace operation lock (`.nvim/loomworks.op.lock`), the global lock order
+R → O → B → D → F, and journalled multi-file commits
+(`.nvim/loomworks.txn.json`) with dead/hung-holder recovery (§19.5,
+`--break-locks`) on the in-process path, so that every later
+step only changes *where* an operation runs. The experimental implementation
+of the daemon layers (`lua/loomworks/daemon/*`) lives on draft PR #88 and is
+re-cut onto master step by step; this section is expanded as each step lands.
+
+**Step 2 (lifetime, opt-in `runtime-mode daemon`)** lives in
+`lua/loomworks/daemon/`:
+
+- `runtime.lua` — resolves the mode: the CLI's (`LOOMWORKS_RUNTIME` >
+  setting `runtime-mode` > `in-process`; `select` adds `--no-daemon`,
+  `LOOMWORKS_NO_DAEMON`, `CI`) and the editor's (`editor_select`, step 5s:
+  `daemon` by default, setup `runtime.mode = "in-process"` the deprecated
+  in-process editor with `deprecated = true`, nothing from the environment
+  or lw's setting); never launches anything.
+- `paths.lua` — the runtime lock / handle / log paths under `.nvim/`
+  (`loomworks.daemon-<S>.{lock,json,log}`, S this process's slot token), the
+  legacy unslotted names (`LEGACY`), the per-user state directory
+  (`<data dir>/daemon`) and the root hash naming per-user files.
+- `identity.lua` — the runtime slot (§19.7.1): I = Windows token user SID +
+  `elevated`/`standard` (FFI `OpenProcessToken` + `GetTokenInformation`
+  TokenUser / TokenElevation), POSIX decimal euid (FFI `geteuid`, else
+  `/proc/self/status`); S = first 16 hex of SHA-256(`loomworks-daemon-slot-v1`
+  LF I) (pure-Lua `trust._sha256_raw`, safe in libuv callbacks), cached per
+  process, an error (no shared fallback) when I cannot be read.
+  `process_identity(pid)` / `same_slot(pid)` read another process's I
+  (Windows `OpenProcess` + token; POSIX `proc.euid`). `euid()` is this
+  process's effective uid (POSIX; the socket directory, the process filter
+  and the trust key's owner use it, never the real uid). Seams
+  `_set_identity`, `_process_probe`, `_euid_override`.
+- `legacy.lua` — the unslotted files of lw before slots (§19.6 "Legacy
+  files"), never read to connect: `stop_live` (from `Server:start`, before
+  R, and from `lw daemon stop` / `kill` / `restart`, `command.lua`) stops a
+  live daemon of this slot holding the legacy lock via
+  `lock_break.break_holder` (ask, then kill + verify); `live_daemon` (this
+  host, alive with its start time, same slot) is that holder, also for
+  `lw daemon status` (reported, not connected to); `reclaim` (`lw daemon
+  stop`) and housekeeping / `lw cleanup` remove the legacy lock (dead holder,
+  nonce-checked `lock_record.reclaim`) and handle (names a gone process, no
+  live holder) and list `.log` / `.log.1` as leftovers — exact names, regular
+  files (lstat), in a `.nvim` that is a real directory at the root's real path.
+- `version.lua` — what the handshake compares: `PROTOCOL` (with `PROTOCOL_MIN` and `negotiate`, the transport range), the host identity
+  (release version, or `<version>+dev.<fingerprint>` over the source files'
+  paths/sizes/mtimes for a development build — the on-disk root `lua_root()`,
+  else a `luvi <dir>` bundle's directory `bundle_dir()`; only a fused
+  executable fingerprints the executable) and the schema versions.
+- `rlock.lua` — the runtime lock R on the build-lock primitive
+  (`build_lock.try_acquire_path`, the §19.5 record plus `mode`, `command`,
+  `host_version`).
+- `handle.lua` — the handle: atomic write (staged + rename; on Windows a
+  rename a reader blocks is retried with backoff within `budget_ms`, default
+  `RENAME_BUDGET_MS` ~2 s), validated read (malformed = unreadable),
+  `remove(root, expect)` of exactly the named daemon's regular file.
+  `Server:_write_handle` gives each rewrite `HANDLE_SYNC_MS` (~0.25 s, the loop
+  waits), then retries on a timer backoff (`HANDLE_RETRY_MS`) and on every
+  tick while `_handle_dirty`, skipping a record identical to the last written.
+- `inspect.lua` — the state of the runtime from those two files only (none /
+  live / starting / hung / foreign / attached / stale / unreadable) and the
+  `Runtime` row text; `M._runtime_row` in `cli.lua` renders it in
+  `lw status`.
+- `running.lua` — the running-task lines under that row (§19.6):
+  `should_query` (handle live, busy, this lw's `key_id`), `query` (one
+  `client = "cli"` connection + `status`, bounded by `TIMEOUT_MS` ~1 s),
+  `format` (op, profile, origin, elapsed, percent; an older daemon's reply
+  without `tasks` is one line), `lines(root)` (a failed query is one line);
+  `cli.lua`'s status overview prints them dim, never changing its exit.
+- `command.lua` — `lw daemon <sub>`, kept out of `cli.lua` (at the 200-local
+  limit); `cli.lua`'s `M.cmd_daemon` passes its output helpers
+  (`M._daemon_host`). `stop` sends the frozen `stop` and waits for R to be
+  released; `stop --force` / `kill` are §19.5 against R: `lock_break.can_break`
+  (same host, not an editor, start time known, not an ancestor), ask (`stop`
+  over the endpoint, ~5 s) unless `kill`, `lock_break.break_holder` (mode
+  `now`: kill tree + verify), then `clear_stale` (acquire R — reclaiming the
+  dead record by nonce — remove the handle naming that pid/start time and its
+  socket, release) and, when a journal exists, `op_lock.acquire` to roll it
+  forward.
+- `discover.lua` — every daemon of this slot on this host (§19.6.1; other
+  slots' processes skipped by `identity.same_slot`) by a
+  process scan, no registry: `proc.processes()` (Windows Toolhelp names,
+  Linux own-uid `/proc/<pid>/comm`, macOS `proc_listallpids` + `proc_name`,
+  `ps` fallback) → exe-name candidates (`lw`, `lw-*`, `luvi`, `nvim`) →
+  `proc.cmdline` + `proc.is_daemon_for` → `--root` → classified from that
+  root's R and handle (live / starting / hung / stray / unknown_root; a
+  daemon with no R yet that started under `STARTING_GRACE_S` ago is
+  starting), plus `same_key` from the handle's `key_id` against
+  `auth.own_key_id()` (read-only; never creates the machine key). A pin
+  redirect's wrapper (the global lw waiting on the pinned `daemon run`, same
+  `--root`, its parent) is dropped by `drop_redirect_wrappers(found,
+  proc.parents())`, so it is never listed or killed as a stray (a parent of
+  the other form — a relay that launched its daemon — is not a wrapper).
+  A standard-I/O `daemon run` (`stdio_form` on `run_args(cmdline)` — the
+  predicate `command.relay_form` dispatches on, so they cannot disagree) is
+  a **relay** (`is_relay`) unless its root's R names it by pid and start
+  time (a pre-5i attached runtime or the gated `--stdio --private` one, both
+  of which take R: then a daemon): never classified or
+  listed as a daemon; `attach_relays` hangs it as `relays` on the entry of
+  its root's runtime (else the first for that root; none listed: left out).
+  `command.lua` renders it (`lw daemon list [--json]`; table rows and the
+  summary come from one list via `command.rows` / `discover.counts`) and drives
+  `stop --all` / `kill --all` through the per-workspace `M.stop` with a host
+  whose `die` raises (one result per daemon), skipping a daemon of another
+  data dir (`same_key == false`) without connecting; `kill --all --strays` re-reads
+  a stray's command line and start time, and refuses a relay (`is_relay`
+  against R read again), before `proc.kill_tree`. The health
+  provider `suggestions.daemon_count_provider` prints the count.
+- `protocol.lua` — `<len>\n<json>` framing; the decoder checks the length
+  prefix against the cap (64 KiB before authentication, 16 MiB after) before
+  buffering a payload.
+- `auth.lua` — K = HMAC(trust key, `loomworks-daemon-v1`), the handle's
+  non-secret `key_id` (16 hex of HMAC(K, `loomworks-daemon-key-id-v1`)), nonces, the two
+  endpoint-bound proofs, constant-time compare (pure-Lua HMAC from
+  `trust.lua`).
+- `endpoint.lua` — the address (Windows pipe name hashed from slot token S + root;
+  POSIX socket `<per-user 0700 dir>/<root hash>.sock`), `listen` (Windows:
+  bind → `apply_dacl` via FFI `SetSecurityInfo` on `pipe:fileno()` → listen,
+  refusing on failure; POSIX: verified directory, stale socket unlinked
+  only if `lstat` says socket), `cleanup` (only a socket at one of the
+  candidate paths), `read_dacl` / `user_sid` for tests. The DACL is the
+  pipe's, not an instance's: the instances libuv creates later carry it too
+  (tests read it back from a later accepted instance). `peer_check(pipe,
+  side)` (§19.7 "Peer check", Windows): `GetNamedPipeClientProcessId` (the
+  daemon, `side` "client") / `GetNamedPipeServerProcessId` (a client,
+  "server") on `pipe:fileno()` → `identity.process_identity(pid)`
+  (`OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)` + token user SID and
+  elevation) must equal this process's I; an unreadable pid or token is
+  refused. FFI only, safe in libuv callbacks. POSIX: true (the euid-owned
+  0700 directory does it). Seams `_peer_pid_probe`, `_force_peer_check`.
+- `server.lua` — `Server:start()` (a live legacy daemon of this slot stopped,
+  `legacy.stop_live` → R → stale handle removed → K → endpoint →
+  handle → tick timer; the pipe's name is never stat'ed — that would connect
+  an instance), `endpoint.peer_check` on each accepted connection before it
+  is read (a refusal is logged and closed), per-connection handshake state machine
+  (`new` → `challenged` → `authed`, auth timer), `_dispatch` through `M.DISPATCH` of
+  `ping`/`status`/`stop`/`retire`, `_tick` (R still ours, else `_lost_lock`:
+  exit 1 touching nothing; handle mtime or rewrite), `stop` (close all,
+  remove handle + socket while R is ours, release R, `opts.exit`). Identity
+  and schemas are captured at start (the editor host forbids `vim.fn` in
+  libuv callbacks — the version fingerprint uses `vim.fn.sha256`).
+- Hardening: `endpoint.check(root, addr)` — a client connects only to an
+  address this workspace's daemon binds (`command.request`, and `ensure`), so
+  a planted handle naming `\\host\pipe\x` never opens an SMB connection;
+  `proc.cmdline(pid, st)` (Windows `NtQueryInformationProcess` class 60 +
+  `CommandLineToArgvW`, Linux `/proc/<pid>/cmdline`, macOS `KERN_PROCARGS2`)
+  with `proc.is_lw` / `proc.is_daemon_for`, checked by
+  `lock_break.verify_identity` from `can_break` — so `--break-locks`,
+  `lw daemon stop --force` and `kill` never kill a process a forged record
+  merely names (test helpers run as `…/loomworks/cli.lua` copies for that
+  reason); `io.write_exclusive` / `io.write_fresh` — temporary files
+  (`write_file_atomic`'s `.tmp`, the journal's `.tmp`, staged copies, the
+  handle's `.tmp-<random>`) are created with O_EXCL, never through a planted
+  file or link; `Server:_guard` / `_on_read` / `_dispatch` pcall every loop
+  callback (a handler error is an error reply; a loop error still takes the
+  stop path).
+- `client.lua` — `connect` (hello built before going async; on connect
+  `endpoint.peer_check(pipe, "server")` before `hello` — a refusal is
+  `ERR_UNTRUSTED` with nothing sent; server proof verified before anything
+  else is sent), `session` / `request` / `call`
+  synchronous wrappers over `vim.wait`.
+- `launch.lua` — `self_argv` (fused `lw`, `luvi <app> --`, or `nvim -l
+  cli.lua`), `env` (de-duplicated; `LW_ROOT`, `LOOMWORKS_LUA` = the running
+  source on the luvi host), `spawn` (detached, hidden, stdio ignored, cwd =
+  state dir; Windows: `_no_inherit_std` clears `HANDLE_FLAG_INHERIT` on the
+  std handles around `uv.spawn`), `launch` (readiness wait with early-exit
+  detection; `server.EXIT_HELD` = another runtime won).
+- `ensure.lua` — `reconcile(root, conn)`: the §19.9 decision after the
+  handshake (match / stop + relaunch an idle mismatched daemon / retire a
+  busy one and bypass it / leave one with newer schemas alone; busy per
+  `protocol.status_busy(st)`, shared with the editor's retirement, which
+  passes `{ asker_observer = true }` so a daemon without `busy_clients` does
+  not subtract the observing editor twice); `ensure(root,
+  opts)`: `runtime.select` (mode, `--no-daemon`, `LOOMWORKS_NO_DAEMON`, `CI`),
+  then connect + reconcile + `ping` (`meet(root, st, opts)`, also used by
+  `cli._delegate_attached` for a live daemon an attached selection finds,
+  with `no_launch`: an idle mismatched daemon is only stopped), or launch; a
+  hung daemon is reported, or
+  under `--break-locks` recovered through `command.recover` (the non-exiting
+  §19.5 sequence `stop --force` / `kill` also use) and relaunched; problems
+  are one stderr line, never a failed command. Each step waits at most
+  `ensure.STEP_MS` (~1 s: connect + handshake, `status`, `ping`;
+  `LW_TEST_DAEMON_STEP_MS` lengthens it for loaded test runs) — or, with
+  `opts.routed` (a `lw build` or `lw test`, `cli.M.ROUTED_COMMANDS`),
+  `ensure.ROUTED_STEP_MS` (~5 s, never below `STEP_MS`); a daemon
+  still `starting` is waited for at most that long, once; the handle's
+  endpoint must pass `endpoint.check` before anything is connected to.
+  `cli.M.NO_DAEMON_COMMANDS` (`trust`, `nuke`, `unlock`) skips the ensure. `cli.lua` calls it as `M._ensure_daemon(root)` right
+  after the workspace-required guard in `main()` (so `status`, `health`,
+  `pull`, `worktree`, `settings`, `help`, `daemon …` never launch); `main()`
+  strips the global `--no-daemon` into `M._no_daemon`.
+- `rlog.lua` — the runtime log `<root>/.nvim/loomworks.daemon-<S>.log` (2 MB +
+  one `.1`; spec §16.40 moved it out of `<state>/logs/`), written with libuv
+  only so the daemon can log from libuv callbacks (`writer(root)` resolves the
+  path up front). Each line is one libuv O_APPEND write (on Windows
+  FILE_APPEND_DATA: concurrent writers never overwrite each other, which the C
+  runtime's `"a"` mode — seek, then write — does; `log.lua` appends through
+  `io.append` for the same reason). It appends only to a regular file (`lstat`;
+  a missing one is created `O_EXCL`), creates `.nvim/` only under an existing
+  root, and `lw daemon status` prints its path. `main()` points
+  `lock_break.log` at it for every command with a root; `lw unlock --force`
+  (build dir, operation lock, active device lock) records through
+  `M._record_recovery`.
+- Lifetime (`Server:lifetime()`, every tick): connections silent for three
+  keepalive intervals are dropped; with no authenticated client and no task
+  for `daemon-idle-timeout` (`runtime.idle_seconds`, default the idle grace
+  `runtime.IDLE_GRACE_SECONDS` = 45 s, spec §19.11; 1 h before step 5r) the daemon
+  stops; a removed root stops it (checked before the lock, which went with
+  the root; its own socket is then removed although R is gone).
+
+**Step 3 (`lw build` routed, spec §19.15)** adds:
+
+- `build_run.lua` (shared with the in-process `lw build`) — also the
+  host-neutral profile resolution (`match_profile`, `resolve_profile`,
+  `resolve_target`: a profile, or the exact refusal text, or `"onboard"`)
+  and `lock_order`; `cli.lua`'s `match_profile_arg` / `resolve_profile` /
+  `resolve_build_target` / `_lock_order` are wrappers that `die` with that
+  text (only the interactive onboarding stays in `cli.lua`).
+- `daemon/service.lua` — attached to the server by `lw daemon run`
+  (`command.run_server`, host = `cli.M._daemon_build_host()`: the non-exiting
+  load `M._load_workspace_soft` with daemon handlers — notifications and
+  refused saves report into the running request — and a manual file
+  tracker). Holds the live workspace + the environment signature it was
+  loaded in. An observer connection's `welcome` (`Server:_authed`) calls
+  `on_editor_attached`, which queues a model segment loading the workspace as
+  `live(ctx, true)` does in the daemon's own environment when none is loaded
+  (§19.16 "Loaded on attach"); `live(ctx)` reloads on another environment (declines while a
+  build runs) or a journal, else `FileTracker:sync()` (a refusal re-runs core
+  setup → `settle` → the setup error is the refusal). `with_model(ctx, fn)`:
+  the FIFO of model segments, drained on the main loop (`vim.schedule`),
+  each inside `envscope.with(ctx.env, …)`. `on_build` → `_accept` (live,
+  `build_run.resolve_target`, reply accepted / refused / declined) →
+  `runner.run`. `on_conn_closed` (scheduled off the read callback — the
+  tree kill polls) / `on_stopping` cancel runs; `owns_task`
+  exempts an owner from the silence rule; `tasks.on_change` sets the
+  handle's `busy` and ends a retiring daemon when idle.
+- `daemon/runner.lua` — the build: locks (`lock_break.acquire` over
+  `build_lock.acquire`, kind `daemon` from the server, dead-holder recovery
+  lines), `build_run.plan`, per step `before_step` → `step_lines` →
+  `spawn_spec` → `M.spawn` (its own `uv.spawn` with exactly the client's
+  environment ⊕ the step's, hidden on Windows; stdout/stderr read in order,
+  `done` after exit + both EOFs (≤ `EOF_GRACE_MS` while read); `pause` /
+  `resume` = `read_stop` / `read_start` of both pipes, `abandon` stops reading
+  for a cancelled step) → `task:set_flow(obj)` → `after_step` in a model
+  segment, the refused-save check, `failure_message` (+ the host's
+  `--target` hint); `cancel` kills the child with `proc.kill_tree(pid,
+  start time)` (falling back to the child's own `kill("sigkill")` when that
+  does not confirm it gone), abandons its pipes and finishes without
+  recording.
+- `daemon/tasks.lua` — tasks owned by a connection; `line` / `output` /
+  `progress` / `done` events. `Task:start` fills `meta.origin` from the
+  owner's `hello.client` (`origin_of`) and keeps the meta and `started_at`;
+  `Stream:snapshot()` is the `status` reply's `tasks` (protocol 7, filled by
+  `Server:status` from `service.tasks`). A task's cache write-back
+  (`build_run.after_step` → `_save_cache` → `on_written` →
+  `Server:model_changed`) is synchronous and precedes `finish` → `done` on
+  every connection's ordered write queue, so `model_change` reaches a client
+  before the `done` (§19.16 End). Owner: every event, flow-controlled — past
+  `OWNER_HIGH` queued bytes on its socket (`get_write_queue_size`) the task
+  pauses the step's flow, and each completed owner write resumes it once the
+  queue is below `OWNER_LOW`. Observers: `OBSERVER_CAP_BYTES` of output per
+  task each, then one truncation notice; past `OBSERVER_QUEUE_MAX` queued
+  bytes an observer is closed unless it owns a running task.
+- `daemon/envscope.lua` — `with(env, fn)` switches the process environment
+  (`uv.os_setenv` / `os_unsetenv`; on Windows adding
+  `NoDefaultCurrentDirectoryInExePath=1` when `env` lacks it) and restores
+  it; `signature` (minus `VOLATILE` names and `VOLATILE_PREFIXES`: the
+  shell's `_`/`PWD`/`OLDPWD`/`SHLVL` and per-terminal / multiplexer / SSH /
+  session variables, `VSCODE_*`; upper-cased on Windows); `with_overlay`
+  (Windows case-insensitive);
+  `install()` makes `os.getenv` read through libuv on Windows (the CRT copy
+  is not updated by `SetEnvironmentVariableW`).
+- `file_tracker.lua` — `manual` (never syncs on its own; `watch_signal` a
+  no-op) and `sync()` (deliver every pending change now, in watch order);
+  `Workspace:_start_tracking` passes `deps.manual_file_tracking`. In the
+  daemon also *(spec §19.13 "Freshness of views")* `signal`
+  (`deps.file_signal`, the service's `files_changed` handler →
+  `Service:on_files_changed`): `fs_poll` on loomworks.json and the working
+  copy (the cache is `watch(path, { passive = true })`) calls it, and it runs
+  `header_check` outside a model segment (inside one, the check after the
+  segment applies the change); `hold` (`Workspace:_hold_file_change`): a
+  change that is not a JSON object, or a working copy whose signature
+  envelope cannot be read (`trust.envelope_unreadable`), holds the whole sync
+  and adds one load note naming the file (`_held_notes`), removed when the
+  file parses again; `saves`: a file read missing while its staged copy exists
+  (`<file>.tmp`, or `txn.staged_path(file, "")`-prefixed `<file>.txn-<id>`;
+  `FileTracker.staged_copy`) reads as its last known content and `_recheck`
+  signals again after `SAVE_RECHECK_MS`, for as long as the staged copy
+  remains; with no staged copy it reads as missing at once (a deletion; the
+  `.bak` is not consulted, as a save of identical bytes leaves it equal to
+  the content last applied) (`_read`). `Service:on_stopping` ends the watch
+  (`stop_signals`); the workspace's teardown stops the tracker.
+- `shim/init.lua` `vim.system` — `stdout` / `stderr` callbacks (nvim
+  semantics; a streamed run finishes after both pipes' EOF, at most
+  `STREAM_GRACE_MS` after the exit) and `:kill()`.
+- `cli.lua` client — `M._delegate_build(root, args, ensured)` (since step 5
+  `M._delegate("build", …)`) after
+  `M._ensure_daemon` (which now returns its outcome) in `main()`:
+  `M._build_request` (the `cmd_build` parse), `M._daemon_workspace_trusted`,
+  `endpoint.check`, `client.session` with an `on_message` printer (`line` →
+  `out` / `note` / `errw`; `output` → `M._raw_write` to fd 1/2, no text-mode
+  translation), the notice from the reply callback (`M._delegation_line`,
+  dim per `M._stderr_supports_color`), keepalive pings while waiting,
+  `die(error, exit_code)` / exit code on `done`. `launch.self_argv` puts the
+  checkout on the runtime path for the nvim-hosted daemon (modules resolve
+  there).
+
+**Step 4 (the editor observes, spec §19.16)** adds:
+
+- `daemon/observer.lua` — the editor's one Observer, attached by root in
+  daemon runtime mode (`init.setup` → local `load(root)` →
+  `observer.attach(root)`; the CLI never calls setup, so it never attaches).
+  Step 6b-α: in daemon mode the editor loads NO Workspace — `load` records
+  the root (`core:set_pending_root`, the §9.7 gate) instead of
+  `core:setup`, so nothing is detected, tracked or written in-process; the
+  observer is held module-level (`M.current()`, `M.selection()` the
+  runtime selection of the last attach, either mode), an attach to another
+  root stops the old one, and `observer.detach` (`lw.shutdown`,
+  `:LoomworksReload`) stops it. `views.daemon_root(root)` puts the view
+  store in daemon mode (no in-process builder; the header reads
+  `unloaded` until the daemon's view arrives). Remote tasks are display
+  data and ids only (`remote_task.new(id, meta, clock)`, no model
+  resolution). `start`
+  (load / `:LoomworksDaemon connect`) spawns an ordinary relay (step 5i PR
+  G1, spec §19.16 "Through the relay"); the observer reads none of lw's
+  internal files to connect, launch or follow a daemon (only `_prune`'s
+  read-only in-use check reads the handle). `_spawn(want)` selects the host
+  binary (probe / download first, `_want` remembers the form) and calls
+  `daemon/client.lua` `relay.connect` (seam `opts.relay`): `<binary> daemon
+  run --root R --stdio [--no-launch [--retiring pid:start]]`, spawned hidden,
+  not detached, plain stdio pipes, cwd = state dir, env = `launch.env(root,
+  sel.env)`; `client._frame_reader` from state `auth`, `conn.challenge` =
+  `welcome.daemon` (`{}` for a `welcome` without `via`: observed without the
+  version check, never retired), transport `client._agreed(welcome.daemon)`.
+  No handshake timeout. The relay's `close` closes its stdin and only after
+  `KILL_MS` (~5 s) plain-kills the relay pid, never `kill_tree` (on Windows
+  the daemon a relay launched is its child). The `KILL_MS` timer is unref'd:
+  at editor quit it never fires (Windows: libuv's job object ends the relay;
+  POSIX: a relay ignoring EOF is orphaned — accepted). Exit and stdout EOF
+  arrive in either order (after the exit, the EOFs are awaited
+  `EOF_GRACE_MS` ~1 s; after a stdout EOF before `welcome`, the exit is
+  awaited `EXIT_WAIT_MS` ~5 s, then it is reported as `"protocol"` (no
+  status: internal error, wait) and the relay is closed): the exit status (+ the `lw: ...` detail line and a parsed
+  `retiring` line) is reported only before `welcome` and never for a relay
+  the editor ended (`_on_relay_exit`: 10/11 -> one no-launch relay, 14 ->
+  `--retiring` or no-launch relay and a retirement episode, 16 -> the
+  episode's one ordinary relay, others -> note + wait, 2 with flags names
+  the `lw.pin` version); after `welcome` any exit/EOF is a drop
+  (`_on_closed` -> one `--no-launch` relay; after `retiring` or the editor's
+  own retire -> `_after_retire`: one ordinary relay + episode). An
+  incompatible daemon it does not observe (refused, declined, unanswered,
+  failed retire, or its held connection closing) has its relay closed and
+  `_skip` spawns one `--no-launch --skip-instance <pid>:<start_time>` relay
+  naming it from `welcome.daemon` (`observer.instance_id`, the form of `connect.instance_id`, which the
+  plugin does not require; step 5i PR G2), so
+  the editor follows a successor without connecting back to it; with no
+  `start_time` it spawns nothing until an explicit connect. The editor keeps
+  no skip list of its own and never passes `--retiring` with
+  `--skip-instance`. `client = "editor"`,
+  `role = "observer"`, `on_message` / `on_close` (both only `vim.schedule`);
+  `version.observer_compatible` on `welcome.daemon`. Keepalive `ping` timer.
+  `model_change` (seq / generation) → `ws._tracker:sync()`. `task` events →
+  RemoteTasks; events `daemon_task_started|progress|stopped`,
+  `daemon_runtime_changed`. Joining late: each connect sends `status`
+  (`_join_late`) and adopts every listed task not yet seen
+  (`remote_task.adopt`: start time from `started_at`, percent from
+  `percent`); tasks are kept in start order. `Observer:_weigh_retire` /
+  `editor_retire.lua` act only over `welcome.via == "relay"` (a `welcome`
+  without `via` is observed unchecked and never weighed; `_weigh_retire`
+  also declines one itself). `:LoomworksDaemon status` and checkhealth keep reading the
+  handle / lock read-only for diagnostics.
+- `daemon/remote_task.lua` — RemoteTask: display data and ids only (the
+  `start` meta's keys stay names for display, `profile_id` / `units[].id` are
+  what a row is matched by, `names_ids`); keeps output (≤ `OUTPUT_CAP_BYTES`),
+  `follow` for the output buffer. Only `lw status` (§16.18), a host with its
+  own model, puts an adopted task's running state on its objects:
+  `cli.mark_daemon_tasks` resolves the keys there, at the boundary, and sets
+  `ConfigUnit._remote_task` (`begin_remote_task`; `ConfigUnit:state()` reports
+  `building`/`configuring` while it runs, `shown_action()` and
+  `Project:running_action()` the action for display, `elapsed()` its time) and
+  `Profile._remote_tasks` (`add_remote_task`; `has_active_operation()`,
+  `operation_elapsed()`) for its one invocation. `running_action()` /
+  `is_running()` / `Profile:is_running()`
+  stay local-only: they gate cancel and blocking, which a remote task never
+  does. `origin_label()` is the `lw` / `editor` marker of the Tasks rows,
+  the profile row and the fidget entry (none for an `owned` task). Each
+  remote task is one overseer task through `daemon/task_runner.lua` (below;
+  `_runner` is its strategy).
+  A task with `units` and no profile (`Build/1` `units`, step 5k) resolves
+  them as `reset --all` does.
+- `daemon/facade.lua` — the public getters, build, launch and picker
+  functions in `daemon` mode (step 6b-α, spec §19.16 "Public API"). The
+  getters (`get_profiles`, `get_active_profile`, `get_projects`,
+  `project_for_buf`, `get_config_sets`, `get_active_configuration_set`,
+  `get_tool_entries`, `get_tools_by_type`, `get_orphaned_configs`,
+  `get_lsp_options`) return deep copies of the `view.Workspace/1`,
+  `view.ProjectsIndex/1` and `LspConfig/1` rows, ids included, and nil while
+  the view is not held; `overseer.run_profile_action` refuses in this mode, so
+  a profile row never reaches the in-process build. `init.lua`'s
+  `build_profile`, `build_target`, `pick_profile`, `pick_target`,
+  `pick_target_action`, launch / debug, `compile_command_for_file` and
+  `create_workspace` delegate here when `facade.active()` (no model, selection
+  `daemon`). The active profile is the `view.Workspace/1` row marked `active`;
+  its targets come from one `Launch/1.targets` call as LaunchRefs, the default
+  one marked by the reply; the profile build is `Build/1.build` of the row
+  (ui/model_calls), a target's build `editor_ops.build_target`, a launch
+  `session_tracker.start(ref)`; the target picker stores its choice with
+  `Profiles/1.set_default_target`, the profile picker sends
+  `Profiles/1.set_active` (no "None"). `compile_command_for_file` and
+  `create_workspace` are refused. `daemon/launch_ref.lua` — LaunchRef: a
+  `Launch/1.targets` record bound to its profile row (ids, display name,
+  kind, the build target's module language for the adapter check, its unit
+  row's `artifact_block` / `unit_id`), with the started program's
+  task-runner task (`launch_resolved`, `is_running`, `stop`).
+- `daemon/editor_ops.lua` — the editor's operations as daemon calls (spec
+  §19.16 "Editor operations", step 5k part C1; plugin side). Step 6b-α: the
+  daemon-mode editor holds no model, so every entry point names ids — the
+  status page (`ui/model_calls`), the public facade (`daemon/facade.lua`) and
+  the session tracker (launch targets as `daemon/launch_ref.lua` LaunchRefs).
+  The overseer entry points `run_profile_action`, `run_configuration_action`,
+  `launch_single_task` and a model's `Profile:clean` / `ConfigUnit:clean`
+  always run in-process (the CLI, the daemon, the deprecated `in-process`
+  editor; `editor_ops.daemon_of(ws)` is daemon only for `ws == nil` with the
+  observer's selection `daemon`). In `daemon` mode nothing runs in-process
+  (step 5s, §19.16 "Availability"): `run_ids` asks the workspace's observer
+  whether it carries the method (`Observer:can_call`: connected through
+  interfaces, `operations` = Build/1 offered, Tasks/1 subscribed, the
+  method not degraded, no incompatibility); not carried →
+  `editor_ops.refuse` (one WARN notify `<verb>: <note>`, the note from
+  `Observer:refusal(method)` — the method's `_method_why`, the feature's
+  `_why`, else the observer's state note — then `reject(msg, true)`). A build
+  asks the artifact-conflict question (its Yes → `force`), then
+  `Observer:start_owned`.
+  Outcomes: `declined` → reject + one WARN notify; `degraded`
+  (unknown_method, invalid_args, …) → refused as not carried, the
+  observer's `_method_notes`; `refused` → reject + ERROR notify, except a
+  refusal on stdout (`stream = "out"`, nothing to clean) → INFO notify +
+  resolve, so a rebuild goes on to its build; accepted →
+  the owned task's `done` resolves (exit 0) or rejects; a disconnect or an
+  internal error rejects and is never re-run (only the clean takes a
+  refusal on stdout as its answer: another method's is a failure). *(5o
+  C2d-1)* `run_ids(ws, method, scope, opts, k)` sends `Build/1` with
+  `ids_args` (`profile = { id }` — the owned call
+  recording the row's `unit_id`s and `profile_id` — or `units = { { id } }`),
+  under the same availability rule and outcomes, waiting on no in-process
+  deletion; a build asks the artifact-conflict question from the unit
+  rows' `artifact_block` (`ask_artifact_block`), a clean first cancels the
+  editor's own calls naming those ids (`call_names_ids`: the task's meta ids
+  once started — `RemoteTask:names_ids` — else the ids the call was sent
+  with; `owned_on_ids` lists them for the confirmation) through
+  `cancel_owned_matching`, whose `match(task, call)` gets the call too.
+  It never asks `overseer.plan_*_clean` (nothing to clean is the daemon's
+  refusal on stdout, 5o C2d-2): in `daemon` mode every build, configure and
+  clean is an owned daemon task. A launch's owned call records its profile
+  row's id and its unit row's `unit_id` too (`launch_call`), so a clean of
+  those rows pre-empts it before its `start` arrives.
+  `cancel(task)` backs the Tasks section's Cancel. *(5o C2d-2)* The
+  Profiles rows' cancel and task output match tasks by id:
+  `tasks_on_ids(ws, profile_id, unit_ids, ended?)` lists the tasks observed
+  through `Tasks/1` (owned or not) whose meta names those ids — running, then
+  with `ended` the observer's last ended ones (`Observer:ended_tasks`, the
+  last `ENDED_KEEP` kept by `_forget`, none cleared by teardown);
+  `cancel_on_ids` cancels the owned ones (the whole task, even a profile's
+  build for a unit row) and notifies another client's read-only line. A
+  profile row passes its `id`; a unit row passes only its `unit_id` (no
+  profile id), so a task of its profile that lists no unit (a device log,
+  install / launch, test discovery) is never its. Observer side: `M.BUILD` (`call_only`, feature
+  `operations`), `M.TASKS.methods = { cancel, list }`, the literal `CALLS`
+  table behind `_icall` (with `vim.fn.environ()` at call time), `_owned`
+  (registered in the reply's own callback, before the `start` frame),
+  `_owned_ended` from `done` / `_end_tasks`, `owns_tasks()` counted busy in
+  `_check_retire`. `fidget.start_op_action(title)` shows no wrapper in
+  daemon mode (the routed task's entry is its one entry; a refused
+  operation has none).
+  Launches (step 5k C2): `session_tracker.start_run` sends a LaunchRef (a
+  `Launch/1.targets` record of a profile row, addressed by ids; a model's
+  LaunchTarget runs the in-process chain, the `in-process` mode only) to the
+  daemon; a device target (step 5n C2) is refused at once by
+  `editor_ops.device_run_refused(has_device)` when one of `launch_build`,
+  `device_install`, `device_launch` — and, when the profile's view row names
+  no `device`, `device_scan` and `Profiles/1.set_device` — is not carried,
+  else run by
+  `start_device_run`: `editor_ops.build_target`, the profile's device (its
+  view row's `device`; none → `device_source.scan` + a pick +
+  `Profiles/1.set_device` by ids through `ui/model_calls`, i.e.
+  `Devices/1.scan` — its handle the current step, so a stop cancels it — and
+  `Profiles/1.set_device`), then
+  `editor_ops.device_step("install" | "launch")` — `launch_call` with
+  `device_args(target)` (the profile only: a device target is its default
+  target) and no conflict question — each owned, cancellable through
+  `_preparing`; launched, `_active_run.device_task` (the launch task id)
+  keeps the run "running" until `stop()` sends `editor_ops.device_stop`
+  (`Devices/1.stop { task }`) or `_active_run.device_conn` (the connection
+  the launch was sent on) closes — the daemon forgets the launch with it
+  (`editor_ops.launch_forgotten`), so the run is over and a stop sends
+  nothing — and `open_daemon_device_log` opens its log: `device_log.start_remote`
+  whose `open` is `editor_ops.device_log` (`Launch/1.device_log { task }` of
+  the launch task, on its connection), set as the view's source while the run
+  is active so reopening a closed view streams again; `stop_log_session`
+  clears the source and cancels the stream (a debug
+  without nvim-dap prepares a launch, as `LaunchTarget:debug` falls back);
+  a debug first checks the LaunchRef's `language` (a build target's module's
+  primary language; a launch configuration's is left to `debug.run`) against
+  nvim-dap (`debug.adapter_installed` / `adapter_hint`, before the
+  preparation), `resolve` the daemon's mapping from
+  `editor_ops.debug_adapter_resolver` (`Observer:with_debug_adapters`: the
+  cached `DebugConfig/1.adapters`, else after a read; never the in-process
+  `debug_config.resolve_adapter`: not carried, a failed read, or a language
+  the records do not name skips the check — `debug.run` checks the prepared
+  adapter). While the call runs the tracker holds `_preparing` (a
+  `PreparingRun` with the `editor_ops.prepare` handle): `stop()` cancels it
+  (`Preparation:cancel`: drops every later outcome, `cancel_owned_id` once
+  accepted), and a second `start` asks before replacing it.
+  `editor_ops.prepare` sends `Launch/1.prepare_run` / `prepare_debug` with
+  `launch_args(ref)` (`LaunchRef:args`: the profile's and the project's ids,
+  name + kind; `build_scope = "target"`) under the
+  same outcomes as `run` (shared `on_reply` / `failure`); the owned task's
+  `done` task result (`observer.done_result`, passed as `on_done`'s third
+  argument) resolves `k.resolve(done)`. The tracker then starts the
+  program: `launch` → `LaunchRef:launch_resolved(spec)` (the overseer
+  launch task, also behind `_launch_command`); `debug` → `start_dap` (the
+  shared nvim-dap start of the in-process multi-adapter path: first
+  adapter launches, the rest attach on `on_pid`); `device = true` (a target
+  found foreign by probing its artifact) → refused with the §18.11 message;
+  nothing of the run continues in the editor.
+  `start_prepared` stops a program still running first, and an error
+  starting the program fails its progress entry and is notified (the
+  observer's `_owned_ended` also notifies any `on_done` error). A
+  preparation not carried, declined or degraded is refused (no program,
+  never the in-process chain). `editor_ops.NO_RESTART` makes the
+  task-runner restart of a preparation fail (`rerun`). Step 5t part C:
+  a launch target's build in daemon mode (the facade's `build_target`) is
+  `editor_ops.build_target(ref, k)` — one owned `Launch/1.build` (the
+  observer's call `launch_build`, `WIRE` → `build`;
+  `target_build_args` = `LaunchRef:args`), no
+  dependency build, deploy or fallback in the editor; a device target's
+  build is the same call from step 5n C2. The preparations and the build
+  share `launch_call`, which asks the artifact-conflict question
+  (`ask_artifact_block` over the LaunchRef's unit row's `artifact_block`)
+  before the call and sends its Yes as `force`. The
+  steps: `RemoteTask.steps` from `start.meta.steps` (`steps_of`),
+  `Observer:_tasks_signal` counts every `Tasks/1` signal toward the
+  object's seq (`_tasks_seq`, baseline from the subscribe reply), applies a
+  `step` (`RemoteTask:set_step`) and, on a gap, re-reads `Tasks/1.list`
+  (`_relist_steps` → `adopt_steps`); each change emits `daemon_task_step`
+  (fidget's entry, the status page's single row of a stepped task) and
+  renames the task's overseer row (`task_runner.step`, `task_name` + `—
+  <step> (i/n)`). Observer side:
+  `M.LAUNCH` (feature `launch`) and `M.DEBUG` (feature `debug adapters`,
+  no task: `can_call` needs Tasks/1 only for `tasks` tables), their
+  literal `CALLS`, `METHOD_IFACE` (method → table, for `can_call` and the
+  `_degrade` note). Debug adapters: `editor_ops.debug_adapters(ws)` returns
+  `Observer:debug_adapters()` (the cached `DebugConfig/1.adapters`; the
+  first read starts on demand, single flight, re-read on every
+  `Workspace/1` `changed` in `_model_change`, emitting
+  `daemon_debug_adapters` for the status page; a failed or declined read
+  is cached as `languages = nil` until the next `changed` or reconnect, so
+  renders do not resend it) or, not carried / not read yet / that read
+  failed, nil and why — the section shows `unavailable — <why>`;
+  `editor_ops.set_debug_adapter` sends `set_adapter` (`Observer:request`, a
+  plain call) and fails (one ERROR notify) when not carried, `declined` or
+  degraded; `editor_ops.debug_languages(ws, cb)` (the launch editor's "Add
+  debug language") sends `known_languages`, uncached, and answers nil and why
+  when not carried, `declined` or failed. Only the `in-process` mode reads
+  `debug_config.adapter_records` / `workspace_languages` and runs
+  `Workspace:set_debug_adapter`. In-process debug resolves one spec for run and debug
+  (`run_prep.resolve_debug` → `debug_spec` over `resolve_launch_spec`,
+  §8.9.6).
+- `daemon/task_runner.lua` — the task-runner bridge (spec §19.16 "Tasks in
+  the task runner", step 5k part C1b; plugin side). `Observer:_add(task,
+  runner)` hands every RemoteTask (started, or joined late) to `M.add`,
+  which creates ONE overseer task (`components = { "default" }`,
+  `metadata.loomworks_daemon_task`) run by the strategy `loomworks_daemon`
+  — `Strategy`, registered on first use as
+  `package.preload["overseer.strategy.loomworks_daemon"]`, its
+  `RunnerBinding` passed in the strategy definition. `start` attaches to the
+  RemoteTask (`follow`: kept output, then the stream; `_runner` back
+  reference); output only queues text and a `vim.defer_fn` (`FLUSH_MS`)
+  writes it to an `nvim_open_term` terminal (opened in normal mode only, via
+  overseer's `run_in_fullscreen_win` when present). The end calls
+  `task:on_exit(exit_code)` (SUCCESS / FAILURE), or overseer's own stop
+  (CANCELED) when the editor cancelled it (`RemoteTask.cancelling`, set by
+  `Observer:cancel_owned_id`) and it did not exit 0, or teardown cleared it.
+  While the terminal cannot open, the flush retries every `BLOCKED_MS` and
+  the queue is coalesced and capped at `QUEUE_CAP_BYTES` (oldest dropped,
+  with a marker). `RemoteTask` calls its listeners over a copy, so the
+  strategy's unfollow on the end never skips another follower. Owned: `stop` →
+  `Observer:cancel_owned` (overseer finalizes CANCELED first); restart →
+  `start` with no RemoteTask → `editor_ops.rerun(obs, call, h)` with the
+  call's stored `method` / `args` / `units` (`OwnedCall.args`), the strategy
+  passed as `start_owned`'s `h.runner` so the new task's `start` continues
+  the same overseer task (bound only while `_call_id` matches); a restart
+  that cannot run (declined, degraded — `_degrade` still sets the Runtime
+  note — or not carried) fails the overseer task, never in-process. A stop
+  while the call awaits its reply (`_awaiting`), a second restart, a reset
+  or a dispose bumps `_gen`: the stale reply's task id goes to
+  `_superseded` and is cancelled (`cancel_owned_id`), and `add` lists no
+  task for it. Observed: the instance's `stop` / `restart` are replaced by a
+  WARN notify (`started by lw (cli) — cancel it there`); the strategy keeps
+  the original stop for its own end handling, and the instance's `dispose`
+  wrapper uses it quietly for a forced dispose of a running task. Overseer missing or without `overseer.strategy.load`: no
+  task, `Observer.runner_note` (once) in the Runtime line. `overseer_task` /
+  `open` back the status page's `Open overseer` on remote rows.
+- `provision/select.lua` — the host binary (spec §19.16): `LOOMWORKS_LW` >
+  setup `binary.path` (absolutized against the editor cwd once, at
+  resolution; one naming no file, or no `.exe` on Windows, stops the search) >
+  `lw` on `PATH` (its own lookup, `on_path`: absolute entries only, never the
+  cwd — `vim.fn.exepath` searches it before Neovim 0.12 on Windows — and
+  `lw.exe` per entry on Windows; `loomworks.exe.editor_exepath` is binary-side)
+  > `provision/managed.lua` (`<stdpath data>/loomworks/lw/<sha256>/lw[.exe]`;
+  the wanted one is this host's asset of the plugin pin, `managed.wanted()`;
+  a wanted one not installed
+  yet decides the search as `Selection.download`); `binary.prefer = "managed"` swaps the
+  last two; `binary.source` adds `LOOMWORKS_LUA` to the spawn's environment
+  (`launch.spawn` `opts.env`). Returns a `Selection` with every candidate's
+  verdict, shown by the observer's note, `:LoomworksDaemon status` and
+  `health.lua` (`:checkhealth loomworks`). Reads no `lw.pin` and nothing of
+  lw's data directory.
+  Pre-launch probe (step 5h.5, spec §19.16 "Pre-launch probe"):
+  `provision/probe.lua` runs `<lw> version --json` async (`vim.system`,
+  `TIMEOUT_MS` 3 s, cwd `<stdpath data>`, single flight per binary) and
+  `classify` weighs it with `needs.problems`: `structure` → unknown (no
+  descriptor; also a failed command or a timeout), `fatal` (transport, schemas,
+  `loomworks.Root/1`) → incompatible, `degraded` (a feature interface) →
+  still compatible. Verdicts are cached for the session keyed by realpath +
+  size + mtime (`cached(path)`). `resolve` reads only that cache (`opts.probe`):
+  an incompatible PATH lw is `refused` ("too old/incompatible: …") and the
+  search goes on to the managed lw, with `Selection.probe_note`; an explicit
+  one stays chosen and its verdict is only the `probe_note`; a candidate with
+  no verdict yet is chosen and named in `Selection.probe`. `Observer:_launch`
+  then runs `_probe` (state `probing`, its Runtime note; single flight, a
+  late callback after `stop` ignored) and resolves again with `probed` set,
+  so an uncacheable verdict never loops. The observer shows `probe_note` on
+  the Runtime line; checkhealth shows the chosen candidate's cached verdict
+  and never probes. The managed lw is never probed.
+  Channel upgrades (step 5h.5, spec §19.16 "Channel upgrades"):
+  `managed.wanted({ setting })` = the newer of the pin (`managed.pinned_wanted`)
+  and the accepted `binary.channel` release persisted in
+  `<stdpath data>/loomworks/channel.json` (`provision/channel.lua`: `load` /
+  `save` (per-pid temp + rename), `for_channel` (another channel keeps only the
+  accepted release), `due` (once a day), `accepted` (re-checks the stored
+  descriptor on every read)). `select.resolve` passes the setting to
+  `managed.find`, and sets `channel_note` when a PATH or explicit lw is
+  selected. `Observer:_channel_check(explicit)` runs from `start`, an
+  unref'd `_channel_timer` (`CHANNEL_TICK_MS` 60 s, stopped by `stop`) and
+  `_channel_recheck` after a probe or download ends (cheap until due; the
+  undecided retry `CHANNEL_RETRY_S`; explicit connect forces it, and one
+  arriving mid-check re-runs it after that check): when the setting
+  applies (`channel.applies`: a valid channel, `download ~= false`, no
+  `binary.source`) and the selection is the managed lw, it `fetch.ensure`s the
+  pinned binary, runs `channel.run` (`<pinned> release query --channel <c>
+  --json --timeout 60`, data dir as cwd, `LOOMWORKS_INSTALL_DIR` and
+  `binary.release_url` passed through), weighs the result with
+  `channel.classify` (newer only; `needs.check(d, { exact_schemas = true })`;
+  an `unknown command` exit 2 = a pinned lw older than the query), downloads an
+  accepted release and only then records it; every outcome updates
+  `checked` and the note (`channel_note`, on the Runtime line). Single flight
+  (`_channel_token`, a late callback after `stop` ignored). `_prune` keeps
+  the wanted, pin and accepted hashes. checkhealth reads `channel.describe`
+  and never queries. `editor_retire.selected` weighs the channel-aware wanted
+  version.
+  Retirement of an incompatible daemon (step 5h.5, spec §19.16 "Retiring an
+  incompatible daemon"): the pure decisions live in
+  `daemon/editor_retire.lua` — `incompatibility(ch, conn)` sorts the
+  challenge (and, on a transport-11 connection whose welcome lists objects,
+  `welcome.objects`) through `needs.problems(d, { exact_schemas = true,
+  interfaces = ... })` (no transport overlap, other schemas, no
+  `loomworks.Root/1`; `newer` = refused, never retired; `observable` = only
+  older schemas, transports overlapping, root present); `selected(sel)`
+  weighs the selection (managed lw: `managed.wanted().version`; PATH /
+  explicit: the cached probe verdict must be `compatible` with a version; a
+  pending probe is named); the session guard (`record` / `was_retired`,
+  `record_failed` / `retire_failed` for a retirement that failed, key
+  `<normalized realpath of the root>\n<lw_version>`, module state so it survives a workspace
+  reload); `busy(st)` = `protocol.status_busy` (shared with the CLI's
+  `ensure.reconcile`; `protocol` is on the shared side of the plugin/binary
+  boundary, so the plugin-side module needs no binary module). `Observer:_on_connected` observes an
+  `observable` daemon as usual and, once subscribed, hands it to
+  `_weigh_retire` on the observed connection (`_retire.observed`; notes go to
+  `incompat_note` on the connected Runtime line; a decline just forgets
+  `_retire` and keeps observing); any other incompatible daemon (not newer)
+  goes to `_weigh_retire` on a held connection (`_retire`, never observed
+  through — `on_message` drops frames from any connection but `self.conn`;
+  it blocks `start`/`_on_watch` single-flight; closed on a decline). It
+  probes a pending selected binary once, declines with a note (selected
+  binary not compatible, same version, guard tripped, guard recorded as
+  failed), else `_check_retire` asks `status` every `retire_check_ms` (30 s;
+  `LW_TEST_DAEMON_RETIRE_CHECK_MS`; a tick while one is still unanswered,
+  `asking`, ends the wait through `_retire_unanswered`: held is closed,
+  observed stays observed, nothing retired or relaunched) until idle, and
+  `_retire_now` (at most once, `retiring`) records the guard and sends
+  `retire`. An error reply, or no reply within `retire_check_ms` (`settled`
+  makes the first outcome win), is a failure (`record_failed`; note, no
+  relaunch; observed stays observed, held is closed); a
+  reply or a closed connection skips the daemon, sets `retired_note`,
+  notifies once and relaunches through the existing launch-once-after-exit
+  path (`_relaunch`; an observed connection is closed as a `retiring` drop,
+  so `_on_closed` ends its tasks). `stop` drops the held connection.
+  A compatible daemon reached through the relay goes to `_weigh_retire` too,
+  as a **stale** one (`editor_retire.stale()`, `inc.stale`; spec §19.9
+  "Editor retirement"): the same selection, guard and idle check, keyed by
+  code identity (`lw_version` — the host version, or a development build's
+  source fingerprint, `version.identity`), but weighed against the identity
+  the relay reports for itself (`welcome.relay.lw_version`, added by
+  `relay.welcome_frame`; read by `editor_retire.relay_identity`) rather than
+  the selected binary's: the relay runs in the process `main.lua` redirected
+  to a repository pin, so it names the release a launch would start, and the
+  plugin needs no pin logic. An idle daemon running other code is retired and
+  the relay launches its own release; a `welcome` without `relay` (an older
+  relay) weighs no stale daemon. It
+  stays observed throughout: declines and a busy status are silent, a
+  failed retirement goes to `stale_note` (never `incompat_note`), and
+  `_retire_blocks()` keeps the features available until `retire` is sent.
+- `provision/fetch.lua` (step 5h.3) — `ensure(wanted, opts, cb)`: async
+  download of a `Wanted` record (`{ sha256, version, asset }`) into
+  `<dir>/<sha256>.<pid>.<n>.dl` (`uv.fs_copyfile` with `excl` for a local
+  mirror, `vim.system` curl — `curl_args`: connect timeout, low-speed limit,
+  `--proto-redir =https` from https — with lw's retry rule for http(s)),
+  `provision/sha256.lua` check, chmod 755 (POSIX), rename into the slot
+  (retried on Windows); single flight per hash through `M.states` (also what
+  the observer's note and checkhealth show); `cancel(sha256)` kills the
+  transfer (the observer's `_cancel_download` on an explicit connect or
+  stop). `provision/managed.lua` `verify` hashes a present binary once per
+  process (`find` reports a mismatch as corrupt + the wanted record, so it is
+  downloaded again) and `touch` sets a slot's directory mtime = last use
+  (on selection and on connect), which `prune` honours (`UNUSED_S`). The
+  observer's `_download` calls it when the selection carries `download`, then
+  restarts (connect or `_launch`), and `_prune` runs `provision/cache.lua`
+  `prune` (deletion safety rule 11) with the wanted hash (planned, step 5h.5:
+  the wanted hashes, the pin's and the accepted channel release's) and the
+  in-use binaries (`_binary`, the
+  observed and the live daemon's handle `exe`). `provision/sha256.lua`:
+  `vim.fn.sha256` after a known-answer check on a NUL/high-byte string, else
+  a pure-Lua (bit) SHA-256.
+- `provision/pinned.lua` (step 5h.4, spec §19.16 "Plugin pin") — GENERATED
+  data, `{ version, assets = { [<asset>] = <sha256> } }`, written only by
+  `scripts/release/pin.sh`; excluded from the lw bundle (`build_bundle.sh`
+  `EXCLUDE`) so the pin commit changes no release asset. `managed.wanted(opts)`
+  maps uname to an asset with the plugin's own `managed.HOST_ASSETS` (equal to
+  `boot.pin.HOST_ASSETS`, which is binary-side; a test keeps them equal) and
+  returns `fetch.check_wanted` of the pin's entry, or nil + why.
+  `provision/needs.lua` — `check(descriptor)`: transport overlap and schemas
+  via `daemon/version.observer_compatible`, and observer `ROOT` + `FEATURES`
+  via `observer.offered_versions`; the one interface check used by
+  `scripts/release/pin.lua` (hard gate) and CI's `pin-check` job (warning).
+  `problems(descriptor)` sorts the same problems into `structure` / `fatal` /
+  `degraded` for the pre-launch probe (`check` counts them all).
+- Server: hello `role` → `conn.observer`; `active_clients()` (non-observers)
+  gates retirement (`_maybe_retire`, also from `service`'s `tasks.on_change`);
+  `retire` broadcasts `retiring` to observers; `welcome.retiring`;
+  `status.observers`; `model_changed()` (seq + generation) — called by the
+  service's `written` handler, which `cli._load_workspace_soft` installs as
+  `deps.on_written`, fired by `Workspace:_record_written` (every committed
+  user/cache write). `runner` adds `profile` + `units` to the task meta.
+  Protocol 4.
+- UI: the status page's `Runtime:` header line (`init.daemon_runtime_line`),
+  `(daemon)` rows + "Show output" scratch buffer in `ui/sections/tasks.lua`
+  (`init.get_daemon_tasks`), fidget handles keyed `daemon:<id>`, the lualine
+  spinner runs while a render shows a running state (step 5j: it no longer
+  counts `daemon_task_*`; it reads only `buf_status`); `:LoomworksDaemon [status|connect]`.
+
+**Step 5, first operation moved: the batch `lw test` (spec §19.15)** adds:
+
+- `test_plan.lua` — the test plan of §16.16 (native runners, then saved test
+  targets), host-neutral and written in continuation-passing style over a
+  host (`out`, `err`, `fail`, `spawn`, `exec`, `foreign?`, `probe?`,
+  `deploy?`, `progress?`):
+  `units` / `precheck` (before the build: notes, refusals, `keep`,
+  `device_platform`), `prepare` (after it: entries resolved, batch steps and
+  JUnit labels), `run` (the steps, the per-step summary, `TESTS OK`) and
+  `exec_step` (one executable: deploy, working dir, gtest results option,
+  device run through `host.foreign`, JUnit). The in-process host
+  (`cli._test_host`: `run_spec`, `die`, `_run_foreign`) calls back
+  synchronously; `cli._test_plan`, `_test_targets` and `_run_test_executable`
+  are thin wrappers over it. `build_run.lua` keeps `prepare_junit` and
+  `junit_result` (copy/confirm a runner's JUnit file, or the warning line).
+- `daemon/runner.lua` — `run(svc, ctx)` takes `ctx.op` (`"build"` | `"test"`).
+  A test run takes the same locks, plans the for-test build
+  (`plan{ for_test = { keep } }`; no steps goes straight to the tests), then —
+  locks still held — `ensure_unit_targets` and the shared plan with the task
+  as host: each program through the same streamed `spawn` as a build step,
+  the plan continuing in a model segment after it exited; a build target's
+  framework probe (`probe`: `gtest.probe_argv` as a child of the run, killed
+  on cancel or after `gtest.PROBE_TIMEOUT_MS`) and a launch's deploy
+  (`deploy`: `LaunchTarget:deploy_async`, copies on the loop, stopping
+  between copies on cancel) never block the loop; a step ended by a cancel
+  removes its results file (`spawn` spec `cleanup`); no `foreign` (the
+  service declines a plan whose kit runs saved targets on a device); the
+  task meta's `kind` is the op, cancellations end `<op> stopped: <reason>`.
+  The service runs `test_plan.precheck` before accepting (notes with the
+  reply, refusals with the in-process message and exit code).
+- `daemon/service.lua` — `on_build` / `on_test` → `_on_operation(op, …)`
+  (validates `junit`; resolves with usage `lw <op> <profile>`; refuses a
+  foreign kit's test run); `server.lua` dispatches `test`; `protocol.KIND.test`;
+  protocol 5.
+- `cli.lua` — `M._delegate(op, root, args, ensured)` (`_delegate_build` is
+  `_delegate("build", …)`), `M._test_request` (the `cmd_test` parse;
+  `"target"` for `--target`, which prints the not-routed line and runs
+  in-process), `M._delegation_line(pid, color, op)`;
+  `ROUTED_COMMANDS.test`.
+
+**Step 5, second operation moved: the preparation of `lw run` (spec §19.15
+"Run")** — the daemon prepares, the client executes:
+
+- `run_prep.lua` (new) — the run's preparation pieces, extracted from
+  `cli.lua` (see the module table): both hosts select, gate, probe, deploy and
+  resolve through it, so their output and refusals are the same text.
+- `daemon/runner.lua` — `ctx.op == "run"`: unless `args.no_build`, the
+  build's locks and steps as for a build (no `BUILD OK` line; under
+  `args.quiet` its lines are `note`s; `extra` is the program's, never the
+  build's), then the locks released and `prepare()` in the same model
+  segment: `run_prep.select` (targets refreshed), `validity_error`,
+  `foreign_of` (→ `done` with `device = true`, before any deploy),
+  `lt:deploy_sync()`, `resolve_spec`, then `done` with `launch = { name,
+  cmd, args, cwd, env }` (`env` = `run_prep.env_overrides`, computed inside
+  the client's environment scope). `tasks.lua` `Task:done(code, err, fields)`
+  carries those fields.
+- `daemon/service.lua` — `on_run` (`prepare_run`, validated by
+  `run_args_ok`; usage `lw run <profile> <target>`; declines a profile whose
+  kit has an execution platform); `server.lua` dispatches it;
+  `protocol.KIND.prepare_run`; protocol 6.
+- `cli.lua` — `M._parse_run_args(args, fail, device)` (the one `lw run`
+  parse, used by `cmd_run` with `die` and by `M._run_request`, which returns
+  the request plus the client-side `RunArgs`, `"device"` for a device option,
+  or nil for a refused form); `_delegate("run", …)` sends `prepare_run`,
+  writes the whole task stream to stderr under `--print` / `--dry-run`, and
+  after the connection is closed calls `M._finish_routed_run`: a `launch` →
+  `M._run_resolved` (the report, or `running …` + the blocking `run_spec`
+  with the client's stdio, shared with the in-process `_run_launch_target_impl`);
+  `device` → load the workspace, `run_prep.select` again and
+  `_run_launch_target` (deploy → stage → execute, no build).
+  `ROUTED_COMMANDS.run`; `_routed_command` gives a device run the plain
+  ensure bound.
+
+**Step 5c: `lw clean` (spec §19.15 "Clean")** adds:
+
+- `build_run.lua` — the clean pieces both hosts use: `plan_clean` (over
+  `overseer.plan_profile_clean`, nil = nothing to clean),
+  `nothing_to_clean_message`, `clean_step_line`, `has_wipe`, `wipe_groups`
+  (the clean's units per normalized build dir: one deletion batch each) and
+  `wipe_step(ws, step, groups, opts, done)` — the ONE core-performed wipe of
+  both hosts: `Workspace:_validate_build_dir` against the root, then
+  `Workspace:clean_wipe_build_dir` (→ `execute_deletion` → `_run_deletion`:
+  cache `unknown` first, reset after success, shared dir kept), then a
+  non-blocking delete-pending check (`WIPE_VERIFY_MS`). `opts.stop` reaches
+  the async removal through `execute_deletion` opts → `_run_deletion` →
+  `_delete_build_dirs_async` → `io.rm_rf_async(dir, cb, { stop })`; a
+  stopped removal resolves the deletion `false` with the cache left
+  `unknown`. `cli.cmd_clean` takes the op lock (when it wipes), the build
+  locks, and waits for each `wipe_step`; a failing module step reports
+  `failure_message` (kind `clean`).
+- `io.lua` — `rm_rf_async(dir, cb, opts)`: `opts.stop` asked before each
+  entry (links unlinked, never followed; no shell); the callback's third
+  value is `stopped`.
+- `daemon/runner.lua` — `ctx.op == "clean"`: the locks (record operation
+  `clean`), then `ctx.clean_steps` (planned by the service before any lock):
+  a module step through the streamed `spawn`; a wipe through
+  `build_run.wipe_step` (stop predicate = `run.cancelled`, completion back in
+  a model segment). A clean that wipes takes the workspace operation lock
+  (`run.op_tok`) before the build locks; the deletion re-enters both (op
+  lock nesting, `build_lock.held_by_me`). `run.wiping` makes `cancel` wait
+  for the removal to stop before the locks are released.
+- `daemon/service.lua` — `on_clean` (`_on_operation("clean", …)`; usage `lw
+  clean <profile>`; nothing to clean → `refused` on stdout (`stream =
+  "out"`, exit 1 — the CLI prints it as an ordinary line, as in-process)
+  before any lock);
+  `server.lua` dispatches it; `protocol.KIND.clean`; protocol 8.
+- `cli.lua` — `M._clean_request` (`{ profile = args[2] }`, `cmd_clean`'s
+  parse), `ROUTED_COMMANDS.clean`, `_delegation_line(…, "clean")`.
+- Observer — `remote_task.lua`: a `clean` task's `action` is `clean` (end
+  verbs `cleaned` / `clean failed`); `ConfigUnit:state()` shows it as
+  `deleting` with `deleting_reason()` `cleaning` (a local clean's display),
+  `shown_action()` nil; fidget's `ACTION_TITLE.clean` gives `Cleaning (lw)`.
+
+**Step 5d: `lw reset` (spec §19.15 "Reset"; protocol 9).** The reset
+planning (lock set, removal set, nothing-to-reset, listing lines, plan token
+over scope + lock set + removal set) and its execution (`Profile:reset` /
+`Workspace:reset_all` with the stop predicate threaded through
+`execute_deletion` and the orphan deletions, then the non-blocking
+gone-from-disk check; `opts.settled` once the deletion itself settled) live
+in `reset_plan.lua`, which both hosts use. `cli.cmd_reset` stays the
+in-process host (`opts.plan`: a plan already confirmed from the daemon's
+listing — not listed or asked again, refused when its token differs).
+Routed, `cli._delegate("reset")` sends `reset` (`_reset_request`); a
+`confirm` reply goes to `cli._reset_confirm`, which prints the listing, asks,
+and sends `reset` again with `yes` + `plan` through `_delegate` (`opts.req`);
+when that second request is not routed it runs `cmd_reset(…, { plan })`. A
+`refused` reply with `stream = "out"` (nothing to reset) prints on stdout
+with its exit code. `daemon/service.lua` `on_reset` → `_accept_reset` plans
+before any lock and answers `refused` / `confirm` / `accepted`;
+`daemon/runner.lua` `M.reset` takes the op lock (`ws:_op_lock("reset")`)
+then the build locks of `plan.lock_dirs` (`take_locks`, shared with `M.run`;
+record operation `reset`), runs `reset_plan.execute` with the run's
+cancellation as the stop predicate, and releases the locks only once the task
+ended AND the deletion settled (`maybe_release`; a timed-out deletion keeps
+them), then `svc:on_run_done`. The task's `start` meta is `{ kind = "reset",
+profile?, scope = "all"?, name = <profile> | "--all", units }`; the `status`
+reply's `tasks` carry `scope`. `remote_task.lua` maps `kind = reset` to
+action `reset` (`ConfigUnit:state()` `deleting`, `deleting_reason()`
+`deleting`, `shown_action()` nil; fidget `Resetting`; verbs `reset` / `reset
+failed`) and resolves a scope-`all` task's units among the workspace's
+configuration units, attaching it to every profile with one of them
+(`RemoteTask.profiles`); `running.format` shows `--all` in the profile
+column.
+
+**Snapshot, projection and queries (spec §19.13, §19.14; protocol 10).**
+`daemon/snapshot.lua` holds both sides. Daemon: `build(ws, scope, reg)`
+serializes the live model with its own serializers — `config` is
+`Workspace._shared_baseline`, `user` `Workspace:_serialize_user()`, `cache`
+`Workspace:_serialize_cache()` (each `_meta`-stamped as a save stamps it) —
+plus `_tools_by_type` as wire tool rows (`tool_rows` / `tools_from_rows`,
+the one `{ key, label, tool_data }` shape of the snapshot and the `tools`
+query), `_shared_ignored` and the semantic-key → id `index` (config units as
+`{ project, configuration, id }` rows) from the service's session-local
+`registry()` (weak-keyed object → id, §19.12); `ids_by_key(ws, reg)` /
+`carry_ids(ws, reg, by_key)` (`Registry:adopt`) hand the ids across the
+reload `Service:live` makes for a request's environment — each reloaded
+entity takes the id of the one it replaces, matched by kind and key (API.md
+§1.2), so an entity the reload no longer has leaves its id stale;
+`header(ws, err)` is the welcome's model fields (`Service:header`, from the
+host's optional `error_state()`; `Server:_authed` adds them to
+`welcome.header`, never replacing the session fields). `QUERIES` is the host-probing registry (`tools`:
+`merge.detect_tools` over the live model, unassigned). `Service:on_snapshot` /
+`on_query` share `_on_model_request`: env validation, then a model segment
+that runs `live(ctx, true)` and replies (no task, no lock). `as_is` serves a
+loaded model unchanged (no env-signature reload, no journal or tracker
+check, no tool wait); with none loaded, `host.load(root, handlers,
+{ wait_tools = false })` loads it without waiting for detection (the CLI's
+`tool_cache_mode` latch is skipped in the daemon, so detection still runs;
+it goes through the same `tool_cache.detect` fingerprint check as the
+in-process CLI, spec §16.43). Client: `fetch(conn)` /
+`query(conn, name, args)` work on a pipe or loopback session; `project(root,
+snap)` builds the read-only projection on a private `Core.new` (a no-op
+`events` bus, no `on_written`, no target scan, detection answered from the
+snapshot) through
+`workspace.assemble_snapshot` — `assemble` split at `_assemble_parsed`, so
+the user and cache tables are parsed exactly as file bodies — then
+`Workspace.new` + `remerge`, with `_no_write` set first so it never saves
+and no file tracker (`opts.tools` replaces the snapshot's detection: a fresh
+`tools` query, or the machine-level tool cache). `QUERIES.profile_cache` is
+`Profile:compiler_cache_status` for one (profile, project) pair, both resolved
+from their keys at the boundary, answered as fields; the CLI formats them
+with `profile.lua` `compiler_cache_text` (the `Cache:` row's formatter). The
+service logs `snapshot (scope ...)` and `query <name>` lines.
+
+**Read-only CLI commands on the projection.** `cli.lua` `read_workspace(root,
+wait_tools, opts)` is the one seam: `M._read_projection` returns the
+projection in `daemon` mode, else nil and the command loads in-process as
+before. It has no runtime side effects: only a shared selection
+(`runtime.select`, `sel.daemon`) whose daemon is already live
+(`inspect.state`), passes the endpoint check and runs this version
+(`version.matches` on the session's challenge) is used; it never launches,
+reconciles (no `_meet_live`), starts a loopback runtime or takes the runtime
+lock. Each request is bounded: `READ_DEADLINE_MS` (snapshot) /
+`READ_QUERY_DEADLINE_MS` (queries), or `READ_MISSED_PINGS` unanswered pings
+one `READ_PING_MS` apart; then a one-line note and the in-process read. A
+refusal ends the command with the runtime's message (the in-process line), a
+declined request or a failed connection falls back in-process.
+`LW_TEST_READ_TRACE` (tests) appends a `projection <root>` line when one is
+built; `LW_TEST_MODEL_DELAY_MS` in a request's env (tests) delays its model
+segment. `opts.keep` leaves the session open for
+`M._read_query` (`lw profile query ... cache` asks `profile_cache`). Commands on
+it: status, profile show/query, the read form of describe, project / config /
+configset / launch list and show, config get, tools. Commands that write
+never read through it; `lw health` still probes in-process.
+
+**Step 5e: loopback (spec §19.1 "Loopback during the transition").**
+`daemon/loopback.lua` `pair()` returns two connected in-memory
+ends with the pipe methods the server, client and task streams call
+(`write(data, cb)`, `read_start`, `read_stop`, `close`, `is_closing`,
+`get_write_queue_size`); delivery is `vim.schedule`d (ordered, never inline,
+never in a fast callback), a writer's queue counts bytes its peer has not
+read (so `tasks.lua` owner flow control works unchanged), and `close` is
+EOF to the peer after the bytes already written. `daemon/server.lua` shares
+`_acquire` (versions, root check, R, stale handle removal) and `_start_tick`
+between `start` (daemon: key, endpoint, handle, signals) and
+`start_attached({ command })` (R in `attached` mode; no endpoint, key, handle
+or idle stop; `_tick` checks only the root and `still_ours`; `stop` releases R
+and records `exit_code` instead of ending the process unless the host
+injected `exit`). `Server:adopt(sock, peer)` registers a connection in the
+authenticated state through `_authed` (the same counting, log and `welcome`
+as `_handshake`) and `_read`. `daemon/client.lua` shares `frame_reader` and
+`handshake_guard` between `connect` and `loopback_connect(server, opts, cb)`
+(synthesized `challenge`, reader starting at `welcome`);
+`loopback_session(server, opts)` is the synchronous form and
+`loopback_sessioner(server)` the `opts.session(endpoint, opts)` hook
+`cli._delegate` takes. `daemon/command.lua` `_new_server(root, host, opts)`
+attaches the build service and the runtime log for both `run_server` and
+`start_attached(root, host, command)`. In the CLI, `cli._attached_selected(ensured)`
+says whether a routed operation's selection is attached in `daemon` mode
+(`ensure` returned `off` with `runtime.select` in daemon mode, or `failed`);
+`cli._delegate_attached(op, root, args)` parses the request first (a form
+that stays in-process, or an untrusted workspace, never takes R), starts the
+attached server (retrying `start_attached` for `runtime-busy-wait` while R is
+held; a `live` daemon is used through the normal `_delegate` path instead),
+then calls `_delegate` with `attached = true`, the loopback sessioner,
+`release` (stop + unload the service's workspace, so a later in-process load
+starts clean; a run calls it before its program) and `lost`. With `attached`,
+`_delegate` skips the daemon-state, endpoint and `--break-locks` checks and
+prints none of the daemon's lines. R is released by `release` after the
+call, and by an exit hook on `die` / `finish` / Ctrl-C (which cancels the
+running task through `Service:on_stopping`). A lost R (`Server:_lost_lock`
+in an attached run) first calls `Service:freeze_writes()`, which sets
+`Workspace._no_write` so `_save_cache` / `_save_user` write nothing, then
+`on_stopping`, which marks the service `stopping` so `_drain` and
+`_on_operation` decline requests not yet accepted. `lost()` runs one `_tick`
+on the spot (a confirmation prompt blocks the loop) and every attached
+fallback checks it, so a command that lost R exits 1 rather than continuing
+in-process.
+
+**Interfaces (spec §19.20, the wire protocol `spec/protocol/PROTOCOL.md` and the interface suite `spec/protocol/API.md` — steps 5g.1, 5g.2 and 5g.3 built; 5q plan).**
+Three layers, each with one owner:
+
+- **Transport** — `daemon/protocol.lua` (framing, kinds incl. `call` /
+  `signal`), `daemon/version.lua` (`PROTOCOL = 11`, `PROTOCOL_MIN = 10`,
+  `negotiate(max, min)`: the highest version in the overlap of two ranges;
+  the server stores it per connection as `conn.transport`, and the editor's
+  `observer_compatible` needs only an overlap) and the shared
+  `proto/envelope.lua` (frame builders, `check_call`, the transport error
+  codes, `code_of`: an unknown code is `internal`). `hello` / `challenge`
+  carry `protocol_min`; `welcome` carries `objects` beside `header`.
+- **Interfaces** — `daemon/interfaces.lua`: the `Registry` of mounted
+  `(object, iface, v)` with their schema documents, digests and handlers
+  (`mount` refuses a version whose schema methods and handlers disagree;
+  `unmount`), `call` (route → `args` validated against the method's
+  parameters → handler → `ok`, the result validated in development builds and
+  tests, `validate_out`; a result or signal is first brought to its
+  schema's shape, `schema.shape`, so an empty table goes out as `{}` only
+  where the schema types an object), the subscriptions (`Root.subscribe` /
+  `unsubscribe`, `args` checked against the interface's `subscribe_args` —
+  none without one —, `emit` stamps `sub_id` and a `seq` counted per
+  connection and object over the signals actually sent, `subscribe` returning
+  the baseline; dropped with the connection and on `stop`) and the root signals (`root_signal`: `objects_changed` on a
+  new or vanished object, `retiring` from `Server:_retire`) sent to
+  transport-11 connections only. `M.root_impl()` is `loomworks.Root/1`.
+  `server.lua`'s `M.DISPATCH` is the one dispatch table: `control` rows (the
+  frozen subset, and `call` into the registry) and `v0` rows naming the build
+  service handler of each protocol-10 kind, served only with a service
+  attached (else "unknown request kind", as before) and answered with v0
+  replies. The interface methods of step 5g.2 adapt the same service
+  handlers (`daemon/core_interfaces.lua`), so a v0 row and its method share
+  one body. Module interfaces
+  (5q) are mounted on `/modules/<id>` with the same method ↔ schema check.
+- **Data** — records carrying the `snapshot.registry` ids (opaque strings
+  from `protocol.session_id(generation, n)`, so an earlier session's id never
+  resolves; `find(id, list)` resolves an `{ id }` reference). Task ids
+  (`tasks.lua`, `Task.id`; `Task.n` the integer a protocol-10 connection
+  gets, `tasks.wire_id`) and `sub_id`s are minted the same way.
+
+`loomworks/proto/` (the guard's `shared` class) holds `envelope.lua`,
+`schema.lua` (the pure-Lua validator of the restricted keyword set; `pattern`
+takes a portable regex subset translated to Lua patterns), `documents.lua`
+(where the documents are — `spec/protocol/` in a source tree,
+`loomworks/protocol/` in a release or dev bundle, added by
+`scripts/release/build_bundle.sh` / `scripts/dev-install.sh` — and a
+`DocumentSet` that loads them and resolves `<name>/<v>#…` and relative-path
+references), `schema_check.lua` (`lint`, `ratchet`) and `bytes.lua` (a task
+`output` frame's `text`/`data` choice, the UTF-8 hold-back's `split_tail`,
+U+FFFD `sanitize`, a pure-Lua base64 codec: the daemon's `Task:output`
+encodes, `cli.lua` and the editor observer decode). The client stub is
+`daemon/client.lua`'s `Conn:call` / `call_sync`. The documents live in
+`spec/protocol/`: `transport.json`, `meta/interface.schema.json` and
+`meta/transport.schema.json`, `interfaces/loomworks/Root.1.json` and
+`Common.1.json`, and `frozen/` (empty until a stable release ships an
+interface version). `tests/protocol_schema_spec.lua` lints every document and
+ratchets every frozen copy; `tests/daemon_interfaces_spec.lua` covers the root
+object over the socket and the loopback and the v0 aliases.
+
+Step 5g.2 part A adds the first core interfaces and conformance:
+
+(Step 5h.2: `daemon/descriptor.lua` builds the **binary descriptor**, spec
+§16.41 — `describe()` mounts the core interfaces on a registry with no server
+and no service (handlers built, never called) and returns `binary` /
+`transport` / `schemas` / `object_list(true)` / `root_methods`; `encode` is a
+canonical sorted-key JSON. main.lua prints it for `lw version --json` after the
+system-Lua searcher is installed; `scripts/release/descriptor.sh` runs the
+released Linux host on the released bundle to write the
+`lw-<ver>-descriptor.json` release asset; schema
+`spec/protocol/meta/descriptor.schema.json`.)
+
+- `daemon/core_interfaces.lua` — the interfaces the build service serves,
+  mounted by `Server:registry()` (or by `service.attach` once a registry
+  exists): `/workspace` `loomworks.Workspace/1` (`header` = the welcome
+  header's fields, never loading; `changed` emitted by
+  `Server:model_changed` beside the v0 `model_change`), `/tasks`
+  `loomworks.Tasks/1` (`list` from `TaskStream:snapshot()` plus `owned`;
+  `cancel` = the owner's `run.cancel(…, 130)` through
+  `Service:run_of_task`, `forbidden` for another connection; `started` /
+  `ended` from the stream's `on_started` / `on_ended` hooks, filtered by the
+  subscription's `task_id`) and `/internal` `lw.internal.Snapshot/1` (`get`
+  = `Service:_on_model_request` with a `deliver` callback answering the
+  call, the answer shared with `on_snapshot` via `_snapshot_answer`). From
+  step 5g.3 a transport-11 connection gets task frames only for tasks it
+  owns or its `/tasks` subscription matches (`Task:_observes`), and no
+  `model_change` / `retiring` broadcast (`server.takes_v0_broadcasts`): it
+  subscribes to `Workspace/1.changed` and gets the root's `retiring`
+  signal; connections below 11 keep every broadcast.
+- `daemon/relay.lua` — `lw daemon run --root <root> --stdio` (spec §19.10
+  "Connections", §19.8 "Relay handshake", step 5i): a connect-or-start
+  **relay** to the workspace's shared daemon, never a daemon (no runtime
+  lock, no handle, nothing registered). `Relay:run` reads the client's
+  `hello` first (`HELLO_MS`, else 15), then connects or starts through
+  `daemon/connect.lua` (`connect = false`, then its own `open`): the handle's
+  `key_id` (`command.other_key`), the endpoint check and `server_proof`
+  (12), another host (13), hung / still starting / unreachable (11), launch
+  failure (10); an attached run's lock is waited on (`POLL_MS`, no bound
+  while stdin is open, EOF = 0). The socket `hello` carries the client's
+  versions, client and role (`client.connect`'s `hello` option) and the
+  connection runs in raw mode (`raw`: after `welcome` the bytes are handed
+  over undecoded, `protocol.Decoder:push(chunk, stop)`); `welcome_frame`
+  splices `daemon` / `via = "relay"` into the daemon's raw `welcome`. A
+  `retiring` welcome is dropped: wait `RETIRE_WAIT_MS` for the lock (14),
+  then connect or start again. `--no-launch` (`_wait_for_daemon`) polls for
+  a live daemon, waits out a retiring one (16 when it is gone and none other
+  live); `--skip-instance` treats that instance as absent (`present`, exact
+  instance ids); `--retiring` (step 5i PR G1) seeds that wait with the named
+  instance, so one already gone with none other live is 16 at once. A 14
+  writes `retiring_line` (`retiring <pid>:<start_time>`, `connect.instance_id`)
+  as its last standard-error line. Relaying: `flow` per direction, pausing the source past
+  `HIGH_WATER` (4 MiB) and resuming below half. `parse` holds the usage rules
+  (2), including the `--private` gate (`LOOMWORKS_TEST_PRIVATE_STDIO=1`).
+- `daemon/stdio.lua` — `lw daemon run --root <root> --stdio --private`
+  (tests only, gated as above): an attached runtime whose one connection is
+  this process's standard input and output (`Server:adopt_pipe`: the first
+  frame is `hello`, answered by `welcome` without a challenge; stopping when
+  the client closes standard input) — the conformance runner's fresh,
+  isolated daemon per case.
+- `daemon/connect.lua` — connect or start (spec §19.10): `connect_or_start(root,
+  opts)` reads the runtime state (`inspect`), waits once, bounded, for a daemon
+  still starting, then `open`s an authenticated connection to the live one
+  (endpoint check + socket handshake verifying `server_proof`) or launches the
+  detached daemon (`launch.launch`; `connect_launched` then connects to it).
+  It prints nothing and returns an outcome (`connected`, `live`, `launched`,
+  `launch_failed`, `starting`, `hung`, `elsewhere`, `endpoint`, `untrusted`,
+  `unreachable`); hung-holder recovery is the caller's (`on_hung`). Also the
+  daemon instance id `<pid>:<start_time>` (§19.5): `instance_id`,
+  `parse_instance`, `same_instance`. `daemon/ensure.lua` keeps the CLI's
+  policy on top of it: the step bounds, one line per outcome, `--break-locks`
+  recovery, the version reconcile and `ping`.
+- `cli.lua` two-stage Ctrl-C (spec §19.15 "Task ownership", step 5i part
+  F): the interrupt cleanup offers a `sigint` first to an interceptor
+  (`M._set_interrupt_intercept`, one shot; Ctrl-Break, hangup and sigterm
+  are never intercepted). `_delegate` sets it, outside an attached run, only
+  while it waits for an accepted task's `done` (`M._await_routed`, which
+  restores the previous interceptor also when the wait raises):
+  `M._routed_cancel` sends `loomworks.Tasks/1.cancel` (the daemon stops the
+  step's process tree), one `lw: stopping the <op> - press Ctrl-C again to
+  stop waiting` line is printed, and the wait goes on until the task has
+  stopped; the next Ctrl-C runs the cleanup (the connection closes, the
+  daemon finishes stopping the task). An intercepted Ctrl-C is recorded:
+  whatever `done` says — or a lost connection — `M._interrupted_end` exits
+  130 and a run's program is never started (the task may have finished
+  before the cancel landed). A connection without interface calls or an integer task id
+  (protocol 10) is not intercepted, and a `cancel` answered with a
+  nothing-ran error (`calls.RETRY_V0`: no `Tasks/1`) escalates to the
+  cleanup. The interceptor is a field (`M._interrupt_intercept`), not a
+  chunk local: cli.lua's main chunk is at Lua's 200-local limit.
+- `proto/conformance.lua` (shared) — the transcript engine: matching with
+  selectors and `$`-matchers, frame validation against `transport.json`,
+  method results, declared error codes, signal schemas and gapless `seq`.
+  `scripts/conformance.lua` — the runner: fixtures, a fresh daemon per case
+  over standard I/O (`--lw` for any binary) or loopback; also a library for
+  `tests/protocol_conformance_spec.lua`. Transcripts:
+  `spec/protocol/transcripts/<namespace>/<Rest>.<v>.json`, linted against
+  `meta/transcript.schema.json` (`schema_check.meta_for`), not shipped in
+  the bundle.
+
+Step 5g.2 part B adds the operations and the CLI's calls:
+
+- *(Step 5o part B1.)* `core_interfaces.workspace_impl` serves the
+  `Workspace/1` commands (API.md §6): `publish`, `publish_one`,
+  `revert_one`, `revert_to_baseline`, `set_intent`, `set_description` run as
+  a model segment like the other writes (`_on_model_request`; tracker sync,
+  a reloaded workspace refused), resolve the `ItemRef` id once (`item_of`:
+  the registry's `find` over profiles, sets, projects and each live
+  project's configurations and launch configurations) and call the
+  `model_commands` function the in-process editor calls. The publish lock O
+  comes from the Workspace methods' `op_lock.guard`; a lock or save refusal
+  the host recorded (`ctx.refused`, naming the holder) replaces the generic
+  message. `trust_accept` / `delete_user_prefs` (confirm + plan token) run
+  in a segment of their own that does not need a loaded model: `live` first
+  (so the core is the daemon's, its handlers installed, whether the load is
+  refused or not), then `model_commands.trust_accept` /
+  `delete_user_prefs` on the host's `core()`, whose `Core:trust_user_prefs`
+  / `delete_user_prefs` put the core through setup again;
+  `Service:_adopt_reload` waits for that load and serves it (every earlier
+  id stale; `header_changed` from the segment's header check).
+- *(Step 5o part B2.)* `core_interfaces.profiles_impl` adds
+  `Profiles/1.set_active` / `create` / `tool_choices` / `add_tool` /
+  `remove_tool`, and `core_interfaces.config_sets_impl` serves `/projects`
+  `loomworks.ConfigSets/1` (API.md §11, §20) beside `Projects/1`. The
+  commands run as `Workspace/1`'s (`command`); the reads (`tool_choices`,
+  `candidates`) in a model segment of the caller's environment
+  (`read_segment`, shared with `projects_impl`). References resolve once at
+  the boundary: a profile (`profile_of`) or a configuration set
+  (`config_set_of`) by id or key, a set for `create` / `tool_choices` also as
+  `{ candidate }` (passed to `model_commands` as it is; `ConfigSets/1.add`
+  takes one too, `model_commands.config_set_add_candidate`), a mapping's
+  project and configuration each by id or key (`project_of`,
+  `configuration_of`; a project listed twice refused); `candidates` sends an
+  automatic set's mappings as `{ id, key }` pairs, resolved once there.
+  `create` and `tool_choices` wait
+  for a running toolchain detection (`settled_tools`, as a full load waits);
+  `create`'s `tool` (`{ module, key? }` or `{ sdk = <key> }`) is matched
+  exactly against `model_commands.profile_tool_choices`' entries (a
+  module's keyed host toolchains, then the relevant resolved SDKs, which
+  `tool_wire` sends as `{ sdk = true, key, label }`, then those SDKs' kit
+  toolchains, `Workspace:kit_tool_entries_for`, sent as module toolchains
+  with `sdk_key`), so the entry handed
+  to `model_commands.profile_create` carries the live SDK object and its kit
+  toolchains (`sdk_tools`, the first keyed kit per module type of the set,
+  from `Workspace:tool_entries_for`, shared with the status page's picker);
+  `ConfigurationSet:ensure_profile` stores those as the profile's tool keys
+  (spec §1.6), so the profile keeps its SDK across a reload. A profile's
+  toolchain change takes O in `model_commands` (`op_lock.guard` on its
+  local `Toolchain.change`), a set rename through
+  `Workspace:rename_configuration_set`'s guard.
+- *(Step 5o part B3.)* `core_interfaces.projects_impl` serves
+  `/projects` `loomworks.Projects/1` (API.md §19). Its commands run as
+  `Workspace/1`'s (`command`, shared with `workspace_impl`; the reply carries
+  a created or kept entity as `{ id, key }`). References resolve once at the
+  boundary: a project by id or key (`project_of`), a configuration or a
+  launch configuration by id (the registry's `find` over every live
+  project's, refused when it is another project's) or by its name in the
+  project; a variable, the deploy declaration or a `type_config` field by
+  the project and its name. The writes are the `model_commands` functions;
+  the configuration rename's O comes from `Project:rename_configuration`'s
+  `op_lock.guard`, `add`'s profile upgrade from
+  `Workspace:upgrade_profiles_for_tool`'s, and a launch rename takes none.
+  The reads (`candidates`, `declaration`, `expand_preview`) are
+  `model_commands.project_candidates` / `project_declaration` (with what
+  the configuration editor shows, derived under the active profile —
+  `Project:active_compiler_family`, the one derivation of the family the
+  workspace view's variables also use; step 5o C2b2-1) /
+  `expand_preview` in a model segment of the caller's environment (a
+  toolchain detection for `candidates` is not stored in the model).
+  *(Step 5o C2d.)* `unit_options { unit = { id } }` checks a configured
+  unit in the same kind of segment, refused for an unconfigured unit, one
+  being deleted (`is_deleting`, its build dir may be mid rm-rf) or a stale
+  id; it then reads `ConfigUnit:options_async` (the module's
+  `get_options_async`, else `get_options`) off the model queue — the
+  segment sets `ctx.deferred` and replies itself when the read ends
+  (`Service:_on_model_request`), so a slow `meson introspect` holds no other
+  request — with the read's programs spawned in the client's environment;
+  refused when the module has no options. The daemon's task meta names the profile and the
+  units by id as well as by key (`profile_id`, `units[].id`;
+  `daemon/tasks.meta_unit`), and its `view.Workspace/1` unit rows carry
+  `artifact_block` (`view_state`, from `Workspace:artifact_conflict_block`
+  without `force`; only with ids, never in-process).
+- *(Step 5o part B5.)* `daemon/maintenance.lua` serves `/maintenance`
+  `loomworks.Maintenance/1.execute_deletion` (API.md §22), task-streamed
+  (`meta.kind = "delete"`), mounted by `core_interfaces.mount`. Its target
+  resolves once at the boundary (`resolve_target`: a profile or project by
+  id or key, a configuration unit or an orphaned build directory by id —
+  `view.Workspace/1` `orphaned.configurations[].id`, `view_state` with the
+  daemon's `id` — a stray directory as the path, `orphans = true`); after a
+  tracker sync it is `model_commands.deletion_request` in a model segment of
+  the caller's environment (`refused` / `confirm` / `accepted`, as `reset`),
+  and an accepted one runs `model_commands.deletion_run` (O then every B
+  via `Workspace:_locked_deletion`, re-plan under them, then
+  `deletion_plan.execute`): it adds no deletion path. The run's
+  cancellation is the deletion's stop predicate (between entries, `delete
+  stopped: <reason>`); the run stays in `Service.runs` with `deleting` /
+  `deletion_settled` (the daemon busy) until the deletion and its locks
+  settled, also after its task ended; the header check (writes' `changed`,
+  views' `update`) precedes `done`.
+- *(Step 5o part B6.)* The same module serves `Maintenance/1.nuke`
+  (`meta.kind = "nuke"`): the in-process nuke (`Core:nuke_check`,
+  `_nuke_begin`, `_nuke_run`; the listing is `Core:nuke_targets`, shared
+  with `lw nuke`). The call refuses while any task of the daemon runs
+  (`nuke_busy`, listed) and checks the locks with `nuke_check` (taken and
+  released, `lock_break.requested` cleared) before it lists; its plan token
+  covers the build directories it locks (`_nuke_lock_dirs`) and the owned
+  LSP database areas. The task runs in its own model segment: tasks and
+  `_nuke_begin` (O, then every B) again, the plan compared under them, then
+  the model unloaded (`Service:_unload`, its late saves blocked by
+  `_no_write`), `_nuke_run` and a fresh load (`Service:live`). The run is
+  `keeps_on_reload` so its own unload does not cancel it; a cancel before
+  the removal ends it `nuke stopped: <reason>` with the locks released.
+- *(Step 5o part B4.)* `core_interfaces.sdks_impl` serves `/toolchains`
+  `loomworks.Sdks/1` (API.md §21) and `toolchains_impl` adds
+  `Toolchains/1.rescan` (API.md §11). `detect` is
+  `model_commands.sdk_detect` in a model segment of the caller's
+  environment; `add` / `remove` run as `Workspace/1`'s commands
+  (`command`), an SDK reference resolving once at the boundary (`sdk_of`:
+  the registry's `find` over `ws._sdks`, or its exact key). `rescan` and
+  the rescan after `add` share `rescan_tools`: `model_commands.tools_rescan`
+  (`Workspace:rescan_tools`, which asks the detector for every module type
+  afresh, `force` past the machine-level tool cache of spec §16.43), then
+  a wait in the segment, as a load waits (`service.LOAD_WAIT_MS`), for
+  `_tool_state == "scanned"`; a changed `tool_rows` list emits
+  `Server:model_changed` unless a write during the wait already did.
+- *(Step 6b-α, WP-C; API.md §9.6, §11, §14.4.)* `core_interfaces.launch_impl`
+  adds `Launch/1.targets { profile }`, a read in a model segment of the
+  caller's environment: `model_commands.launch_targets` over
+  `run_prep.target_listing` (per project in the profile's order its runnable
+  launch configurations, executable build targets and its module's device
+  targets; `default` the stored
+  choice, else, none stored, the sole launch configuration or build target;
+  `incomplete` the unconfigured projects of a module that parses targets;
+  `override` a stored choice), each record's project mapped to `{ id, key }`
+  at the boundary. Its targets are current without a parse on the model
+  queue (`with_fresh_targets`, shared with `set_default_target`): a query
+  segment takes the profile's units whose targets are unknown or older than
+  their last configure or build (`ConfigUnit:targets_stale`, comparing
+  `targets_stamp()` — build dir, `last_configured`, `last_built` — with the
+  one `set_targets` recorded), `build_run.parse_unit_targets_async` parses
+  them off the queue, and the request's own segment sets each result (unless
+  the unit is gone or its stamp moved meanwhile) before it answers from the
+  known targets (`{ parse = false }`), so the views' check after that
+  segment signals a change of `projects[].targets`; nothing stale, no parse.
+  `profiles_impl` adds `Profiles/1.set_default_target
+  { profile, target? }` (a command): the target's project reference resolves
+  to the Project (`project_of`), `model_commands.profile_set_default_target`
+  matches `{ kind, project, name }` against the listing (else `no launch
+  target '<project>:<name> (<kind>)' in profile '<key>'`) and writes the
+  descriptor through `Profile:set_default_target_descriptor` /
+  `clear_default_target` (`_write_default_target`: reports the working
+  copy's write, the previous descriptor restored when it fails).
+  `view_state` gives each `projects[]` row `targets` — the union of the
+  parsed targets of every live unit of the project, `{ type }` by name. The
+  observer declares both methods (`Launch/1.targets`,
+  `Profiles/1.set_default_target`); their editor consumers come later.
+- `daemon/core_interfaces.lua` also mounts `/build` `loomworks.Build/1`
+  (`build`, `clean`, `reset`), `/tests` `loomworks.Tests/1` (`run`) and
+  `/launch` `loomworks.Launch/1` (`prepare_run`): each handler turns its
+  wire args into the v0 request (`operation_args`: a `{ key }` reference
+  becomes the key, an `{ id }` one `profile_id` / `project_id`, resolved in
+  the model segment by `Service:_resolve_ids` straight to the live object,
+  which the operation then uses — never turned back into its key (step 5o
+  part 0) — a stale id refused) and calls
+  `Service:_on_operation(op, conn, msg, deliver, call)`. `call`
+  (`task_call`) becomes the task's `Task.call`: `Task:start` adds `object`,
+  `iface`, `v`, `method` to the start meta and `Task:done` adds `result`,
+  built from the exit code, error and done fields (a run's `launch` /
+  `device`; a test run's `steps` / `failed` / `junit`, passed as
+  `fields.result`, which never reaches a v0 frame), shaped and in
+  development builds validated against the method's task result schema.
+  Step 5k part B2 adds `Launch/1.prepare_debug` (op `debug`: the run's
+  preparation in `runner.lua`, `result.debug` from `run_prep.debug_spec`,
+  a device / foreign target refused by `run_prep.debug_refusal`, never
+  declined) and `build_scope` on both preparations: `target` runs
+  `target_scope` in `runner.lua` — the phases dependency units
+  (`LaunchTarget:build_dependencies` / `_resolve_dep_config_unit`),
+  `pre_build` deploy, the launch's own unit (`overseer.plan_unit_build(ws,
+  unit, {target_id, profile})`: one `build_target_task` step in the unit's
+  locked build dir where the module has one, else configure-if-needed +
+  build, resolved against the requested profile; the same step machinery),
+  the artifact probe (`run_prep.debug_refusal` / `foreign_of`), the
+  `post_build` deploy — each unit under its own build-directory lock for
+  that build only, its step progress scaled into the phase's band.
+  Step 5t part B adds `Launch/1.build` (op `target_build`, `meta.kind =
+  build`): the same planner (`plan_target_scope`, run before `task:start`)
+  and driver (`target_scope`) up to the launch's own unit, no probe,
+  post-build deploy or `prepare` — except a device target's, whose build ends
+  with its post-build deploy (step 5n part B2). Each phase is a step: the plan goes into
+  `start.meta.steps` (deploy steps only for a phase with copies,
+  `LaunchTarget:deploy_count`), `Task:step` records each transition (the task's
+  copy behind `Tasks/1.list`, `Task:info(conn, true)`) and the stream's
+  `on_step` hook sends `Tasks/1.step` with the frame's own `seq`; `finish`
+  closes the running step (`cancelled` / `failed` / `ok`) and skips the rest
+  before `done`. The deploy phases run asynchronously
+  (`_deploy_phase(..., { async, cancelled, resume })`, `run.deploying`), a
+  cancel stopping between copies. `force` (both preparations and the build,
+  interface only) reaches `build_run.before_step`'s conflict gate. `/debug` `loomworks.DebugConfig/1` (`debug_impl`):
+  `adapters` / `known_languages` in a model segment, `set_adapter` a
+  command (tracker sync, then `Workspace:set_debug_adapter`; the write's
+  `model_change` before the reply, a refused write the refused result).
+  `/lsp` `loomworks.LspConfig/1` (`lsp_impl`, `get` / `set_option`, signal
+  `changed`; see the step 5l entry below).
+  `/toolchains` `loomworks.Toolchains/1` (`list`) and `/profiles`
+  `loomworks.Profiles/1` (`compiler_cache`) run the registered queries
+  through `Service:_query` in a model segment. `header_check` emits
+  `Workspace.header_changed` when the header's state, name, active profile
+  or error differs from the last seen (after every model segment in
+  `Service:_drain` and every `Server:model_changed`, and before the
+  acknowledgement of a request answered inside its segment:
+  `Service:_before_ack` from the requests' `ctx.reply`), then runs
+  `daemon/views.check`.
+- Step 5k part B1 (spec §19.15 "Editor scopes and configure") grows
+  `Build/1` for the editor's actions: `configure` (task-streamed, op
+  `configure` through the same `_on_operation` / `_accept` / `runner.run`:
+  exclusive locks with operation `configure`, `build_run.plan` with
+  `configure_only` — every unit's configure step, also an already configured
+  one, no build — `configuring <scope>` / `CONFIGURE OK: <scope>`); `units`
+  on build / configure / clean (the handler refuses `units` with `profile` or
+  an empty list as `invalid_args`, `profile` by key or id; `Service:_resolve_units` resolves `{ id }`
+  with the session ids and `{ project, configuration }` by keys, an
+  unresolved one refused; the runner's scope is then `ctx.units`: locks over
+  `build_run.unit_build_dirs`, `build_run.plan(nil, { units })` →
+  `overseer.plan_units_build` (each unit's tasks as the editor's unit actions
+  collect them: its recorded tool, the active profile's context; the unit's
+  tool/configuration compatibility gate instead of the profile's
+  buildability gate; a unit with no tasks — no module, an undetected tool —
+  refuses the plan, never an empty one), `plan_clean(nil, units)` →
+  `overseer.plan_units_clean` (an undetected tool refuses the clean, as for a
+  profile), lines naming `build_run.units_label`, `meta.profile` absent); `jobs` on
+  build (`build_run.plan` appends `overseer.append_parallel_jobs`, the
+  editor's `-j` option, to each build step, after an existing `--`); the
+  protocol-10 (v0) requests take none of `units`, `jobs` or `{ project,
+  target }` items (`declined`); `{ project, target }` target
+  operands (`resolve_build_targets`: that project only, a project outside
+  the scope refused).
+- `daemon/views.lua` (binary side; step 5j part B) — the editor views on
+  `/views`: `loomworks.view.Header/1` and `loomworks.view.ProjectsIndex/1`
+  (spec §19.13 "Views"; later `view.Tests/1`, 5m, and `view.Workspace/1`,
+  5n B1), each `get` (never loading; built from
+  `Service:header_model()`) and `update` (declared `initial`, full state).
+  The state comes from `view_state.lua`, the one builder (binary side, pure
+  over the model, reading no files) that the editor also calls in-process
+  (part C); the daemon passes its session fields and an id function
+  (`service.ids`), so only daemon views carry `pid` / `lw_version` /
+  `session_generation` and the opaque ids. `check` builds a view only when
+  `Registry:has_subscribers` says someone listens and sends `update` to a
+  subscription only when the state's `view_state.signature` differs from the
+  one last sent on it (`sub.view_sig`, set by `initial` too; the registry
+  passes the subscription to `initial` and to `emit`'s `accept`).
+  *(5n B1, spec §19.13 "Freshness of views")* `header_check` first runs
+  `Service:check_files` — `Workspace:sync_light`, a file-tracker sync whose
+  `accept` (`Workspace:_change_needs_reload`) leaves a loomworks.json change
+  (it rescans tools) and a refused file (it reloads) pending for the next
+  request's `live` sync — outside model segments and never reentrant; a
+  view's `get` runs `header_check` before building, and the tracker's
+  watch (`file_tracker.lua` `signal` above) runs it when a watched file
+  changes, so another process's write (the in-process CLI's) reaches the
+  views with no request. From 5o
+  the editor in daemon mode writes only through command methods, whose
+  model segments send the `update`s before the reply.
+- `views.lua` (plugin side; step 5j part C) — the editor's view store: one
+  table per view (`header`, `projects`), the daemon's while the observer
+  holds a subscription (`Observer:_view_subscribed` takes `initial`,
+  `_view_update` each full-state `update`, `_refetch_views` a `get` of every
+  subscribed view after a `/views` `seq` gap; cleared on close, stop, a
+  removed object and each new subscribe), otherwise built in-process through
+  the builders init.lua registers (`Core:view_header` /
+  `Core:view_projects_index`, which call `view_state.lua` without ids). A
+  daemon view is rendered as it is: `state = "unloaded"` and no projects
+  until the daemon loads the workspace. Readers: `init.buf_status`
+  (`views.status_of`: the record by `views.match`, the profile icon by
+  `views.profile_state`), `init.buf_project` (separator-bounded longest
+  prefix on normalized paths), `init.view_header` (the status page header).
+  A daemon change (set, or any clear: the observer's `_set_view` /
+  `_clear_views`) redraws the statusline and emits `daemon_view_changed`
+  (the status page re-renders). An in-process view has no change of its own:
+  init.lua calls `views.changed()` on the model events (task start/stop,
+  operations, deletions, active set, workspace), which redraws the statusline
+  (coalesced per event-loop turn), so a running state starts the lualine
+  spinner at once; lualine itself subscribes to no event.
+- *(5n part A)* `view_state.workspace(ws, opts)` builds
+  `loomworks.view.Workspace/1`'s state, the status page body (Diagnostics,
+  Suggestions, Profiles, Orphaned Build Dirs, Configuration Sets, Projects,
+  SDKs): plain rows, ids only through `opts.id`, never reading files — the
+  host passes `published` and `stray_dirs` (`Workspace:view_workspace`, which
+  reads them through `Workspace:_view_stray_build_dirs`: the last
+  `find_stray_build_dirs` result, reused while the live build dir forms and
+  the modification stamps of the directories that scan listed are unchanged;
+  deletion safety always scans afresh). In-process the status page
+  passes `opts.bind`, which records each row's domain object outside the
+  state, so the sections (`ui/sections/*.lua`) render only from the rows and
+  keep their actions apart: they name rows to `ui/model_calls.lua`, which
+  in-process finds the objects through `status_source.object_of(row)`, and
+  reach the workspace by `ctx.ws`. The view carries no progress (API.md §14.4): a busy
+  profile's percent and elapsed time and a running unit's step progress
+  reach the sections through `ctx.profile_progress(row)` /
+  `ctx.unit_progress(u)`, which status.lua answers in-process from the rows'
+  domain objects (`Profile:operation_pct` / `operation_elapsed`,
+  `ConfigUnit:progress` / `elapsed` — the in-process task tracking); the
+  last finished operation's outcome is state, the row's `last_result`
+  (`Profile:set_last_result`, set by an Operation's completion, an observed
+  daemon task's end, and in the daemon by its own run's end). Rendering is pinned byte for byte by
+  `tests/status_render_golden_spec.lua`. *(5n part B1)* The daemon serves
+  it on `/views` (`daemon/views.lua` `M.workspace`: `Workspace:view_workspace`
+  with `service.ids`, `view_state.workspace(nil)` — every array empty — while
+  unloaded), `update` only on a difference like the other views; the
+  daemon's own run's end sets the profile's last result
+  (`Service:on_run_done`, `BuildRun.profile`, the end message from
+  `Operation.task_outcome`, the one wording shared with
+  `RemoteTask:outcome`). *(5n part C1)* The status page reads its body
+  only through `status_source.lua` (`read(ws)` → `{ mode, view, why,
+  loaded, profile_progress, unit_progress }`, `modified(ws)` for the
+  buffer's 'modified' — from 5o C2a in `daemon` mode the daemon's view's
+  `modified` while the view is held and knows the editor's own writes, as
+  publish and revert (`:w`, `:e!`) run in the daemon and their view
+  `update` precedes the reply, so `:e` is refused (E37) while the daemon's
+  working copy has unpublished changes (every status-page write is a call
+  since 5o C2c-2, so the view knows them); while the view is not held, the
+  editor's model's, the best knowledge then; the model's in the
+  `in-process` mode). The flag can lag
+  the daemon, so in `daemon` mode a plain `:e` never reverts — the status
+  page's revert (`status._on_revert(force)`, `View.attach_revert` passing
+  `v:cmdbang`) runs `Workspace/1.revert_to_baseline` only for `:e!`. In `daemon` mode the view is the observer's
+  subscription to `view.Workspace/1` (`observer.VIEW_WORKSPACE`, held in
+  the view store as `workspace`; `Observer:workspace_view()` gives it or why
+  not) and nothing of the body is built in-process: while it is not held
+  each body section is one `unavailable — <why>` line; `loaded` comes from
+  the daemon's header view (no "not on disk" banner from an unloaded
+  daemon's `published = false`); progress is overlaid from the observer's
+  `Tasks/1` tasks (`pct` / `start_time`), matched to the rows by the ids
+  their meta carries (`RemoteTask.profile_id` / `unit_ids()`, API.md §4.2;
+  5o C2d-2 — never by key): a task of the row's profile counts for the
+  profile row, a task for a unit row only when its meta lists that row's
+  `unit_id` (a device log, device install / launch or test discovery names
+  only the profile's id and runs no unit; a profile's build, configure and
+  clean list their units); the `Workspace/1`, `Profiles/1` and `ConfigSets/1` actions
+  pass the row itself to `ui/model_calls.lua`, which sends its id (5o
+  C2a), as do the Projects section's configuration and launch removals,
+  variable edits (the editor reading `Projects/1.declaration`) and
+  `type_config` field edits (5o C2b, first half), and the configuration
+  editor (reading `Projects/1.declaration`, saving with
+  `configuration_save`; 5o C2b2-1), the launch, deploy and path editors
+  (reading `Projects/1.declaration`, the view's rows and
+  `Projects/1.expand_preview`, saving with `launch_save` / `deploy_save`;
+  5o C2b2-2), the SDK section's removal (5o C2c-1) and every deletion — a
+  profile's, a unit's (by its `unit_id`), an orphaned entry's, a project's —
+  and the nuke (5o C2c-2) — the project's
+  routed rows offered by `helpers.actionable` — and, from 5o C2d-1, the
+  Profiles section's builds, configures, cleans and rebuilds of a profile
+  row (by its `id`) or a unit row (by its `unit_id`; a row without one
+  offers none), the build's artifact-conflict question from the unit
+  rows' `artifact_block`, the clean confirmation from the rows; and from
+  5o C2d-2 the options float (`Projects/1.unit_options` by the unit row's
+  `unit_id`; in-process the bound unit's `options()`, synchronously) and
+  the device choice (`Profiles/1.set_device` / `clear_device` by the
+  profile row's id and the scanned record's id, the current choice the
+  row's `device.id`), while a row's cancel, task output and progress are the
+  tasks whose meta names the row's ids (`editor_ops.tasks_on_ids` /
+  `cancel_on_ids`; the task output `ui/remote_output.lua`, shared with the
+  Tasks section). No row reaches the editor's model in `daemon` mode (the
+  transitional `ref` is gone); `helpers.actionable` asks
+  `status_source.object_of` in-process.
+  Every state-file write of a model (`Workspace:_record_written`,
+  `_save_config`, `publish_one`) emits `state_file_written { workspace,
+  kind }`; since step 6b-α no editor observer follows it (a daemon-mode
+  editor writes no state file).
+- *(5n part B2, spec §19.16 "Devices", API.md §15)* `daemon/devices.lua`
+  (binary side) serves `Devices/1` on `/devices`: `list` (the registry,
+  `Workspace:devices`, never loading or probing; records `{ id, key = serial,
+  label, state, provider, profiles? }` with `service.ids`), `changed` (at the
+  header check, on a difference of the records), and the owned tasks `scan`
+  (`Workspace:scan_devices(cb, { resume, cancelled })`, called inside the
+  model segment so the modules run in the caller's environment, merged in a
+  segment), `install` and `launch` (the target resolved as `prepare_run`
+  resolves it; the module command built by the domain object —
+  `LaunchTarget:device_install_command` / `device_launch_command`, which the
+  editor's `device_install` / `device_launch` run as overseer tasks — and
+  spawned with `runner.spawn` in the caller's environment; the pid by
+  `LaunchTarget:device_resolve_pid(…, { system })`; a cancel during the probe
+  ends the run on the probe's exit) and the plain method `stop` (the
+  `device_stop_command` the launch built from the target it resolved, for a
+  launch the caller owns, remembered per session until stopped or its owner
+  disconnects; a second stop while one runs is refused). Each is a run in
+  `Service.runs` (the stop's too, without a task); an install, launch or stop
+  `keeps_on_reload`: `Service:_stop_stale_runs` does not cancel it and
+  `Service:live` does not decline another environment for it. Every workspace
+  the daemon loads shares one device registry (`Service:_adopt`), so a reload
+  keeps the devices and their ids. Locks: install takes its
+  build directory (B, fail-fast) then the device (D,
+  `remote/device_lock.try_acquire` polled on a timer — never `vim.wait` in the
+  daemon); launch and stop only D. `Profiles/1.set_device` / `clear_device`
+  write through `Profile:set_device` / `clear_device` (which now report and
+  undo a refused write). `Launch/1.build` of a device target runs its
+  post-build deploy (`runner.lua` `plan_target_scope`). The stub module is
+  `tests/fixtures/devstub` (the conformance runner's `devices` fixture).
+- *(5n part B3, API.md §9.5)* `Launch/1.device_log { task }` is served by
+  `daemon/devices.lua` too (`device_log_method`, mounted by
+  `core_interfaces.launch_impl`): a task of the program a finished launch of
+  the caller launched, from the launch's record (`DeviceLaunch`: target,
+  profile, serial, pid, bundle — kept by `launch` for `stop` and this; a
+  launch with no pid is refused, another client's `forbidden`). The commands
+  are the domain object's — `LaunchTarget:device_log_clear_command` and
+  `device_log_command` (the module's strict-pid option applied; its default
+  level, normalized, is the task's `start` meta `level`), which the
+  editor's in-process `session_tracker` runs too; the command is built inside
+  the model segment, in the caller's environment. The clear runs under D only,
+  killed after `LOG_CLEAR_TIMEOUT_MS` as in-process (a lock not taken, a
+  failed or timed-out clear is a `note` line), then the stream under no
+  lock; its stdout and stderr lines are parsed, prefiltered
+  (`make_prefilter{pid, bundle}`) and normalized by the shared
+  `device_log_records`, queued (`LOG_QUEUE_MAX`,
+  the oldest dropped and counted) and sent every `LOG_FLUSH_MS` as the
+  `log { task, records, dropped? }` signal on `/launch` (subscriptions naming
+  the task or none), at most `LOG_BATCH_BYTES` of JSON per signal (far under
+  `protocol.MAX_FRAME`), held while the owner's write queue is above
+  `tasks.OWNER_HIGH`, flushed before the task's `done`. Nothing is sent
+  while no subscription names the task (`Registry:has_subscribers` with an
+  `accept`): the queue holds the records (its bound and `dropped` still
+  apply) and the first `log` to a subscription naming it carries them, so
+  the editor's subscribe after `accepted` misses none; records still
+  unnamed at the task's end go with the run. The pid probe
+  (`device_resolve_pid`, `tries = 1`, its own child slot so a cancel kills it
+  and the stream, and the run's end kills it) runs every
+  `LOG_PID_POLL_MS`; `LOG_PID_MISSES` misses in a row kill the stream and
+  end the task with 0. A run in `Service.runs`
+  (`keeps_on_reload`): a cancel or the owner's disconnect ends it.
+- *(5n part C2, spec §19.16 "Devices")* The editor's use: the observer's
+  `M.DEVICES` (subscribed to for `changed`; `callable`, `tasks`) and
+  `M.PROFILES` (`call_only`, feature `profiles` from 5o C2a; `M.PROJECTS`,
+  feature `projects`, from 5o C2b), the calls
+  `device_list` / `device_scan` / `device_install` / `device_launch` /
+  `device_stop` (`WIRE` → the Devices/1 method; `device_list` carries no
+  environment) and `Profiles/1.set_device` / `Profiles/1.clear_device`
+  (interface-qualified call names, step 5o C0: from 5o a call is named
+  `"<Interface>/<v>.<method>"` — Profiles/1, Projects/1 and ConfigSets/1
+  share method names — its wire method the name's method, checked against
+  its interface table when the observer loads; the earlier calls keep their
+  flat names). `Devices/1.list` is read
+  into a per-connection cache (`Observer:_fetch_devices`, single flight,
+  first on `_connected_note`, again on each `changed`; `devices()` /
+  `with_devices(cb, fresh)`; `daemon_devices` emitted after each read;
+  dropped on a disconnect, a resubscribe or `/devices` removed).
+  `daemon/editor_ops.lua` routes `scan_devices` (owned task, then a fresh
+  read), `set_device` (`Profiles/1.set_device { profile, device = { id } }`
+  / `clear_device`, through `plain`), `device_step` / `device_stop` and
+  `device_run_refused`; `editor_ops.NO_RESTART` includes `device_launch`.
+  `device_source.lua` is their one caller for reads and choices;
+  `session_tracker.start_device_run` the one for a device launch (see
+  "Launches" above). Nothing of it runs in the editor in `daemon` mode; the
+  in-process chain (`LaunchTarget:device_install` / `device_launch` /
+  `device_stop`, `Workspace:scan_devices`) is the deprecated
+  `in-process` mode's only. The device log (5n C3, API.md §9.5) is
+  `editor_ops.device_log(ws, launch_task, conn, sink)`: a
+  `Launch/1.device_log { task }` the editor owns (`NO_RESTART`), refused when
+  not carried or when the launch's connection is gone
+  (`launch_forgotten`); accepted, `Observer:subscribe_log(conn, task_id, ...)`
+  (refused unless `conn` is still the observer's: the task went with it)
+  sends Root `subscribe { object = "/launch", signals = { "log" }, args =
+  { task } }` and `_on_message` routes each `/launch` `log` signal to it
+  (`_log_signal`, by its task on this connection; `_log_subs` reset on a
+  resubscribe or a close); `start_owned`'s `on_start(meta)` / `on_line(text)` feed the
+  sink the meta level and the task's lines; its end, or the handle's
+  `cancel` (`unsubscribe_log` — Root `unsubscribe { sub_id }` — then
+  `cancel_owned_id`), ends it. The view (`device_log.start_remote`) shows
+  the records, a gap line for `dropped`, and a last line for the end
+  (no workspace reach-in).
+- *(Step 5l; spec §19.16 "LSP configuration", §19.20 `LspConfig/1`, §9.2.)*
+  `lsp_config.lua` (shared side, host-neutral, no `vim.*`) — the one builder
+  of the LSP configuration state: the `lsp_configs` content memo
+  (`clear_memo` on a workspace swap or close, `bump_generation` on
+  `lsp_options_changed`), the `db_state` derivation, and per project (key
+  order) the entries with the core `db_dir` (the directory whose owned
+  database the entry reads: the module's when it sets one — cmake's clangd
+  entry under `compile_commands_from` gives the redirect target — else the
+  project's active build dir) and `db_rev` (from the Workspace's
+  `_lsp_db_revs`, keyed by `db_dir`, raised by `bump_db_rev` in
+  `_refresh_lsp_database_for` just before `_nudge_lsp`;
+  `on_owned_database_changed` nudges the projects with an entry whose
+  `db_dir` is the written dir). A module's own fields (qmlls's `build_dir`
+  included) pass through unread; `state(ws, opts)`
+  adds the options (`Workspace:lsp_option_servers` + `get_lsp_options`) and
+  the readiness flag (`_lsp_ready`) in the `LspConfig/1.get` shape.
+  `lsp_source.lua` (plugin side) — what `lsp.lua` (`decide`, the workspace
+  entry, the §9.7 gate's readiness, `find_project_by_root`,
+  `on_owned_database_changed`, `get_status`) and the integrations
+  (`on_active_set_changed`, clangd's options, qmlls's root resolution) read
+  instead of the model: `state`, `projects`, `project_for_buf`,
+  `find_by_root`, `options`, `loaded`, `loaded_and_ready`, `pending`,
+  `root`, built from the `loomworks` facade's model (its one model read)
+  only in `in-process` mode (5l C below). *(5l B:)* the daemon serves the same builder on
+  `/lsp` (`core_interfaces.lsp_impl`, beside `DebugConfig/1`): `get` answers
+  a state other than `loaded` at once, never loading; a loaded model is read
+  in a model segment of the caller's environment, the memo keyed by that
+  environment's signature (`env_key`: a server binary found through PATH
+  differs per client). `set_option` is a command like `set_adapter`
+  (`Workspace:set_lsp_option` now returns ok/err and puts the options back
+  when the save is refused or fails; a nil value removes the key).
+  `core_interfaces.lsp_check` sends `changed {}` when the state built
+  with the daemon's own environment (`lsp_config.signature`) differs from
+  the one at the last `changed` — from `header_check` (after each segment and
+  committed write; inside a segment it defers to the check after it) and on
+  the `lsp_ready` event — and always on `lsp_database_written` (emitted by
+  `_refresh_lsp_database_for` after `bump_db_rev`, filtered to the service's
+  live model); it is built only while `/lsp` has subscribers, the first
+  subscription recording the baseline (the registry's `subscribed` hook).
+  The daemon generates the owned databases (D6): `deps.lsp_databases` (set
+  by the CLI loader for the daemon) makes the target-less startup pass
+  `_refresh_lsp_databases_async` regenerate every configured-here unit's
+  database, the active profile's first, releasing `_lsp_ready` once those
+  settled; configures and builds regenerate as in-process.
+  *(5l C:)* in `daemon` mode `lsp_source.lua` serves **only** the daemon's
+  state — no in-process fallback; `mode()` is `daemon` while the loaded
+  workspace has an observer. The observer subscribes to `/lsp` (`M.LSP`,
+  `callable`: `get` / `set_option` are called while subscribed) and caches
+  the last `get` per connection (`_lsp_read`, made with the editor's
+  environment once discovered, again on its `changed`, on `Workspace/1`
+  `changed` and on reconnect; each read carries a token in `_lsp_fetch`, so
+  a reply to a read from before a reconnect or a `/lsp` remove + re-add is
+  ignored; a declined/failed read is cached with its reason, debug-logged).
+  `Observer:lsp_phase()` is `loaded` (in use, with the state), `waiting`
+  (`why`: connecting, `unloaded`, or `disconnected` — `_lost`, set by
+  `_on_closed` and cleared only when the daemon reports `loaded` again,
+  through its header view or an LSP read) or `unavailable` (`kind` `error`
+  for a state `error`/`refused`, else `daemon`: no binary, protocol 10, an
+  incompatible daemon, the interface missing or at another version, `get`
+  degraded — never a "running in-process" method note — or a
+  declined/failed read); `lsp_note()` is its Runtime-line note (warning
+  when unavailable) and `runtime_line` adds `LOST_NOTE` while `_lost`. Every
+  change (a read, a state move in `_set`, a close) emits
+  `daemon_lsp_config`. `lsp.lua` decides a buffer under the root `held`
+  while waiting (the gate's safety timer is not armed then) and
+  `withheld_daemon` / `withheld_error` while unavailable, and otherwise
+  against the daemon's state; while not `loaded` the re-evaluation skips its
+  running-client pass (§19.16 "Running clients": waiting or unavailable
+  stops no client, their buffers keep `ok`); `_on_source_changed` applies
+  `lsp_source.changes()` (`lost` → `stop_controlled_clients`: every client
+  of an integration with `withhold_reason` under the root stopped through
+  `mark_managed_stop`, its buffers parked `held` for the re-evaluation;
+  `switched` / `entries` → integrations' `on_active_set_changed`; per-key
+  `options` (none on the first state in use) → `on_lsp_options_changed`;
+  raised `db_rev` → `on_owned_database_changed`), releases the gate when the
+  state is in use and `ready` or unavailable and arms the timer only for a
+  loaded-but-not-ready wait. The model's own `lsp_ready`,
+  `active_set_changed`, `task_stopped` and `lsp_options_changed` are ignored
+  in `daemon` mode. Buffer → project is `lw.buf_project`'s record key only
+  (`views.match`, which, like `views.under` for the gate, takes a path as
+  under a root when its normalized spelling or its physical identity — real
+  path of it or its nearest existing ancestor, never above a UNC share,
+  cached per spelling and dropped whenever the daemon's ProjectsIndex view is
+  set or cleared — is under the root's spelling or physical identity,
+  separator-bounded; the longest physical root wins: a Windows 8.3 short
+  name or a link on either side, and a link inside a project pointing out of
+  it). Options: `lw.set_lsp_option` in `daemon`
+  mode goes only through `editor_ops.set_lsp_option` (`LspConfig/1.
+  set_option`; not carried, `invalid`, `refused`, `declined` and a failed
+  call each an error naming what happened, nothing written); the status
+  page shows the daemon's options or "unavailable". A `daemon`-mode editor
+  holds no model (step 6b-α), so it generates no owned database:
+  `Workspace:generates_lsp_databases()` is always true (every model is the
+  daemon's, the CLI's or the in-process editor's), and the guard in
+  `_refresh_lsp_database_for` / cmake's `lsp_configs` stays only as the
+  modules' question. §19.13: in `daemon` mode `views.get` never calls the
+  in-process builders (`Core:view_header` / `view_projects_index`):
+  `observer.attach` sets `views.daemon_root(root)`, and until the daemon's
+  subscription delivers a view the header is `unloaded` with the observed
+  root and the running version, and there is no ProjectsIndex view;
+  `observer.detach` (and an `attach` that selects `in-process`) clears
+  it. `Observer:
+  workspace_unloaded()` (exactly: a lost connection not reported `loaded`
+  again, or a connected daemon's header / LSP state `unloaded` — not
+  no-binary or a first connection) makes `session_tracker.launch_refusal`
+  refuse a run or debug launch, and `lw.launch_target` / `debug_target`
+  offer no target picker then. The in-process source remains only for `runtime.mode =
+  "in-process"`, removed with the in-process editor (step 6b).
+- *(Step 5m, parts A, B1, B2, C1 and C2 implemented; spec §19.13 "The tests
+  view", §19.15 "Tests", §19.16 "Tests", §19.20 `Tests/1`, LOOMTEST.md §3,
+  §13.1.)* *(A, as built:)* `test_state.state(ws, opts)` takes the hooks the
+  daemon fills — `id` (profile / unit ids), `node_id(unit, local_key)` (the
+  id provider; in-process the local key itself), `tree_of(unit)` (entries
+  and an `ok` / `pending` / `error` outcome; default the unit's cached tree
+  via `ConfigUnit:test_tree()`, never discovering), `result_of(unit, key)`,
+  `stale`, `discovering`; the unit states other than `ok` / `pending` /
+  `error` come from `ConfigUnit:test_availability()`. TestUnit entries carry
+  `source` (`ctest`, `meson`, `gtest` for probed cases, `saved`). Both
+  adapters read only through `test_source` (its in-process form wraps the
+  ConfigUnit/TestUnit calls they made before, unchanged); loomtest takes
+  given suites (`explorer` shows a target with a child of type `suite` as
+  given), exact-id results (`apply_results` with given suites) and the
+  optional `start` capability (`runner.start` / `runner.cancel`), unused by
+  the loomworks adapter until C2. `test_state.lua`
+  (shared side, host-neutral, no `vim.*`; part A) — the one builder of the
+  `view.Tests/1` shape from the active profile's ConfigUnits/TestUnits: unit
+  states (`ok`, `pending`, `not_configured`, `foreign`, `no_tests`,
+  `error`), explicit suite nodes, node ids scoped per unit through an id
+  provider (in-process: stable local keys; the daemon: §19.12 opaque ids),
+  `source`, and the per-node last results. `test_source.lua` (plugin side,
+  like `lsp_source.lua`) — the one place the loomtest and neotest adapters
+  read the tree, states and results: the in-process builder only in
+  `in-process` mode, the daemon's view (observer descriptors for
+  `/views` `.Tests/1` and `/tests` `Tests/1` with its `results` signal, the
+  view store) in `daemon` mode, never a fallback. loomtest gains
+  adapter-supplied suites, exact-id results and the adapter-executed
+  `start` / `debug_start` / `result` / `status` capabilities; the loomworks
+  adapter implements them over `editor_ops` in `daemon` mode (C2) and keeps
+  its RunSpec path for `in-process` only. *(B1/B2:)* `daemon/core_interfaces.lua`
+  mounts the new `Tests/1` methods (`discover` task, `run_cases` task over
+  the `test_plan.lua` lock/build machinery with the structured harness,
+  `prepare_debug`, `collect`, `result`) and `daemon/views.lua` the tests
+  view; the daemon keeps last results in memory per session; each run's
+  results file is `<root>/.nvim/tmp/lw-test-<hex>.xml` (TestUnit
+  `opts.output_path`), replacing the fixed `<build>/.nvim/gtest_results.xml`
+  in the daemon. The transcripts use a harness-only stub test module (tests
+  only). The neotest adapter refuses in `daemon` mode with one notice.
+  *(B1, as built:)* `daemon/test_discover.lua` (binary side) is
+  `Tests/1.discover`: accepted in a model segment (`Service:live`, the
+  caller's environment), a run in `service.runs` (cancel, disconnect and
+  stop as a build's), per unit `ConfigUnit:discover_tests_async(cb,
+  { system })` — the `system` seam (`TestUnit._system`, `TestUnit.system`;
+  ctest, meson, saved targets and `gtest.probe` spawn through it) runs every
+  probe program with `runner.spawn` in the client's environment, killable —
+  under the unit's build-directory lock (waiting while this process holds
+  it, `build_lock.held_by_me`; fail-fast against another process).
+  `daemon/tests_view.lua` (binary side) builds the view through
+  `test_state.lua` from `daemon/test_store.lua`, the one store of the
+  session's test state (below): the per-unit discovery records (weak-keyed
+  by unit) with a build fingerprint and run mark, `stale` from them (a
+  fingerprint or mark that moved, the profile not the last one discovered),
+  marks raised by `Service:on_run_done` (`test_store.on_run_done`). The stub
+  module is `tests/fixtures/teststub` (the conformance runner's `tests`
+  fixture; part B2's run specs use it too).
+  *(B2, as built:)* `daemon/test_runs.lua` (binary side) — `run_cases`,
+  `prepare_debug`, `collect`, `result` and the `results` signal: the
+  selection resolves (before acceptance; a build drops the units' cached
+  trees) to one test step per program — a target whole, its selected suites
+  and cases combined into one gtest filter where its TestUnit filters —
+  through `ConfigUnit:test_command_for` with a per-run `output_path`; the
+  task is a `daemon/runner.lua` run with `op = "cases"` and `ctx.cases`
+  hooks (`plan`: each unit's selected build targets, else the whole unit;
+  `wait`: the store's FIFO queue of Tests/1 tasks per build directory before
+  the fail-fast locks; `after_build`: the steps, or the debug spec;
+  `on_finish`), its step output scanned for gtest progress lines (batched
+  `results`, 250 ms), the results file authoritative at the step's end.
+  `daemon/test_store.lua` (binary side) — per service, the one store of
+  the session's test state: the discovery records, marks, `discovered` and
+  `discovering` (part B1; a record keeps its tree across a build's
+  invalidation until re-discovery), node ids (session ids per unit-scoped
+  local key) and last results (keyed by local key, so they survive a
+  reload), a run's live statuses and the `committed` copy the view's
+  `update` decision reads (`views.check` compares the state built with
+  `{ committed = true }`; `commit()` at a run's start and end and on a
+  collect), the node index (`index(ws)`, the view's numbering, also how a
+  view id resolves to its node), the FIFO build-directory queue of the
+  Tests/1 tasks, and the `prepare_debug` tokens (dropped with their results
+  file on collect, connection close and daemon stop). `Registry:emit` takes an args builder
+  `(sub, seq)` so `results.seq` is the frame's own per-connection `seq`.
+  *(C1, as built:)* the observer declares `VIEW_TESTS` (`/views`
+  `loomworks.view.Tests/1`, subscribed, into the view store as `tests` — no
+  in-process builder) and `TESTS` (`/tests` `loomworks.Tests/1`, call-only,
+  `discover` so far), both on the Runtime line as feature `tests` (`label`),
+  a missing one noted `tests unavailable`, never run in-process;
+  `Observer:tests_status()` is where the tests stand (blocked while no
+  binary, disconnected, waiting, unloaded, `error`/`refused`, an interface
+  missing; `discovering…` otherwise). `editor_ops.discover_tests` sends the
+  owned `discover` (no fallback). `test_source` gains its daemon form
+  (`mode`, `daemon_view`, `daemon_status`, `daemon_discover`) and refuses
+  its in-process discovery entry points in `daemon` mode. loomtest gains
+  the adapter `status` capability (header text, `blocked` refuses run,
+  debug and refresh). The loomworks adapter registers its daemon form in
+  `daemon` mode: nodes from the view (unit placeholders per state),
+  discovery on a stale first ask / open explorer / forced refresh, and a
+  re-render on `daemon_view_changed` / `daemon_runtime_changed`; its
+  `start` refuses until C2. The neotest adapter finds no root in `daemon`
+  mode and says so once.
+  *(C2, as built:)* `TESTS` is subscribed (`callable`, for `results`) and
+  carries `run_cases`, `prepare_debug`, `collect` and `result`; Launch/1 and
+  Tests/1 both have a `prepare_debug`, so the observer's call names are
+  keyed by call (`prepare_test_debug` → wire `prepare_debug`, `WIRE`).
+  `Observer:_test_results` keeps the `/tests` `seq` (re-`get` of the tests
+  view on a gap), writes each case into the held view and emits
+  `daemon_test_results`. `editor_ops` gains `run_tests` /
+  `prepare_test_debug` (owned tasks with a cancel handle, never a fallback,
+  nothing notified there), `collect_tests` and `test_result` (plain calls);
+  `test_source` their daemon wrappers. The adapter's daemon form implements
+  `start` (one `run_cases`; its own run's `results` feed the sink, other
+  runs' go to `runner.apply_status`), `debug_start` (`prepare_debug` → the
+  installed check → `debug.run` → `collect` on termination, or at once) and
+  `result`; loomtest gains `runner.apply_status`, `runner.start_debug` and
+  `load_result` (the explorer's `o` / `e`, `show_output` and the inline
+  error detail read an adapter's `result` when shown, once per status).
+  `ensure_built` and the RunSpec calls are never reached in `daemon` mode.
+
+- `daemon/calls.lua` (binary side) — the CLI's requests as calls: on a
+  connection whose `conn.transport >= 11`, `request` sends a protocol-10
+  request kind as its interface method (entities as `{ key }`) and maps the
+  `ok` result back to the v0 reply shape; an `error` by its code
+  (`on_error`): the v0 request instead (unknown object / interface / method /
+  version), `declined` (invalid args, same build, stopping, retiring), or,
+  for a mutating operation on `internal` / an unknown code, `refused` with
+  exit 1 so it never runs twice; otherwise it sends the kind. `cli._delegate`, `cli._read_projection` and
+  `snapshot.fetch` / `query` send through it; the routed client reads a
+  task's `done.result` when present.
+- `proto/conformance.lua` types the task frames of a task-streamed call
+  (start meta naming the method, `done.result` against the task result),
+  orders every task's frames, refuses signals after `unsubscribe` or of
+  another session generation, and checks protocol-10 replies against
+  `transport.json` `v0.replies`.
+
+Step 5g.3 adds the policies:
+
+- `daemon/ensure.lua` `policy` — the CLI's version policy: over transport 11
+  `Root.describe().binary.lw_version` plus the challenge's schemas must equal
+  its own (`version.cli_policy_matches`); below 11 (or with no answer to
+  `describe`) the challenge as before; no agreed transport is a mismatch.
+  A mismatch then takes the idle-restart / busy-retire flow, `retire` being
+  frozen control and so sent whatever the transports.
+- `daemon/server.lua` — busy (§19.9): `conn.in_flight` records every request
+  but the frozen control kinds until a frame naming its `req_id` (not a task
+  frame) is sent; `conn_busy` = a command in flight or a task the service
+  says the connection owns; `status.busy_clients` counts the busy
+  connections besides the asker (the CLI uses it, falling back to the old
+  `clients - 1 - observers` for an older daemon); `_maybe_retire` exits a
+  retiring daemon when nothing is busy, after its connections' write queues
+  drained (at most `RETIRE_DRAIN_MS`). Each in-flight entry records when it
+  started; the heartbeat (`_warn_stuck_requests`) logs one warning for a
+  request in flight past `STUCK_REQUEST_MS` (10 min) and never clears it.
+- `daemon/observer.lua` `_subscribe` — on a transport-11 daemon (one with
+  `welcome.objects`) calls `Root.describe` (`_describe`, bounded by
+  `DESCRIBE_MS`, `welcome.objects` as the fallback) and subscribes to
+  `/tasks` `loomworks.Tasks/1` and `/workspace` `loomworks.Workspace/1` when
+  offered (mode `interfaces`, `_ensure_subscriptions`, per-feature state in
+  `_feat`), handling `Workspace.changed` and the root `retiring` signal like
+  their v0 forms; the root `objects_changed` (`_on_objects_changed`)
+  re-describes, subscribes to a newly offered one and retries a refused one
+  once. A missing or refused interface is a per-feature note on the Runtime
+  line (`_connected_note`) only when the editor gets nothing for it — a
+  daemon offering none of them is noted only once its `status` shows
+  `busy_clients` (step 5g.3+: delivery by subscription only); a step-5g.1
+  daemon keeps sending the v0 broadcasts. Otherwise mode `v0`. It reports
+  `connected` once the subscriptions settled.
+
+The
+plugin/binary boundary guard (`tests/split`,
+#149) enforces that the plugin reaches the binary only through the protocol;
+its interface ratchet (step 5g.3, `scan.interface_refs`) adds that every
+plugin-side interface reference is a table holding `iface = "<name>"` and
+`v = <n>` (either order, across lines) and names an interface version with a
+schema under `spec/protocol/interfaces/` and transcripts under
+`spec/protocol/transcripts/`; a site naming an interface at run time
+(`iface = <expression>`, `:call(obj, <expression>, …)`) is counted and must
+match `interfaces_dynamic` in `tests/split/allowlist.lua`. Step 5j adds
+the methods and signals: each versioned table declares the `methods` the
+file calls on it and the `signals` it handles (string-literal lists, e.g.
+the observer's `M.ROOT`), every interface call (`:call(`) passes a declared
+method as a literal, and `scan.uncovered` checks each declared one is sent
+(a `call`) or expected (a `signal` frame) in that version's transcripts; a
+use no transcript exercises yet must match `transcripts_uncovered`
+exactly. The two are complementary: the guard says *only through the
+protocol*, the schemas say *what the protocol is*.
+
+### Workspace trust (spec §17)
+
+Where each gate sits — every one is on a single choke point so a new caller
+inherits it:
+
+- **Signatures.** Writers go through `io.write_json_signed` (`user.save`,
+  `cache.save`, `health_cache.write`, `init_workspace`, `lw pull`, `lw import`
+  via `_save_user`). Readers verify
+  before parsing: `workspace.assemble` (startup + loomworks.json change),
+  `Workspace:_on_file_changed` (user/cache change), `user.load` (pull),
+  `health_cache.read`. Refusal is a setup error carrying `trust = { kind,
+  status, path }`; the CLI (`load_workspace`) prints its own message
+  (`quiet_trust_errors`, `trust_actions`), the editor shows the status page's
+  T / U / `<C-n>` actions and `:LoomworksTrust` (`init.trust_user_prefs` →
+  `Core:review_user_prefs` / `Core:trust_user_prefs`). `Core:_nuke_files` is the
+  shared deletion half of the editor nuke and `lw nuke`.
+- **Shared program fields.** Stripped in `assemble` (and when `publish_one`
+  re-bases the baseline) so the merged model — and therefore the cascade into
+  user.json — never holds them; `_shared_ignored` feeds
+  `Workspace:diagnostics()` and `program_fields.regraft` in `_save_config` /
+  `publish_one`. `_sync_sdks` copies only type/version constraints from shared
+  declarations.
+- **Detected tool data.** `data_model.sync_tools` lets detection win per key and
+  marks cache-only tools `_detected = false`; `Tool:exec_data()`, the ToolRef
+  `detected` flag, `overseer.exec_tool_data` (every task collector refuses an
+  undetected keyed tool), `Profile:is_valid` (after a completed scan),
+  `Project:to_module_context` and the cmake clangd path honor it.
+- **Environment.** `env_policy.filter` in `config_env.resolve` / `compose`
+  (configuration + tool layers), the shell module's env block and launch
+  environments; edit-time refusal in `Project:save_configuration` /
+  `save_launch_config`; a configuration diagnostic.
+- **Passive execution.** `ConfigUnit:configured_here()` (signed-cache state)
+  gates `_scan_targets_async`, `ConfigUnit:test_units()` and the CLI's
+  `ensure_unit_targets` (the headless test planner instead asks
+  `ConfigUnit:batch_runner_test_units()`, which constructs TestUnits passively
+  and uncached for an unconfigured unit — it only reads whether the native
+  runner self-rebuilds, §16.16); every git call uses `git_base_cmd()`
+  (`-c core.fsmonitor=false -c core.hooksPath=`).
+
+### Task Execution
+
+```
+User action (b/c key or API call)
+  → overseer.lua: collect tasks from module
+  → check ConfigUnit readiness (skip/defer/launch); an explicit configure
+    lifts the configured-skip: a single unit is forced past the check, a whole
+    profile configures every unit except those in unknown state (blocked)
+  → wait for pending deletions if any
+  → acquire build dir lock (exclusive for configure/clean, shared for build)
+    → if locked: queue task, start when lock available
+  → launch overseer task with task_tracker component injected
+    → task_tracker.on_start → ConfigUnit:set_running()
+    → task_tracker.on_output → progress parser → ConfigUnit:set_progress()
+    → task_tracker.on_complete → ws:record_task_result() → cache.save()
+                               → ws:_refresh_lsp_database_for() (schedules async cmake owned-DB regen, mtime-gated; does not block the completion chain)
+                               → ConfigUnit:clear_running()
+                               → events.emit("task_result")
+                               → release build dir lock → dequeue next
+```
+
+### Deletion
+
+```
+User presses D → actions.delete_profile/config/orphaned/project (closure,
+  naming the row) → actions.confirm_deletion (step 5o C2c-2, both modes):
+  Maintenance/1.execute_deletion { target } → confirm { lines, plan } →
+  dialog → y: again with that plan + yes → the steps below, under O + every
+  B, re-planned under them (daemon mode: in the daemon's task, the editor's
+  own tasks on the target cancelled first, the outcome reported at its
+  `done`; in-process: model_commands.deletion_run)
+  → on confirm:
+    → mark ConfigUnits as deleting
+    → stop running overseer tasks
+    → wait for tasks to complete
+    → set cache state to "unknown" + save (crash-safe)
+    → io.rm_rf_async per build dir (parallel; libuv async fs ops,
+      links not followed — no subprocess / shell)
+    → on completion:
+      → success: remove/reset cache entries → cache.save()
+      → failure: cache already "unknown", notify with the error
+    → check queued actions on ConfigUnits
+    → unmark ConfigUnits → flush deletion waiters → remerge
+    → events.emit("deletion_completed" or "deletion_failed")
+    → Workspace:_remove_owned_lsp_dbs for every dir CONFIRMED deleted
+      (also from delete_orphaned_build_dir; spec §4.6 "Owned LSP database
+      cleanup"): mirror = owning module's lsp_database_dir(ctx) for the
+      validated dir just removed; kept when a remaining build dir maps to
+      it; lsp_db_cleanup.check_mirror (area-bounded, no ./.., lstat no
+      links, realpath under the area's realpath, no Windows trailing
+      dot/space segment) → io.rm_rf_async → prune empty
+      ancestors up to the area. Failure = warning; cache untouched.
+```
+
+Nuke (`Core:_nuke_files`) adds `Core:_nuke_lsp_db_areas`: every registered
+module's `<root>/.nvim/cache/<lsp_database_root>` present on disk, each passing
+`lsp_db_cleanup.check_area` — a failed area check aborts the whole nuke before
+anything is deleted. The `<C-n>` dialog (`Maintenance/1.nuke`'s `confirm`, both
+modes; step 5o C2c-2) and `lw nuke` list the same areas;
+`lw reset` lists the mirrors of the dirs it removes and warns if one survives.
+
+---
+
+## UI Architecture
+
+The status page uses a **widget + section** pattern:
+
+1. **View** (`ui/view.lua`) manages the window (open/close/toggle), registers
+   keymaps, subscribes to events for auto-refresh, and runs the animation
+   timer. It holds a reference to one widget.
+
+2. **Tree** (`ui/tree.lua`) is the widget. It provides rendering primitives
+   (`node`, `leaf`, `item`, `group`, `blank`) and handles fold state, action
+   dispatch (walk-up to find `on_<action>`), and buffer writing. The tree
+   accepts a render function that rebuilds its content on each refresh.
+
+3. **Sections** (`ui/sections/*.lua`) are pure render functions. Each exports
+   a single function `(tree, ctx) → void` that calls tree methods. Sections
+   are required in order by `ui/status.lua`.
+
+4. **Actions** (`ui/actions.lua`) are factories. They capture context
+   (profile, project_key, config_key) at render time and return closures that
+   execute at action time. This decouples rendering from execution.
+
+5. **Helpers** (`ui/helpers.lua`) provide shared formatting functions used
+   across sections (progress strings, elapsed time, status resolution).
+
+**Adding a new section**: Create `ui/sections/foo.lua` exporting a function
+`(tree, ctx) → void`. Require it in `ui/status.lua` at the desired position
+in the render function. If the section needs new data, add it to `ctx` in
+status.lua's `render_fn`.
+
+**Adding a new action**: Add a factory function in `ui/actions.lua`. Attach
+it to a tree node via `on_<action>` in the section's render function. An
+action that writes the model calls `ui/model_calls.lua` with the catalogue
+method it is (step 5o C0); a write without a catalogue method is a spec
+question first.
+
+---
+
+## Object Model
+
+Workspace wraps raw merged data into domain objects that hold a `_workspace`
+reference back to the Workspace instance for live queries and registry access.
+Domain objects access infrastructure deps via `_workspace._core._deps`.
+See [specification.md §1.6, §1.7](spec/core/data-model.md) for behavioral rules.
+
+```
+Core (singleton via init.lua)
+  └── Workspace             ← domain container, owns all registries
+        ├── Tool{}              ← per-module tool registry, from detection + cache
+        ├── ConfigurationSet[]  ← from config, identity-preserving
+        ├── Profile[]           ← from merge, identity-preserving
+        │     └── LaunchTarget? ← per-profile default target (from user/config)
+        ├── ProfileProject[]    ← registered, one per (profile, project) pair
+        ├── Project[]           ← from active set, identity-preserving
+        │     ├── Configuration[] ← from module.info() + user overrides
+        │     ├── LaunchConfiguration[] ← from the merged `launch` tables
+        │     └── variables{}     ← user-defined variable declarations (fields)
+        ├── ConfigUnit{}        ← synced during remerge + lazy fallback
+        │     └── Target{}      ← runtime, from module detection (set_targets)
+        ├── BuildDir[]          ← cache artifacts, may be orphaned
+        ├── _deploy_records{}   ← freshness tracking for deploy steps
+        └── Operation[]         ← active profile actions, cleaned up on completion
+```
+
+All objects are **identity-preserving** across refreshes: the same table is
+updated in-place via `_apply(data, ctx)`, never replaced. Construction uses
+the same path (`new` calls `_apply`). Removed objects are marked
+`_removed = true`.
+
+**`_apply(data, ctx)`**: unified constructor/update method on each domain
+object. Receives a plain data table and a deserialization context for
+resolving keys to object references. Sets data fields from the input. Never
+touches runtime fields (`_task_id`, `_listeners`, `_deleting`, etc.). Returns
+`true` on success or `nil, "error"` on failure. Cross-object navigation uses
+direct references resolved during `_apply()`.
+
+**First-class fields**: domain objects store state as individual fields, not
+cache-shaped bags. ConfigUnit has `state_value`, `build_dir_value`,
+`last_configured`, `last_built`, `cmake_info`, `_variant`, `_tool_key`, etc.
+Each domain object has a `serialize()` method that produces the cache-shaped
+data table on demand, turning references back into keys.
+
+**DataModel** (`data_model.lua`): deserialization orchestrator. Receives raw
+parsed file data + current domain object arrays (never accesses Workspace
+directly). Builds a deserialization context with resolver methods
+(`ctx:project(key)`, `ctx:tool(mod_type, key)`, etc.). For each object type
+in dependency order: identity-matches against existing, calls `_apply` or
+creates new, registers in ctx for downstream objects. Returns new arrays or
+an error. **Build-directory collisions** (spec §1.7, invariant 22): the
+ProfileProject sync resolves every record's directory first, hands the claims
+to `build_dir_claims.resolve`, then builds units only for the records not
+refused; a refused one keeps its ProfileProject (with `_build_dir_error`) and
+raises a load error. **Missing-build-dir reset** (spec §3.1 rule 7): `sync_build_dirs`
+stats each cached build directory (via the injected `dir_exists` dep, one
+stat per directory) and records those that are gone in
+`ctx.missing_build_dirs`; `sync_profile_projects_and_config_units` then resets
+the matching ConfigUnit's cached `configured`/`built`/`failed_*` state to
+`unconfigured` so a build reconfigures from scratch. `unknown`/`deleting` are
+excluded (async-deletion crash safety).
+
+**Workspace arrays**: `_modules`, `_projects`, `_config_sets`, `_profiles`,
+`_config_units`, `_profile_projects` are plain arrays after refresh. Runtime
+callers iterate with `pairs()` or use `find_*` helpers for key lookups.
+
+**Refresh vs mutation**: `refresh()` is only for external file changes
+(FileTracker detects change → DataModel produces new arrays → Workspace swaps
+them in). Mutation methods (task results, materialization, deletion) update
+domain objects in place and call `_save_cache()` to persist. No round-trip
+through files.
+
+**Refresh dependency order** (each step depends on the previous):
+0. Modules — no deps
+1. Tools — needs Modules
+2. Projects (+ Configurations) — needs Modules
+3. ConfigSets — resolves Project + Configuration references
+4. Profiles — resolves ConfigurationSet + Tool references
+5. ConfigUnits — resolves Project + Tool + Configuration; a cached entry is
+   matched back on the `(project, config)` identity (its `config_key`), and the
+   unit adopts that entry's persisted `build_dir` rather than a recomputed path
+6. ProfileProjects — resolves Profile + Project + ConfigUnit references
+7. BuildDirs — domain objects for cached build state, one per unit (siblings in a shared tree share a path)
+8. BuildDirRefs — reverse index from BuildDir identity (`_build_dir_identity`) to units
+9. ArtifactRefs — reverse index from resolved output-artifact paths to the
+   ConfigUnits that produce them (output-artifact conflict detection, §5.9)
+
+**Module** (`module.lua`) wraps a stateless module function table (cmake.lua,
+meson.lua, typescript.lua) as a per-workspace domain object. Owns the Tool
+registry for its module type. No `_workspace` back-reference — pure domain
+object. Created during `_sync_modules()`. `Project._module` replaces
+`project.type` string for module identity (type string kept for display).
+
+**Tool** (`tool.lua`) represents a toolchain (ninja-gcc-12, msvc-17-2022).
+Owned by `Module._tools` registry, keyed by `tool_key`.
+`Tool._module` references the owning Module domain object.
+Created from async detection results AND from cached tool_data at startup.
+For non-keyed modules (typescript), a single default Tool with nil key
+exists. ConfigUnit, Profile, and Project carry `_tool` references alongside
+legacy `tool` ToolRef tables. Accessor: `unit:tool_object()`,
+`profile:tool_object_for(module)`.
+A Tool also carries its **execution platform** (spec §1.5/§18.1):
+`_target_platform` (opaque token from `kits_from_sdk`, nil for host tools) and
+`_sdk` (the producing SDK), set by `data_model` on every tool sync and never
+part of the key; accessors `tool:execution_platform()`, `tool:sdk()`.
+
+**Configuration** (`configuration.lua`) represents a build variant (Debug,
+Release, Debug-asan). Owned by `Project._configurations` registry, created
+from module.info() output + loomworks.json user overrides. Separates generic
+fields (name, variant, inherits, options, variables, `env`, overrides) from
+module-specific data (`module_config`) — `env` (spec §1.3.3) is a generic field,
+not a module field, and is serialized with the configuration. Inheritance uses Configuration object references resolved
+within the project. ConfigUnit carries `_configuration` reference. Accessor:
+`unit:configuration()`, `pp:configuration()`.
+
+**LaunchConfiguration** (`launch_configuration.lua`, spec §1.2.1) is a
+project's launch configuration as a domain object, owned by
+`Project._launches` (name → object), built by `_apply` from the merged
+`launch` tables (`Project:_sync_launches`, matching by name) and serialized
+back to the same table shape (`Project:serialize_launches`). Every declared
+field (`target`, `command`, `args`, `working_dir`, `env`, `debug`, `deploy`,
+`device`, `device_log`) is a field of the object, and `description` is held
+once, normalised (a non-string value in `_description_invalid`); no raw
+declaration is kept. A key this version does not know is kept opaque in
+`_extra`, and a declaration that is not a table in `_invalid` (it runs
+nothing); `serialize()` rebuilds the table from these, so every field —
+known or not — round-trips. A project's removal marks its launches
+`_removed` (`Project:_mark_removed`), and their mutators refuse. Callers reach it through the
+project's registry (`launch_configs()`, sorted by name, `has_launches()`);
+a name is matched (`find_launch(name)`) only where a user or a file
+supplies one (CLI arguments, a dialog's name, a profile's persisted
+default-target descriptor, a saved test-target entry). A run candidate
+(`run_prep`) and a `LaunchTarget` (`_launch`) hold the object. `LaunchConfiguration:set_description(text)`
+and `Project:rename_launch_config(launch, new)` are the mutations for its
+description and name. The rename keeps the object (so its daemon id),
+re-points every profile's `_default_target_descriptor` naming it, re-keys
+the unit target entries (`launch:<name>`, runtime-only, not cached), then
+saves the working copy with rollback — it writes no other file, so it takes
+no workspace operation lock. The launch editor and `lw launch rename` both
+call it. The description editor edits the object itself, and the Projects
+section renders launch rows with `helpers.launch_row_chunks` (a summary
+column before the command line). In the
+CLI, `cmd_launch_describe` reuses `_describe_item` through a handle that
+delegates to the object's `set_description`, and `_launch_rename` reports the profiles whose default target
+followed, warning when the new name is also a build target.
+
+**Descriptions** (spec §1.10). `Project`, `Configuration`, `ConfigurationSet`
+and `Profile` each hold a first-class `description` (string|nil), set by
+`_apply` from the deserialised data (already normalised by
+`description.normalize`). Each also has a `:set_description(text)` mutation
+method, following the rule that methods belong on domain objects. It normalises
+and validates the text, calls `_mark_user_owned` (implicit cascade, spec §2.4),
+sets the field and saves the working copy. It returns `changed, err`, and
+`Configuration:set_description` refuses generated configurations. The raw
+file shapes are handled only at the edges:
+- `config.normalize_projects` lifts `description` out of the module section,
+  as `_extract_device` does, so `type_config` never carries it.
+- `Configuration:_update` treats `description` as a generic key, never as
+  `module_config`, so it never enters the staleness fingerprint.
+- `config.validate` and `merge.get_all_profiles` pass the profile
+  `description` through.
+- `data_model` reads a set's description from the
+  `configuration_set_descriptions` sidecar.
+
+The serialisers (`_serialize_user`, `_serialize_config`,
+`_serialize_config_internal`, `_serialize_project_shared`,
+`_serialize_project_partial`, `_user_config_from_objects`,
+`Profile:to_config_def`, `Configuration:serialize_user_override`) write it
+back to the same places and emit the sidecar alongside sets. The
+modified/auto-sync comparisons (`is_config_set_modified`,
+`is_profile_modified`, `is_project_decl_modified`, `_auto_sync_user_projects`)
+include it. `Project:rename_configuration` carries every declared field
+instead of a fixed list. A module's default description for a generated
+configuration arrives in `info()` and is kept on the Configuration as
+`description` with `_description_from_module = true`. Generated configurations
+are never serialised, so it never reaches a file.
+
+Configuration names are canonical, two-tier:
+
+- **Auto-gen configs** carry `prefix:base` canonical names
+  (`variant:Debug`, `preset:debug-custom`, `auto:default-entry-arm64-v8a`).
+  `prefix` is module-chosen (see each module's `default_configurations`
+  / `info()` for which prefixes it emits); `base_name` is the portion
+  after the separator. `Configuration:is_auto_gen()` returns true iff
+  `prefix ~= nil`.
+- **User configs** have bare names without `:`. `config.validate`
+  enforces the namespace rule.
+- `Configuration.canonicalize(auto_configs, user_overrides, module_id)`
+  is the shared transform each module calls from `info()` to produce
+  a canonical-keyed dict. Auto-gens without an explicit `prefix` field
+  fall back to the module id as prefix.
+
+Two orphan signals live on Configuration for the UI layer:
+`_source_missing` (this object is a stub created by
+`Project:ensure_configuration` because something referenced a name
+no live config backs; cleared on next `_update` that carries
+`is_default`/`is_user`/`from_preset`), and
+`unresolved_inherits_names()` (list of base names this config's
+`inherits` couldn't resolve). UI renders source-missing configs and
+unresolved inherits in `WarningMsg`.
+
+A module may also report a configuration as unusable: its `info()` entry's
+core-reserved `error` key (spec §8 `info`) becomes `_module_error`
+(`Configuration:module_error()`), a reason of `is_valid()` and an
+error-severity `diagnostic()`. `Workspace:_compute_build_dir` returns nil for
+it (the module's `resolve_build_dir` is not called), `data_model` /
+`ensure_config_unit` create no ConfigUnit for it (not even from a cache
+entry), `Project:_sync_configurations` raises it once per load as an error
+load note (`in_diagnostics`), and a profile operation refuses its
+ProfileProject (`overseer.collect_profile_tasks`, core §5.4). The shell module
+uses it for a `build_dir` template naming anything but `${workspace_root}`,
+`${project_path}` and `${variant}`.
+
+**ConfigurationSet** owns activation: `cs:activate(tool_entry)` finds or
+materializes a profile by property matching, never by computing a key.
+`cs:ensure_profile(tool_entry)` materializes without activating.
+`cs:configuration(project)` returns the Configuration object for a project.
+
+**ConfigUnit** is the meeting point — Profile, Project, and task_tracker all
+reference the same ConfigUnit for a given (project, configuration, tool) triple.
+State changes on a ConfigUnit are immediately visible to all consumers.
+ConfigUnit stores first-class fields (`state_value`, `build_dir_value`,
+`last_configured`, `last_built`, `cmake_info`, `_variant`, `_tool_key`,
+`_tool_data`, plus the resolved-artifact-set fields `_artifacts` and
+`_overwritten_by`, §5.9) and carries direct references: `_project`, `_tool`,
+`_configuration`, `_build_dir` (BuildDir object).
+
+**BuildDir** (`build_dir.lua`) holds one cache entry's build state (configured,
+built, failed) — one per unit; siblings in a shared tree share a `path`, and
+directory-level state keys by `_build_dir_identity(path)`. Separate from
+ConfigUnit (user intent).
+ConfigUnit references a BuildDir via `_build_dir`. Orphaned BuildDirs have state
+but no ConfigUnit pointing to them. Created during `sync_build_dirs()` from cache
+entries; task completion handler creates new BuildDirs when needed. Workspace owns
+`_build_dirs` array (all BuildDirs including orphaned). No raw cache data is
+retained after deserialization — BuildDir objects are the source of truth.
+BuildDir also carries the config unit's persisted `artifacts` (resolved
+output-artifact set) and `overwritten_by` marker, so those survive a reload
+alongside build state.
+
+**Unit ids** (spec §1.7 "Unit identity"). A ConfigUnit's `id` keys its cache
+entry and its BuildDir (`bd.rel_path`): the relative build directory, or, when
+the module's `resolve_build_dir` returns `shared = true` (cmake's own
+multi-config layout), `<rel dir>#<config_key>` — built by `cache.unit_id`
+from `Workspace:_compute_unit_id` (`_compute_build_dir` returns
+`rel, abs, shared`), never parsed. A shared tree's units each have their own
+BuildDir (per-unit state, timestamps, artifacts, overwritten marker) whose
+`path` is the same directory; everything per *directory* — the
+`_build_dir_refs` reverse index, `_build_dir_locks`, the deletion refs check
+and the missing-directory stat — keys by `_build_dir_identity(path)`, never by
+the id. A path is never derived from an id: it is the entry's `build_dir`
+(only a version 8 file's keys are directories), else the unit's module
+directory. Removing a shared tree (`_run_deletion`) marks every entry on it
+`unknown` first — the batch's and any orphaned sibling's
+(`_orphan_siblings`) — and drops the orphaned siblings only after the
+removal succeeded (`_drop_orphan_siblings`); a tree kept for a remaining
+reference leaves them untouched. The cache is version 9: `cache.parse`
+marks a version 8 file (`_v8_moved`, always stripped from the file's own
+content first), and `data_model` moves each entry a shared-tree unit matches
+to the unit's id (`built`/`failed_build` → `configured`, `last_built`
+dropped; `overwritten_by` and deploy `source_build_dir` follow), in memory;
+the next save writes version 9. A configuration rename in a shared tree
+re-keys the unit and its BuildDir to `<dir>#<new config_key>`
+(`Workspace:_rekey_unit_references`); an orphaned entry already holding
+that id is dropped together with the references naming it
+(`Workspace:_drop_unit_references`), which never pass to the renamed unit.
+
+**Output-artifact conflicts** (§5.9) are a Workspace-level layer over the
+`_artifact_refs` index (rebuilt each remerge alongside `_build_dir_refs`).
+`artifact_conflicts_for(unit)` / `artifact_conflict_block(unit, force)` gate a
+build that would clobber a still-`built` unit's shared output (the CLI refuses
+with exit 1; the editor confirms via a dialog — both thread one `force`).
+`_invalidate_overwritten_by(builder)` marks other built sharers `overwritten` on
+a successful build (and clears the builder's own marker);
+`_clear_stale_overwritten_markers()` (run after every index rebuild) drops a
+marker once the two units no longer share an artifact. `resolve_artifacts` is an
+optional module capability (cmake implements it); a module without it takes no
+part in conflict detection.
+
+**Target** wraps raw module detection data (type, dependencies, artifact)
+into an object with query methods (`is_executable()`, `display_name()`) and
+a `build()` method that delegates to the module. Stored on
+`ConfigUnit.targets` via `set_targets()`. Runtime-only, recreated on each
+parse. Back-references its owning ConfigUnit.
+
+**LaunchTarget** represents a profile's selected default target. Resolves
+a disk descriptor (`{ project, target }` from user.json/loomworks.json) into
+direct object references (Project, ConfigUnit, Target). Created on demand
+by `Profile:default_target()`. `deploy()` method executes deploy steps
+from the launch config's `deploy` dict before launching — resolves sources
+within the profile context, checks freshness, copies files.
+
+**TestUnit** (`test_unit.lua`) is the interface for test discovery and
+execution within a ConfigUnit. **CTestUnit** (`test_units/ctest.lua`)
+wraps ctest for cmake projects — discovers targets via
+`ctest --show-only=json-v1`, probes binaries for framework detection,
+runs tests via ctest commands. Created lazily by the module's
+`create_test_unit()` factory. ConfigUnit delegates all test operations
+to its TestUnit instances.
+**SavedTargetsTestUnit** (`test_units/saved_targets.lua`) is core-owned:
+`ConfigUnit:test_units()` appends it after the module's TestUnits when the
+configuration's saved list (`Configuration:test_targets()`, own → bases →
+project-wide, nearest wins) is non-empty. `discover_tests()` merges the
+trees and de-duplicates by executable (module entry wins) for a `target`
+entry whose name occurs once; `launch` entries and repeated names stay beside.
+`batch_runner_test_units()` stays module-only.
+
+**GTest** (`gtest.lua`) is a shared helper (not a TestUnit) containing
+gtest-specific functionality: binary probing (`--gtest_list_tests`),
+source location scanning (TEST macro grep with multi-line and
+parameterized support), JUnit XML parsing (each case's captured message and output capped at
+`MAX_CAPTURED_BYTES`, 1 MiB, by `cap_captured`), and filter construction.
+Used by CTestUnit for framework detection and source mapping.
+
+**Neotest adapter** (`neotest/init.lua`) bridges ConfigUnit's test
+interface to neotest's adapter protocol. Uses cached test file/directory
+sets for `is_test_file` and `filter_dir`. All adapter methods are
+pcall-wrapped (neotest's nio coroutine context hangs on unhandled
+errors). No `vim.fn` calls (deadlock in nio context). Deduplicates
+`discover_positions` calls (neotest calls with different path formats
+on Windows).
+
+**loomtest** (`lua/loomtest/`) is a test-first test explorer independent
+from loomworks. Discovers tests from the build system (not source files).
+Integration with loomworks through `loomtest_adapter.lua` which bridges
+ConfigUnit/TestUnit to the TestAdapter interface. Core modules: explorer
+(Snacks.win tree UI), runner (overseer execution with streaming + XML
+parsing), signs (gutter marks), inline (virtual text + vim.diagnostic).
+See LOOMTEST.md for full specification.
+
+---
+
+## Remote Execution on Devices (spec §18)
+
+Cross-built programs never run on the host (invariant 19). The headless CLI
+routes them to a device through a **device runner** that the SDK provider
+supplies (`device_runner(sdk)`); core owns every process, timeout, lock and
+file transfer, the runner only builds command specs and parses output.
+
+```
+lw run / lw test --target
+  └─ cli._foreign_of(lt) ── remote/foreign.classify(unit, artifact)
+        │   (Tool:execution_platform() token, else remote/probe header check)
+        ├─ host-runnable → the local path (unchanged)
+        └─ foreign → cli._run_foreign
+              ├─ remote/runners.for_foreign   (SDK's runner, token ∈ platforms)
+              ├─ remote/manifest.build        (artifact + derived libs + runtime
+              │                                 files + device.stage/archive)
+              └─ remote/run.execute
+                    ├─ remote/devices.list/select   (explicit > persisted > sole)
+                    ├─ remote/device_lock.acquire   (per-serial lockfile, waits)
+                    ├─ runner.log_session           (validates options first)
+                    ├─ remote/staging.stage         (digest sync, tar archives)
+                    ├─ before_exec hook             (lw test: gtest list probe)
+                    ├─ log clear + crash snapshot
+                    ├─ remote/transport:start_exec  (nonce sentinel, pid line,
+                    │                                 liveness re-listing)
+                    └─ pull results + crash reports → <build>/.device-runs/<UTC>-<serial>/
+```
+
+| File | Owns |
+|------|------|
+| `remote/probe.lua` | Executable-header probe (ELF / PE / Mach-O format + machine) vs the host; never refuses what it cannot judge |
+| `remote/foreign.lua` | `classify(unit, artifact)`, the refusal message, `check_local` — the guard every LOCAL execution path calls first (`Target:resolve_run_spec`, target debugging, gtest discovery probes; `ConfigUnit:test_units` returns none for a cross kit) |
+| `remote/runners.lua` | Runner registry: `for_sdk` (provider hook, shape validation, per-SDK cache), `for_foreign`, `in_scope` (profile SDK / every declared SDK) |
+| `remote/spec_exec.lua` | The command-spec executor: absolute program (exe rules), no host shell, env extends parent, CRLF-normalised lines delivered from the main loop, `check_output`, hard timeouts (query 120 s / transfer 600 s; runner < invocation overrides), cancellation, pipe drain. Injectable process backend |
+| `remote/transport.lua` | One runner + serial: `push`/`pull` (transfer timeout), `start_exec` (request validation; pid / sentinel lines consumed; `check_output` only on connector lines before the pid line / after the sentinel), `shell` (housekeeping under the query timeout), `nonce()` |
+| `remote/devices.lua` | Device listing through a runner (with `describe = true` — `lw device list` — the optional `describe_device` names each online device), registry merge (`Device.provider` = runner id), selection per §18.3 |
+| `remote/device_lock.lua` | Per-serial lockfile under the per-user data dir (`LOOMWORKS_DEVICE_LOCK_DIR`), built on `build_lock`'s path-level API; waits by default, but fails at once on a hung holder (spec §19.5) unless `--break-locks` (`break_locks` / `lock_break.requested`) stops it. Records the running program (`set_program` / `clear_program` via `build_lock.update_record`); a handle that reclaimed a stale lock carries the validated record as `leftover` (`leftover_of`), which `remote/run.reap_leftover` stops through the runner's `reap` (§18.7). The leftover file `<serial>.leftover` (`save_leftover` / `load_leftover` / `remove_leftover`, exact-file lstat-checked unlink) keeps the program of a run that released its lock without stopping it; `run.reap_on_acquire` reaps both on every acquisition (run, test, device clean) |
+| `remote/manifest.lua` | The `device` block (validation, launch-over-project merge; the project block is read from the module section `projects.<p>.<type>.device` — or the former project-level key — by `config._extract_device` and written back there by the project serializers), glob matching (`**` / `*` / `?`), the manifest (build-relative mirror), device roots `<staging_base>/<ws>/<unit>` (short deterministic segments: `workspace_segment` / `unit_segment` = readable prefix + hash) and the §18.12 boundary check |
+| `remote/staging.lua` | Incremental sync (record per serial + root in `Workspace._device_sync` → cache `device_sync`), digest verification, removal of dropped files, archive sets (tar pushed, unpacked, deleted; a `.ok` completion marker + a member sample verified later; a set's record is compact — set digest, host stat fingerprint, sample digests, member paths grouped by directory, no per-member digest; `compact_record` rewrites an older record on cache load), `lw device clean` |
+| `remote/tar.lua` | ustar writer (pax `path` records, directory entries, streamed file bodies) |
+| `remote/run.lua` | Remote run orchestration, run folders (`make_run_dir`, `prune_runs` — the 10 newest per build dir, pattern-named entries of the canonical `.device-runs` only), `--print` rendering, the post-run report; announces `running <program> on <serial> (pid N)`, reports an interrupt (stopped / stop may not have completed + run folder), passes `{ pid }` to `crash_collect`, clears pulled result files from the device |
+| `remote/test_run.lua` | Named test executables: device results hook, outcome judgement, JUnit rendering |
+
+**Program output** is always saved unfiltered to `output.log`; the runner's
+log stream (`receive` → `device.log`, `display` → terminal per `show`) is the
+only other stream, and core never interprets it. A lost exit status is a
+transport failure (exit 255); `--timeout` exits 124; a collected crash fails
+the run. Editor launch of foreign targets (§18.11) is deferred: the editor
+paths refuse through `foreign.check_local`.
+
+Device-side housekeeping (mkdir / chmod / rm / tar / digest) goes through the
+runner's `exec` with POSIX utility argv, and every removal is checked against
+`<staging_base>/<workspace>/` before a spec is built.
+
+---
+
+## Plugin/binary boundary
+
+The Neovim plugin and the `lw` binary are built from this repo, but the plugin
+is heading towards depending on `lw` only through the daemon protocol (§19), so
+the binary can later be rewritten and moved to its own repo. Until the code is
+physically split, a guard test keeps the coupling from growing.
+
+**Three sides.** `tests/split/boundary.lua` assigns every module under `lua/`
+to exactly one side by name pattern (`plugin/*.lua` is always plugin-side):
+
+- **plugin** — editor code: `loomworks` (init), `ui/*`, `lualine.*`,
+  `loomtest.*`, the neotest/loomtest adapters + `test_source`, `debug`, `session_tracker`,
+  `lsp` + `lsp_source` + `integrations/lsp/*`, `fidget`, `reload`, `auto_load`, `device_log`,
+  `overseer`, `workspace_view`, `daemon/observer`, `daemon/remote_task`,
+  `provision/*`, `health`.
+- **shared** — host-neutral protocol client code both sides may load (pure
+  Lua, no `vim.*` beyond `vim.json`): the future `loomworks.proto.*`,
+  today's `daemon/protocol` and `daemon/version`, `debug_config` (the
+  debug-adapter tables), `lsp_config` (the LSP configuration state),
+  `test_state` (the tests view's state) and `device_log_records` (a device
+  log's lines as records).
+- **binary** — everything `lw` runs: `main`, `boot/*`, `shim/*`, `cli*`,
+  `core`, `workspace`, the domain objects, `modules/*`, `sdks/*`, `remote/*`,
+  `progress/*`, the rest of `daemon/*`, `integrations/inventory/*`.
+
+**Three ratchets** (`tests/split_boundary_spec.lua`, a static scan; the scanner
+in `tests/split/scan.lua` documents the require spellings it reads and what it
+cannot see). Both compare against `tests/split/allowlist.lua`, which may only
+shrink:
+
+1. **Require edges.** A plugin-side or shared file that requires a binary-side
+   module must be listed under `edges`. A new edge fails; so does a listed edge
+   the code no longer has. Dynamic requires (`require(name)`,
+   `"loomworks." .. id`) are counted per file under `dynamic` and must match.
+2. **Domain reach-ins.** Per plugin-side file, the `core:`, `get_workspace(`
+   and `._workspace` sites are counted against a ceiling under `reach_ins`. A
+   rise fails; a drop fails too until the ceiling is lowered to match.
+3. **Editor operation sites** (step 5k). The places the editor starts a
+   build / configure / clean / launch / debug in-process are counted per file
+   against a ceiling under `operation_sites`, like reach-ins. In plugin-side
+   files: the overseer entry points (`run_profile_action`,
+   `run_configuration_action`, `run_*_clean`, `launch_single_task`,
+   `launch_run_task`) called through another module (a module's calls of its
+   own helpers are not routing), `tracker.start(`, `debug_mod.run(`, and
+   `:build(` / `:configure(` / `:clean(` / `:launch(` / `<…>target:debug(`.
+   In binary-side files: only their calls into those plugin-side starters
+   (`LaunchTarget:launch` → `overseer.launch_run_task`, `:debug` →
+   `debug_mod.run`, ...), which only the editor reaches. Device steps stay
+   in-process and are not counted. Step 5k routes the rest through the daemon,
+   so the ceilings only fall.
+
+**Updating.** A new module: add it to `boundary.lua` on its side. Removing
+coupling: delete the edge or lower the number in `allowlist.lua`
+(`nvim -l tests/split/scan.lua` prints today's state in that format). Never
+add an edge or raise a ceiling to make the test pass; route the need through
+the daemon protocol, or move the code to the side it belongs to.
+
+---
+
+## Testing
+
+### Running Tests
+
+Tests use [plenary.nvim](https://github.com/nvim-lua/plenary.nvim) with
+busted-style assertions. A Makefile provides shortcuts:
+
+```bash
+make test                                    # run all tests
+make test-file FILE=tests/core_spec.lua      # run a single test file
+```
+
+Or directly:
+
+```bash
+nvim -l scripts/run_specs.lua --timeout 600000 tests
+```
+
+`scripts/run_specs.lua` runs each spec file the way `PlenaryBustedDirectory`
+does (a headless child nvim per file, all at once, one whole-suite budget) and
+ends with a table of every file that exited non-zero (also after a clean
+summary -- with the child's Nvim log, which names the libuv handles when Nvim
+could not close its event loop at exit), printed no summary, or was still
+running at the deadline. `PlenaryBustedDirectory` itself only exits 1.
+
+`tests/minimal_init.lua` bootstraps plenary and sets up the Lua path.
+
+### Test Patterns
+
+Tests use the constructor injection pattern described in Design Principles §5.
+
+- **Unit tests** feed raw JSON strings to `core:setup()` via mock io, then
+  assert on the resulting state (profiles, projects, active set).
+- **Cache coherence tests** verify that every profile references valid cache
+  entries and vice versa, using `assert_cache_coherent()`.
+- **State machine tests** simulate task sequences (configure → build) and
+  verify state transitions via ConfigUnit.
+- **UI tests** are not implemented — sections are pure functions, so
+  correctness is verified through core/cache tests.
+
+### Key Mock Patterns
+
+- `mock_io.read_json(path)` returns pre-built data tables
+- `mock_io.write_json(path, data)` captures writes for assertion
+- `mock_io.rm_rf(path)` records deletions
+- `mock_modules.get(type).info(path, config)` returns canned module info
+
+---
+
+## Standalone Runner & Distribution
+
+Fulfils [specification.md §16](spec/core/headless.md). One codebase, two runtime
+hosts; the domain and module layers are identical between them.
+
+### Runtime host
+
+The `vim` global is provided by either Neovim (the editor, and
+`nvim --headless -l` for tests) or a standalone LuaJIT + libuv host
+(**luvi**) plus a shim (`lua/loomworks/shim/`), loaded via
+`if not vim then require("loomworks.shim") end`. The shim:
+
+- vendors Neovim's pure-Lua modules (`shared.lua`, `fs.lua`) verbatim,
+- maps `vim.uv` to `require("luv")`,
+- hand-writes the native-backed surface: `json`, `system` (over
+  `uv.spawn`), `fn.{executable,exepath,mkdir,has,getcwd,fnamemodify}`,
+  `v.shell_error`, `schedule` (drained by `uv.run()`), `notify` / `log`,
+  and nvim's job API — `fn.jobstart` (list argv resolved like `system`, a
+  string through `cmd.exe /s /c` / `sh -c`; `cwd`, `env`/`clear_env`,
+  `on_stdout`/`on_stderr` with nvim's partial-line `data` lists and
+  `*_buffered`, `on_exit` last), `fn.jobwait` (pumps `uv.run`; -1 timeout,
+  -3 unknown id), `fn.jobstop`, `fn.jobpid` — for modules that list devices
+  through a helper process. Job callbacks run from whatever pumps the loop
+  (`jobwait`, `vim.wait`).
+
+The JSON shim MUST reproduce Neovim's `empty_dict` / `NIL` / array-vs-object
+semantics (spec §16.1). A differential test uses headless Neovim as the
+oracle, which doubles as the drift guard when new `vim.*` usage appears on
+the build path.
+
+### Entry point
+
+`lua/loomworks/cli.lua`: argument parse (global options stripped, then
+`cli_options.find_unknown` refuses an option the command does not know —
+spec §16.7; `cli_options.lua` holds each command's known options and must
+track the parsers) → root discovery (walk up from the
+cwd for `loomworks.json` or `.nvim/loomworks.user.json` via `root_finder.lua`
+— the same search the editor's auto-load uses — stopping at a git
+working-tree boundary so a fresh worktree never binds to a parent checkout,
+but walking through submodules to the superproject's workspace — spec §1.1) → `Workspace.assemble` → `Workspace.new` +
+remerge → resolve the named profile → for each buildable ConfigUnit, the
+cold path (detect → configure) or warm path per spec §16.4 →
+`overseer.build_spec_for(unit)` → spawn via a libuv runner that replaces
+overseer.nvim. An empty task `env` inherits the parent environment (it never
+replaces it, which would drop `PATH`).
+
+### v1 command surface
+
+- `lw build [profile]` — resolve and build a profile.
+- `lw test [profile] [--junit <file>] [-- args…]` — build the test target and
+  run it; real exit code. Args after `--` forward to the native batch runner
+  (`-j N` / `--num-processes N`); `--junit <file>` requests JUnit XML for CI.
+  `plan_profile_test` threads both into each `TestUnit:run_command_all(opts)`:
+  ctest maps `--junit` to `--output-junit` (writes directly), meson reports its
+  fixed `meson-logs/testlog.junit.xml` as `junit_out` and the CLI copies it to
+  the requested path — so the core stays module-agnostic. One file per unit
+  (label-suffixed when a profile runs several).
+- `lw profile list` — list profiles (name, configuration set, tools) and flag
+  which are buildable in this host vs editor-only (`lw profiles` is an alias).
+- `lw trust [--yes] [--discard]` (spec §17.4, §17.10) — review a working copy
+  this machine did not sign (`program_fields.review`: program settings first)
+  and re-sign it (`trust.sign_file`), or delete it and its `.bak` with
+  `--discard`. Never loads the workspace, so it works on a refused one;
+  confirmation is mandatory (`--yes` when non-interactive).
+- `lw release-notes [<version> | --since <v> | --all | -n <N>] [--json]` (spec
+  §16.37) — `cli.cmd_release_notes`: `release_notice.read_text` +
+  `release_notes.parse/select/render` (width only on a stdout tty, capped at
+  100; the status palette's `title`/`dim`), `--json` via
+  `release_notes.to_json(result, vim.NIL)`; records the running version as seen
+  (text output only). `main()` calls `M._release_notice(a, noninteractive)`
+  (pcall'd) before dispatching any command but `release-notes`, `help`,
+  `completion` and the host-command fallbacks: one stderr line when stderr is a
+  tty and the run is interactive, nothing for `--json`.
+- `lw <project|config|configset|profile> describe` (spec §16.35) — `cli.cmd_describe`
+  resolves the item, `_describe_parse` / `_describe_source_text` take the text
+  source (`-m`, `-F`, stdin, `-e` via `_describe_edit` on `$VISUAL`/`$EDITOR`
+  through `run_spec`), and `_describe_item` reads or calls the item's
+  `set_description`. `lw config set/unset/get … description` route there;
+  `main()` strips `-m` from create verbs (`_extract_create_paras`) and the
+  creators call `_apply_create_description`. One-line views follow one layout
+  rule: rows that end in a bounded column append `_summary_suffix` (fitted to
+  the terminal, or a continuation line); rows with an open-ended tail (the
+  configset list, and the status set and project rows) insert a summary
+  column (`_summary_column`, at most 36 columns) before the tail through
+  `_row_with_summary`, and the tail takes the truncation. Show views print
+  `_describe_block`. All are `M.` fields (the main chunk is at the 200-local
+  limit), and helpers defined above `term_width` call `M._term_width`.
+- `lw nuke [-y]` (spec §17.4) — reset the build state (`.nvim/build/`, the cache,
+  the health cache, each module's owned LSP database area `.nvim/cache/<lsp_database_root>/`)
+  through `Core:_nuke_files`, the same deletion half as the
+  editor's `<C-n>`; the remedy for a cache signed on another machine. Keeps the
+  configuration; takes no build-dir locks.
+- `lw test [profile] [--target <exe>… | --saved | --discovered] [--junit <file>] [--list [--json]] [-- args…]`
+  — the test plan (spec §16.16): per unit, the batch runner step then the
+  saved-target steps (`cli._test_plan`; `cli._test_plan_report` for `--list`).
+  Resolution (names or saved entries → `LaunchTarget`s + args, missing
+  entries fail before any step runs) is separate from **execution**
+  (`cli._run_test_executable`: `LaunchTarget` → judged outcome, gtest XML,
+  device route; argv = program, results option, a launch's own args, entry
+  args, forwarded args; a launch entry's deploy steps run first),
+  shared by `--target` (`cli._test_targets`) and saved lists; a foreign one runs on
+  a device (`remote/run.lua` + `remote/test_run.lua`). A foreign unit's batch
+  step is dropped when it has saved targets, else plain `lw test` refuses.
+  `--list` reports the plan read-only.
+- `lw test-target [list] [profile]`, `add|remove|clear [<profile>] …` — edit
+  saved test targets (spec §16.9); validated with the same `match_targets`
+  resolver as `lw test --target`, extended to the project's launch
+  configurations (a launch wins over a same-named target). `add` of a present
+  name appends another entry; `remove <name>` drops every entry of that name,
+  `remove <name> --index <k>` only its k-th occurrence.
+- `lw device list|select|clean`, `lw unlock --device <serial>` — see "Remote
+  Execution on Devices".
+- `lw run <profile> [target] [-- args…]` — non-debug launch (build → deploy →
+  execute). The target is the profile's default (§8.6) when unnamed, else a
+  named build target or command launch config; `project:name`, `--project`,
+  and `--target`/`--launch` disambiguate. Args after `--` are forwarded to the
+  program. Routes through the editor's `LaunchTarget` seams
+  (`resolve_launch_spec`, `deploy_sync`) so headless and editor launches stay
+  identical; the runner only swaps the executor (direct `vim.system` vs
+  overseer). Build-target launches set up a run environment (§8.7): core
+  prepends the build tree's shared-library output dirs plus the module's
+  `runtime_path()` (toolchain runtime) to `PATH`. `ConfigUnit:run_env()` is the
+  single source of truth (composed via `loomworks.runenv`); both target launches
+  and the test runners use it, so a DLL/`.so`-dependent executable resolves its
+  siblings identically whether run or tested. `ctest`, unlike `meson test`, does
+  not set this up itself, so `lw test` must parse targets before planning.
+  A foreign build target (§18.1, `cli._foreign_of`) never runs locally:
+  `cli._run_launch_target` routes it to `cli._run_foreign` (deploy → stage →
+  execute on a device, §18.5 — see "Remote Execution on Devices").
+  - **Unified dispatch seam.** After the profile + target resolve, both the
+    normal run and its two modifiers share one tail — `cli._run_launch_target`
+    — which validity-gates, deploys, and calls `LaunchTarget:resolve_launch_spec`
+    to get one normalized `{ cmd, args, cwd, env }` for **either** a command
+    launch config **or** an executable build target (the dispatch already lives
+    in `resolve_launch_spec`; the CLI does not branch on target kind). It then
+    reports or executes:
+    - `--prefix <cmd>` (spec §16.17 "Launch prefix") builds the argv
+      `{ prefix…, cmd, args… }` via `cli._build_run_argv` and execs it through
+      the SAME inherited-stdio path (`run_spec`) an unprefixed run uses, in the
+      resolved cwd/env — so an interactive wrapper (gdb/valgrind) drives the tty.
+      Prefix tokens are supplied combinably (a shell-word-split string via
+      `cli._shell_split`, and/or a repeatable flag); a prefix on a device target
+      is refused. The wrapper's exit status is the invocation's.
+    - `--print`/`--dry-run` (spec §16.17 "Command inspection") skips execution
+      and emits the resolved invocation via `cli._emit_run_print`: a
+      POSIX-sh-quoted line (`cli._posix_sh_quote`) by default, or `=json`
+      (`{cmd:[argv],cwd,env}`). The env is **overrides only** —
+      `cli._launch_env_overrides` diffs the resolved run env against the
+      inherited environment, so a full build-target run env collapses to just its
+      contribution. An unresolved build-target artifact is reported (non-zero),
+      never guessed. Under `--print` the (default) build streams to stderr
+      (`run_build_steps` quiet mode → shim `stdio = "inherit_err"`) so stdout
+      carries only the report line for `$(lw run --print)`.
+    - `--no-build` skips the build+deploy pair (run/inspect what is already
+      built).
+- `lw target [list] [profile]` / `lw target set [<profile>] <target>` /
+  `lw target clear [profile]` — list a profile's launchable targets (read-only
+  introspection, spec §16.18: command launch configs plus configured build
+  targets, default marked `*`), or set/clear its default launch target (writes
+  `user.json`; spec §16.9 authoring). Listing defaults to the active profile
+  even in `--no-input`; `set`/`clear` keep the CI-determinism guard (one-operand
+  = active profile interactively, explicit `<profile>` required non-interactively).
+  Shared seam `collect_targets` also feeds the `lw status` Targets section.
+- `lw sdk <types|detect|list|add|remove>` — declare toolchain installations that
+  detection cannot find (a compiler at an arbitrary path, a cross-compiler).
+  `detect [<type>]` lists each provider's `detect_all()` (the enumeration the
+  editor's SDKs section offers); it and `types` run before the workspace guard.
+  `add <type>` without a path (`pick_detected_sdk`) takes the provider's
+  detected installations minus the declared ones: none → error, one → it,
+  several → numbered picker / non-interactive error listing the explicit
+  commands; the chosen path then goes through the same `add_sdk(type, path)`.
+  Thin wrappers over `Workspace:add_sdk` / `remove_sdk`; the declared SDK
+  produces a kit, so it appears in `lw tools` and is pinnable by
+  `lw profile create`. `--force` registers a path that fails identification
+  (spec §10.1). Provider discovery scans runtimepath, which the standalone host
+  lacks, so the CLI additionally probes the providers bundled with core.
+- `lw profile query <profile> <project> <field>` — read-only introspection
+  (spec §16.18): prints one machine-readable fact (`build-dir` / `config` /
+  `state` / `tool` / `cache` / `variables[.<name>]`) for scripting, e.g.
+  locating CI artifacts. No build. `cache` is the `(profile, project)` compiler
+  cache status — `Profile:compiler_cache_status(pp)` with the `Cache: ` prefix
+  stripped (the same string `render_cache_line` prints for `lw status` and
+  `lw profile show`); empty for a project with no C/C++ compiler cache.
+- Profile/tool **selection** (spec §16.3) is a boundary-anchored matcher
+  (`merge.match_profile` for profile keys, `Module:find_tool` for tool keys):
+  a version-truncated selector (`ninja-clang-18`) resolves to the highest
+  matching patch and never crosses a version boundary. `build`/`test`/`run`/
+  `query` and `profile create` all route through it.
+- Management/authoring commands (spec §16.9, write the working copy; reach
+  `loomworks.json` on `lw publish`): `lw init [--name <name>]`,
+  `lw workspace rename <name>`, `lw project <add|remove|rename>`,
+  `lw config <add|set|unset|remove>`,
+  `lw configset <create|map|unmap|remove>`, `lw profile create`,
+  `lw launch <add|set|remove>`, and per-item `lw <kind> publish`. Each delegates
+  to the same atomic `Workspace` mutation the editor uses (e.g. project rename →
+  `Workspace:rename_project`, workspace name → `Workspace:rename_workspace`).
+- **Working-copy pull** (spec §16.25): `lw pull [<source>] [--dry-run]` folds
+  another checkout's working copy into the current one so a fresh `git worktree`
+  inherits its config. `cli._plan_pull` resolves the source (default = the main
+  worktree via the extracted `cli._main_worktree`, reused from the status hint),
+  reads the foreign `user.json` with the stateless `loomworks.user` loader (the
+  in-process workspace is untouched), and `cli._pull_merge` unions the two
+  working copies **item-level, source-wins** — the deliberate opposite winner
+  from `workspace.merge_configs` (target-wins). Synced set: projects,
+  configuration_sets, profiles, sdks, default_target, and the nested debug/lsp
+  settings maps (those two `pull_deep_union`'d per key so siblings survive).
+  Excluded (target keeps its own): the active profile, the workspace `name`, the
+  per-machine `device` map, and all cache/build state. It then writes via the
+  atomic `user.save` path only; it never publishes. Runs before the
+  workspace-required guard so it works in a worktree that has no workspace of its
+  own yet.
+- **Configuration export / import** (spec §16.39): `lw export` calls
+  `Workspace:shared_snapshot(opts)` — the one function publish's `_save_config`
+  also uses (`_serialize_config` + `program_fields.regraft`) — with
+  `_publishable_to_shared(opts)` selecting the items: `all` (every item as if
+  `local+shared`) or the effective-intent closure, optionally `no_profiles`.
+  `config_transfer.export_text` = `io.encode_json` (the publish encoding) with
+  DEL/C1 written as `\u` escapes; the CLI writes it with raw `fs_write(1, …)`
+  (`cli._raw_stdout`: no CRLF translation, no rendering). `lw import`:
+  `Workspace:prepare_import(content, {intent})` validates with
+  `config.validate`, builds the candidate working copy (imported items + kept
+  sdks/lsp/debug + per-profile state of surviving profiles + an explicit intent
+  map from `config_transfer.intents`: the current intent of items the working
+  copy already holds (`Workspace:_item_intents()`, non-`shared`), else presence
+  in `_shared_baseline`; baseline items not imported → `shared`), and
+  **remerges it in memory** — the load path
+  itself is the validation; nothing is written. The plan's before / after are
+  both `_serialize_user()` output, so the summary and the `program_fields.review`
+  diff describe exactly the file that will be signed. `Workspace:commit_import`
+  first repeats `_save_user`'s stale check (spec §2.7) so a working copy that
+  changed on disk since it was read refuses the import before any backup
+  (nothing written, reloaded, reported), then copies the old working copy to a
+  timestamped `.bak` (`fs_copyfile`, excl) and writes through the guarded
+  `_save_user()` (lock + stale check + `_meta.written_by`). Nothing is deleted.
+  The plan also carries the summary's lists: `intent_changes`
+  (`config_transfer.intent_changes` over `_item_intents()` before/after),
+  `dropped` (device selections / fills of removed profiles) and
+  `publish_removals` (`config_transfer.removed_names` of the loomworks.json on
+  disk vs the post-import publish snapshot; empty without the file). A refused
+  working copy (§17.4) is replaced unread: `cli.load_workspace(…,
+  {replace_untrusted_user})` sets `deps.replace_untrusted_user`, and
+  `Core:_on_files_read` then loads as if the file were absent (assemble never
+  decoded it) and marks `Workspace._user_unread`; the disk baseline is still
+  the file's raw bytes, so the stale guard covers it, and `_save_user` refuses
+  every save but `commit_import`'s (`_import_writing`) while the mark is set.
+- **Convention migration** (spec §16.19): `lua/loomworks/migrate.lua` holds a
+  registry of named rules, each separating `plan` (what would change) from
+  `apply` (change it), so `lw migrate --check` can lint without write access
+  and the applying path can show every before/after first. Rules rewrite form,
+  never meaning, and report anything they cannot rewrite safely instead of
+  guessing. Rewrites go through `Project:save_configuration` like any other
+  mutation; `lw migrate` then republishes, since `loomworks.json` is
+  regenerated from the working copy rather than patched.
+- **Health / suggestions** (spec §16.31): `lw health` (`cli.cmd_health`) lists
+  the workspace's advisory items in full via `suggestions.collect_health(ws)`
+  (passive + on-demand providers) — read-only, spawns nothing, always exits 0
+  (advisory, never a diagnostic). It renders informational items (`kind == "info"`,
+  e.g. "Compiler cache: using sccache") distinctly from actionable ones. `ws` may
+  be nil: `cmd_health` passes whatever workspace it resolved (none in a plain
+  dir), and the workspace-independent providers (update availability, channel
+  override) still report, led by the same worktree/init hint the overview shows —
+  so `lw health` outside a workspace is no longer empty. The passive
+  `N suggestions — run lw health` count line uses
+  `suggestions.count_actionable(ws)` (passive providers, actionable items only),
+  so a frequently-rendered status page never performs the network I/O the
+  update-check provider does — that check runs solely on an explicit `lw health`,
+  and an offline/API failure yields nothing — and the affirmative cache-status
+  info item never inflates the count. The `lw status` overview shows only that
+  compact count line (the editor status page mirrors it). `lw status --cache-stats`
+  additionally folds in the resolved cache tool's own stats (`ccache -s` /
+  `sccache --show-stats` via `cli._cache_stats`) — off by default because it
+  spawns the tool.
+- **Environment inventory** (spec §16.33, §16.36, `inventory.lua`): the
+  dispatcher validates positional areas (`cli._health_areas`, unknown → usage
+  error) and `--all`; `cmd_health` loads the workspace with
+  `load_workspace(root, false, { soft_trust = true })` (a refused working copy
+  returns its trust table → `cli._health_trust_item`, an actionable
+  `workspace` item, and health continues without a workspace), probes
+  (`cli._probe_inventory(ws, { scope, areas })` → `inventory.probe_tier`, a
+  seam tests replace), passes the tier to `collect_health(ws, { inventory =
+  tier, areas })`, then renders `inventory.scoped_entries(tier, ws)`: entries
+  outside the selection are dropped; in the relevant scope a non-relevant
+  entry is counted in the hidden line with the tier's `skipped` counts. The
+  report: heading (or the worktree hint), the actionable items ("*", tagged
+  `[area]`), then one section per area in `AREAS` order — the `lw` release
+  line, informational items ("-"), required then other relevant entries (a
+  category column, marks + / x / - / ?, "- <who>" via
+  `inventory.names_phrase` or "- other profiles: …" for `used_by`), relevant
+  loaded plugins as one "plugins + N loaded" line, and under `--all` "not used
+  here:" compacted per category (`--verbose` expands) — then the hidden line
+  ("N other checks not relevant here (…) - lw health [areas] --all") or,
+  outside a workspace, the "Machine inventory not checked" pointer.
+  `--json` prints `cli._health_json` — `{schema, scope, areas?, workspace?,
+  suggestions[] (+area), inventory[] (+area, relevant, used_by?), summary,
+  hidden?, update?}` over the SHOWN entries, `hint` only on not-found entries, `summary` =
+  `{required_missing, actionable, found, missing, unknown}`, `update` =
+  `suggestions.last_update_check()` — through `io.encode_sorted`
+  (sorted keys, byte-stable) and exits 0. The passive `N suggestions` count gets the
+  inventory's items from `suggestions.collect` → `inventory.cached_suggestions`
+  (key match only; never probes). Contributors: cmake (`exe:cmake`, `exe:ninja`,
+  `exe:make`, `cpp_compilers.health_declaration()` = `compilers:path` over the
+  kits' own `detect_async`, `msvc.health_declaration()` = `compilers:msvc` over
+  `detect_async` + `clang_cl_for_async` / `clang_cl_async`; requirements from the
+  tool data / preset generator), meson (`exe:meson` via `find_meson_async` + the
+  shared ids), typescript (`exe:node`, `exe:npm` — version from npm's
+  `package.json`, no spawn), the companions (clangd/qmlls
+  via PATH + Mason, codelldb/cppdbg/pwa-node via the Mason package + receipt;
+  the LSP integration files re-export their companion's hook). `cmake_kits`'
+  async compiler scan is `cpp_compilers.detect_async` (unified with the sync
+  path), so an inventoried compiler is exactly one a kit can use.
+- **Suggestion cache** (`health_cache.lua`, spec §16.31): the suggestion results
+  are cached in `.nvim/loomworks.health.json` — an internal advisory cache with
+  its OWN schema version (`SCHEMA_VERSION = 1`), deliberately decoupled from the
+  build-state cache (`loomworks.cache.json`'s version + deletion safety). Three
+  tiers over one file (the third, the environment inventory's `inventory_tier`,
+  is described under "Environment inventory" above): a **local tier** `{ items, computed_at, key }` (the passive
+  providers' results) and a **network tier** `{ items, computed_at, key }` (the
+  on-demand providers'; its `key` is `suggestions._network_key()` — the running
+  bundle version, host release identity and channel — so items recorded before a
+  self-update are stale). The local `key` is a cheap in-memory fingerprint
+  (`suggestions._local_key(ws)`) of exactly the passive-provider inputs — platform,
+  each project's key/module/`caches_cpp`/explicit `cache` values, and the active
+  profile's identity + resolved tool keys — with NO PATH probe folded in, so it
+  stays cheap to recompute on every render. `suggestions.collect(ws)` (the passive
+  count) reads the cache, recomputes the local tier only when it is absent or its
+  key changed (lazy compute-on-first-`lw status`), rewrites it, and folds in the
+  cached network items informationally when their key matches the running
+  version — but NEVER computes the network tier, so a
+  passive render never touches the network. `suggestions.collect_health(ws, opts)`
+  (`lw health`) never reuses a cached tier: it recomputes the local tier, re-runs
+  the network providers every call (no TTL, no force flag), reports the fresh
+  results plus the inventory items of the fresh `opts.inventory` probe, and then
+  writes all tiers for the passive path (the file is read only to carry forward
+  an inventory tier when no probe was passed). `computed_at` stamps come from an
+  injected wall-clock (`suggestions._clock`, `os.time` — persist-across-process,
+  not the monotonic `deps.clock`); io is the workspace's io dependency; a
+  missing/corrupt/older-schema file is treated as empty and recomputed (never an
+  error), writes are atomic. No workspace → no file to key against, so both
+  paths run providers live and write nothing (and the update check keeps no
+  per-user cache either). No background/async network refresh is done here — a possible future
+  enhancement; the network tier is refreshed strictly on `lw health`.
+
+Out of scope for the standalone: debug launch (DAP, needs nvim-dap) and device
+install / launch. Deploy sources outside the active profile and
+pre-build "deploy feeds build" ordering are a known limitation (a headless run
+builds the profile up front, then runs both deploy phases). No-argument
+`lw build` resolves the profile as: explicit argument → `user.json` active
+profile (if present) → the single published profile → otherwise an error
+listing candidates.
+
+### Module bundling and acquisition
+
+The loomworks distribution bundles the core modules (cmake, meson, shell,
+typescript). External module plugins (e.g. OHOS / harmony) ship separately.
+In the **editor**, they arrive through the plugin manager (on the runtimepath),
+so discovery is free. In the **standalone host**, `lw module install <name>`
+acquires them (spec §16.20) — see "Module acquisition" below. A profile whose
+module is present in neither place degrades per spec §16.8.
+
+### Host bootstrap and source resolution
+
+`lua/main.lua` is the fused **bootstrap** — the only Lua baked into the host
+binary. It carries no behavioral logic; it (a) reads host config, (b)
+resolves the system-Lua source per spec §16.11, (c) for the release source,
+ensures a verified bundle is present (§16.12–16.13), (d) installs package
+searchers + `nvim_get_runtime_file` discovery pointed at the resolved Lua
+root **and at each acquired module's `lua/` root** (via
+`_G.__loomworks_module_roots`, kept in lockstep between the require searcher
+and the shim glob), then (e) `require`s the system entry (`loomworks.cli`).
+Every loomworks searcher (boot, system Lua or fused-bundle fallback, acquired
+modules — in that order) sits right after the preload searcher, ahead of the
+`package.path`/`cpath` searchers; before anything else loads, `boot.luapath`
+strips those strings to absolute entries outside the executable's directory
+(LuaJIT's defaults start with `./?.lua`), and on Windows the bootstrap sets
+`NoDefaultCurrentDirectoryInExePath=1` so neither libuv nor a child cmd.exe
+searches the current directory for a bare program name.
+Source precedence:
+
+1. `--dev[=PATH]` flag or `LOOMWORKS_LUA` env → a working tree on disk
+   (verification skipped);
+2. host config `default_source = "dev"` with a configured `dev.lua` path →
+   same;
+3. otherwise the **release** root — the highest-versioned verified bundle
+   under the data dir.
+
+The verifier and the trusted public key live in the bootstrap, never in the
+bundle they check (spec §16.12).
+
+### Host binary
+
+The host is **luvi** (LuaJIT + libuv + OpenSSL, statically linked) with the
+bootstrap fused in via `luvi <bootstrap> --output lw`. It is generic and
+changes rarely — only when the runtime surface changes (a libuv/OpenSSL bump
+or a new native capability). CI builds one host per platform:
+`lw-linux-x86_64`, `lw-macos-arm64`, `lw-macos-x86_64`,
+`lw-windows-x86_64.exe`. Because `luvi --output` fuses the *running* luvi,
+each asset is built on its own OS in a CI matrix (no cross-fusing). Each
+release host embeds its release version, and `lw self-update` replaces an
+installed host with the release's (see "Host self-update" below).
+
+### Release layout
+
+A GitHub Release (tag on `master`) carries:
+
+- the host binaries (above);
+- `loomworks-lua-<ver>.zip` — the system Lua (`lua/loomworks/**`, shim,
+  modules): everything *except* the bootstrap; `build_bundle.sh` also adds the
+  repository's `CHANGELOG.md` as `loomworks/CHANGELOG.md` (the release notes,
+  spec §16.37), so the manifest's archive hash covers them;
+- `manifest.json` — release version, `min_host_version`, and a SHA-256 for
+  every asset;
+- `manifest.json.sig` — a detached **ECDSA P-256 + SHA-256** signature over the
+  exact bytes of the manifest.
+
+The manifest is the single trust anchor: its signature vouches for every
+file's hash (spec §16.12). ECDSA-P256 (not Ed25519/minisign) because luvi's
+bundled OpenSSL verifies it directly — its `verify` needs a digest, which is
+the classic RSA/ECDSA flow, whereas Ed25519 is a one-shot the binding doesn't
+expose. The verifier lives in `lua/boot/verify.lua`; see below.
+
+### On-disk layout (per user, no admin)
+
+```
+<data>/loomworks/            (%LOCALAPPDATA%\loomworks | ~/.local/share/loomworks)
+  bin/lw[.exe]               the host binary (on PATH)
+  lua-<ver>/                 verified, extracted release bundles (versioned)
+  release-notes-seen         last-seen release-notes version (spec §16.37; one line)
+  modules/<name>/lua/**      acquired modules (spec §16.20); .module.json record
+  cache/tools.json           machine-level tool cache (Windows; elsewhere it is
+                             $XDG_CACHE_HOME/loomworks/tools.json, default ~/.cache)
+  pinned/<sha256>/lua-<ver>/ pinned bundles (spec §16.22); mtime = last use
+  pinned/lw-<ver>-<asset>    pinned host binaries (spec §16.23); mtime = last use
+  daemon/                    the daemon's working directory (empty)
+  device-locks/              per-device locks + leftover records (spec §18.7)
+  trust.key                  machine key (spec §17.2)
+  .housekeeping              stamp of the last startup housekeeping pass
+<config>/loomworks/config.json   dev source + default_source (spec §16.11)
+```
+
+Spec §16.40 is the complete list of what lw keeps outside a workspace. A
+workspace operation's temporary files (the gtest results of `lw test
+<target>`, the `describe -e` buffer) go to `<root>/.nvim/tmp/` through
+`housekeeping.tmp_path` (system temp only when that cannot be created).
+
+`housekeeping.lua` also owns leftover removal outside the workspace.
+`collect(opts)` scans only fixed directories one level deep (`<data>` only when
+`is_lw_data` finds an lw marker; `pinned`, `pinned/<sha256>` for `--all`,
+`modules`, default `device-locks`, the legacy `daemon/logs`, the temp dirs
+(POSIX: this uid's entries only), the `lw` host's directory for `.new` and, on
+Windows, `.old`, the POSIX socket dirs, `<root>/.nvim/tmp`, the tool cache
+directory `<cache>` for `tools.json.<pid>.<nonce>.tmp` regular files only,
+unlinked by name); each must be a
+real directory whose realpath is the expected one (`fixed`), and an entry is a
+candidate only on an exact name match (`release_version` for versions), the
+right lstat type and its age (`M.AGE`). Removal is `_rm_tree` (links unlinked,
+never followed; a read-only file is chmod'ed only when `nlink <= 1`), or an
+item's `remove` override: device locks (dead holder, no program record;
+`lock_record.reclaim` by nonce), sockets (sockets of running daemons, from
+`daemon.discover.scan`, are never probed; connect refused -> rename aside,
+inode/dev/mtime check, put back, or left aside when the name is taken again),
+pinned bundle dirs (rename to `.trash-<nonce>`, then `_rm_tree`, then rmdir the
+`<sha256>` dir). `remove(item)` re-checks type and age first and treats a path
+already gone as removed (concurrent passes). `cli.main()` calls, inside one
+pcall, after `daemon` and `cleanup` dispatch: `touch_running()` (the running
+bundle / exe get their mtime set when they resolve into `<data>/pinned`, the
+bundle-side last-use record) and `startup(root)` (skipped under
+`LOOMWORKS_NO_HOUSEKEEPING=1`, which `tests/minimal_init.lua`, the daemon test
+helpers and the CI scripts set; claims `<data>/.housekeeping` by mtime, created
+O_EXCL, at most once per `INTERVAL`; removes the default set; logs one line to
+the runtime log). `cmd(root, args, host)` is `lw cleanup`. It is bundle-side so
+every host runs it (only `boot.pin` is used, through pcall); `main.lua` also
+sets the pinned bundle's and binary's mtime on each pinned redirect.
+`daemon/rlog.lua` appends only to a log that is lw's (empty or starting with a
+runtime-log line), through an fd whose fstat matches the lstat, and never
+rotates over a foreign `.log.1`.
+
+Release bundles are versioned directories; activation writes a *new*
+`lua-<ver>/` and never overwrites a running one (spec §16.13). "Highest
+valid version wins"; older bundles are GC'd; rollback = prefer the previous
+directory.
+
+### Acquisition & self-update
+
+`lw self-update` fetches `manifest.json` + `.sig`, verifies the
+signature with the embedded key, downloads any newer `loomworks-lua-*.zip`,
+re-checks its hash against the manifest, extracts to a new `lua-<ver>/`, and
+switches the active version atomically. If the manifest's `min_host_version`
+exceeds the running host, it reports that a new host is required rather than
+running incompatible Lua (spec §16.14). Downloads are proxy-aware; because
+integrity rests on the signature, a MITM'd or cert-relaxed transport cannot
+inject code (spec §16.12). Self-update is a management operation and never
+runs as part of `lw build` (spec §16.9, §16.13).
+
+**What's new** (spec §16.32, §16.37). `main.lua` remembers the newest
+installed bundle before `update.self_update`; when the result installed a
+newer one it calls `boot.whats_new.report{}` (pcall'd): `load_renderer`
+loadstring's the NEW bundle's `loomworks/release_notes.lua` with `setfenv` to a
+table of pure builtins (no io/os/require/package), calls
+`whats_new(<its CHANGELOG.md text>, old, new, {width, max = 5})`, folds every
+line to ASCII (`sanitize`), and appends the `lw release-notes --since <old>`
+pointer; a non-tty / non-interactive run prints the pointer alone; silenced
+(setting `release-notes = off` / `LOOMWORKS_RELEASE_NOTES`) prints nothing.
+Printing records the new version in `<data>/release-notes-seen` (raise-only).
+`boot.bootstrap.install` adds `what's new: <cmd> release-notes --since <old>`
+after a pin moved up to a release `>= RELEASE_NOTES_SINCE`.
+
+**Update channels** (spec §16.29). `self_update` first resolves an update
+channel — `update.resolve_channel(opts)` with precedence `opts.channel`
+(from `lw self-update --channel`) > `LOOMWORKS_CHANNEL` env > the `channel`
+config key > `"stable"` (unknown value → error). Only `stable` and `unstable`
+are valid.
+
+- **stable** keeps the existing base, `…/releases/latest/download`, which
+  GitHub already resolves to the newest *non-prerelease* — so stable is a
+  no-op change.
+- **unstable** queries the GitHub **releases API**
+  (`https://api.github.com/repos/samienne/loomworks.nvim/releases`, listed in
+  publish order) via `download.fetch` (which now takes an `Accept` +
+  `User-Agent` header), parses it with `boot.json`, and takes the
+  highest-versioned **non-draft** entry by `paths.version_gt` (pre-releases
+  *included*, ranking below their release) - never the first listed, since a
+  stable release cut after a newer pre-release is listed first. Its `tag_name` (leading `v` stripped) is validated
+  with `pin.valid_version` **before** it is interpolated into any URL — a
+  network-derived tag is never trusted into a path (defense in depth, same trust
+  boundary as `lw.pin`). The bundle is then fetched from
+  `versioned_base(version)` (`…/releases/download/v<ver>/`) and verified by the
+  identical manifest-signature + artifact-hash chain — the channel changes only
+  *which* release, never *how* it is trusted.
+
+An explicit release-source override (`opts.url` / `LOOMWORKS_RELEASE_URL` /
+`release-url` config) **supersedes** the channel: the mirror is used as-is and
+the API is never called (the channel governs only the default origin). A pin is
+independent and stronger still (`main.lua` redirect + `ensure_version`): a
+pinned invocation acquires exactly its version+hash and consults no channel.
+`paths.version_gt` is semver-aware so a pre-release orders below its release —
+`installed_releases` ordering and `gc` never retain a pre-release over the full
+release it precedes. `lw version` prints the resolved channel.
+
+**Host self-update** (spec §16.32). The fused host carries its release version
+in `boot/verify.lua` `RELEASE_VERSION` — `nil` in source, injected by
+`scripts/release/fuse_host.sh <luvi> <pub> <out> <version>` (release.yml's
+hosts job passes the tag version and fails the leg if `lw version` does not
+report it). `lw version` prints `host: <release> (v<HOST_VERSION>)`; with no
+`RELEASE_VERSION` it prints `host: dev build (v1)` when
+`host_update.dev_build{ exe, fused_system_lua }` says so (bare `luvi`, or
+`loomworks/cli.lua` fused in) and `host: unknown release (v1)` otherwise (a
+bootstrap-only release fuse without a version) — one predicate shared with
+`decide`, so the label never contradicts whether self-update replaces it. After the bundle step, `main.lua` calls
+`boot/host_update.lua` `update_host{ target_version = <bundle's release> }`
+unless `--no-host`. When the release's `min_host_version` exceeds this host,
+`update.self_update` returns `nil, err, { version, host_incompatible = true }`
+(the manifest is already signature-verified); `main.lua` then runs
+`update_host` for that version *instead*, and on `replaced` prints "lw binary
+updated to <ver>; re-run `lw self-update` to update the bundle" and exits 1;
+otherwise it prints the original error plus manual steps and exits 1.
+
+- `decide` (pure) skips pinned context (`LOOMWORKS_PINNED`), an exe under a
+  `.nvim/cache/` launcher cache, bare `luvi`, a dev source, and a dev build
+  (the host bundle contains `loomworks/cli.lua`); upgrade-only: same
+  `RELEASE_VERSION` → `current`, a running version newer than the target
+  (`paths.version_gt`, pre-release-aware) → skip ("not downgrading"); `nil` or
+  strictly older → swap.
+- The exe path is `uv.exepath()`. A write probe in its directory runs first;
+  failure → **warning** + manual instructions (bundle update stands, exit 0).
+- `SHA256SUMS` + `.sig` come from `versioned_base(target)` — the same origin
+  and release-url override as the bundle — and the signature is verified with
+  the embedded key; the list must then contain the target's own
+  `pin.bundle_asset(target)` (`loomworks-lua-<ver>.zip`, covered by every
+  release's `sha256sum *`) or it is a replayed/mismatched list → **error**; the
+  asset (`pin.detect_asset`) is fetched through
+  `update.ensure_host_binary` (mandatory hash, no `--insecure` bypass exists)
+  into `<exe>.new`. Signature/hash failure → **error** (exit 1); fetch
+  failure or a list without this asset → warning.
+- `swap`: Unix renames `<exe>.new` over the target (atomic). Windows renames
+  the running exe to `<exe>.old`, moves the new one in, and on failure renames
+  `.old` back; `main.lua` calls `cleanup_old()` early on every Windows start to
+  delete a leftover `.old` (silent). Renames go through `rename_with_retry`.
+
+`scripts/ci/host-self-update-e2e.sh` fuses a real old and new host and
+self-updates against a signed local mirror (CI cli-e2e job, all three OSes).
+
+**Old hosts run new bundles.** Self-update installs the newest bundle on any
+host, and hosts before v0.1.29 never replace themselves, so bundle code
+(`lua/loomworks/**`) must not assume a `boot.*` module or function newer than
+the oldest host in use (v0.1.2): such uses go through `pcall(require, …)` /
+`type(mod.fn) == "function"` and degrade. `tests/old_host_compat_spec.lua`
+enforces it statically (its `BOOT_API` table records each boot module/function
+the bundle uses with its first host release — update it when adding one), and
+`scripts/ci/old-host-compat.sh` runs the checkout's bundle under released
+v0.1.2 / v0.1.28 / v0.1.33 / v0.1.37 hosts (verified against each release's
+signed `SHA256SUMS`, sandboxed `LOOMWORKS_DATA_DIR`) — CI on all three OSes
+and a gate before the release `publish` job.
+
+### Module acquisition
+
+`lw module install|update|remove|list` extends the host's module set from a
+**curated index** (spec §16.20). `boot/modules.lua` drives it, reusing the
+self-update primitives: `download.fetch` for the index and the archive,
+`verify.sha256_hex` for the pinned-hash check, `update.extract_zip` (miniz) for
+unpacking.
+
+- **Index** — a JSON document (`modules.json`) fetched from the loomworks repo
+  over HTTPS (default: raw on the default branch; override with `module-index`
+  config / `LOOMWORKS_MODULE_INDEX`, a local path works offline). Shape:
+  `{ schema, modules: { <name>: { version, api_version, url, sha256,
+  description?, repo?, brings? } } }`. The index is trusted because of its
+  channel; the *artifact* is trusted because its bytes match `sha256`.
+- **Artifact** — a pinned-tag source archive **zip** (GitHub codeload style),
+  so no tar dependency and `extract_zip` is reused. Install keeps only the
+  shipped `lua/` tree (module + any SDK providers / progress parsers it
+  brings), renames it into `<data>/loomworks/modules/<name>/lua`, and writes a
+  `.module.json` install record (version, api_version, verified sha256, url,
+  brings). The archive's single top-level wrapper dir is stripped.
+- **Version gate** — the index records each module's plugin-interface version
+  (§8.0); an incompatible entry is refused *before* download (`M.compatible` /
+  `M.incompatible_reason`, distinguishing "update lw" from "no compatible
+  module release yet"). Same strict-equality rule the loader applies, moved
+  earlier. `lw module update --all` skips an incompatible module with a note
+  rather than failing the run.
+- **Resolution** — installs are separate from `lua-<ver>/`, so `self-update`
+  never disturbs them and vice-versa. They become resolvable because the
+  bootstrap adds each `modules/<name>/lua` to the require searcher and the shim
+  glob (see "Host bootstrap"). A freshly installed module is picked up by the
+  *next* `lw` invocation, not the current process.
+
+`lw module` is standalone-only; it requires `boot.*` (the luvi host), so under
+the nvim-hosted fallback it errors with that hint.
+
+### Repo-local launcher & version pin
+
+`lw bootstrap` commits a launcher + pin so a repo runs a fixed, verified `lw`
+with no prior install (spec §16.21–16.24). Layers:
+
+- **`boot/pin.lua`** — pure logic: parse/serialize `lw.pin` (`key = value`, no
+  JSON), select the host-binary asset for the platform (`HOST_ASSETS` keyed by
+  `<os>/<arch>` → the real release asset names), walk up for the pin root, and
+  `decide{…}` the redirect action (`in-process` | `redirect` | `bypass` |
+  `no-pin` | `unsupported` — the pin predates the command per
+  `REDIRECT_SINCE`/`redirect_since(cmd, sub, stdio)`: main.lua refuses a
+  `daemon run`/`restart` (exit 1) and runs anything else itself, with
+  `foreign_pin` set). The redirect set is `REDIRECT_COMMANDS` (every routed command +
+  `configure`) plus `REDIRECT_SUBCOMMANDS` (`daemon run` / `daemon restart`,
+  the forms that start a workspace daemon); `command_words(args)` yields the
+  command and its sub-command (skipping global flags and `--root <dir>`), and
+  `foreign_pin{…}` the pinned version when the invoked host is not it — main.lua
+  stores it in `_G.__loomworks_foreign_pin` for a command it runs itself, and
+  `daemon/ensure.ensure` (opt `foreign_pin`) then returns `"pinned"` without
+  launching, stopping or retiring the daemon. No I/O beyond stat, so it is
+  unit-tested exhaustively.
+- **`boot/launcher.lua`** — pure, dependency-free (no openssl,
+  no vim shim): the `lw.sh` / `lw.cmd` templates (single source of truth, moved
+  out of `bootstrap.lua`) plus the **generation catalogue** — the SHA-256 of the
+  LF-normalized content of every launcher any release wrote, each with its
+  release range and known defects (`severity = "breaks" | "minor"`) — and
+  `classify(kind, bytes, sha256_fn) -> { status = "current"|"known"|"unknown", gen?, releases?, defects?, breaks? }`, plus the pure git-output parsers (`parse_check_ignore`, `parse_check_attr`, `parse_ls_stage`, `parse_ls_eol`) and `cached_binary_version` (the prune name rule).
+  Required by `boot/bootstrap.lua` (overwrite decisions) and by
+  `boot/launcher_check.lua` (both hosts: the boot searcher serves it to the luvi
+  host, the plugin's `lua/` to nvim).
+- **`boot/launcher_check.lua`** — the **one** implementation of the launcher /
+  pin checks (spec §16.24 "Checks: one source of truth", §16.31 provider #4),
+  consumed by the `lw bootstrap` status page (luvi host, no system Lua) and by
+  `loomworks/launcher_health.lua` (system Lua, either host). Pure over an
+  injected `env = { git(cwd, args) -> code, stdout; sha256(bytes); read(path)?;
+  exists(path)?; stale(root, version)? -> n, bytes; invoked = "lw.sh"|"lw.cmd"|"launcher"|"global" }`
+  — no vim shim, no direct spawn —
+  so each host passes its own git runner (`boot.repo_meta._git` /
+  `loomworks.exe.system`) and tests pass fakes. `run_checks(root, env)` →
+  `{ root, mode = "launchers"|"pin-only"|"none", version?, pin?, pin_error?,
+  missing_hashes, launchers, git?, stale?, repair, findings[] }`, each finding
+  `{ id, kind = "suggestion"|"info", title, detail?, remedy?, command?, why?,
+  commit_files? }` (actionable first) with the remedy already spelled in the
+  invoked form; `command` / `commit_files` let the status page build one action
+  per fix and a single `git add … && git commit`. "Committed" is checked against
+  HEAD: `git status --porcelain` over the pin, launchers, `.gitignore` and
+  `.gitattributes` (`parse_porcelain`), `check-attr --source HEAD` for the eol
+  rules, and `git show HEAD:<file>` for the ignore line `check-ignore -v` found.
+  `invoked()` gives system Lua the form main.lua determined
+  (`_G.__loomworks_invoked`, else `LOOMWORKS_LAUNCHER` / the pinned sentinel). The mode is
+  inferred (pin + neither launcher = pin-only) and scopes the checks. The
+  committed-ignore test (`cache_ignored_by_repo`) moves here from
+  `repo_meta` so the checker and the writer apply one rule (today health
+  re-implements it with its own path heuristics). `stale_cache` stays in `repo_meta` (it is the prune's
+  dry run) and is reached through `env.stale`. `cmd(invoked, rest)` / `run(invoked,
+  rest)` spell a command in the invoked form (`./lw.sh`, `.\lw.cmd`, `lw`);
+  `commit_cmd(files)` the commit hint.
+- **`boot/repo_meta.lua`** — the `.gitignore` / `.gitattributes` /
+  exec-bit steps shared by bootstrap and update: `git check-ignore -v` (a match
+  counts only when its line is in the committed content of a tracked
+  `.gitignore` inside the repo — `launcher_check.cache_ignored_by_repo` — not
+  `core.excludesFile` or `.git/info/exclude`; an uncommitted in-repo rule is
+  not appended again), `git check-attr text eol`,
+  `git ls-files --stage`, `git add --chmod=+x` / `git update-index --chmod=+x`
+  for `lw.sh` only; textual fallbacks when git is absent. Also
+  `prune_cache(root, keep_version, running)` → removed, bytes, files (each
+  pruned binary's name/version/size, for the report) — confined to regular files named
+  `lw-<valid version>-<HOST_ASSETS value>` directly in `<root>/.nvim/cache`
+  (lstat, separator-bounded prefix check, never the running exe); listed under
+  CLAUDE.md "Deletion Safety".
+- **`boot/bootstrap.lua`** — `status` / `install` (and the `upgrade` alias,
+  which only presets `install`'s options; `removed_update_line(invoked)` is the
+  removed `lw update`'s one-line pointer). `status(start, opts)` →
+  `{ lines[], doc, exit }`: `launcher_check.run` + the bounded release probe
+  (`update.resolve_newest_version` with health's fetch limits) + the tailored
+  "What you can do" actions; `doc` is the `--json` document (encoded by
+  `boot/json.lua`, sorted keys; `json.array()` marks arrays so an empty one
+  encodes as `[]`). The argument grammar (`pin.parse_bootstrap_args`, pure) maps
+  `upgrade` onto install options and rejects the old flags on the
+  status page (exit 2). `install(start, opts)` resolves the target
+  (pin root or start dir) and the version (explicit > `--latest` via
+  `resolve_newest_version` with the never-backwards rule > pinned > host), then:
+  fetch the release's
+  **signed** `SHA256SUMS` (`versioned_base` → `…/releases/download/v<ver>/` on
+  GitHub, flat on a mirror), verify `.sig` against the embedded key, select the
+  host-binary + bundle hashes into `lw.pin`, write `lw.sh` / `lw.cmd` from
+  `boot/launcher.lua` (skipping identical content, refusing an unknown
+  generation without `--force`), run the `repo_meta` steps, prune the launcher
+  cache, and return a change-only report (`lw.pin: <old> -> <new>`, "already
+  at X - no changes"). `opts.pin_only` skips the launcher writes and every
+  metadata step except the `lw.pin` attribute rule, and reports present
+  launchers as kept as they are.
+- **`boot/update.lua` (channels)** — `persist_channel(c)` saves the channel
+  `lw self-update --channel` selects into the host config through
+  `boot/paths.write_config` (the key `lw settings set channel` writes; spec
+  §16.29), and `newer_bundle_note(installed, target)` words the "the newer
+  prerelease stays active" note after a switch back to stable. Both are
+  host-only (main.lua); the bundle never calls them, so old hosts are
+  unaffected. `version_line` marks a prerelease release bundle.
+- **`boot/update.lua`** — `ensure_host_binary` (fetch + pinned-hash-verify a
+  host binary; the redirect caches it at `pinned_binary_path` =
+  `<install>/pinned/lw-<ver>-<asset>`, re-verified on every use) and
+  `ensure_version` (fetch + verify + extract the bundle into the **machine-local**
+  `pinned_bundle_dir` = `<install>/pinned/<sha256>/lua-<ver>/`, keyed by the pinned
+  bundle hash). `<install>` = `boot/paths.install_dir()`: `LOOMWORKS_INSTALL_DIR`
+  (absolute only; `install_dir_override` returns the reason it ignored a relative
+  one) else `data_dir()`; release bundles (`installed_releases`, `self_update`,
+  `gc`) and the release-notes record use it too, while modules, trust, daemon
+  state and housekeeping stay on `data_dir()` (spec §16.22 "Install folder").
+  Since the install folder may be any directory, `installed_releases` lists only
+  `lua-<ver>` entries with `paths.is_release_version(ver)` (strict
+  `<n>.<n>.<n>[-pre]` + `pin.valid_version`) that `paths.is_release_bundle_dir`
+  accepts (lstat: real dirs `lua-<ver>/` and `loomworks/`, regular
+  `loomworks/cli.lua`); `gc(keep, except, running_root)` re-checks each before
+  `rm_rf`, requires its realpath to be a direct child of the install folder's,
+  and never removes `except` or the running bundle; `self_update` refuses a
+  `lua-<ver>` there that is not such a bundle. Nothing the host executes is read from the repository: a clone
+  can ship files under its own `.nvim/cache/`, so a repo-local "already
+  extracted" bundle or cached binary is never trusted by presence. Both reuse
+  `download` + `verify.verify_file_sha256` + `extract_zip` + `rename_with_retry`;
+  the pinned committed hash is the trust anchor (no manifest needed at runtime).
+  `check_legacy_pinned_bundle` is the redirect's guard for pinned hosts that
+  predate machine-local provisioning (they still load
+  `<pin root>/.nvim/cache/lua-<ver>/` when present): that directory must be
+  absent or byte-identical to the verified bundle, else the redirect is refused
+  (nothing in the repository is deleted).
+- **`boot/verify.lua`** — the committed `PUBLIC_KEY_PEM` is the **production**
+  key (`keys/loomworks-release.pub.pem`), so source/dev-installed hosts verify
+  real releases; `RELEASE_KEY_ID` (a fingerprint constant, never substituted)
+  lets a signature failure say whether the host carries a non-release key.
+  `fuse_host.sh` still substitutes the key it is given (test fuses: `make
+  dist`, the self-update e2e) and warns when that is not the production key;
+  the release workflow asserts the embedded and committed keys are identical.
+  In-process tests pass the test key explicitly (`verify.*(…, test_pub)` or a
+  suite-level override of `verify.PUBLIC_KEY_PEM`).
+- **`boot/help.lua`** — owns the full help text of the host commands; the
+  CLI's `HELP` table reuses it for those topics. The bundle-less hint names
+  `./lw.sh help <cmd>` / `.\lw.cmd help <cmd>` when a pin root is found.
+
+`main.lua` wires two entry points around the existing source resolution:
+
+- **Pinned context** — when the `LOOMWORKS_PINNED=<ver>` sentinel is set (by a
+  launcher script or the redirect), the host provisions the pinned bundle via
+  `ensure_version` and points `luaroot` at the machine-local pinned
+  `lua-<ver>/`, then runs normally. The sentinel also blocks any further redirect (anti-recursion).
+- **Redirect** — a global host on a workspace op (`build`/`run`/`test`/`clean`/
+  `configure`) consults `pin.decide`; on `redirect` it `ensure_host_binary`s the
+  pinned binary (machine-local), provisions + verifies the pinned bundle and runs
+  `check_legacy_pinned_bundle`, sets the sentinel + `LW_ROOT`, and `uv.spawn`s it with inherited
+  stdio, propagating the child's exit code. `--no-pin`, `LOOMWORKS_LW`, and a dev
+  source bypass; `version`/`self-update`/`install`/`bootstrap` are host
+  commands handled before the redirect, so they never redirect. `bootstrap`
+  (and the removed `update`'s pointer, exit 2, even with `--help`) are
+  dispatched **before** pinned-context bundle provisioning too — they need no system Lua — so `./lw.sh bootstrap` works
+  offline and can repair a pin whose bundle entry is wrong. Before that,
+  `main.lua` reads `LOOMWORKS_LAUNCHER` (set by the launchers since
+  0.1.37-beta.2) into `invoked_form` / `_G.__loomworks_invoked` and unsets it so
+  children do not inherit it. `main.lua` only
+  parses argv (`pin.parse_bootstrap_args`) into `{ sub = nil|"install"|"upgrade", version, latest, channel,
+  pin_only, force, json, check }` (usage errors exit 2) and calls
+  `boot.bootstrap`.
+
+Security: the origin is fixed in the host (user-overridable only via
+`LOOMWORKS_RELEASE_URL`); the pin carries a version + hashes, never a URL; the
+hash check is mandatory even under `--insecure` TLS; and the global host never
+executes the repo's `lw.sh`/`lw.cmd` — it resolves the pin declaratively and runs
+the official binary it fetched itself. Worst case a malicious pin forces an
+authentic older release, never unofficial code.
+
+### Install security
+
+The host cannot verify itself (the verifier is inside it), so its own integrity
+is established out-of-band (spec §16.15) — and only for the first install; every
+later hop verifies against a key or pinned hash already on the machine. Two
+independent anchors cover that first hop. **Build provenance** is the stronger:
+each host binary is attested by `actions/attest-build-provenance` and recorded
+in Sigstore's public transparency log, so `gh attestation verify` confirms it
+came from this repo's release workflow with a trust root *independent of the
+release host* — the one check that survives tampered release assets. The keyless
+**signed `SHA256SUMS`** route is the fallback where `gh` is absent: the release
+signs the hash list with the release key, and the documented install verifies
+the `.sig` against the public key from the README, then checks the binary's
+hash. That route is trust-on-first-use on the README-hosted key — it stops a
+swapped binary (the private key never leaves CI) but is not an independent
+anchor the way provenance is. Either way the documented install is a transparent
+one-liner — verify, then run the verified binary's `lw install`, which copies
+itself to a per-user location (`~/.local/bin/lw`, or `%LOCALAPPDATA%\Microsoft\
+WindowsApps\lw.exe` on Windows — already on PATH), ensures PATH (prompting;
+`-y`/`--no-modify-path`), and fetches the first bundle. No `curl | sh`.
+
+Bundle trust rests on **signature verification, not transport**: the host
+embeds an ECDSA P-256 public key and verifies the signed manifest before
+executing any bundle Lua; a hash mismatch or bad signature aborts. The private key is
+generated offline and held only as a tag-gated CI secret; the production
+public key is injected into `boot/verify.lua` at release-build time (the
+committed source carries a throwaway test key, so the verifier tests are
+hermetic). Verification uses luvi's built-in OpenSSL, so there is no bundled
+crypto to maintain. The one-line installer
+(`install.sh` / `install.ps1`) is deferred — until then a host binary is
+placed on PATH manually (or built from a checkout) and `lw self-update`
+fetches and verifies the first bundle. `lw` installs only the runtime; it
+detects, never installs, C/C++ toolchains.
+
+### File additions
+
+`lua/main.lua` (bootstrap), `lua/boot/` (bootstrap-only modules: `paths.lua`
+data-dir/version/mkdir helpers + acquired-module enumeration, `json.lua`
+decode + small encode, `verify.lua` ECDSA-P256 manifest verifier + the host's
+`HOST_VERSION`/`RELEASE_VERSION`, `download.lua`
+curl/local fetch, `update.lua` self-update + miniz extraction + pinned
+provisioning (`ensure_host_binary` / `ensure_version`), `host_update.lua` host
+binary self-replacement (spec §16.32), `install.lua`
+self-install (asks before replacing a *different* installed binary, which
+`describe_binary` identifies from its fused zip without executing it),
+`help.lua` host-level help (the only source of the host commands' help, with
+per-sub-command sections for `bootstrap`), `whats_new.lua` self-update's
+"what's new" lines rendered from the new bundle's notes (sandboxed load) + the
+last-seen record, `modules.lua` module acquisition, `pin.lua` pin parse / asset
+selection / redirect decision, `bootstrap.lua` `lw bootstrap` status page +
+`install`/`upgrade` (+ the removed `update`'s pointer), `release_query.lua`
+`lw release query` (spec §16.42: the channel's newest release via
+`update.resolve_newest_version`, its signed sums via `bootstrap.fetch_hashes`,
+the descriptor checked against them; one overall deadline split over the
+fetches; printed with `json.encode_canonical`; writes nothing), `launcher.lua` the launcher
+templates, `launcher_check.lua` the shared launcher/pin checks), `lua/loomworks/shim/`, `modules.json` (the curated
+module index), `bin/lw`, `bin/lw.cmd` exist. The bootstrap intercepts the host
+commands `lw version` / `lw install` / `lw self-update` / `lw bootstrap` /
+`lw release query` (and answers the removed `lw update` with a pointer), and redirects workspace ops to a repo's pinned `lw`; with no
+system Lua at all (release host, no bundle yet) it answers help requests from
+`boot.help` instead of failing with "no loomworks release is installed"; `lw module` is
+a CLI command (system Lua) that calls into `boot.modules`.
+Release notes: `scripts/release/release_notes.py check|body <version>`
+(stdlib only) is the release gate and the release-page body — a full-release
+tag needs its `## <version> - <date>` entry with a summary and items and an
+empty Unreleased; a pre-release only warns when Unreleased is empty. `release.yml`
+runs it in a `notes` job that `bundle` and `publish` need, and publishes with
+`body_path`. The Lua reader in `release_notes.lua` is the runtime and test-suite
+implementation of the same grammar (`tests/release_notes_spec.lua` validates the
+real `CHANGELOG.md`).
+The release pipeline is `scripts/release/build_bundle.sh` (bundle + signed
+manifest) and `scripts/release/fuse_host.sh` (inject the production key + release version + fuse
+one host), driven by `.github/workflows/release.yml` in two stages (spec §19.16
+"Plugin pin"). The **build** stage (`workflow_dispatch`, `stage=build`, on the
+build commit C): a matrix builds a host per platform (each fetching the
+matching luvi), a job builds the signed bundle, and a `draft` job generates the
+descriptor, generates and signs `SHA256SUMS`, attests build provenance and
+creates an unpublished DRAFT release `vX` targeting C with every asset (no tag;
+it refuses an existing release or tag). The **publish** stage (push of tag
+`vX`, or `stage=publish` to re-run it) never rebuilds: it finds the draft
+by listing the releases (`scripts/release/draft.sh find`: exactly one draft
+with tag name `vX`, none or several fail — never `gh release view <tag>`),
+downloads its `SHA256SUMS(.sig)`, descriptor and host binaries by release id
+and runs `nvim -l scripts/release/pin.lua verify X pin --base C --head vX` —
+signature with `keys/loomworks-release.pub.pem`, `pinned.lua` == X and the
+signed host hashes, every host binary present and matching, the descriptor passes
+`provision/needs.lua`, `git diff C vX` is exactly `pinned.lua` — then
+un-drafts it. The maintainer supplies the signing key (see `keys/README.md`).
+
+**Cutting a release or beta.** (1) On the build commit C (CHANGELOG entry
+done; betas on `staging/daemon`): `gh workflow run release.yml --ref <branch>
+-f version=X -f stage=build` (the run builds the branch head, so C must be
+that head). (2) `git checkout C`, then `scripts/release/pin.sh X` (gh, nvim and
+openssl on PATH): downloads the draft's signed hashes and descriptor,
+verifies them and writes `lua/loomworks/provision/pinned.lua`; it refuses a
+published release, a HEAD other than C, or a release whose descriptor lacks
+the plugin's interfaces. (3) Commit only that file ("Pin lw X") as C+1 and
+`git tag -a vX` on it. (4) Push ONLY THE TAG, to github only (the release
+runs there): `git push github vX`. Its run publishes the draft. (5) Only
+after that run succeeded, push the branch (`git push github HEAD:<branch>`,
+e.g. `staging/daemon`), push branch and tag to gitcode, and for a beta
+fast-forward `unstable` on github and gitcode. Never push the branch first:
+a failed gate must not leave a branch whose pin names an unpublished draft
+(spec §19.16: a plugin checkout always pins a published release).
+**Recovery after a failed gate** (the draft stays unpublished): delete the
+pushed tag (`git push github :refs/tags/vX`, also on gitcode if it was pushed
+there; `git tag -d vX`). If C+1 was wrong, fix it and re-tag: the unpublished
+draft and its tag name are reused. If the build is wrong, delete the draft
+(`gh api -X DELETE repos/<repo>/releases/<id>`), fix on the branch and cut
+again from step 1 — the build stage refuses a version whose release (draft
+or published) or tag already exists (release.yml, "Stage the draft
+release"). Once a release is published its tag name is burnt (immutable
+releases): a broken published release needs a version bump.
+`pin.sh X --published [--no-interface-check]` re-pins an already
+published release; it seeded the first pin (0.1.43-beta.15, published before
+descriptors existed) and is never part of a release. CI's `pin-check` job runs
+`pin.lua verify --warn --no-binaries` on every push: warnings only, also when
+Neovim, openssl or the script itself fails (`continue-on-error` + a
+`::warning::`); the release gate stays hard.
+`make dist` is a local dry-run. Installation is the transparent
+download-verify-`lw install` one-liner (spec §16.15), so no hosted installer
+script is needed.
+
+---
+
+## File Layout
+
+```
+loomworks.nvim/
+├── CLAUDE.md                          Project context for AI
+├── ARCHITECTURE.md                    This file
+├── specification.md                   Core behavioral specification
+├── spec/
+│   ├── ui.md                          Status page, highlights, winbar
+│   ├── modules/                       Per-module specs (cmake, meson, shell, typescript)
+│   ├── integrations/lsp/              Per-LSP-server specs (clangd, …)
+│   ├── integrations/debug/            Per-DAP-adapter specs (codelldb, cppdbg, pwa-node, …)
+│   └── sdks/                          Per-SDK-provider specs (cpp_compiler, …)
+├── README.md                          User-facing documentation
+├── BACKLOG.md                         Deferred features and design notes
+├── lua/
+│   ├── loomworks/
+│   │   ├── init.lua                   Public API facade
+│   │   ├── core.lua                   Infrastructure layer (I/O, deps, setup)
+│   │   ├── workspace.lua              Domain container (Workspace class + static helpers)
+│   │   ├── file_tracker.lua           uv.fs_poll file watcher
+│   │   ├── io.lua                     Atomic file read/write
+│   │   ├── log.lua                    Workspace logger (`.nvim/loomworks.log`): append-only, rotated to `.log.1` past 1 MB
+│   │   ├── config.lua                 loomworks.json parse/validate
+│   │   ├── user.lua                   user.json read/write
+│   │   ├── cache.lua                  cache.json read/write
+│   │   ├── merge.lua                  Three-file merge → ActiveSet
+│   │   ├── events.lua                 Event/signal system
+│   │   ├── tool.lua                    Tool domain object (per-module toolchain)
+│   │   ├── tool_cache.lua              Machine-level tool cache `tools.json` (§16.43): per-type entries with input fingerprints, reuse check of both hosts, unique-temp + rename writes
+│   │   ├── configuration.lua          Configuration domain object (per-project variant)
+│   │   ├── config_env.lua             Configuration `env` resolution (chain + family overrides)
+│   │   ├── configuration_set.lua       ConfigurationSet class (owns activation)
+│   │   ├── profile.lua                Profile + ProfileProject classes
+│   │   ├── project.lua                Project class (owns Configuration[])
+│   │   ├── config_unit.lua            ConfigUnit: user intent (project+config+tool)
+│   │   ├── build_dir.lua             BuildDir: one unit's cached build state
+│   │   ├── build_dir_claims.lua      Build-directory collisions: owner + refusals (§1.7)
+│   │   ├── device.lua               Device: physical/emulated deployment target
+│   │   ├── remote/                   Remote execution on devices (spec §18): probe, foreign,
+│   │   │                             runners, spec_exec, transport, devices, device_lock,
+│   │   │                             manifest, staging, tar, run, test_run
+│   │   ├── launch_target.lua         LaunchTarget: profile's default build/launch/debug target
+│   │   ├── target.lua                Target: module-detected build target (cmake exe, etc.)
+│   │   ├── debug.lua                 DAP integration: nvim-dap config builder and session start
+│   │   ├── debug_config.lua          Debug-adapter tables: defaults, known adapters, user.json override
+│   │   ├── session_tracker.lua       Unified launch/debug lifecycle manager
+│   │   ├── deploy.lua                Deploy step resolution, freshness, execution
+│   │   ├── variables.lua             Project variable resolution + validation (incl. reserved `cache` policy)
+│   │   ├── description.lua           Description normalise/validate/summary/fit/inert (spec §1.10, §17.11)
+│   │   ├── reserved_compiler.lua     Reserved compiler keys (tool owns the compiler)
+│   │   ├── compiler_cache.lua        Compiler-cache launcher resolution (policy→binary, PATH-gated)
+│   │   ├── suggestions.lua           Advisory suggestion framework (`lw health`, status count line)
+│   │   ├── health_cache.lua          Suggestion-result cache (`.nvim/loomworks.health.json`, local/network/inventory tiers)
+│   │   ├── housekeeping.lua           Per-user state outside the workspace (§16.40): `.nvim/tmp` paths, housekeeping, `lw cleanup`
+│   │   ├── trust.lua                 Machine key + HMAC signatures on .nvim state (spec §17)
+│   │   ├── program_fields.lua        Shared program-bearing fields: strip / regraft / diagnose / review
+│   │   ├── config_transfer.lua       `lw export` / `lw import` helpers: inventory/diff, import intents, export text
+│   │   ├── env_policy.lua            Environment denylist (loader/interpreter hijack variables)
+│   │   ├── operation.lua              Operation class (profile action tracking)
+│   │   ├── cmake_kits.lua             CMake tool detection (MSVC/VS; delegates gcc/clang)
+│   │   ├── cpp_compilers.lua          Shared C/C++ compiler detection + arbitrary-path probe
+│   │   ├── msvc.lua                    Shared MSVC/VS discovery: vswhere installs, vcvars env, clang-cl
+│   │   ├── device_log.lua              Client-side device-log view (parser, filter, ring buffer, bottom-split)
+│   │   ├── device_log_records.lua      A device log's lines as records (parse, prefilter, normalize; shared)
+│   │   ├── types.lua                  LuaCATS type annotations (not loaded)
+│   │   ├── overseer.lua               Overseer template provider + launching
+│   │   ├── paths.lua                  Path helpers: is_absolute + artifact_path (joins build_dir+artifact, passes an absolute artifact through unchanged)
+│   │   ├── root_finder.lua            Upward workspace-root search (spec §1.1), shared by `lw` and editor auto-load: stops at a repo root / linked worktree, walks through submodules (pure `.git` file reads)
+│   │   ├── lsp.lua                    LSP registry + dispatcher (runtime-path discovery, setup_servers, get_status)
+│   │   ├── lsp_config.lua             LSP configuration state builder (memo, db_state, db_rev, options, readiness)
+│   │   ├── lsp_source.lua             Where the LSP layer reads that state (the daemon's or in-process)
+│   │   ├── test_state.lua             Tests view state builder (`view.Tests/1`: unit states, explicit suites, unit-scoped ids)
+│   │   ├── test_source.lua            Where the loomtest / neotest adapters read tests (the daemon's view or in-process)
+│   │   ├── status_source.lua          Where the status page's body reads (the daemon's `view.Workspace/1` or in-process) + its progress overlay
+│   │   ├── integrations/
+│   │   │   ├── lsp/
+│   │   │   │   ├── clangd.lua         clangd integration (build_config, function-based cmd/root_dir, auto-restart)
+│   │   │   │   └── qmlls.lua          qmlls integration
+│   │   │   └── inventory/             Host-neutral inventory companions (§9.3/§16.33): clangd, qmlls, codelldb, cppdbg, pwa_node
+│   │   ├── inventory.lua              Environment inventory framework (`lw health`, §16.33)
+│   │   ├── run_prep.lua               The preparation of `lw run` (target selection, gate, foreign probe, launch spec, debug spec, env overrides), shared with the daemon's prepare_run
+│   │   ├── build_run.lua              Headless build-step logic behind cli.lua run_build_steps (lock set, plan + gate + build request, conflict/reset gates, status lines, hardened spawn spec, record, failure line)
+│   │   ├── fidget.lua                 fidget.nvim progress integration
+│   │   ├── config_editor.lua           Legacy JSON read-modify-write (not used at runtime)
+│   │   ├── modules/
+│   │   │   ├── init.lua               Module registry, detection orchestration
+│   │   │   ├── cmake.lua              CMake module (full v1)
+│   │   │   ├── meson.lua              Meson module (full v1)
+│   │   │   └── typescript.lua         TypeScript shim
+│   │   ├── progress/
+│   │   │   ├── init.lua               Progress parser registry
+│   │   │   └── ninja.lua              Ninja [n/m] output parser
+│   │   └── ui/
+│   │       ├── status.lua             Status page wiring
+│   │       ├── view.lua               Window lifecycle via Snacks.win
+│   │       ├── dialog.lua             Snacks.win dialog helper
+│   │       ├── tree.lua               Foldable tree widget
+│   │       ├── actions.lua            Action factories + delete dialog
+│   │       ├── model_calls.lua        The status page's one route to model writes (5o C0)
+│   │       ├── launch_editor.lua     Launch config editor (command, args, env, deploy)
+│   │       ├── path_editor.lua        Reusable segment-based path editor dialog
+│   │       ├── deploy_editor.lua     Deploy step editor (segment path + source picker)
+│   │       ├── variable_editor.lua   Variable declaration editor (name, type, default)
+│   │       ├── description_editor.lua  Git-commit-style description editor float (ui §1.16)
+│   │       ├── config_editor_dialog.lua  Configuration editor (inherits, options, variables)
+│   │       ├── project_browser.lua   Directory browser for adding projects
+│   │       ├── helpers.lua            Shared formatting
+│   │       └── sections/
+│   │           ├── diagnostics.lua    Diagnostics section (errors + warnings)
+│   │           ├── tasks.lua          Tasks + build-dir locks (recovery surface)
+│   │           ├── profiles.lua       Profiles section
+│   │           ├── orphaned.lua       Orphaned Items section (configs + stray dirs)
+│   │           ├── config_sets.lua    Configuration Sets section
+│   │           ├── projects.lua       Projects section
+│   │           ├── lsp.lua            LSP section (clients + Reset action)
+│   │           └── debug.lua          Debug Adapters section
+│   ├── overseer/
+│   │   └── component/
+│   │       └── loomworks/
+│   │           └── task_tracker.lua   Overseer component for task lifecycle
+│   └── lualine/
+│       └── components/
+│           └── loomworks.lua          Winbar component
+├── plugin/
+│   └── loomworks.lua                  Auto-load entry point
+└── tests/
+    ├── minimal_init.lua               Test harness bootstrap
+    └── *_spec.lua                     Test files
+```
