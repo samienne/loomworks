@@ -369,7 +369,9 @@ against the rules below.
   passed on. A directory still referenced by another cache entry
   (`_build_dir_refs`, keyed by resolved identity) is not removed.
 - **Crash safety.** The cache marks an entry `unknown` before an asynchronous
-  deletion starts, and drops it only after the deletion succeeded.
+  deletion starts, and drops it only after the deletion succeeded. A unit in
+  `unknown` is refused by the build gate (API §8.2) until it is cleaned or
+  reset.
 - **`.nvim/` contents** (`Core:_safe_nvim_path`, `Core:_nuke_files`). Removal
   of workspace caches and user files is confined to `<root>/.nvim/`.
 - **Owned language-server databases** (`Workspace:_remove_owned_lsp_dbs`,

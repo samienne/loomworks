@@ -42,6 +42,10 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
 - A change to `loomworks.json`, the working copy or the build cache written
   while a workspace was loading is no longer missed until the file changes
   again. (#16)
+- `lw build`, a configure and a launch build refuse a configuration whose
+  build directory state is `unknown` (an interrupted delete or reset) instead
+  of building in a directory whose contents are untrusted; run `lw clean` or
+  `lw reset` first (#20).
 
 ## 0.1.49 - 2026-10-19
 
