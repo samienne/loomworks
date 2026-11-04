@@ -823,6 +823,27 @@ local function plan_steps(configure_tasks, build_tasks)
     return steps, plan_err
 end
 
+--- The build gate's `unknown` refusal (API §8.2): a unit whose state is
+--- `unknown` (an interrupted delete or reset — its build directory is
+--- untrusted) refuses the whole build or configure before any step. Clean and
+--- reset do not plan through here: they are the remedy.
+--- @param all_tasks table { configure: table[], build: table[] }
+--- @return string|nil err
+local function unknown_state_refusal(all_tasks)
+    for _, action in ipairs({ "configure", "build" }) do
+        for _, td in ipairs(all_tasks[action] or {}) do
+            local unit = td.loomworks and td.loomworks.unit
+            if unit and unit.local_state and unit:local_state() == "unknown" then
+                local project = unit._project
+                return (project and project.key or "?") .. "/" .. tostring(unit:config_key())
+                    .. ": build directory state unknown (interrupted delete or reset); "
+                    .. "run lw clean or lw reset first"
+            end
+        end
+    end
+    return nil
+end
+
 --- The configure tasks a plan runs: with `configure_only` (an explicit
 --- configure, `Build/1.configure`) every one — also a unit
 --- already configured, its `configure_reason` set when it has one — else the
@@ -874,6 +895,8 @@ function M.plan_profile_build(profile, opts)
         build_targets_for = opts.build_targets_for,
     })
     if not all_tasks then return nil end
+    local unknown_err = unknown_state_refusal(all_tasks)
+    if unknown_err then return nil, unknown_err end
     local needs_configure = planned_configures(all_tasks, opts)
 
     local build_tasks = all_tasks.build
@@ -927,6 +950,8 @@ function M.plan_units_build(units, opts)
             vim.list_extend(all_tasks.build, by_action.build or {})
         end
     end
+    local unknown_err = unknown_state_refusal(all_tasks)
+    if unknown_err then return nil, unknown_err end
     local needs_configure = planned_configures(all_tasks, opts)
     local steps, plan_err = plan_steps(needs_configure, opts.configure_only and {} or all_tasks.build)
     if plan_err then return nil, plan_err end
