@@ -2,14 +2,18 @@
 --- config_unit) through model_commands: lifecycles (configuration set,
 --- profile, orphan), profile upgrade/downgrade, opaque keys, the two-layer
 --- merge, modified state, project variables, operation completion on
---- failure and profile persistence. Only I/O, notifications and scheduling
+--- failure, profile persistence, SDK declarations, the workspace name, name
+--- validation, configuration rename propagation, launch and project
+--- configuration lifecycles, the project declaration, cmake options
+--- resolution and abstract mixins. Only I/O, notifications and scheduling
 --- are mocked.
 ---
 --- Ported from the plugin's integration_spec, which drove these through
 --- its editor view-model (workspace_view). That view-model is a thin
 --- wrapper over model_commands; the `wv` shim below is the same wrapper.
---- The editor-only parts (picker candidates, dialog contexts, path
---- derivation for the add-project dialog) stay in the plugin.
+--- The editor-only parts (picker candidates, dialog contexts, confirmation
+--- prompts, the status page's configuration editor, path derivation for the
+--- add-project dialog) stay in the plugin.
 
 local workspace = require("loomworks.workspace")
 local merge = require("loomworks.merge")
@@ -82,6 +86,23 @@ function wv.execute_save_variable(project, old_name, new_name, data)
 end
 function wv.project_declaration(project)
     return commands.project_declaration(project, function() return nil end)
+end
+function wv.execute_save_configuration(project, cfg, new_name, edits)
+    return as_result(commands.configuration_save(project, cfg, new_name, edits))
+end
+function wv.execute_delete_configuration(project, cfg)
+    return as_result(commands.configuration_remove(project, cfg))
+end
+function wv.execute_save_project_options(project, options)
+    return as_result(commands.options_save(project, options))
+end
+function wv.execute_save_launch_config(project, launch, new_name, data)
+    local r = commands.launch_save(project, launch, new_name, data)
+    local ok, err = as_result(r)
+    return ok, err, r.launch
+end
+function wv.execute_delete_launch_config(project, launch)
+    return as_result(commands.launch_remove(project, launch))
 end
 
 --- Mock modules with info() returning detectable configurations.
@@ -2389,3 +2410,2089 @@ describe("profile persistence", function()
             "active_profile should be set in user data")
     end)
 end)
+
+-- =========================================================================
+-- SDK declarations (user-declared toolchain installations, spec §8)
+-- =========================================================================
+
+describe("SDK declarations", function()
+    local SDK = require("loomworks.sdk")
+
+    --- Swap the SDK registry for a stub provider, run fn, always restore.
+    --- `validates` false makes validate() fail, exercising the --force path.
+    local function with_provider(validates, fn)
+        local saved = package.loaded["loomworks.sdks"]
+        local fake = {
+            id = "fake",
+            api_version = 1,
+            detect_all = function() return {} end,
+            match_version = function() return true end,
+            validate = function()
+                if not validates then return nil end
+                return { version = "1.2.3", family = "fam", basename_token = "tok" }
+            end,
+            derive_key = function(info)
+                return "fake-" .. (info.family or "cpp") .. "-" ..
+                    (info.version or "unknown") .. "-" .. (info.basename_token or "custom")
+            end,
+            create_sdk = function(key, path, version)
+                return SDK.new({ key = key, type = "fake", version = version,
+                    path = path, resolved = true })
+            end,
+        }
+        package.loaded["loomworks.sdks"] = {
+            get = function(id) return id == "fake" and fake or nil end,
+            list = function() return { "fake" } end,
+            all = function() return { fake = fake } end,
+        }
+        local ok, err = pcall(fn)
+        package.loaded["loomworks.sdks"] = saved
+        if not ok then error(err) end
+    end
+
+    it("preserves a provider-derived key across a reload", function()
+        with_provider(true, function()
+            local ws = make_ws()
+            -- The shape _serialize_user writes for a declared SDK.
+            ws:_sync_sdks(nil, {
+                ["fake-fam-1.2.3-tok"] = { type = "fake", path = "/opt/x", version = "1.2.3" },
+            })
+            assert.equals(1, #ws._sdks)
+            -- Regression: a "migration" rewrote any key not ending in digits to
+            -- <type>-<version>, dropping the path token — so the key `add`
+            -- reported didn't survive a reload, and two installations of the
+            -- same version at different paths collapsed onto one key.
+            assert.equals("fake-fam-1.2.3-tok", ws._sdks[1].key)
+        end)
+    end)
+
+    it("still migrates the legacy keyless format", function()
+        with_provider(true, function()
+            local ws = make_ws()
+            ws:_sync_sdks(nil, { fake = { type = "fake", path = "/opt/x", version = "1.2.3" } })
+            assert.equals("fake-1.2.3", ws._sdks[1].key)
+        end)
+    end)
+
+    it("add_sdk refuses a path that fails identification", function()
+        with_provider(false, function()
+            local ws = make_ws()
+            local sdk, err = ws:add_sdk("fake", "README.md")
+            assert.is_nil(sdk)
+            assert.matches("did not identify itself", err)
+        end)
+    end)
+
+    it("add_sdk --force registers it using the caller's facts", function()
+        with_provider(false, function()
+            local ws = make_ws()
+            local sdk, err = ws:add_sdk("fake", "README.md",
+                { force = true, family = "gcc", version = "12.3.0" })
+            assert.is_not_nil(sdk, err)
+            assert.equals("fake-gcc-12.3.0-custom", sdk.key)
+        end)
+    end)
+
+    it("add_sdk --force still rejects a path that does not exist", function()
+        with_provider(false, function()
+            local ws = make_ws()
+            local sdk, err = ws:add_sdk("fake", "no/such/compiler", { force = true })
+            assert.is_nil(sdk)
+            assert.matches("does not exist", err)
+        end)
+    end)
+end)
+
+-- =========================================================================
+-- Workspace name
+-- =========================================================================
+
+describe("workspace name", function()
+    it("rename sets the name and serializes it to the working copy", function()
+        local ws = make_ws()
+        assert.equals("root", ws.name) -- basename of "/root"
+        assert.is_true(ws:rename_workspace("reactive"))
+        assert.equals("reactive", ws.name)
+        assert.equals("reactive", ws:_serialize_user().name)
+    end)
+
+    it("does not persist a name equal to the directory basename", function()
+        -- A defaulted name must stay dynamic (follow the directory), so it is
+        -- never written to the working copy.
+        local ws = make_ws()
+        assert.is_nil(ws:_serialize_user().name)
+    end)
+
+    it("trims and rejects an empty name", function()
+        local ws = make_ws()
+        assert.is_true(ws:rename_workspace("  Reactive Core  "))
+        assert.equals("Reactive Core", ws.name)
+        local ok, err = ws:rename_workspace("   ")
+        assert.is_falsy(ok)
+        assert.matches("empty", err)
+    end)
+end)
+
+-- =========================================================================
+-- Case collision prevention
+-- =========================================================================
+
+describe("name validation and collision prevention", function()
+    it("add_configuration_set rejects case-colliding name", function()
+        local ws = make_ws({
+            configuration_sets = { Debug = { App = "Debug" } },
+        })
+        local cs, err = ws:add_configuration_set("debug", { App = "debug" })
+        assert.is_nil(cs)
+        assert.matches("case%-insensitive", err)
+    end)
+
+    it("add_project rejects case-colliding key", function()
+        local ws = make_ws()
+        -- "App" already exists from default config
+        local proj, err = ws:add_project("app", "cmake")
+        assert.is_nil(proj)
+        assert.matches("same build directory", err)
+    end)
+
+    it("add_project rejects slashes in key", function()
+        local ws = make_ws()
+        local proj, err = ws:add_project("foo/bar", "cmake")
+        assert.is_nil(proj)
+        assert.matches("slashes", err)
+    end)
+
+    it("add_project rejects dot-dot key", function()
+        local ws = make_ws()
+        local proj, err = ws:add_project("..", "cmake")
+        assert.is_nil(proj)
+    end)
+
+    it("add_project rejects sanitization collision", function()
+        local ws = make_ws({ projects = { ["My_App"] = { cmake = {} } } })
+        -- "My:App" sanitizes to "My_App" — collision
+        local proj, err = ws:add_project("My:App", "cmake")
+        assert.is_nil(proj)
+        assert.matches("same build directory", err)
+    end)
+
+    it("save_configuration rejects slashes", function()
+        local ws = make_ws()
+        local project = h.find_project_in(ws:get_projects(), "App")
+        local ok, err = project:save_configuration("foo/bar", {})
+        assert.is_false(ok)
+        assert.matches("slashes", err)
+    end)
+
+    -- Regression: a configuration carrying no overrides yet — an abstract
+    -- mixin, the base of an inheritance chain — serialized to nil, and the
+    -- user.json writer dropped configs that serialized to nil. So
+    -- `lw configuration add app base` reported success and persisted nothing;
+    -- the follow-up `set ... inherits base` then failed with "no configuration
+    -- 'base'". The published serializer already wrote `{}` for this case.
+    it("persists a configuration that has no overrides yet", function()
+        local ws = make_ws()
+        local project = h.find_project_in(ws:get_projects(), "App")
+        local ok = project:save_configuration("mixin-base", {})
+        assert.is_true(ok)
+
+        local user = ws:_serialize_user()
+        local configs = user.projects
+            and user.projects.App
+            and user.projects.App.cmake
+            and user.projects.App.cmake.configurations
+        assert.is_not_nil(configs, "user.json must carry the project's configs")
+        assert.is_not_nil(configs["mixin-base"],
+            "a config with no overrides must still be recorded, or it "
+            .. "silently vanishes and cannot be inherited from")
+    end)
+
+    it("keeps a bare configuration available to inherit from", function()
+        local ws = make_ws()
+        local project = h.find_project_in(ws:get_projects(), "App")
+        assert.is_true(project:save_configuration("mixin-base", {}))
+        -- The whole point of an abstract config: something inherits it.
+        local ok, err = project:save_configuration("asan",
+            { inherits = { "mixin-base" } })
+        assert.is_true(ok, tostring(err))
+
+        local cfg = project:get_configuration("asan")
+        assert.is_not_nil(cfg)
+        assert.same({}, cfg:unresolved_inherits_names(),
+            "the base must resolve, not dangle")
+    end)
+
+    -- The profile's tool owns the compiler (spec §15): a configuration may
+    -- not select one through its own options/env. Reject at edit time.
+    it("rejects a reserved CMAKE_<LANG>_COMPILER option", function()
+        local ws = make_ws()
+        local project = h.find_project_in(ws:get_projects(), "App")
+        local ok, err = project:save_configuration("Debug-cc",
+            { options = { CMAKE_CXX_COMPILER = "clang++" } })
+        assert.is_false(ok)
+        assert.matches("chosen by the profile's tool", err)
+        assert.is_nil(project:get_configuration("Debug-cc"))
+    end)
+
+    it("rejects a reserved compiler-driver env var", function()
+        local ws = make_ws()
+        local project = h.find_project_in(ws:get_projects(), "App")
+        local ok, err = project:save_configuration("Debug-env",
+            { env = { CXX = "clang++" } })
+        assert.is_false(ok)
+        assert.matches("chosen by the profile's tool", err)
+    end)
+
+    it("accepts a compiler launcher and *FLAGS (not reserved)", function()
+        local ws = make_ws()
+        local project = h.find_project_in(ws:get_projects(), "App")
+        local ok, err = project:save_configuration("Debug-ok", {
+            options = {
+                CMAKE_CXX_COMPILER_LAUNCHER = "ccache",
+                CXXFLAGS = "-O2",
+            },
+        })
+        assert.is_true(ok, tostring(err))
+        assert.is_not_nil(project:get_configuration("Debug-ok"))
+    end)
+end)
+
+-- =========================================================================
+-- Configuration rename propagation
+-- =========================================================================
+
+describe("configuration rename propagation", function()
+    it("renames config and updates config set mappings", function()
+        local ws = make_ws({
+            projects = {
+                App = {
+                    cmake = {
+                        configurations = {
+                            ["Debug-asan"] = { inherits = "Debug", options = { ASAN = "ON" } },
+                        },
+                    },
+                },
+            },
+            configuration_sets = {
+                debug = { App = "Debug-asan" },
+            },
+        })
+
+        local project = h.find_project_in(ws:get_projects(), "App")
+        local ok = project:rename_configuration("Debug-asan", "DebugASAN", {
+            inherits = "Debug", options = { ASAN = "ON" },
+        })
+        assert.is_true(ok)
+
+        -- Config renamed on Configuration domain objects
+        local app = h.find_project_in(ws:get_projects(), "App")
+        assert.is_nil(app:get_configuration("Debug-asan"))
+        local renamed_cfg = app:get_configuration("DebugASAN")
+        assert.is_not_nil(renamed_cfg)
+        assert.is_true(renamed_cfg.is_user)
+
+        -- Config set mapping updated
+        local debug_cs_rename = h.find_config_set_in(ws:get_config_sets(), "debug")
+        assert.equals("DebugASAN", h.cs_mapping(debug_cs_rename, "App"))
+    end)
+
+    it("refuses to rename onto an existing sibling config (no data loss)", function()
+        local ws = make_ws({
+            projects = {
+                App = {
+                    cmake = {
+                        configurations = {
+                            ["Debug-asan"] = { inherits = "Debug", options = { ASAN = "ON" } },
+                            ["Release-lto"] = { inherits = "Release", options = { LTO = "ON" } },
+                        },
+                    },
+                },
+            },
+        })
+
+        local project = h.find_project_in(ws:get_projects(), "App")
+        local ok, err = project:rename_configuration("Debug-asan", "Release-lto", {
+            inherits = "Debug", options = { ASAN = "ON" },
+        })
+
+        -- Must be rejected, not silently merged.
+        assert.is_falsy(ok)
+        assert.is_truthy(err and err:find("already exists", 1, true))
+
+        -- Both configurations survive intact with their own options.
+        local app = h.find_project_in(ws:get_projects(), "App")
+        local asan = app:get_configuration("Debug-asan")
+        local lto = app:get_configuration("Release-lto")
+        assert.is_not_nil(asan)
+        assert.is_not_nil(lto)
+        assert.equals("ON", asan.options and asan.options.ASAN)
+        assert.equals("ON", lto.options and lto.options.LTO)
+        assert.is_nil(lto.options and lto.options.ASAN)
+    end)
+
+    pending("old build_dir becomes orphaned after rename", function()
+        local ws = make_ws({
+            projects = {
+                App = {
+                    cmake = {
+                        configurations = {
+                            ["Debug-asan"] = { inherits = "Debug" },
+                        },
+                    },
+                },
+            },
+            configuration_sets = {
+                debug = { App = "Debug-asan" },
+            },
+        }, {
+            profiles = {
+                ["debug:ninja-gcc"] = {
+                    configuration_set = "debug",
+                    tools = { cmake = { key = "ninja-gcc", data = { id = "ninja-gcc" } } },
+                },
+            },
+        }, {
+            build_dirs = {
+                ["build/App/ninja-gcc/Debug-asan"] = {
+                    project_key = "App", config_key = "Debug-asan:ninja-gcc",
+                    type = "cmake", variant = "Debug-asan", tool_key = "ninja-gcc",
+                    tool_data = { id = "ninja-gcc" },
+                    state = "built", build_dir = "/root/.nvim/build/App/ninja-gcc/Debug-asan",
+                },
+            },
+        }, {
+            detected_tools = make_detected_tools({
+                { tool_key = "ninja-gcc", tool_data = { id = "ninja-gcc" } },
+            }),
+        })
+
+        local project = h.find_project_in(ws:get_projects(), "App")
+        local ok = project:rename_configuration("Debug-asan", "DebugASAN", {})
+        assert.is_true(ok)
+
+        -- Old cache entry stays as-is (orphaned — old build_dir with old variant)
+        local cache = ws:_serialize_cache()
+        local old_entry = nil
+        for _, entry in pairs(cache.build_dirs) do
+            if entry.project_key == "App" and entry.variant == "Debug-asan" then old_entry = entry end
+        end
+        assert.is_not_nil(old_entry)
+
+        -- Configuration object renamed; old variant reappears as source-missing from cache
+        local old_cfg = project:get_configuration("Debug-asan")
+        assert.is_not_nil(old_cfg)
+        assert.is_true(old_cfg._source_missing)
+        assert.is_not_nil(project:get_configuration("DebugASAN"))
+
+        -- Profile still exists as runtime object
+        local profile = h.find_profile(ws._profiles, "debug:ninja-gcc")
+        assert.is_not_nil(profile)
+    end)
+
+    it("updates inherits in sibling configs", function()
+        local ws = make_ws({
+            projects = {
+                App = {
+                    cmake = {
+                        configurations = {
+                            base = { options = { X = "1" } },
+                            child = { inherits = "base", options = { Y = "2" } },
+                            multi = { inherits = { "Debug", "base" } },
+                        },
+                    },
+                },
+            },
+        })
+
+        local project = h.find_project_in(ws:get_projects(), "App")
+        local ok = project:rename_configuration("base", "BaseConfig", {
+            options = { X = "1" },
+        })
+        assert.is_true(ok)
+
+        -- String inherits updated on Configuration domain objects
+        local app = h.find_project_in(ws:get_projects(), "App")
+        local child_cfg = app:get_configuration("child")
+        assert.is_not_nil(child_cfg)
+        assert.same({ "BaseConfig" }, child_cfg.inherits_names)
+
+        -- Array inherits updated
+        local multi_cfg = app:get_configuration("multi")
+        assert.is_not_nil(multi_cfg)
+        assert.equals("Debug", multi_cfg.inherits_names[1])
+        assert.equals("BaseConfig", multi_cfg.inherits_names[2])
+    end)
+
+    it("succeeds with no cache entries", function()
+        local ws = make_ws({
+            projects = {
+                App = {
+                    cmake = {
+                        configurations = {
+                            old = { options = { A = "1" } },
+                        },
+                    },
+                },
+            },
+        })
+
+        local project = h.find_project_in(ws:get_projects(), "App")
+        local ok = project:rename_configuration("old", "new", {
+            options = { A = "1" },
+        })
+        assert.is_true(ok)
+        local app = h.find_project_in(ws:get_projects(), "App")
+        assert.is_nil(app:get_configuration("old"))
+        local new_cfg = app:get_configuration("new")
+        assert.is_not_nil(new_cfg)
+        assert.is_true(new_cfg.is_user)
+    end)
+
+    pending("pinned single-config profile updates name and variant on rename", function()
+        local ws = make_ws({
+            projects = {
+                App = { cmake = { configurations = { Debug = { variant = "Debug" } } } },
+            },
+        }, {
+            profiles = {
+                ["App/Debug:ninja-gcc"] = {
+                    mappings = { App = "Debug" },
+                    tools = { cmake = { key = "ninja-gcc", data = { id = "ninja-gcc" } } },
+                },
+            },
+        }, {
+            build_dirs = {
+                ["build/App/ninja-gcc/Debug"] = {
+                    project_key = "App", type = "cmake", variant = "Debug",
+                    tool_key = "ninja-gcc", tool_data = { id = "ninja-gcc" },
+                    state = "built", build_dir = "/root/.nvim/build/App/ninja-gcc/Debug",
+                },
+            },
+        }, {
+            detected_tools = make_detected_tools({
+                { tool_key = "ninja-gcc", tool_data = { id = "ninja-gcc" } },
+            }),
+        })
+
+        local project = h.find_project_in(ws:get_projects(), "App")
+        local debug_cfg = project:get_configuration("variant:Debug")
+        assert.is_not_nil(debug_cfg)
+        debug_cfg.is_user = true
+
+        -- Verify pinned profile exists with old name
+        local old_profile = h.find_profile(ws:get_profiles(), "App/Debug:ninja-gcc")
+        assert.is_not_nil(old_profile, "Pinned profile should exist before rename")
+        assert.equals("Debug", old_profile.mappings["App"])
+        assert.equals(1, #old_profile:projects())
+        assert.equals("built", old_profile:projects()[1]._config_unit.state_value)
+
+        -- Rename "Debug" → "Development"
+        local ok, err = project:rename_configuration("Debug", "Development", { variant = "Development" })
+        assert.is_true(ok, "rename failed: " .. tostring(err))
+
+        -- Pinned profile should update: new derived key, new variant mapping
+        -- Old key "App/Debug:ninja-gcc" should be gone
+        assert.is_nil(h.find_profile(ws:get_profiles(), "App/Debug:ninja-gcc"),
+            "Old profile key should not exist after rename")
+
+        -- New derived key based on new variant
+        local new_profile = h.find_profile(ws:get_profiles(), "App/Development:ninja-gcc")
+        assert.is_not_nil(new_profile, "Profile should have new derived key")
+        assert.equals("Development", new_profile.mappings["App"])
+
+        -- New profile should have unconfigured ConfigUnit (new build_dir)
+        local pps = new_profile:projects()
+        assert.equals(1, #pps)
+        assert.is_not_nil(pps[1]._config_unit, "PP should have ConfigUnit")
+        assert.is_nil(pps[1]._config_unit.state_value, "New ConfigUnit should be unconfigured")
+
+        -- Old build_dir should be orphaned
+        local orphans = ws:get_orphaned_configs()
+        assert.equals(1, #orphans, "Old build_dir should be orphaned")
+        assert.equals("built", orphans[1].unit.state_value)
+
+        -- Serialized user.json should have the updated pinned profile
+        local user_data = ws:_serialize_user()
+        assert.is_nil(user_data.profiles["App/Debug:ninja-gcc"],
+            "Old key should not be in serialized user data")
+        assert.is_not_nil(user_data.profiles["App/Development:ninja-gcc"],
+            "New key should be in serialized user data")
+    end)
+
+    pending("pinned profile shows unconfigured after rename, old build_dir orphaned", function()
+        local ws = make_ws({
+            projects = {
+                App = { cmake = { configurations = { Debug = { variant = "Debug" } } } },
+            },
+            configuration_sets = {
+                debug = { App = "Debug" },
+            },
+        }, {
+            active_profile = "debug",
+            profiles = {
+                ["debug"] = { configuration_set = "debug" },
+            },
+        }, {
+            build_dirs = {
+                ["build/App/Debug"] = {
+                    project_key = "App", type = "cmake", variant = "Debug",
+                    state = "built", build_dir = "/root/.nvim/build/App/Debug",
+                },
+            },
+        })
+
+        local project = h.find_project_in(ws:get_projects(), "App")
+        local profile = h.find_profile(ws:get_profiles(), "debug")
+        assert.is_not_nil(profile)
+
+        -- Profile should have App with "built" state
+        local pps = profile:projects()
+        assert.equals(1, #pps)
+        assert.is_not_nil(pps[1]._config_unit)
+        assert.equals("built", pps[1]._config_unit.state_value)
+
+        -- Mark Debug as user-defined (in real usage, module.info() merges user configs)
+        local debug_cfg = project:get_configuration("variant:Debug")
+        assert.is_not_nil(debug_cfg, "Debug config should exist")
+        debug_cfg.is_user = true
+
+        -- Rename "Debug" → "Development"
+        local ok, err = project:rename_configuration("Debug", "Development", { variant = "Development" })
+        assert.is_true(ok, "rename failed: " .. tostring(err))
+
+        -- Profile should now have App with unconfigured state (new build_dir)
+        profile = h.find_profile(ws:get_profiles(), "debug")
+        assert.is_not_nil(profile, "Profile should still exist after rename")
+        pps = profile:projects()
+        assert.equals(1, #pps)
+        assert.is_not_nil(pps[1]._config_unit, "PP should have a ConfigUnit for new build_dir")
+        assert.is_nil(pps[1]._config_unit.state_value, "New ConfigUnit should be unconfigured")
+        assert.equals("Development", pps[1]:variant_name())
+
+        -- Old build_dir should be orphaned
+        local orphans = ws:get_orphaned_configs()
+        assert.equals(1, #orphans, "Old build_dir should be orphaned")
+        assert.equals("built", orphans[1].unit.state_value)
+    end)
+
+    pending("old cache entries for multiple tools become orphaned after rename", function()
+        local ws = make_ws({
+            projects = {
+                App = {
+                    cmake = {
+                        configurations = {
+                            ["Debug-asan"] = { inherits = "Debug" },
+                        },
+                    },
+                },
+            },
+            configuration_sets = {
+                debug = { App = "Debug-asan" },
+            },
+        }, nil, {
+            build_dirs = {
+                ["build/App/ninja-gcc/Debug-asan"] = {
+                    project_key = "App", config_key = "Debug-asan:ninja-gcc",
+                    type = "cmake", variant = "Debug-asan", tool_key = "ninja-gcc",
+                    tool_data = { id = "ninja-gcc" },
+                    state = "built", build_dir = "/root/.nvim/build/App/ninja-gcc/Debug-asan",
+                },
+                ["build/App/ninja-clang/Debug-asan"] = {
+                    project_key = "App", config_key = "Debug-asan:ninja-clang",
+                    type = "cmake", variant = "Debug-asan", tool_key = "ninja-clang",
+                    tool_data = { id = "ninja-clang" },
+                    state = "configured", build_dir = "/root/.nvim/build/App/ninja-clang/Debug-asan",
+                },
+            },
+            profiles = {
+                ["debug:ninja-gcc"] = {
+                    configuration_set = "debug",
+                    tools = { cmake = { key = "ninja-gcc", data = { id = "ninja-gcc" }, label = "GCC" } },
+                    configurations = { "build/App/ninja-gcc/Debug-asan" },
+                },
+                ["debug:ninja-clang"] = {
+                    configuration_set = "debug",
+                    tools = { cmake = { key = "ninja-clang", data = { id = "ninja-clang" }, label = "Clang" } },
+                    configurations = { "build/App/ninja-clang/Debug-asan" },
+                },
+            },
+        })
+
+        local project = h.find_project_in(ws:get_projects(), "App")
+        local ok = project:rename_configuration("Debug-asan", "DebugASAN", {})
+        assert.is_true(ok)
+
+        -- Old cache entries stay with old variant (orphaned)
+        local cache = ws:_serialize_cache()
+        local found_old_gcc, found_old_clang = false, false
+        for _, entry in pairs(cache.build_dirs) do
+            if entry.project_key == "App" and entry.variant == "Debug-asan" then
+                if entry.tool_key == "ninja-gcc" then found_old_gcc = true end
+                if entry.tool_key == "ninja-clang" then found_old_clang = true end
+            end
+        end
+        assert.is_true(found_old_gcc, "gcc old entry should still exist")
+        assert.is_true(found_old_clang, "clang old entry should still exist")
+
+        -- Configuration object renamed; old variant reappears as source-missing from cache
+        local old_cfg = project:get_configuration("Debug-asan")
+        assert.is_not_nil(old_cfg)
+        assert.is_true(old_cfg._source_missing)
+        assert.is_not_nil(project:get_configuration("DebugASAN"))
+    end)
+
+    pending("pinned profile key updates to new variant on rename", function()
+        local ws = make_ws({
+            projects = {
+                App = {
+                    cmake = {
+                        configurations = {
+                            ["Debug-asan"] = { inherits = "Debug" },
+                        },
+                    },
+                },
+            },
+        }, {
+            profiles = {
+                ["App/Debug-asan:ninja-gcc"] = {
+                    mappings = { App = "Debug-asan" },
+                    tools = { cmake = { key = "ninja-gcc", data = { id = "ninja-gcc" }, label = "GCC" } },
+                },
+            },
+        }, {
+            build_dirs = {
+                ["build/App/ninja-gcc/Debug-asan"] = {
+                    project_key = "App", config_key = "Debug-asan:ninja-gcc",
+                    type = "cmake", variant = "Debug-asan", tool_key = "ninja-gcc",
+                    tool_data = { id = "ninja-gcc" },
+                    state = "configured", build_dir = "/root/.nvim/build/App/ninja-gcc/Debug-asan",
+                },
+            },
+        })
+
+        local project = h.find_project_in(ws:get_projects(), "App")
+        local cfg = project:get_configuration("Debug-asan")
+        cfg.is_user = true
+        local ok = project:rename_configuration("Debug-asan", "DebugASAN", {
+            inherits = "Debug",
+        })
+        assert.is_true(ok)
+
+        -- Pinned profile key updated to reflect new variant
+        assert.is_nil(h.find_profile(ws._profiles, "App/Debug-asan:ninja-gcc"))
+        local profile = h.find_profile(ws._profiles, "App/DebugASAN:ninja-gcc")
+        assert.is_not_nil(profile)
+        assert.equals("DebugASAN", profile.mappings["App"])
+
+        -- Configuration object renamed; old variant reappears as source-missing from cache
+        local old_cfg = project:get_configuration("Debug-asan")
+        assert.is_not_nil(old_cfg)
+        assert.is_true(old_cfg._source_missing)
+        assert.is_not_nil(project:get_configuration("DebugASAN"))
+    end)
+
+    it("active_profile unchanged after rename", function()
+        local ws = make_ws({
+            projects = {
+                App = {
+                    cmake = {
+                        configurations = {
+                            ["Debug-asan"] = { inherits = "Debug" },
+                        },
+                    },
+                },
+            },
+        }, {
+            active_profile = "App/Debug-asan:ninja-gcc",
+            profiles = {
+                ["App/Debug-asan:ninja-gcc"] = {
+                    mappings = { App = "Debug-asan" },
+                    tools = { cmake = { key = "ninja-gcc", data = { id = "ninja-gcc" }, label = "GCC" } },
+                },
+            },
+        }, {
+            build_dirs = {
+                ["build/App/ninja-gcc/Debug-asan"] = {
+                    project_key = "App", config_key = "Debug-asan:ninja-gcc",
+                    type = "cmake", variant = "Debug-asan", tool_key = "ninja-gcc",
+                    tool_data = { id = "ninja-gcc" },
+                    state = "configured", build_dir = "/root/.nvim/build/App/ninja-gcc/Debug-asan",
+                },
+            },
+        })
+
+        assert.equals("App/Debug-asan:ninja-gcc", ws._active_profile_key)
+
+        local project = h.find_project_in(ws:get_projects(), "App")
+        local ok = project:rename_configuration("Debug-asan", "DebugASAN", {
+            inherits = "Debug",
+        })
+        assert.is_true(ok)
+
+        -- Active profile key stays the same (no rekeying)
+        assert.equals("App/Debug-asan:ninja-gcc", ws._active_profile_key)
+    end)
+
+    pending("rename updates Configuration domain objects; old variant lingers from cache", function()
+        -- Simulates: user configures Debug-asan, then renames it to DebugASAN.
+        -- The Configuration object is renamed. Old cache entries still have
+        -- the old variant name, so a source-missing Configuration appears.
+        local ws = make_ws({
+            projects = {
+                App = {
+                    cmake = {
+                        configurations = {
+                            ["Debug-asan"] = { inherits = "Debug" },
+                        },
+                    },
+                },
+            },
+            configuration_sets = {
+                asan = { App = "Debug-asan" },
+            },
+        }, {
+            profiles = {
+                ["asan:ninja-gcc"] = {
+                    configuration_set = "asan",
+                    tools = { cmake = { key = "ninja-gcc", data = { id = "ninja-gcc", display = "GCC" } } },
+                },
+            },
+        }, {
+            configurations = {
+                ["App/Debug-asan:ninja-gcc"] = {
+                    project_key = "App", config_key = "Debug-asan:ninja-gcc",
+                    type = "cmake", variant = "Debug-asan", tool_key = "ninja-gcc",
+                    state = "configured", build_dir = "/root/.nvim/build/App/ninja-gcc/Debug-asan",
+                },
+            },
+        }, {
+            detected_tools = make_detected_tools({
+                { tool_key = "ninja-gcc", tool_data = { id = "ninja-gcc", display = "GCC" } },
+            }),
+        })
+
+        -- Before rename: PP resolves correctly
+        local profile = h.find_profile(ws:get_profiles(), "asan:ninja-gcc")
+        assert.is_not_nil(profile)
+        local pp = profile:project("App")
+        assert.is_not_nil(pp)
+        assert.equals("Debug-asan", pp:variant_name())
+        assert.is_not_nil(pp:configuration())
+
+        -- Rename
+        local project = h.find_project_in(ws:get_projects(), "App")
+        local ok = project:rename_configuration("Debug-asan", "DebugASAN", {
+            inherits = "Debug",
+        })
+        assert.is_true(ok)
+
+        -- Configuration domain object exists under new name
+        assert.is_not_nil(project:get_configuration("DebugASAN"))
+        assert.is_true(project:get_configuration("DebugASAN").is_user)
+
+        -- Old variant still appears as source-missing (from cache)
+        local old_cfg = project:get_configuration("Debug-asan")
+        assert.is_not_nil(old_cfg)
+        assert.is_true(old_cfg._source_missing)
+
+        -- Config set mapping updated to new name (via Configuration reference)
+        local cs = h.find_config_set_in(ws:get_config_sets(), "asan")
+        assert.equals("DebugASAN", h.cs_mapping(cs, "App"))
+    end)
+
+    it("rename updates profile variant and Configuration mutated in place", function()
+        local ws = make_ws({
+            projects = {
+                App = {
+                    cmake = {
+                        configurations = {
+                            ["Debug-asan"] = { inherits = "Debug" },
+                        },
+                    },
+                },
+            },
+            configuration_sets = { debug = { App = "Debug-asan" } },
+        }, {
+            profiles = {
+                ["debug:ninja-gcc"] = {
+                    configuration_set = "debug",
+                    tools = { cmake = { key = "ninja-gcc", data = { id = "ninja-gcc", display = "GCC" }, label = "GCC" } },
+                },
+            },
+        }, {
+            build_dirs = {
+                ["build/App/ninja-gcc/Debug-asan"] = {
+                    project_key = "App", config_key = "Debug-asan:ninja-gcc",
+                    type = "cmake", variant = "Debug-asan", tool_key = "ninja-gcc",
+                    tool_data = { id = "ninja-gcc", display = "GCC" },
+                    state = "built", build_dir = "/root/.nvim/build/App/ninja-gcc/Debug-asan",
+                },
+            },
+        })
+
+        -- Before rename: PP works
+        local profile = h.find_profile(ws:get_profiles(), "debug:ninja-gcc")
+        assert.is_not_nil(profile)
+        local pp = profile:project("App")
+        assert.equals("Debug-asan", pp:variant_name())
+
+        -- Rename
+        local project = h.find_project_in(ws:get_projects(), "App")
+        local cfg = project:get_configuration("Debug-asan")
+        cfg.is_user = true
+        local ok = project:rename_configuration("Debug-asan", "DebugASAN", {
+            inherits = "Debug",
+        })
+        assert.is_true(ok)
+
+        -- Profile key unchanged (set-based, key comes from config set name + tool)
+        profile = h.find_profile(ws:get_profiles(), "debug:ninja-gcc")
+        assert.is_not_nil(profile)
+        assert.equals("DebugASAN", profile.mappings["App"])
+
+        -- Configuration object renamed
+        assert.is_not_nil(project:get_configuration("DebugASAN"))
+    end)
+
+    pending("rename while building preserves running state on old ConfigUnit", function()
+        local ws = make_ws({
+            projects = {
+                App = {
+                    cmake = {
+                        configurations = {
+                            ["Debug-asan"] = { inherits = "Debug" },
+                        },
+                    },
+                },
+            },
+            configuration_sets = {
+                debug = { App = "Debug-asan" },
+            },
+        }, nil, {
+            build_dirs = {
+                ["build/App/ninja-gcc/Debug-asan"] = {
+                    project_key = "App", config_key = "Debug-asan:ninja-gcc",
+                    type = "cmake", variant = "Debug-asan", tool_key = "ninja-gcc",
+                    tool_data = { id = "ninja-gcc" },
+                    state = "configured", build_dir = "/root/.nvim/build/App/ninja-gcc/Debug-asan",
+                },
+            },
+        }, {
+            detected_tools = make_detected_tools({
+                { tool_key = "ninja-gcc", tool_data = { id = "ninja-gcc" } },
+            }),
+        })
+
+        -- Simulate a running build on the config unit
+        local old_unit = h.find_config_unit(ws._config_units, "App", "Debug-asan")
+        assert.is_not_nil(old_unit)
+        old_unit:register_task(42, "build")
+        assert.is_true(old_unit:is_running())
+
+        -- Rename while building — ConfigUnit is not migrated
+        local ok = h.find_project_in(ws:get_projects(), "App"):rename_configuration("Debug-asan", "DebugASAN", {
+            inherits = "Debug",
+        })
+        assert.is_true(ok)
+
+        -- Old ConfigUnit still exists with old variant and is still running
+        assert.is_true(old_unit:is_running())
+        assert.equals("build", old_unit:running_action())
+        assert.equals("Debug-asan", old_unit._variant)
+
+        -- Configuration object renamed
+        local project = h.find_project_in(ws:get_projects(), "App")
+        assert.is_not_nil(project:get_configuration("DebugASAN"))
+    end)
+
+    pending("cache-only variant creates Configuration for PP resolution", function()
+        -- Simulates: variant exists only in cache (source removed, e.g. branch switch).
+        -- PP should still resolve via cache-enriched Configuration.
+        local ws = make_ws({
+            projects = {
+                App = { cmake = {} },  -- no user-defined configs
+            },
+            configuration_sets = {
+                custom = { App = "CustomBuild" },
+            },
+        }, {
+            profiles = {
+                ["custom:ninja-gcc"] = {
+                    configuration_set = "custom",
+                    tools = { cmake = { key = "ninja-gcc", data = { id = "ninja-gcc", display = "GCC" } } },
+                },
+            },
+        }, {
+            configurations = {
+                ["App/CustomBuild:ninja-gcc"] = {
+                    project_key = "App", config_key = "CustomBuild:ninja-gcc",
+                    type = "cmake", variant = "CustomBuild", tool_key = "ninja-gcc",
+                    state = "built", build_dir = "/root/.nvim/build/App/ninja-gcc/CustomBuild",
+                },
+            },
+        }, {
+            detected_tools = make_detected_tools({
+                { tool_key = "ninja-gcc", tool_data = { id = "ninja-gcc", display = "GCC" } },
+            }),
+        })
+
+        -- "CustomBuild" is not in cmake defaults or user configs,
+        -- but exists in cache — should be enriched as _source_missing
+        local project = h.find_project_in(ws:get_projects(), "App")
+        local cfg = project:get_configuration("CustomBuild")
+        assert.is_not_nil(cfg)
+        assert.is_true(cfg._source_missing)
+
+        -- PP resolves the cache-enriched Configuration
+        local profile = h.find_profile(ws:get_profiles(), "custom:ninja-gcc")
+        assert.is_not_nil(profile)
+        local pp = profile:project("App")
+        assert.is_not_nil(pp)
+        assert.equals("CustomBuild", pp:variant_name())
+        assert.is_not_nil(pp:configuration())
+        assert.is_true(pp:configuration()._source_missing)
+    end)
+
+    pending("save_configuration creates Configuration domain object for PP", function()
+        -- Simulates: user creates a new custom config, then a profile uses it.
+        local ws = make_ws({
+            projects = { App = { cmake = {} } },
+            configuration_sets = {
+                custom = { App = "Debug" },
+            },
+        })
+
+        local project = h.find_project_in(ws:get_projects(), "App")
+
+        -- Create a new configuration
+        local ok = project:save_configuration("Debug-ASAN", {
+            inherits = "Debug",
+            options = { ASAN = "ON" },
+        })
+        assert.is_true(ok)
+
+        -- Configuration domain object exists immediately
+        local cfg = project:get_configuration("Debug-ASAN")
+        assert.is_not_nil(cfg)
+        assert.is_false(cfg._source_missing)
+        assert.is_true(cfg.is_user)
+
+        -- Update config set to use the new configuration
+        local cs = h.find_config_set_in(ws:get_config_sets(),"custom")
+        ok = cs:update_mapping(project, cfg)
+        assert.is_true(ok)
+
+        -- PP now resolves the new Configuration
+        for _, profile in pairs(ws._profiles) do
+            if profile._config_set_ref == cs then
+                local pp = profile:project("App")
+                if pp then
+                    assert.equals("Debug-ASAN", pp:variant_name())
+                    assert.is_not_nil(pp:configuration())
+                end
+            end
+        end
+    end)
+
+    it("rename preserves all domain object identities", function()
+        local ws = make_ws({
+            projects = {
+                App = {
+                    cmake = {
+                        configurations = {
+                            ["Debug-asan"] = { inherits = "Debug", options = { ASAN = "ON" } },
+                        },
+                    },
+                },
+            },
+            configuration_sets = {
+                debug = { App = "Debug-asan" },
+            },
+        }, {
+            profiles = {
+                debug = { configuration_set = "debug" },
+            },
+        }, {
+            build_dirs = {
+                ["build/App/Debug-asan"] = {
+                    project_key = "App", config_key = "Debug-asan",
+                    type = "cmake", variant = "Debug-asan",
+                    state = "built", build_dir = "/root/.nvim/build/App/Debug-asan",
+                },
+            },
+        })
+
+        -- Capture object identities before rename
+        local project = h.find_project_in(ws:get_projects(), "App")
+        local cfg_before = project:get_configuration("Debug-asan")
+        assert.is_not_nil(cfg_before)
+        cfg_before.is_user = true
+
+        local cs_before = h.find_config_set_in(ws:get_config_sets(), "debug")
+        local profile_before = h.find_profile(ws:get_profiles(), "debug")
+        assert.is_not_nil(profile_before, "profile should exist")
+        local pp_before = profile_before:projects()[1]
+        assert.is_not_nil(pp_before, "PP should exist")
+        local unit_before = pp_before._config_unit
+        assert.is_not_nil(unit_before, "ConfigUnit should exist")
+        assert.equals("built", unit_before.state_value)
+
+        -- Rename
+        local ok = project:rename_configuration("Debug-asan", "DebugASAN", {
+            inherits = "Debug", options = { ASAN = "ON" },
+        })
+        assert.is_true(ok)
+
+        -- Same Configuration object (table identity)
+        local cfg_after = project:get_configuration("DebugASAN")
+        assert.equals(cfg_before, cfg_after) -- same table
+        assert.is_nil(project:get_configuration("Debug-asan"))
+
+        -- Same ConfigurationSet object
+        local cs_after = h.find_config_set_in(ws:get_config_sets(), "debug")
+        assert.equals(cs_before, cs_after)
+        assert.equals("DebugASAN", h.cs_mapping(cs_after, "App"))
+
+        -- Same Profile object (key unchanged for set-based profiles)
+        local profile_after = h.find_profile(ws:get_profiles(), "debug")
+        assert.is_not_nil(profile_after, "profile should exist")
+        assert.equals(profile_before, profile_after) -- same table
+        assert.equals("DebugASAN", profile_after.mappings["App"])
+
+        -- Same ProfileProject object
+        local pp_after = profile_after:projects()[1]
+        assert.equals(pp_before, pp_after)
+        assert.equals("DebugASAN", pp_after:variant_name())
+
+        -- Same ConfigUnit object (table identity), updated fields
+        local unit_after = pp_after._config_unit
+        assert.equals(unit_before, unit_after) -- same table
+        assert.equals("DebugASAN", unit_after._variant)
+        assert.is_nil(unit_after.state_value) -- new build dir, unconfigured
+        assert.equals("build/App/DebugASAN", unit_after.id)
+
+        -- Old BuildDir orphaned, new BuildDir created
+        assert.is_not_nil(unit_after._build_dir)
+        assert.equals("build/App/DebugASAN", unit_after._build_dir.rel_path)
+        local orphans = ws:get_orphaned_configs()
+        assert.equals(1, #orphans)
+        assert.equals("build/App/Debug-asan", orphans[1].build_dir_key)
+        assert.equals("built", orphans[1].cached_entry.state)
+    end)
+
+    it("rename-back round trip: old build_dir restored from cache, zero orphans", function()
+        local ws = make_ws({
+            projects = {
+                App = {
+                    cmake = {
+                        configurations = {
+                            ["Debug-asan"] = { inherits = "Debug", options = { ASAN = "ON" } },
+                        },
+                    },
+                },
+            },
+            configuration_sets = {
+                debug = { App = "Debug-asan" },
+            },
+        }, {
+            profiles = {
+                debug = { configuration_set = "debug" },
+            },
+        }, {
+            build_dirs = {
+                ["build/App/Debug-asan"] = {
+                    project_key = "App", config_key = "Debug-asan",
+                    type = "cmake", variant = "Debug-asan",
+                    state = "built", build_dir = "/root/.nvim/build/App/Debug-asan",
+                },
+            },
+        })
+
+        local project = h.find_project_in(ws:get_projects(), "App")
+        local cfg = project:get_configuration("Debug-asan")
+        cfg.is_user = true
+        local unit = h.find_config_unit(ws._config_units, "App", "Debug-asan")
+        assert.is_not_nil(unit, "ConfigUnit should exist")
+        assert.equals("built", unit.state_value)
+
+        -- Rename forward: Debug-asan → DebugASAN
+        local ok = project:rename_configuration("Debug-asan", "DebugASAN", {
+            inherits = "Debug", options = { ASAN = "ON" },
+        })
+        assert.is_true(ok)
+        assert.is_nil(unit.state_value) -- state reset
+        assert.equals("build/App/DebugASAN", unit.id)
+
+        -- One orphan: the old build dir with "built" state
+        local orphans = ws:get_orphaned_configs()
+        assert.equals(1, #orphans)
+        assert.equals("build/App/Debug-asan", orphans[1].build_dir_key)
+        assert.equals("built", orphans[1].cached_entry.state)
+
+        -- Rename back: DebugASAN → Debug-asan
+        ok = project:rename_configuration("DebugASAN", "Debug-asan", {
+            inherits = "Debug", options = { ASAN = "ON" },
+        })
+        assert.is_true(ok)
+        assert.equals("build/App/Debug-asan", unit.id)
+
+        -- State restored from orphaned cache entry
+        assert.equals("built", unit.state_value)
+
+        -- Zero orphans after round trip
+        orphans = ws:get_orphaned_configs()
+        assert.equals(0, #orphans)
+    end)
+
+    it("rename-back with tools: no orphan accumulation", function()
+        local ws = make_ws({
+            projects = {
+                App = {
+                    cmake = {
+                        configurations = {
+                            ["Debug-asan"] = { inherits = "Debug" },
+                        },
+                    },
+                },
+            },
+            configuration_sets = {
+                debug = { App = "Debug-asan" },
+            },
+        }, {
+            profiles = {
+                ["debug:ninja-gcc"] = {
+                    configuration_set = "debug",
+                    tools = { cmake = { key = "ninja-gcc", data = { id = "ninja-gcc" }, label = "GCC" } },
+                },
+            },
+        }, {
+            build_dirs = {
+                ["build/App/ninja-gcc/Debug-asan"] = {
+                    project_key = "App", config_key = "Debug-asan:ninja-gcc",
+                    type = "cmake", variant = "Debug-asan", tool_key = "ninja-gcc",
+                    tool_data = { id = "ninja-gcc" },
+                    state = "built", build_dir = "/root/.nvim/build/App/ninja-gcc/Debug-asan",
+                },
+            },
+        }, {
+            detected_tools = make_detected_tools({
+                { tool_key = "ninja-gcc", tool_data = { id = "ninja-gcc" } },
+            }),
+        })
+
+        local project = h.find_project_in(ws:get_projects(), "App")
+        local cfg = project:get_configuration("Debug-asan")
+        assert.is_not_nil(cfg)
+        cfg.is_user = true
+
+        local unit = h.find_config_unit(ws._config_units, "App", "Debug-asan")
+        assert.is_not_nil(unit, "ConfigUnit should exist")
+        assert.equals("built", unit.state_value)
+        assert.equals("build/App/ninja-gcc/Debug-asan", unit.id)
+
+        -- Rename forward
+        local ok = project:rename_configuration("Debug-asan", "DebugASAN", {
+            inherits = "Debug",
+        })
+        assert.is_true(ok)
+        assert.equals("build/App/ninja-gcc/DebugASAN", unit.id)
+        assert.equals("ninja-gcc", unit._tool_key)
+        assert.is_nil(unit.state_value)
+
+        -- One orphan at the old tool-qualified path
+        local orphans = ws:get_orphaned_configs()
+        assert.equals(1, #orphans)
+        assert.equals("build/App/ninja-gcc/Debug-asan", orphans[1].build_dir_key)
+
+        -- Rename back
+        ok = project:rename_configuration("DebugASAN", "Debug-asan", {
+            inherits = "Debug",
+        })
+        assert.is_true(ok)
+        assert.equals("build/App/ninja-gcc/Debug-asan", unit.id)
+        assert.equals("built", unit.state_value) -- restored
+
+        -- Zero orphans
+        orphans = ws:get_orphaned_configs()
+        assert.equals(0, #orphans)
+
+        -- Multiple cycles: no accumulation
+        for _ = 1, 3 do
+            ok = project:rename_configuration("Debug-asan", "DebugASAN", {
+                inherits = "Debug",
+            })
+            assert.is_true(ok)
+            ok = project:rename_configuration("DebugASAN", "Debug-asan", {
+                inherits = "Debug",
+            })
+            assert.is_true(ok)
+        end
+        orphans = ws:get_orphaned_configs()
+        assert.equals(0, #orphans)
+    end)
+
+    it("configure via task result then rename-back: BuildDir adopted, state restored", function()
+        -- Fresh workspace, no cache — simulates: user creates profile, configures, renames
+        local ws = make_ws({
+            projects = {
+                App = {
+                    cmake = {
+                        configurations = {
+                            ["Debug-asan"] = { inherits = "Debug", options = { ASAN = "ON" } },
+                        },
+                    },
+                },
+            },
+            configuration_sets = {
+                debug = { App = "Debug-asan" },
+            },
+        }, {
+            profiles = {
+                debug = { configuration_set = "debug" },
+            },
+        })
+
+        local project = h.find_project_in(ws:get_projects(), "App")
+        local cfg = project:get_configuration("Debug-asan")
+        assert.is_not_nil(cfg)
+        cfg.is_user = true
+
+        local unit = h.find_config_unit(ws._config_units, "App", "Debug-asan")
+        assert.is_not_nil(unit, "ConfigUnit should exist from profile")
+
+        -- Simulate a successful configure via task result
+        ws:record_task_result({
+            unit = unit,
+            action = "configure",
+            success = true,
+        })
+        assert.equals("configured", unit.state_value)
+        assert.is_not_nil(unit._build_dir, "BuildDir should be created by task handler")
+        assert.equals("configured", unit._build_dir.state)
+        assert.equals(1, #ws._build_dirs)
+
+        -- Rename: Debug-asan → DebugASAN
+        local ok = project:rename_configuration("Debug-asan", "DebugASAN", {
+            inherits = "Debug", options = { ASAN = "ON" },
+        })
+        assert.is_true(ok)
+        assert.is_nil(unit.state_value, "should be unconfigured at new build dir")
+        assert.is_not_nil(unit._build_dir, "new BuildDir created")
+        assert.equals("build/App/DebugASAN", unit._build_dir.rel_path)
+
+        -- Old BuildDir orphaned
+        local orphans = ws:get_orphaned_configs()
+        assert.equals(1, #orphans, "old build dir should be orphaned")
+
+        -- Rename back: DebugASAN → Debug-asan
+        ok = project:rename_configuration("DebugASAN", "Debug-asan", {
+            inherits = "Debug", options = { ASAN = "ON" },
+        })
+        assert.is_true(ok)
+
+        -- State restored from orphaned BuildDir
+        assert.equals("configured", unit.state_value, "state should be restored")
+        assert.is_not_nil(unit._build_dir, "BuildDir should be adopted")
+        assert.equals("configured", unit._build_dir.state)
+
+        -- Zero orphans
+        orphans = ws:get_orphaned_configs()
+        assert.equals(0, #orphans, "adopted BuildDir should not be orphaned")
+
+        -- Serialized cache should reflect adoption
+        local cache = ws:_serialize_cache()
+        local entry = cache.build_dirs["build/App/Debug-asan"]
+        assert.is_not_nil(entry, "adopted BuildDir should be in serialized cache")
+        assert.equals("configured", entry.state)
+    end)
+
+    it("execute_save_configuration uses rename for name change", function()
+        local ws = make_ws({
+            projects = {
+                App = {
+                    cmake = {
+                        configurations = {
+                            old_cfg = { options = { A = "1" } },
+                        },
+                    },
+                },
+            },
+            configuration_sets = {
+                debug = { App = "old_cfg" },
+            },
+        })
+
+        local app = h.find_project_in(ws:get_projects(), "App")
+        local ok = wv.execute_save_configuration(app, app:get_configuration("old_cfg"), "new_cfg", {
+            options = { A = "1" },
+        })
+        assert.is_true(ok)
+
+        -- Config renamed (not delete+create)
+        local app = h.find_project_in(ws:get_projects(), "App")
+        assert.is_nil(app:get_configuration("old_cfg"))
+        local new_cfg = app:get_configuration("new_cfg")
+        assert.is_not_nil(new_cfg)
+        assert.is_true(new_cfg.is_user)
+
+        -- Config set mapping updated atomically
+        local debug_cs_exec = h.find_config_set_in(ws:get_config_sets(), "debug")
+        assert.equals("new_cfg", h.cs_mapping(debug_cs_exec, "App"))
+    end)
+end)
+
+-- =========================================================================
+-- Launch config lifecycle: create → edit → rename → delete
+-- =========================================================================
+
+describe("launch config lifecycle", function()
+    it("create → edit → rename → delete", function()
+        local ws = make_ws({
+            projects = {
+                App = { cmake = {} },
+                Frontend = { harmony = {} },
+            },
+        })
+
+        -- 1. Create launch config
+        local app = h.find_project_in(ws:get_projects(), "App")
+        local ok, err = wv.execute_save_launch_config(app, nil, "debug", {
+            command = "node",
+            args = { "app.js" },
+            working_dir = "${workspace_root}/App",
+            env = { NODE_ENV = "development" },
+        })
+        assert.is_true(ok)
+        assert.is_not_nil(app:find_launch("debug"))
+        assert.equals("node", app:find_launch("debug").command)
+
+        -- 2. The declaration lists it (what the launch editor opens with)
+        local decl = wv.project_declaration(app)
+        assert.equals(1, #decl.launches)
+        assert.equals("debug", decl.launches[1].key)
+
+        -- 3. Edit: change command and add env var
+        ok = wv.execute_save_launch_config(app, app:find_launch("debug"), "debug", {
+            command = "npx",
+            args = { "ts-node", "app.ts" },
+            working_dir = "${workspace_root}/App",
+            env = { NODE_ENV = "development", DEBUG = "true" },
+        })
+        assert.is_true(ok)
+        assert.equals("npx", h.find_project_in(ws:get_projects(), "App"):find_launch("debug").command)
+        assert.equals("true", h.find_project_in(ws:get_projects(), "App"):find_launch("debug").env.DEBUG)
+
+        -- 4. Rename: debug → dev
+        ok = wv.execute_save_launch_config(app, app:find_launch("debug"), "dev", {
+            command = "npx",
+            args = { "ts-node", "app.ts" },
+            working_dir = "",
+            env = { NODE_ENV = "development" },
+        })
+        assert.is_true(ok)
+        assert.is_nil(h.find_project_in(ws:get_projects(), "App"):find_launch("debug"))
+        assert.is_not_nil(h.find_project_in(ws:get_projects(), "App"):find_launch("dev"))
+
+        -- 5. Delete
+        ok = wv.execute_delete_launch_config(app, app:find_launch("dev"))
+        assert.is_true(ok)
+        -- launch key cleaned up when empty
+        assert.is_false(h.find_project_in(ws:get_projects(), "App"):has_launches())
+    end)
+
+    it("the declaration carries a launch config's declared fields (the launch editor's)", function()
+        -- Launch commands are honored only from the working copy (spec §17.6).
+        local cfg = {
+            projects = {
+                App = {
+                    cmake = {},
+                    launch = {
+                        debug = {
+                            command = "node",
+                            args = { "app.js", "--verbose" },
+                            working_dir = "${workspace_root}/App",
+                            env = { NODE_ENV = "dev" },
+                        },
+                    },
+                },
+            },
+        }
+        local ws = make_ws(cfg, cfg)
+
+        local app = h.find_project_in(ws:get_projects(), "App")
+        local l = wv.project_declaration(app).launches[1]
+        assert.equals("debug", l.key)
+        local ctx = l.fields
+        assert.equals("node", ctx.command)
+        assert.equals(2, #ctx.args)
+        assert.equals("app.js", ctx.args[1])
+        assert.equals("${workspace_root}/App", ctx.working_dir)
+        assert.equals("dev", ctx.env.NODE_ENV)
+    end)
+
+    it("omits empty optional fields when saving", function()
+        local ws = make_ws({ projects = { App = { cmake = {} } } })
+
+        wv.execute_save_launch_config(h.find_project_in(ws:get_projects(), "App"), nil, "minimal", {
+            command = "echo",
+            args = {},
+            working_dir = "",
+            env = {},
+        })
+
+        local saved = h.find_project_in(ws:get_projects(), "App"):find_launch("minimal")
+        assert.equals("echo", saved.command)
+        assert.is_nil(saved.args)
+        assert.is_nil(saved.working_dir)
+        assert.is_nil(saved.env)
+    end)
+
+    it("the declaration's launch fields include its deploy data", function()
+        -- Launch commands are honored only from the working copy (spec §17.6).
+        local cfg = {
+            projects = {
+                App = {
+                    cmake = {},
+                    launch = {
+                        debug = {
+                            command = "node",
+                            deploy = {
+                                ["${build_dir}/native.node"] = {
+                                    project = "NativeLib",
+                                    target = "native_lib",
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        }
+        local ws = make_ws(cfg, cfg)
+
+        local app = h.find_project_in(ws:get_projects(), "App")
+        local ctx = wv.project_declaration(app).launches[1].fields
+        assert.is_not_nil(ctx.deploy)
+        assert.is_not_nil(ctx.deploy["${build_dir}/native.node"])
+        assert.equals("NativeLib", ctx.deploy["${build_dir}/native.node"].project)
+        assert.equals("native_lib", ctx.deploy["${build_dir}/native.node"].target)
+    end)
+
+    it("save_launch_config persists deploy and omits when empty", function()
+        local ws = make_ws({ projects = { App = { cmake = {} } } })
+        local app = h.find_project_in(ws:get_projects(), "App")
+
+        -- Save with deploy
+        wv.execute_save_launch_config(app, nil, "debug", {
+            command = "node",
+            deploy = {
+                ["${build_dir}/lib.node"] = {
+                    project = "NativeLib",
+                    path = "lib/output.node",
+                },
+            },
+        })
+
+        local saved = h.find_project_in(ws:get_projects(), "App"):find_launch("debug")
+        assert.is_not_nil(saved.deploy)
+        assert.is_not_nil(saved.deploy["${build_dir}/lib.node"])
+
+        -- Save without deploy (empty)
+        wv.execute_save_launch_config(app, app:find_launch("debug"), "debug", {
+            command = "node",
+            deploy = {},
+        })
+
+        saved = h.find_project_in(ws:get_projects(), "App"):find_launch("debug")
+        assert.is_nil(saved.deploy)
+    end)
+
+    it("returns error for removed project", function()
+        local ws = make_ws({ projects = { App = { cmake = {} } } })
+        local app = h.find_project_in(ws:get_projects(), "App")
+
+        -- Simulate project removal: remove from config
+        ws:remove_project(app)
+
+        local ok, err = app:save_launch_config("test", { command = "echo" })
+        assert.is_false(ok)
+        assert.is_not_nil(err)
+    end)
+
+    it("the declaration lists no launches for a project without any", function()
+        local ws = make_ws({ projects = { App = { cmake = {} } } })
+        local decl = wv.project_declaration(h.find_project_in(ws:get_projects(), "App"))
+        assert.equals(0, #decl.launches)
+    end)
+
+    it("the declaration lists the launches sorted by name", function()
+        -- Launch commands are honored only from the working copy (spec §17.6).
+        local cfg = {
+            projects = {
+                App = {
+                    cmake = {},
+                    launch = {
+                        release = { command = "app" },
+                        debug = { command = "app" },
+                    },
+                },
+            },
+        }
+        local ws = make_ws(cfg, cfg)
+
+        local configs = wv.project_declaration(h.find_project_in(ws:get_projects(), "App")).launches
+        assert.equals(2, #configs)
+        assert.equals("debug", configs[1].key)
+        assert.equals("release", configs[2].key)
+    end)
+end)
+
+-- =========================================================================
+-- Project configuration lifecycle
+-- =========================================================================
+
+describe("project configuration lifecycle", function()
+    it("creates custom config with inheritance and options", function()
+        local ws = make_ws({
+            projects = { App = { cmake = {} } },
+        })
+
+        -- Create a custom configuration inheriting from Debug
+        local ok, err = wv.execute_save_configuration(h.find_project_in(ws:get_projects(), "App"), nil, "Debug-ASAN", {
+            inherits = "Debug",
+            options = { SANITIZE_ADDRESS = "ON" },
+        })
+        assert.is_true(ok)
+        local app = h.find_project_in(ws:get_projects(), "App")
+        assert.is_not_nil(app.type_config)
+        local cfg = app:get_configuration("Debug-ASAN")
+        assert.is_not_nil(cfg)
+        assert.is_true(cfg.is_user)
+        assert.same({ "Debug" }, cfg.inherits_names)
+    end)
+
+    it("execute_save_configuration persists the languages field", function()
+        -- Regression: the UI dispatch in ui/sections/projects.lua used
+        -- to forward variant/inherits/options/variables/toolchain/
+        -- generator but silently drop `languages`, so any edit to the
+        -- languages list in the config editor disappeared on accept.
+        -- Lock the contract at the workspace_view layer.
+        local ws = make_ws({ projects = { App = { cmake = {} } } })
+        local app = h.find_project_in(ws:get_projects(), "App")
+
+        local ok = wv.execute_save_configuration(app, nil, "Debug-extra", {
+            inherits = "Debug",
+            languages = { "c++", "c" },
+        })
+        assert.is_true(ok)
+
+        local cfg = app:get_configuration("Debug-extra")
+        assert.is_not_nil(cfg)
+        assert.same({ "c++", "c" }, cfg.languages)
+        assert.same({ "c++", "c" }, cfg:effective_languages())
+    end)
+
+    it("edits existing configuration options", function()
+        -- Under strict auto/user separation the user declares a
+        -- standalone config (bare name, no ':'); it's not a silent
+        -- override of `variant:Debug`. Options edits land on the
+        -- user config, which stays at its bare key.
+        local ws = make_ws({
+            projects = {
+                App = {
+                    cmake = {
+                        configurations = {
+                            ["my-debug"] = {
+                                inherits = "variant:Debug",
+                                options = { ENABLE_TESTS = "ON" },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+
+        local app = h.find_project_in(ws:get_projects(), "App")
+        local ok = wv.execute_save_configuration(
+            app, app:get_configuration("my-debug"), "my-debug",
+            { options = { ENABLE_TESTS = "OFF", VERBOSE = "ON" } })
+        assert.is_true(ok)
+        local app = h.find_project_in(ws:get_projects(), "App")
+        local cfg = app:get_configuration("my-debug")
+        assert.is_not_nil(cfg)
+        assert.equals("OFF", cfg.options.ENABLE_TESTS)
+        assert.equals("ON", cfg.options.VERBOSE)
+    end)
+
+    it("renames custom configuration", function()
+        local ws = make_ws({
+            projects = {
+                App = {
+                    cmake = {
+                        configurations = {
+                            ["Debug-ASAN"] = { inherits = "Debug", options = { ASAN = "ON" } },
+                        },
+                    },
+                },
+            },
+        })
+
+        local app = h.find_project_in(ws:get_projects(), "App")
+        local ok = wv.execute_save_configuration(app, app:get_configuration("Debug-ASAN"), "Debug-Sanitized", {
+            inherits = "Debug",
+            options = { ASAN = "ON" },
+        })
+        assert.is_true(ok)
+        local app = h.find_project_in(ws:get_projects(), "App")
+        assert.is_nil(app:get_configuration("Debug-ASAN"))
+        local renamed = app:get_configuration("Debug-Sanitized")
+        assert.is_not_nil(renamed)
+        assert.is_true(renamed.is_user)
+    end)
+
+    it("deletes custom configuration", function()
+        local ws = make_ws({
+            projects = {
+                App = {
+                    cmake = {
+                        configurations = {
+                            ["Debug-ASAN"] = { inherits = "Debug" },
+                        },
+                    },
+                },
+            },
+        })
+
+        local app = h.find_project_in(ws:get_projects(), "App")
+        local ok = wv.execute_delete_configuration(app, app:get_configuration("Debug-ASAN"))
+        assert.is_true(ok)
+        -- Configuration domain object removed
+        local app = h.find_project_in(ws:get_projects(), "App")
+        local deleted = app:get_configuration("Debug-ASAN")
+        assert.is_nil(deleted)
+    end)
+
+    it("saves project-wide options", function()
+        local ws = make_ws({
+            projects = { App = { cmake = {} } },
+        })
+
+        local ok = wv.execute_save_project_options(h.find_project_in(ws:get_projects(), "App"), {
+            CMAKE_EXPORT_COMPILE_COMMANDS = "ON",
+            MY_FLAG = "hello",
+        })
+        assert.is_true(ok)
+        assert.equals("ON", h.find_project_in(ws:get_projects(), "App").type_config.options.CMAKE_EXPORT_COMPILE_COMMANDS)
+        assert.equals("hello", h.find_project_in(ws:get_projects(), "App").type_config.options.MY_FLAG)
+    end)
+
+    it("clears project-wide options when empty", function()
+        local ws = make_ws({
+            projects = {
+                App = { cmake = { options = { FOO = "bar" } } },
+            },
+        })
+
+        local ok = wv.execute_save_project_options(h.find_project_in(ws:get_projects(), "App"), {})
+        assert.is_true(ok)
+        assert.is_nil(h.find_project_in(ws:get_projects(), "App").type_config.options)
+    end)
+end)
+
+-- =========================================================================
+-- Configuration editor opened from the status page (projects section)
+-- =========================================================================
+-- =========================================================================
+-- Projects/1.declaration: what the configuration editor shows (API.md §19)
+-- =========================================================================
+
+describe("project declaration for the configuration editor", function()
+    local cmake_real = require("loomworks.modules.cmake")
+    local saved
+
+    before_each(function()
+        saved = { mock_modules.cmake.resolve_variant_source, mock_modules.cmake.resolve_options_with_sources,
+            mock_modules.cmake.languages }
+        mock_modules.cmake.resolve_variant_source = cmake_real.resolve_variant_source
+        mock_modules.cmake.resolve_options_with_sources = cmake_real.resolve_options_with_sources
+    end)
+    after_each(function()
+        mock_modules.cmake.resolve_variant_source, mock_modules.cmake.resolve_options_with_sources,
+            mock_modules.cmake.languages = saved[1], saved[2], saved[3]
+    end)
+
+    --- App (cmake) with project option FOO, variable `out` (default x), a user
+    --- configuration Dev on variant:Debug declaring OWN and a gcc override of
+    --- `out`; Dev active under a gcc tool.
+    local function dev_ws()
+        local ws = make_ws({
+            projects = {
+                App = {
+                    cmake = {
+                        options = { FOO = "bar" },
+                        configurations = {
+                            Dev = { inherits = "variant:Debug", options = { OWN = "1" },
+                                overrides = { gcc = { out = "z" } } },
+                        },
+                    },
+                    variables = { out = { type = "string", default = "x" }, blank = { type = "string" } },
+                },
+            },
+            configuration_sets = { Dev = { App = "Dev" } },
+        }, {
+            active_profile = "Dev",
+            profiles = { Dev = { configuration_set = "Dev" } },
+        })
+        ws:get_active_profile().tool_for = function() return { data = { compiler_family = "gcc" } } end
+        return ws, h.find_project_in(ws:get_projects(), "App")
+    end
+
+    local function entry(decl, key)
+        for _, c in ipairs(decl.configurations) do if c.key == key then return c end end
+    end
+
+    it("carries the module, the active compiler family and each configuration's derived fields", function()
+        local ws, app = dev_ws()
+        app._module.languages = { "c", "c++" }
+        local decl = wv.project_declaration(app)
+        assert.equals("ok", decl.outcome)
+        assert.same({ languages = { "c", "c++" }, has_options = true }, decl.module)
+        assert.equals("gcc", decl.compiler_family)
+
+        local dev = entry(decl, "Dev")
+        assert.is_true(dev.user)
+        assert.is_nil(dev.default)
+        assert.is_nil(dev.source_missing)
+        assert.same({ key = "variant:Debug" }, dev.variant_from)
+        assert.same({ { key = "FOO", value = "bar", from = "project" } }, dev.inherited_options)
+        assert.same({
+            { name = "blank", from = "project" },
+            { name = "out", value = "z", from = "configuration", configuration = { key = "Dev" } },
+        }, dev.resolved_variables)
+
+        local debug = entry(decl, "variant:Debug")
+        assert.is_true(debug.default)
+        assert.equals("Debug", debug.variant)
+        assert.is_nil(debug.variant_from)
+        assert.same({ { name = "blank", from = "project" }, { name = "out", value = "x", from = "project" } },
+            debug.resolved_variables)
+
+        -- The status page's view resolves with the same family (decision:
+        -- the page and the editor agree).
+        local view = ws:view_workspace({})
+        local shown
+        for _, c in ipairs(view.projects[1].configurations) do
+            if c.key == "Dev" then
+                for _, v in ipairs(c.variables) do if v.name == "out" then shown = v.value end end
+            end
+        end
+        assert.equals("z", shown)
+    end)
+
+    it("lists every build dir of the configuration's units once, sorted; flags a cache-only configuration", function()
+        local ws, app = dev_ws()
+        local dev = app:get_configuration("Dev")
+        -- (The profile's unit has one already.)
+        local expected = vim.deepcopy(entry(wv.project_declaration(app), "Dev").build_dirs)
+        assert.equals(1, #expected)
+        vim.list_extend(expected, { "/b/aa", "/b/zz" })
+        table.sort(expected)
+        for _, dir in ipairs({ "/b/zz", expected[1], "/b/aa", "/b/zz" }) do
+            ws._config_units[#ws._config_units + 1] = { _project = app, _configuration = dev, build_dir_value = dir }
+        end
+        ws._config_units[#ws._config_units + 1] = { _project = app, _configuration = dev }
+        dev._source_missing = true
+        local e = entry(wv.project_declaration(app), "Dev")
+        assert.same(expected, e.build_dirs)
+        assert.is_true(e.source_missing)
+    end)
+
+    it("a configuration declaring its own variant is its own source: no variant_from", function()
+        local ws = make_ws({
+            projects = {
+                App = {
+                    cmake = {
+                        configurations = {
+                            Mine = { inherits = "variant:Debug", variant = "Release" },
+                            Kid = { inherits = "Mine" },
+                        },
+                    },
+                },
+            },
+        })
+        local decl = wv.project_declaration(h.find_project_in(ws:get_projects(), "App"))
+        local mine = entry(decl, "Mine")
+        assert.equals("Release", mine.variant)
+        assert.is_nil(mine.variant_from)
+        -- A configuration inheriting it credits it, not the default below.
+        assert.same({ key = "Mine" }, entry(decl, "Kid").variant_from)
+    end)
+
+    it("an inherited option's value is untyped, as module options are (a number validates)", function()
+        local ws = make_ws({
+            projects = {
+                App = { cmake = { options = { JOBS = 4, ON = true },
+                    configurations = { Dev = { inherits = "variant:Debug" } } } },
+            },
+        })
+        local dev = entry(wv.project_declaration(h.find_project_in(ws:get_projects(), "App")), "Dev")
+        assert.same({ { key = "JOBS", value = 4, from = "project" }, { key = "ON", value = true, from = "project" } },
+            dev.inherited_options)
+        local set = require("loomworks.proto.documents").set()
+        local ok, err = set:validate("interfaces/loomworks/Projects.1.json",
+            "/$defs/Declaration/properties/configurations/items/properties/inherited_options", dev.inherited_options)
+        assert(ok, err)
+    end)
+
+    it("no active profile: no compiler family, and a module without options says so", function()
+        local ws = make_ws({ projects = { Web = { typescript = {} } } })
+        local decl = wv.project_declaration(h.find_project_in(ws:get_projects(), "Web"))
+        assert.is_nil(decl.compiler_family)
+        assert.is_false(decl.module.has_options)
+        assert.same({}, decl.module.languages)
+    end)
+end)
+
+-- =========================================================================
+-- cmake options resolution
+-- =========================================================================
+
+describe("cmake options resolution", function()
+    local cmake = require("loomworks.modules.cmake")
+
+    it("resolves project-wide options", function()
+        local type_config = { options = { FOO = "bar", BAZ = "qux" } }
+        local configs = { Debug = { variant = "Debug" } }
+        local opts = cmake.resolve_options(type_config, configs, "Debug")
+        assert.equals("bar", opts.FOO)
+        assert.equals("qux", opts.BAZ)
+    end)
+
+    it("config options override project options", function()
+        local type_config = {
+            options = { FOO = "project" },
+            configurations = {
+                Debug = { options = { FOO = "config" } },
+            },
+        }
+        local configs = {
+            Debug = { variant = "Debug", options = { FOO = "config" } },
+        }
+        local opts = cmake.resolve_options(type_config, configs, "Debug")
+        assert.equals("config", opts.FOO)
+    end)
+
+    it("walks inheritance chain", function()
+        local configs = {
+            Debug = { variant = "Debug", options = { BASE = "from-debug" } },
+            ["Debug-ASAN"] = {
+                variant = "Debug",
+                inherits = "Debug",
+                options = { ASAN = "ON" },
+            },
+        }
+        local type_config = {}
+        local opts = cmake.resolve_options(type_config, configs, "Debug-ASAN")
+        assert.equals("from-debug", opts.BASE)
+        assert.equals("ON", opts.ASAN)
+    end)
+
+    it("child options override parent options", function()
+        local configs = {
+            Debug = { variant = "Debug", options = { SHARED = "parent" } },
+            ["Debug-ASAN"] = {
+                inherits = "Debug",
+                options = { SHARED = "child" },
+            },
+        }
+        local opts = cmake.resolve_options({}, configs, "Debug-ASAN")
+        assert.equals("child", opts.SHARED)
+    end)
+
+    it("handles circular inheritance gracefully", function()
+        local configs = {
+            A = { inherits = "B", options = { X = "1" } },
+            B = { inherits = "A", options = { Y = "2" } },
+        }
+        -- Should not infinite loop
+        local opts = cmake.resolve_options({}, configs, "A")
+        assert.equals("1", opts.X)
+    end)
+
+    it("multi-inheritance merges left-to-right", function()
+        local configs = {
+            Debug = { variant = "Debug", options = { BUILD_TYPE = "Debug" } },
+            asan = { options = { SANITIZE_ADDRESS = "ON", SANITIZE_UNDEFINED = "ON" } },
+            ["Debug-ASAN"] = {
+                inherits = { "Debug", "asan" },
+                options = { EXTRA = "yes" },
+            },
+        }
+        local opts = cmake.resolve_options({}, configs, "Debug-ASAN")
+        -- Debug options
+        assert.equals("Debug", opts.BUILD_TYPE)
+        -- asan options
+        assert.equals("ON", opts.SANITIZE_ADDRESS)
+        assert.equals("ON", opts.SANITIZE_UNDEFINED)
+        -- Own options
+        assert.equals("yes", opts.EXTRA)
+    end)
+
+    it("multi-inheritance: later base overrides earlier", function()
+        local configs = {
+            base1 = { options = { SHARED = "from-base1", ONLY1 = "yes" } },
+            base2 = { options = { SHARED = "from-base2", ONLY2 = "yes" } },
+            child = {
+                inherits = { "base1", "base2" },
+                options = {},
+            },
+        }
+        local opts = cmake.resolve_options({}, configs, "child")
+        -- base2 overrides base1 for shared key
+        assert.equals("from-base2", opts.SHARED)
+        assert.equals("yes", opts.ONLY1)
+        assert.equals("yes", opts.ONLY2)
+    end)
+
+    it("multi-inheritance: child overrides all bases", function()
+        local configs = {
+            Debug = { variant = "Debug", options = { OPT = "debug" } },
+            asan = { options = { OPT = "asan" } },
+            child = {
+                inherits = { "Debug", "asan" },
+                options = { OPT = "child" },
+            },
+        }
+        local opts = cmake.resolve_options({}, configs, "child")
+        assert.equals("child", opts.OPT)
+    end)
+
+    it("resolve_configurations: multi-inherit gets variant from first base with variant", function()
+        local cmake_mod = require("loomworks.modules.cmake")
+        -- Defaults carry `prefix = "variant"` so canonicalise turns
+        -- them into `variant:Debug` / `variant:Release`. User
+        -- configs reference those canonical names explicitly.
+        local defaults = {
+            Debug = { prefix = "variant", variant = "Debug" },
+            Release = { prefix = "variant", variant = "Release" },
+        }
+        local config = {
+            configurations = {
+                asan = { options = { ASAN = "ON" } },  -- mixin, no variant
+                ["Debug-ASAN"] = { inherits = { "variant:Debug", "asan" } },
+            },
+        }
+        local resolved = cmake_mod.resolve_configurations(defaults, config)
+
+        assert.equals("Debug", resolved["Debug-ASAN"].variant)
+        assert.is_nil(resolved["asan"].variant)           -- abstract mixin
+        assert.equals("Debug", resolved["variant:Debug"].variant)
+    end)
+end)
+
+-- Inherited options through abstract mixins
+-- =========================================================================
+
+describe("inherited options through abstract mixins", function()
+    it("options from abstract mixin flow through to child config", function()
+        local ws = make_ws({
+            projects = {
+                App = {
+                    cmake = {
+                        configurations = {
+                            ["enable-test"] = {
+                                options = { TEST_ENABLE = "on" },
+                            },
+                            ["Debug-with-tests"] = {
+                                inherits = { "Debug", "enable-test" },
+                            },
+                        },
+                    },
+                },
+            },
+            configuration_sets = {
+                ["Debug-with-tests"] = { App = "Debug-with-tests" },
+            },
+        }, {
+            active_profile = "Debug-with-tests",
+            profiles = {
+                ["Debug-with-tests"] = { configuration_set = "Debug-with-tests" },
+            },
+        })
+
+        local app = h.find_project_in(ws:get_projects(), "App")
+        assert.is_not_nil(app)
+
+        -- The configurations dict should have the full resolved data
+        local child = app.configurations["Debug-with-tests"]
+        assert.is_not_nil(child, "Debug-with-tests should be in configurations")
+        assert.is_not_nil(child.inherits, "should have inherits")
+
+        local mixin = app.configurations["enable-test"]
+        assert.is_not_nil(mixin, "enable-test should be in configurations")
+        assert.is_not_nil(mixin.options, "enable-test should have options")
+        assert.equals("on", mixin.options.TEST_ENABLE)
+
+        -- resolve_options should find the inherited option
+        local cmake = require("loomworks.modules.cmake")
+        local type_config = app:_type_config_for_module()
+        local resolved = cmake.resolve_options(
+            type_config, app.configurations, "Debug-with-tests")
+        assert.equals("on", resolved.TEST_ENABLE,
+            "inherited option from mixin should flow through")
+    end)
+
+    it("child config's own options override mixin options", function()
+        local ws = make_ws({
+            projects = {
+                App = {
+                    cmake = {
+                        configurations = {
+                            ["enable-test"] = {
+                                options = { TEST_ENABLE = "on", TEST_VERBOSE = "off" },
+                            },
+                            ["Debug-verbose-tests"] = {
+                                inherits = { "Debug", "enable-test" },
+                                options = { TEST_VERBOSE = "on" },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+
+        local app = h.find_project_in(ws:get_projects(), "App")
+        local cmake = require("loomworks.modules.cmake")
+        local type_config = app:_type_config_for_module()
+        local resolved = cmake.resolve_options(
+            type_config, app.configurations, "Debug-verbose-tests")
+        assert.equals("on", resolved.TEST_ENABLE, "inherited from mixin")
+        assert.equals("on", resolved.TEST_VERBOSE, "overridden by child")
+    end)
+
+    it("serialization round-trip preserves abstract mixin options", function()
+        local ws = make_ws({
+            projects = {
+                App = {
+                    cmake = {
+                        configurations = {
+                            ["enable-test"] = {
+                                options = { TEST_ENABLE = "on" },
+                            },
+                        },
+                    },
+                },
+            },
+        })
+
+        -- Serialize and check that enable-test's options survive
+        local config = ws:_serialize_config()
+        local app_cfg = config.projects.App.cmake
+        assert.is_not_nil(app_cfg.configurations, "should have configurations")
+        assert.is_not_nil(app_cfg.configurations["enable-test"],
+            "enable-test should be serialized")
+        assert.equals("on",
+            app_cfg.configurations["enable-test"].options.TEST_ENABLE,
+            "options should survive serialization")
+    end)
+end)
+
