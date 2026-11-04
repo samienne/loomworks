@@ -327,3 +327,58 @@ describe("failed apply after the commit point", function()
     assert.is_truthy(journal())
   end)
 end)
+
+describe("configuration save rollback", function()
+  --- A cmake App with a declared project variable, and a user configuration
+  --- `Dev` carrying env, a compiler-family override, a variable override, an
+  --- option, a toolchain, an arbitrary module field, languages and a
+  --- description.
+  local function make_cmake_root()
+    local root = vim.fn.tempname():gsub("\\", "/")
+    vim.fn.mkdir(root .. "/App", "p")
+    io.open(root .. "/App/CMakeLists.txt", "w"):close()
+    local f = assert(io.open(root .. "/loomworks.json", "w"))
+    f:write(vim.json.encode({ projects = { App = {
+      cmake = vim.empty_dict(),
+      variables = { out = { type = "string", default = "x" } },
+    } } }))
+    f:close()
+    local function set(param, value)
+      capture(function() cli.cmd_configuration("set", root, "App", "Dev", param, value) end)
+    end
+    capture(function() cli.cmd_configuration("add", root, "App", "Dev", "variant:Debug") end)
+    set("env.FOO", "bar")
+    set("variables.out", "y")
+    set("overrides.gcc.out", "z")
+    set("toolchain", "tc.cmake")
+    set("myfield", "m")
+    set("options.OPT", "1")
+    set("languages", "c,c++")
+    local ws = assert(cli._load_workspace(root, false))
+    local app = find(ws._projects, "key", "App")
+    assert(app:get_configuration("Dev"):set_description("Dev build\n\nbody"))
+    return root
+  end
+
+  it("a failed save restores every field the configuration had", function()
+    local root = make_cmake_root()
+    local ws = assert(cli._load_workspace(root, false))
+    local project = find(ws._projects, "key", "App")
+    local dev = project:get_configuration("Dev")
+    local before = dev:declared_data()
+    -- The setup reached the configuration: every field to restore is there.
+    for _, k in ipairs({ "description", "env", "overrides", "toolchain", "myfield", "languages",
+      "options", "variables", "inherits" }) do
+      assert.is_not_nil(before[k], k .. " in " .. vim.inspect(before))
+    end
+    ws._save_user = function() return false, "disk full" end
+    local ok, err = project:save_configuration("Dev", {
+      inherits = "variant:Debug", options = { OPT = "2" }, variables = { out = "y" },
+      languages = { "c", "c++" }, toolchain = "tc.cmake",
+    })
+    assert.is_false(ok)
+    assert.equals("disk full", err)
+    assert.same(before, dev:declared_data())
+    assert.same({ "variant:Debug" }, dev.inherits_names)
+  end)
+end)
