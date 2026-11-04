@@ -447,6 +447,12 @@ failure line with the `--target` hint, and `BUILD OK: <profile>`.
   on its stream, the command lines `lw build -v` prints as `line` frames of
   role `command`. It changes what is streamed, never what runs.
 
+The build gate refuses a unit whose state is `unknown` (an interrupted
+deletion: its directory is untrusted): the build or configure ends 1 before
+any step with `cannot build: <project>/<configuration>: build directory state
+unknown (interrupted delete or reset); run lw clean or lw reset first`. Clean,
+reset and delete stay allowed; they are the remedy.
+
 ### 8.3 `configure` and unit scopes
 
 **`configure { profile | units, reconfigure, interactive, command }`** —
@@ -461,7 +467,8 @@ reclaimed as for a build). It prints `configuring <scope>`, one `==>
 failing step ends the task with its failure line and the step's exit code,
 the later steps not run. It writes the configure record and the cache as a
 configure does, the write-back's `changed` before `done`. It
-cancels as a build (`configure stopped: <reason>`).
+cancels as a build (`configure stopped: <reason>`). The build gate's
+`unknown` refusal (§8.2) applies to a configure as well.
 
 **`units`** on `build`, `configure` and `clean` — a non-empty array, each
 item `{ id }` (a configuration unit's id, e.g. a `view.ProjectsIndex/1`
