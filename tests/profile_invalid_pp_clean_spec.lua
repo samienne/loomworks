@@ -157,21 +157,24 @@ describe("profile clean with an invalid ProfileProject (§5.4)", function()
                 if st.wipe_build_dir then planned[#planned + 1] = st.build_dir end
             end
             local _, code, err = run_clean(ws)
+            local kept = vim.fn.isdirectory(r .. "/out/shared") == 1
             io_mod.rm_rf_async, io_mod.rm_rf = real_rm, real_rm_sync
             require("loomworks.op_lock").release_all()
             vim.fn.delete(r, "rf"); root = nil
-            return removed, code, err, planned
+            return removed, code, err, planned, kept
         end
         -- Control: nothing refused, the shared directory is wiped.
-        local removed, code, err, planned = run(false)
+        local removed, code, err, planned, kept = run(false)
         assert.equals(0, code, err)
         assert.truthy(#planned >= 1, "the plan wipes it")
         assert.truthy(#removed >= 1, "the wipe ran")
+        assert.is_false(kept, "the shared directory is gone")
         -- lib refused: the valid project's wipe keeps the directory lib uses.
-        removed, code, err, planned = run(true)
+        removed, code, err, planned, kept = run(true)
         assert.equals(1, code, err)
         assert.truthy(err:find("lib/Debug not run", 1, true), err)
         assert.same({}, planned)
+        assert.is_true(kept, "the shared directory is still there")
         for _, p in ipairs(removed) do
             assert.is_nil(p:find("out/shared", 1, true), "removed " .. p)
         end
