@@ -124,7 +124,9 @@ end
 --- Every live entity of `ws` that has an id, under its kind-and-key (as a
 --- refresh matches it): a profile, configuration set, project or SDK by its
 --- key; a configuration, launch configuration or configuration unit by its
---- project's key and its own. `fn(match_key, obj)` is called for each.
+--- project's key and its own; a build directory (one cache entry, orphaned
+--- or not) by its cache key, `rel_path`, the key a refresh matches it by
+--- (data_model.sync_build_dirs). `fn(match_key, obj)` is called for each.
 --- @param ws table
 --- @param fn fun(match_key: string, obj: table)
 local function each_keyed(ws, fn)
@@ -149,6 +151,7 @@ local function each_keyed(ws, fn)
         local ck = u.config_key and u:config_key() or nil
         return pk and ck and (pk .. "\0" .. ck) or nil
     end)
+    list("build_dir", ws._build_dirs, function(o) return o.rel_path end)
 end
 
 --- The ids `reg` issued for `ws`'s entities, by kind-and-key — taken before

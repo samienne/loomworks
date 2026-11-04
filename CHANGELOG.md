@@ -46,6 +46,9 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
   build directory state is `unknown` (an interrupted delete or reset) instead
   of building in a directory whose contents are untrusted; run `lw clean` or
   `lw reset` first (#20).
+- The workspace daemon no longer refuses to delete an orphaned build
+  directory by the id its workspace view served, after a request under
+  another environment reloaded the workspace. (#105)
 
 ## 0.1.49 - 2026-10-19
 

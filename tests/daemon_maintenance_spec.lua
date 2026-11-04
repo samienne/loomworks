@@ -252,6 +252,105 @@ describe("Maintenance/1.execute_deletion in the workspace daemon (API.md §22)",
         assert.is_true(exists(s.unit():build_dir()))
     end)
 
+    --- Orphaned build directories `<project>/Debug` for each of `projects`,
+    --- written to the cache; returns project → { dir, row } with the
+    --- view.Workspace/1 orphan row served for each.
+    local function orphans(projects)
+        local ws = s.ws()
+        local cache = ws:_serialize_cache()
+        cache.build_dirs = cache.build_dirs or {}
+        local out = {}
+        for _, p in ipairs(projects) do
+            local dir = s.root .. "/.nvim/build/" .. p .. "/Debug"
+            vim.fn.mkdir(dir, "p")
+            cache.build_dirs[p .. "/Debug"] = { project_key = p, config_key = "Debug", type = "shell",
+                variant = "Debug", state = "built", build_dir = dir }
+            out[p] = { dir = dir }
+        end
+        ws:remerge(nil, cache)
+        ws:_save_cache()
+        local v = s.call("/views", "loomworks.view.Workspace", "get", nil, s.env)
+        for _, o in ipairs(v.orphaned.configurations) do
+            for p, e in pairs(out) do
+                if o.key == p .. "/Debug" then e.row = o end
+            end
+        end
+        for p, e in pairs(out) do
+            assert.is_not_nil(e.row, p .. ": " .. vim.inspect(v.orphaned))
+            assert.is_string(e.row.id, vim.inspect(e.row))
+        end
+        return out
+    end
+
+    --- An environment other than the session's: a call under it reloads the
+    --- model (Service:live), carrying the ids over (snapshot.carry_ids).
+    local function other_env()
+        local env = vim.deepcopy(s.env)
+        env.LW_SPEC_OTHER_ENV = "1"
+        return env
+    end
+
+    local function delete_under(env, args)
+        return s.call("/maintenance", "loomworks.Maintenance", "execute_deletion", args, env)
+    end
+
+    it("an orphaned build directory's id still names it after an environment reload (#104)", function()
+        s = session()
+        s.build()
+        local o = orphans({ "gone" }).gone
+        local before = s.ws()
+        local env2 = other_env()
+        local target = { build_dir = { id = o.row.id } }
+        local c = delete_under(env2, { target = target })
+        assert.are_not.equal(before, s.ws(), "the call did not reload the model")
+        assert.equals("confirm", c.outcome, vim.inspect(c))
+        local r = delete_under(env2, { target = target, yes = true, plan = c.plan })
+        assert.equals("accepted", r.outcome, vim.inspect(r))
+        local f = s.done(r.task_id, 60000)
+        assert.equals(0, f.exit_code, tostring(f.error))
+        assert.is_false(exists(o.dir))
+        assert.is_true(exists(s.unit():build_dir()))
+    end)
+
+    it("a carried build-directory id names the entry with the same cache key, never another", function()
+        s = session()
+        s.build()
+        local o = orphans({ "gone", "gone2" })
+        local env2 = other_env()
+        -- Reload, then resolve each served id in the reloaded model.
+        local c = delete_under(env2, { target = { build_dir = { id = o.gone.row.id } } })
+        assert.equals("confirm", c.outcome, vim.inspect(c))
+        for p, e in pairs(o) do
+            local bd = s.service().ids:find(e.row.id, s.ws()._build_dirs)
+            assert.is_not_nil(bd, p)
+            assert.equals(p .. "/Debug", bd.rel_path)
+            assert.equals(p, bd.project_key)
+        end
+        assert.are_not.equal(o.gone.row.id, o.gone2.row.id)
+        -- The confirmation lists the named directory only.
+        local text = table.concat(c.lines, "\n")
+        assert.is_truthy(text:find("'gone / Debug'", 1, true), text)
+        assert.is_falsy(text:find("gone2", 1, true), text)
+        assert.is_true(exists(o.gone.dir))
+        assert.is_true(exists(o.gone2.dir))
+    end)
+
+    it("the id of a build directory gone across an environment reload is refused as stale", function()
+        s = session()
+        s.build()
+        local o = orphans({ "gone", "kept" })
+        -- Removed out of band: the reload drops its entry.
+        vim.fn.delete(o.gone.dir, "rf")
+        local env2 = other_env()
+        local r = delete_under(env2, { target = { build_dir = { id = o.gone.row.id } } })
+        assert.equals("refused", r.outcome, vim.inspect(r))
+        assert.equals("no build directory with id " .. o.gone.row.id .. " (a stale reference)", r.message)
+        -- The other entry's id still carried over.
+        local k = delete_under(env2, { target = { build_dir = { id = o.kept.row.id } } })
+        assert.equals("confirm", k.outcome, vim.inspect(k))
+        assert.is_true(exists(o.kept.dir))
+    end)
+
     it("a cancel stops the deletion between entries; what was not removed stays", function()
         s = session()
         s.build()
