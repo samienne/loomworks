@@ -52,12 +52,12 @@ resolved.
 
 **Where a module is loaded from.** A module id is data from the
 workspace files, which may come from an untrusted clone. The registry
-therefore resolves an id **only** to a file named
-`lua/loomworks/modules/<id>.lua` on the runtime path (in the standalone
-host: the system-Lua source, its fused bundle, and acquired-module
-roots) and loads exactly that file. It never resolves an id through the
-host language's generic module search path, whose defaults include the
-current directory. An id that is not a plain identifier (letters,
+therefore resolves an id **only** to that module among the running
+executable's built-in modules and the acquired-module locations (§16.20),
+and loads exactly that module (in the reference implementation: a file
+named `lua/loomworks/modules/<id>.lua` in those locations). It never
+resolves an id through the host language's generic module search path,
+whose defaults include the current directory. An id that is not a plain identifier (letters,
 digits, underscore — no dots, separators, or other path syntax) is
 **rejected** without any lookup, with a diagnostic naming the id; the
 project that names it is preserved like any other rejected-type project

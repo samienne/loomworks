@@ -293,19 +293,9 @@ that hands the rest to a build tool or program) print that command's help and
 exit 0 — the flag is never read as an operand such as a profile name. This
 holds for the host-level commands too (version reporting, self-update,
 installation, pin management): asking for their help never performs them.
-Help does not depend on the bundle: a host with no system Lua to run (a
-release host before its first acquisition, §16.13) still answers every help
-request with exit 0 — the host-level commands' own help for those commands,
-and otherwise a short usage listing the host-level commands — stating that
-full help needs the bundle and naming the acquisition operation.
-The help a host gives for its **own** commands is their complete help, identical
-to what the bundle's help prints for them (one source of the text, owned by the
-host), so it carries no "full help needs the bundle" note; that note appears
-only for a command the host cannot document. Inside a repository that carries a
-version pin (§16.21) the note names the **repo launcher** as the way to reach
-full help (it runs the pinned release, whose bundle it provisions), not the
-machine-global acquisition — a user of a pinned repository has no reason to
-install a global bundle. Answering help never fetches anything.
+A release executable answers every help request from its own embedded code
+(§16.11): help is complete for every command, needs nothing acquired, and
+never fetches anything.
 
 **Unknown options.** An option (a token starting with `-`, other than a lone
 `-`) that the command does not know is a **usage error** (exit 2): it names the
@@ -372,16 +362,14 @@ outside a workspace a mistyped command reports the typo, never a missing
 workspace, and nothing is read or written. A help request on an unknown command
 (`lw <unknown> --help`) still prints the general usage and exits 0, as above.
 
-**Host-level output is ASCII.** Everything printed before system Lua is loaded
-— the repo launchers (§16.22), the host-level commands (version reporting,
-self-update, installation, pin management), redirect and provisioning notices
-(§16.23), the "what's new" lines self-update prints from the release notes
-(§16.32, §16.37) — uses ASCII only (e.g. `-`, `->`, `...`, `|`), because it runs before
-the runner can set the console's output encoding and it is the output most
-often captured into CI logs and consoles with a legacy code page. Data it
-relays (paths, versions) is printed as-is. Output produced by system Lua, which
-sets a UTF-8 console output encoding on Windows before printing, is not bound
-by this rule.
+**Host-level output is ASCII.** The output of the repo launchers (§16.22), the
+host-level commands (version reporting, self-update, installation, pin
+management) and redirect notices (§16.23) uses ASCII only (e.g. `-`, `->`,
+`...`, `|`): some of it is printed before the runner sets the console's output
+encoding, and it is the output most often captured into CI logs and consoles
+with a legacy code page. Data it relays (paths, versions) is printed as-is.
+Other output, printed after the runner sets a UTF-8 console output encoding on
+Windows, is not bound by this rule.
 A sub-command's help (`lw help <command> <sub-command>`, or `--help` after the
 sub-command) prints only that sub-command's part of the command's help, with a
 pointer to the whole; a sub-command the help does not document falls back to
@@ -391,8 +379,7 @@ specification sections.
 This applies to the host's own commands as well: pin management's help
 (`lw help bootstrap`) is organised by sub-command — the status page, `install`,
 `upgrade` — so `lw help bootstrap install` and `lw bootstrap install --help`
-print only the `install` part with a pointer to the whole, from the host's own
-help text, with or without a bundle. The removed `update` (§16.24) has no help
+print only the `install` part with a pointer to the whole. The removed `update` (§16.24) has no help
 topic. Asking for help of a writing sub-command never performs it.
 
 ### 16.8 Host-determined module availability
@@ -646,12 +633,12 @@ Acquiring a release — an initial install, a self-update, a pinned version —
 is acquiring its release executable for this platform, verified (§16.12)
 before it is made executable under its final name. Activation of an installed
 executable MUST be atomic and MUST NOT disturb a running invocation; a failed
-or partial acquisition leaves the previous executable intact. Downloaded
-executables other than the installed one live in a machine-local cache
+or partial acquisition leaves the previous executable intact. Executables the
+host downloads, other than the installed one, live in a machine-local cache
 addressed by content hash, never inside a repository, and are re-verified
 before each run. Acquisition and activation are management
 operations (§16.9): they are never performed as part of a build (§16.4), so
-a read-only or CI invocation neither fetches nor mutates the active bundle. An
+a read-only or CI invocation neither fetches nor replaces an executable. An
 un-pinned acquisition resolves its target release through the active **update
 channel** (§16.29).
 
@@ -660,7 +647,10 @@ channel** (§16.29).
 *Retired.* While loomworks still publishes a release bundle for hosts
 released before self-contained executables (until a cutover announced in
 the CHANGELOG), that bundle and its signed manifest keep their old meaning
-for those hosts only; a self-contained executable ignores both.
+for those hosts only; a self-contained executable ignores both. While the
+transition lasts, a release's `SHA256SUMS` also keeps the bundle's entry,
+because hosts released before self-contained executables bind the list to
+the target release by that entry.
 
 ### 16.15 Host acquisition integrity
 
@@ -669,9 +659,9 @@ is inside the host. A host binary's integrity is therefore established
 out-of-band: it is obtained and checked against a hash published through a
 trusted channel *before* its first execution, and only a matching binary is
 run. Installation is that binary placing itself where it can be invoked; it is
-not part of the verified-bundle chain and MUST NOT be assumed to have verified
-the running binary. Once trusted this way, the host bootstraps the bundle chain
-(§16.12–16.13).
+not part of the release-integrity check of §16.12 and MUST NOT be assumed to
+have verified the running binary. Once trusted this way, the host verifies every
+release executable it acquires afterwards (§16.12–16.13).
 
 Installation never silently replaces a **different** host already at the
 install location. When the location holds a binary whose content differs from
@@ -1185,7 +1175,7 @@ triggers nor requires it.
 The operation MUST:
 
 - **Verify by pinned hash.** The acquired artifact is checked against the
-  content hash the index records for it before any of its Lua is installed; a
+  content hash the index records for it before any of it is installed; a
   mismatch aborts the acquisition and installs nothing. The trust anchor is the
   index, obtained through a trusted channel, and not the artifact host —
   mirroring §16.12/§16.15, where provenance is anchored to something other than
@@ -1197,11 +1187,12 @@ The operation MUST:
   release yet." This is the same strict-equality rule the host applies when
   loading a module (§8.0), applied earlier so the failure is not deferred to
   first build.
-- **Install out-of-band of the release source.** An acquired module is placed
-  where the host resolves it alongside system Lua (§16.11) but separate from the
-  release bundle, so that acquiring, updating, or removing a module never
-  disturbs the verified bundle chain (§16.12–16.13), and a host self-update
-  never disturbs acquired modules. A module package contributes its module
+- **Install out-of-band of the release executable.** An acquired module is
+  placed in a per-user module location that the host resolves in addition to
+  its built-in modules but that is separate from the release executable
+  (§16.11), so that acquiring, updating, or removing a module never touches the
+  executable or its integrity (§16.12–16.13), and a host self-update never
+  disturbs acquired modules. A module package contributes its module
   implementation and any providers it brings (SDK providers, progress parsers,
   and the like); all become resolvable to the host together, exactly as if the
   host had shipped them.
@@ -1221,9 +1212,9 @@ CI run a fixed, verified host without a prior global install. Three files at the
 repository root carry this: a POSIX launcher, a Windows launcher, and a **pin**.
 A launcher caches the host binary it downloads under a cache directory inside
 the repository that is ignored by version control, so nothing fetched is ever
-committed. Everything the **host** provisions or caches for a pinned run — the
-pinned bundle (§16.22) and the host binary a redirect runs (§16.23) — lives in
-the **per-user data directory**, never inside the repository (§16.22).
+committed. Everything the **host** caches for a pinned run — the release
+executable a redirect runs (§16.23) — lives in the machine-local executable
+cache (§16.13), never inside the repository (§16.22).
 
 A repository MAY instead commit **the pin alone** (**pin-only**, §16.24). The pin
 then takes effect only through a globally-installed host, whose redirect
@@ -1244,16 +1235,17 @@ command interpreters run the Windows launcher by explicit relative path
 elsewhere on the search path. Help and authoring output always show the
 relative form.
 
-The pin declares a release **version** and, for every host binary and for the
-release bundle, the **content hash** of that artifact. It is a trivially
+The pin declares a release **version** and, for every release executable, the
+**content hash** of that artifact (while the transition lasts, also a bundle
+entry for older hosts; `spec/formats.md` §9). It is a trivially
 parseable key/value list (not JSON) so a launcher can read it with a system
-shell alone — one `version` entry, one hashed entry per host binary keyed by the
-binary's asset identity, and one hashed entry for the bundle. The pin carries a
+shell alone — one `version` entry and one hashed entry per release executable
+keyed by its asset identity. The pin carries a
 version and hashes **only, never a location**: the download origin is fixed by
 the host, chosen by the pinned version alone, and overridable solely by the
 user's environment or host configuration, never by repository content (§16.23).
 
-### 16.22 Launcher behavior and pinned-release provisioning
+### 16.22 Launcher behavior and pinned context
 
 A launcher selects the host-binary asset for the current operating system and
 architecture, reads the pinned version and that asset's hash, and — unless the
@@ -1289,8 +1281,8 @@ and bounded**:
 - after all attempts fail, one line names the URL and that the attempts were
   exhausted, and the launcher exits non-zero with nothing left in the cache.
 
-The host's own downloads (acquisition, self-update, pin provisioning and the
-redirect, pin management) already retry transient failures with backoff and
+The host's own downloads (acquisition, self-update, the redirect, pin
+management) already retry transient failures with backoff and
 are unchanged; the health update check keeps its bounded, no-retry probe
 (§16.31).
 
@@ -1304,8 +1296,8 @@ exited), so the console returns at once and a calling script sees status 130.
 
 The launcher's cache directory holds only artifacts it can re-fetch: the
 cached host binaries (one per pinned version and asset) and a marker naming
-the last one fetched. Older cached binaries are pruned by pin management
-(§16.24), never by the launcher itself.
+the last one fetched. Older cached binaries are pruned only by an explicit pin
+management `install` or `upgrade` (§16.24), never by the launcher itself.
 
 In pinned context, a self-contained executable whose own release version
 equals the pinned version runs its embedded code; one whose version differs
@@ -1313,29 +1305,31 @@ refuses with an error and never redirects again. A pin naming a release older
 than the first self-contained release is honored as before by that release's
 own executable (which provisions its bundle); the redirecting host provisions
 nothing for it but the executable.
+The trust anchor is the **committed pin hash** checked against an artifact
+fetched from the fixed origin (§16.23). A pinned run leaves the machine-global
+installation (§16.13) untouched.
 
 A pinned host MUST NOT execute or load anything it did not fetch and verify
-itself: in particular it never trusts a bundle or binary found **inside the
-repository** (such as an "already extracted" bundle under the repository's cache
-directory) because it exists — a cloned repository can ship arbitrary files
-there. That is why the provisioned artifacts live outside the repository. The
-repository-local location used by earlier hosts is never read; when a redirect
-(§16.23) targets a pinned release whose host still reads that location, the
-redirecting host first verifies that the location is absent or byte-for-byte
-identical to the bundle it verified, and otherwise refuses the redirect (it
-never deletes repository content).
+itself: in particular it never trusts code found **inside the repository**
+(such as an "already extracted" bundle or a binary under the repository's
+cache directory) because it exists — a cloned repository can ship arbitrary
+files there. That is why the executables the host downloads live outside the
+repository (§16.13). The repository-local bundle location used by early
+releases is never read. When a redirect (§16.23) targets a pinned release
+whose host still reads that location (transitional), the redirecting host
+MUST refuse the redirect while the location exists, naming it so the user can
+remove it; it never deletes repository content.
 
 **Self-identification.** A launcher tells the host it runs which launcher it
 is, in an environment value set only for that process (`LOOMWORKS_LAUNCHER`,
-`lw.sh` or `lw.cmd`, beside the pinned-context sentinel; also on the
+`lw.sh` or `lw.cmd`, beside the pinned-context marker; also on the
 development override path), so the host spells the commands it prints in that
 launcher's form (§16.24 "Invoked form"). The host removes the value from its own
 environment once read, so nothing it starts inherits it. A launcher that does not
 set it (an earlier generation) is still honoured, with the `./lw.sh` form.
 
-A launcher never downloads or extracts the bundle itself — it fetches and execs
-only the host binary, and the exec'd host self-provisions the bundle as above,
-so the launcher depends on nothing beyond a system downloader and a hash tool.
+A launcher fetches and execs only the release executable, so it depends on
+nothing beyond a system downloader and a hash tool.
 The native Windows launcher invokes the operating system's own tools by their
 absolute system location, never by a bare name resolved through the search path,
 so a same-named tool from another toolset placed earlier on the path (as in a
@@ -1372,20 +1366,21 @@ operations** — reporting the host version, self-update, install, and pin
 management (§16.24: the status page, `install` and `upgrade`) — MUST NOT
 redirect; they always run as the invoked (global)
 host, so that, for example, updating the pin is never carried out by the old
-pinned version. Redirection MUST be guarded against recursion: once a host is
-running as the pinned version with the pinned bundle loaded, it never redirects
-or re-provisions again (a sentinel carried across the exec).
+pinned version. Redirection MUST be guarded against recursion: once a host runs
+as the pinned version it never redirects again (the pinned-context marker
+carried across the exec, above).
 
 The redirect has explicit **escapes**, all caller-owned: a *no-pin* flag runs
 the invoked host with no redirect; an environment override naming a host binary
 runs that binary and bypasses the pin entirely (the development / test-at-head
-path); and a development source (§16.11) likewise bypasses. The first redirect or
-provision of an invocation emits a one-line notice rather than stalling silently.
+path); and the development facility (§16.11) likewise bypasses. The first
+redirect or acquisition of an invocation emits a one-line notice rather than
+stalling silently.
 
 The rule is the same when a launcher runs the host (pinned context, §16.22):
 `./lw.sh bootstrap …` (and the removed `./lw.sh update`'s pointer) are management
 operations of the pinned host itself — dispatched before any redirect decision
-and, since they need no system Lua, before bundle provisioning (§16.24).
+(§16.24).
 
 The following invariants are normative:
 
@@ -1408,10 +1403,10 @@ The following invariants are normative:
   repository-provided launcher script. It resolves the pin **declaratively** and
   runs the official binary it fetched and verified itself; auto-running a
   repo-provided script would be an arbitrary-code-execution vector.
-- **Nothing executed from the repository tree.** The host binary a redirect runs
-  and the bundle it loads are the artifacts the host fetched and verified into
-  the per-user pinned cache (§16.22) — never a same-named file shipped inside
-  the repository, whatever its hash.
+- **Nothing executed from the repository tree.** The release executable a
+  redirect runs is the one the host fetched and verified into the machine-local
+  executable cache (§16.13) — never a same-named file shipped inside the
+  repository, whatever its hash.
 - **Bounded residual risk.** A malicious pin can at worst force acquisition of an
   authentic but **older / downgraded** official release; it cannot introduce
   unofficial code, because every fetched artifact must match a hash the host
@@ -1430,8 +1425,8 @@ one writing sub-command:
 | `lw bootstrap upgrade [--channel <name>] [--pin-only] [--force]` | Alias of `lw bootstrap install --latest …`. |
 
 All of them are **management operations** (§16.9): they never redirect
-(§16.23) and run as whichever host is invoked. They need no system Lua — a
-release host that has never acquired a bundle (§16.13) runs them — and they work
+(§16.23) and run as whichever host is invoked. They need nothing beyond the
+invoked executable, and they work
 outside a loomworks workspace and outside a version-controlled tree; only the
 version-control checks and steps below need a git work tree. An unknown
 sub-command, a positional operand, or an install-only flag (`--version`,
@@ -1514,7 +1509,7 @@ A read-only report, ASCII (§16.7), in three parts.
    line is the only network operation (two probes when the pin is ahead: the
    channel's newest and the newest unstable): it uses the health
    update check's bounded, no-retry probe (§16.31 provider #2: 5 s connect,
-   10 s total, never a bundle download) and on failure reads "not checked -
+   10 s total, never an executable download) and on failure reads "not checked -
    offline or release server unreachable"; nothing is cached. A
    development-build host performs it too (to offer `--latest`).
 2. **Findings.** The checks' items, actionable first (`*`), then informational
@@ -1613,8 +1608,8 @@ The selected release's per-artifact hashes come from its **signed** hash list
 (§16.15), whose signature is verified before any hash is trusted, so the pin's
 committed hashes are anchored to the release key at authoring time; fetching it
 also validates that the release is fetchable **before** anything is written, so
-a bad version fails cleanly with the repository untouched. Runtime provisioning
-(§16.22) then trusts the committed pin hash directly, since the pin has itself
+a bad version fails cleanly with the repository untouched. A pinned run
+(§16.22–16.23) then trusts the committed pin hash directly, since the pin has itself
 reached the runner through the repository. The version a network lookup names
 (`--latest`) only selects which signed hash list is fetched: it passes the
 safe-version rule before use and is never trusted for integrity.
@@ -1723,7 +1718,7 @@ user also edits. With `--pin-only` only the pin's attribute rule applies (above)
   notes (§16.37) adds one line naming the command, in the invoked form, that
   shows what changed across the move (`what's new: ./lw.sh release-notes
   --since <old>`) — a pointer, not the notes: the host has not acquired the new
-  bundle, and pin management never fetches more than it needs;
+  release's executable, and pin management never fetches more than it needs;
 - the pin line always states that the release's signed hash list was verified,
   as one flat clause (`; hashes from the signed SHA256SUMS, signature
   verified`); report lines never nest parentheses;
@@ -1760,13 +1755,16 @@ files directly in it** (never a directory, never a symbolic link or junction,
 never recursion) whose name is exactly a cached-binary name — the cache's
 prefix, a version that passes the safe-version rule (§16.23), and a known
 host-binary asset name — are candidates; the binary for the pin's version is
-never a candidate, nor is the running executable. A failure to remove one (e.g.
-a binary still executing on Windows) is skipped silently and retried by the next
-run; pruning never fails the operation. Legacy repository-local bundle
-directories (§16.22) and the per-user pinned cache, which other repositories may
-share, are not pruned.
+never a candidate, nor is the running executable or the executable of a live
+workspace daemon (by its daemon record). A failure to remove one (e.g. a binary
+still executing on Windows) is skipped silently and retried by the next run;
+pruning never fails the operation. This prune is part of the explicit install
+request and touches only that repository's launcher cache: legacy
+repository-local bundle directories (§16.22) and the machine-local executable
+cache (§16.13), which other repositories share, are not pruned by install.
 
-**Pruning of cached executables.** Cached release executables are pruned only
+**Pruning of cached executables.** Release executables in the machine-local
+cache (§16.13) are pruned only
 on explicit request, past an age threshold since last use (every run through
 the cache marks it used; a running daemon marks its own executable at least
 daily), and never when it is the current pin's, the running executable, or the
@@ -1788,19 +1786,13 @@ pin) refreshes them — a run that is otherwise a no-op. A global host (release 
 development build, §16.12) can equally install or upgrade the pin directly,
 writing its own generation.
 
-**No bundle needed in pinned context.** Pin management and its status page need
-no system Lua, so a host in pinned context running them does **not** provision
-the pinned bundle first (§16.22): `./lw.sh bootstrap` reports its local checks
-offline, and a pin whose bundle entry is wrong can still be repaired through the
-launcher.
-
 #### Removed `lw update`
 
 `lw update` was the pin-bump command before `lw bootstrap`'s sub-commands; it
 was kept from 0.1.37 through 0.1.42 as a deprecated alias of `lw bootstrap
 install --latest` and is now **removed**. It is an unknown command, with one
 difference from any other unknown command: the host answers it itself — before
-pinned-bundle provisioning, without a bundle or a workspace, and also when it
+any redirect, without a workspace, and also when it
 carries `--help` / `-h` — with one line on standard error naming both commands
 it is likely to have meant, then exits 2 (a usage error) having changed
 nothing:
@@ -1813,7 +1805,7 @@ The `bootstrap upgrade` command is in the invoked form (`./lw.sh bootstrap
 upgrade` through `lw.sh`); `lw self-update` is always the global form. The
 nvim-hosted fallback CLI answers the same way. It is not offered by shell
 completion and has no help topic. A host older than this change still runs its
-own deprecated alias; nothing in the bundle is involved.
+own deprecated alias.
 
 **Plain `lw bootstrap` changes meaning.** Before this change `lw bootstrap`
 wrote the pin and launchers; now it is the read-only status page. A user who
@@ -1993,7 +1985,7 @@ dialog rather than this flag (see [loomworks.nvim `spec/plugin.md` Part II](http
 
 ### 16.29 Update channels
 
-The **release source** (§16.11) is resolved from an **update channel** — a
+The release an un-pinned acquisition (§16.13) targets is resolved from an **update channel** — a
 named track of releases the host self-update follows. The system defines two:
 
 - **stable** (default) — the newest **full release**, excluding pre-releases.
@@ -2002,11 +1994,11 @@ named track of releases the host self-update follows. The system defines two:
 
 A channel governs only *which* release an un-pinned acquisition (§16.13)
 resolves to; it changes nothing about *how* that release is trusted. Every
-channel's releases are acquired through the identical integrity chain (§16.12,
-§16.15): the manifest MUST verify and every artifact hash MUST match, on
-unstable exactly as on stable. "unstable" denotes release maturity, never
-reduced verification — an unverified or hash-mismatched bundle MUST NOT execute
-regardless of channel.
+channel's releases are acquired through the identical integrity check (§16.12,
+§16.15): the signed hash list MUST verify and the executable's hash MUST match
+its entry, on unstable exactly as on stable. "unstable" denotes release
+maturity, never reduced verification — an unverified or hash-mismatched
+executable MUST NOT run regardless of channel.
 
 Channel selection is a host concern with precedence: an explicit per-invocation
 override, then host configuration, then the default (stable). Selecting a
@@ -2018,11 +2010,11 @@ saves nothing. The environment override (`LOOMWORKS_CHANNEL`) still overrides
 the saved channel for any run where it is set; when it differs from the channel
 just saved, self-update notes that. Other operations that take a channel for
 one resolution (pin management's newest-release pin, §16.24) do not save it.
-Because the newest installed bundle is the one that runs and a bundle never
-downgrades, switching back to `stable` while a newer pre-release bundle is
-installed leaves that pre-release running until a newer release reaches the
-channel; self-update says which bundle stays active and why. The saving
-behaviour is the host's (§16.11): a host older than the release that introduced
+Because self-update never downgrades unless forced (§16.32), switching back to
+`stable` while a newer pre-release is installed leaves that pre-release
+installed until a newer release reaches the channel; self-update says which
+version stays installed and why. The saving
+behaviour is the running executable's: a host older than the release that introduced
 it applies the selection to that run only — so the first self-update from such a
 host, which itself runs on the old host, does not save the channel; selecting it
 again once the newer host is in place (or setting it through the settings
@@ -2040,10 +2032,9 @@ NOT be silent, or a user who selected a channel will believe it took effect. (A
 default-channel selection under an override is no conflict and warns nothing.)
 
 A pre-release version orders **below** its corresponding full release: version
-comparison used for activation, "already newest," and cache reclamation
-(§16.13) MUST treat a pre-release as older than the release it precedes — so
-following stable never selects or retains a pre-release over its release, and
-switching channels does not misrank installed bundles.
+comparison used for replacement and "already newest" (§16.32) MUST treat a
+pre-release as older than the release it precedes — so following stable never
+selects a pre-release over its release.
 
 ### 16.30 Headless reset
 
@@ -2291,8 +2282,8 @@ so "health authors nothing" (§16.9) continues to hold. It records two tiers:
 - a **network tier** — the results of the on-demand (network-backed) providers
   (except **report-only** ones, whose items are shown by the health run that
   computed them and never stored — provider #3 below) — stored with the time they were computed and a **running-version key** (the
-  running release bundle, the running host binary's release identity (§16.32) and
-  the effective update channel, all read locally). It has **no time-to-live**:
+  running executable's release identity (§16.32) and the effective update
+  channel, both read locally). It has **no time-to-live**:
   it is only ever written by a health run and only ever read by a passive
   collect, which shows it for information however old. Items recorded under a
   different running-version key (e.g. before a self-update) describe a release
@@ -2341,24 +2332,26 @@ asynchronous network refresh is implied — the network tier is refreshed strict
 on an explicit `lw health`.
 
 **Provider #2 — update availability (on-demand).** When the host is running a
-versioned release (a source with a comparable version — not a development/fused
-source, and not the in-editor plugin, neither of which self-updates through the
+versioned release (an executable with a comparable version — not a development
+build or the development facility, and not the in-editor plugin, none of which self-updates through the
 CLI), this provider resolves the newest release available on the **resolved
 update channel** (§16.29) and, when that is strictly newer than the running
 version, suggests updating. Its `title` is "Update available", its `detail` is
 `<current> → <newest> on the <channel> channel`, and its `remedy` points at the
 self-update command — except in a **pinned** context (a repository version pin,
-§16.21–16.24: the pinned launcher's sentinel is set, or the running bundle is the
-repo-local pinned copy), where the pin owns the version and self-update would not
+§16.21–16.24: the pinned-context marker is set), where the pin owns the version and self-update would not
 change it; there the remedy points at the pin-management upgrade (`lw bootstrap
 upgrade`, in the invoked form, §16.24), which moves the pin to the newest release
 on the same resolved channel this provider compared against. Version comparison is the same semver-aware ordering used
-for activation (§16.29), so a pre-release never reads as "newer" than the full
+for replacement (§16.29), so a pre-release never reads as "newer" than the full
 release it precedes.
 
-The same check covers the **host binary** (§16.32), which can be left stale while
-the bundle is current (an unwritable install location, a bundle-only update, or a
-host from before host self-update existed). Against the same newest release, and
+*Transitional (§16.14).* When the running code is the transitional bundle under
+a host released before self-contained executables, the same check also covers
+that **host binary**, which can be left stale while the bundle is current (an
+unwritable install location, a bundle-only update, or a host from before host
+self-update existed). A self-contained executable is its own release, so this
+check reports nothing for it. Against the same newest release, and
 upgrade-only by the same rule host self-update applies (§16.32):
 
 - a host that self-update **would replace** — its embedded release version is
@@ -2374,7 +2367,7 @@ upgrade-only by the same rule host self-update applies (§16.32):
   use, §16.32), a **pinned** host (the pin owns its version, §16.24), or a host at
   or newer than the newest release → no host item.
 
-When the bundle is also stale, one "Update available" item suffices — the
+When the bundle is also stale (transitional), one "Update available" item suffices — the
 self-update it points at replaces a self-updating host too — except for a host
 from before host self-update, whose item is still reported. Reading the host's
 release identity is local and network-free; only the newest-release resolution
@@ -2382,8 +2375,8 @@ above touches the network, so the host check shares this provider's on-demand
 tier and its failure handling (below).
 
 Resolving the newest version is a **network** operation (the releases API for
-`unstable`, otherwise a lightweight read of the channel base's manifest to learn
-the version it names — never a bundle download, and this availability probe
+`unstable`, otherwise a lightweight read of the channel's version pointer to learn
+the version it names — never an executable download, and this availability probe
 applies no integrity verification; a real self-update still verifies signature +
 hash per §16.12). Because it is network-backed it is on-demand: it never runs on
 the passive `N suggestions` count. An unknown channel or an already-current
@@ -2514,9 +2507,10 @@ committed and checked-out line endings, stale cached binaries.
 File checks (local reads, no process spawned):
 
 - **pin** — it parses, its version is safe, and it carries a hash for every
-  published host-binary asset and for the bundle; a missing hash is
-  **actionable** ("lw.pin has no hash for `<asset>`": that platform cannot run
-  the launcher);
+  published release-executable asset; a missing hash is **actionable** ("lw.pin
+  has no hash for `<asset>`": that platform cannot run the launcher). While the
+  transition lasts, a pin without the bundle entry gets an **informational**
+  item: hosts released before self-contained executables cannot follow it;
 - **launchers present** — both launchers exist beside the pin; with exactly one
   present the missing one is **actionable** (with neither, the repository is
   pin-only, above);
@@ -2626,12 +2620,11 @@ development build (no embedded release version) is never replaced. The
 version report names the release version and "self-contained", or "dev
 build".
 
-A host built from a release carries that release's **version identity**,
-fixed into the binary when it is built. A host built from a working tree (a
-development build) carries none. The version-reporting host operation reports
-the host's release version alongside its capability version (§16.14), the
-system-Lua source (§16.11), the active bundle (marked as a pre-release when it
-is one, e.g. `bundle: 0.1.40-beta.1 (prerelease)`), and the channel (§16.29). In
+A release executable carries its release's **version identity**, fixed into it
+when it is built; a development build carries none. The version-reporting host
+operation reports the release version (marked as a pre-release when it is one,
+e.g. `0.1.40-beta.1 (prerelease)`) and "self-contained", or "dev build", and the
+channel (§16.29). In
 pinned context (§16.22) the **pin**, not the channel setting, decides what runs,
 so the report shows the pinned version, marked as a prerelease when it is one,
 and the pin file it runs under (`pinned: 0.1.36-beta.1 (prerelease) by
@@ -2639,60 +2632,36 @@ and the pin file it runs under (`pinned: 0.1.36-beta.1 (prerelease) by
 confirm which pin and which binary answered. The environment inventory's entry
 for the running release (§16.33) likewise reads "pinned by lw.pin" (plus
 "prerelease"). The report
-is ASCII (§16.7). A host with no release version never reports a guessed version: a development
-build reports that it is one, and a release host with no version identity
-(released before identity existed) reports its release as unknown. The
-distinction uses the same development-build determination as host
-replacement below, so a host reported as a development build is never
-replaced and one reported as an unknown release is. The active bundle is
-reported truthfully: a host that resolved no system-Lua source and carries
-none built in (a release host before its first acquisition, §16.13) reports
-that no bundle is installed and names the acquisition operation, never a
-bundle it does not have — the same condition every other command reports as
-"no release installed".
+is ASCII (§16.7). A host with no release version never reports a guessed
+version: it reports that it is a development build, and is never replaced
+(above).
 
-Because host-side behavior (argument handling, source resolution, the
-acquisition procedure itself) lives in the host and not the bundle (§16.11),
-a bundle update alone never delivers a host fix. **Self-update therefore also
-replaces the host binary**, after the bundle acquisition (§16.13) succeeds or
-finds the bundle already current (or finds that the release needs a newer
-host, below), unless the caller passes an explicit *no-host* flag. The
-replacement follows these rules:
+The replacement follows these rules. A *no-host* flag, accepted by earlier
+releases, is a usage error (exit 2) stating that self-update replaces only the
+executable. (A host released before self-contained executables updates by its
+own procedure: it acquires the transitional bundle, §16.14, and then replaces
+itself with the target release's executable, which is from then on the
+installed host.)
 
-- **Same release, same origin.** The host is taken from exactly the release
-  the bundle acquisition resolved — through the same channel (§16.29) and the
-  same release-source override — so host and bundle never come from different
-  releases or origins.
-- **A release that needs a newer host.** When the target release's bundle
-  requires a newer host capability than the running host provides (§16.14),
-  the bundle is not installed — but the release's signature-verified identity
-  is still used as the host-replacement target, so raising the minimum never
-  strands an installed host. If the host may replace itself (the rules below),
-  it is replaced first and self-update then reports that the binary was
-  updated and that self-update must be re-run to update the bundle, exiting
-  with a non-zero status since the bundle is not yet updated. If the host step
-  is skipped or fails, the original incompatibility error is reported together
-  with how to install the required host manually, with a non-zero status.
-- **Only when newer.** The host is replaced only when the target release's
-  version is strictly newer than the running host's embedded release version,
-  under the same pre-release-aware ordering the channels use (§16.29): a
-  pre-release orders below its release. A target equal to the running host's
-  version leaves the host as it is (already current); an **older** target —
-  e.g. after switching from the `unstable` to the `stable` channel — is skipped
-  with a note and never downgrades the host, just as the newest installed
-  bundle, not an older one, is the one that runs. A running host with **no**
-  embedded release version is treated as unknown and is replaced (every host
-  released before version identity existed is such a host). A request to
-  force re-acquisition of the bundle (§16.13) does **not** force a host
-  replacement: the host is still replaced only under this rule.
+- **Target release.** The target is the channel's newest release (§16.29) or the
+  exact `--version`, from the default origin or the user's origin override
+  (§16.23 *Fixed origin*).
+- **Only when newer, unless forced.** The executable is replaced only when the
+  target release's version is strictly newer than the running one's, under the
+  same pre-release-aware ordering the channels use (§16.29): a pre-release orders
+  below its release. A target equal to the running version leaves it as it is
+  (already current); an **older** target — e.g. after switching from the
+  `unstable` to the `stable` channel — is skipped with a note and never
+  downgrades. An explicit force flag replaces it with an equal or older target
+  too, whether that target came from the channel or from `--version`.
 - **Verified before swap.** The replacement binary is the platform's host
   asset (§16.22 asset selection), verified against the **signed** release hash
   list (§16.15): the list's signature MUST verify against the key carried by
   the running host, and the downloaded binary's hash MUST match its entry.
   A valid signature proves only that the list is *some* release's; the list
   MUST also be bound to the **target** release by naming that release's own
-  version-bearing asset (its bundle, whose name carries the version), so a
-  genuine older release's list — and its older host — can never be replayed
+  version-bearing descriptor asset (§16.12), so a genuine older release's list —
+  and its older executable — can never be replayed
   for a newer target. A list without that entry is an integrity failure.
   This check is mandatory and unconditional — relaxing transport verification
   (§16.22) never relaxes it — and it completes **before** the installed binary
@@ -2706,46 +2675,23 @@ replacement follows these rules:
   invocation. Any failure at any step leaves the original binary installed and
   runnable — a rename-aside is rolled back.
 - **Unwritable install location.** When the host's location cannot be written
-  (a system directory, a package-managed install), self-update warns — naming
-  the release asset and how to replace it manually — and otherwise succeeds:
-  the bundle update stands and the exit status is 0. A failure to *obtain* the
-  replacement (unreachable origin, a mirror without host assets) is likewise a
-  warning, since the bundle update already succeeded; an **integrity** failure
-  (hash list signature, a list that is not the target release's, or binary
-  hash mismatch) is an error with a non-zero
-  exit status.
+  (a system directory, a package-managed install), self-update fails with a
+  non-zero exit status, naming the release asset and how to replace it
+  manually. A failure to *obtain* the replacement (unreachable origin, a mirror
+  without the executable asset) and an **integrity** failure (hash list
+  signature, a list that is not the target release's, or executable hash
+  mismatch) are likewise errors with a non-zero exit status.
 - **Only a globally-installed release host replaces itself.** A host running
   from a repository's pinned-launcher cache or in pinned context (§16.21–16.23)
-  never replaces itself — its version is owned by the pin. A development build,
-  a host running a development source (§16.11), or the bare runtime used to run
-  a source tree likewise never replaces itself. In these cases the host step
-  is skipped with a note; the bundle behavior is unchanged.
-
-**What's new.** When self-update installs a bundle newer than the one that was
-running, it then says what changed between the two, from the release notes the
-new bundle carries (§16.37) — never from the network, and never from notes the
-old bundle carries. The host reads the notes file and the renderer from the
-newly installed, already verified bundle and prints, per release between the
-old and the new version (newest first): the version and its summary, then its
-`Breaking` and `Upgrade notes` items (at most three per release, then a count
-of the rest); at most five releases (then a count of the rest), and a closing
-line naming the command for the full notes (`lw release-notes --since <old
-version>`), printed after the host-binary line so it is the last thing
-self-update prints. The lines are ASCII (§16.7) and wrapped to the terminal. When
-standard output is not a terminal, or the run is non-interactive, a single
-line is printed instead, naming the same command (`lw: what's new since <old>:
-lw release-notes --since <old>`). Nothing is printed for a first installation
-(no previous bundle), for a re-installation of the same version, or when
-release notes are silenced (§16.37); any failure to read or render the notes
-reduces the output to that single line and never changes the exit status. Printing any of it records the new version as seen (§16.37). This
-is host behavior (§16.11): a host that predates it prints nothing here, and
-the upgrade notice (§16.37) covers that update instead.
+  never replaces itself — its version is owned by the pin. A development build or
+  a host using the development facility (§16.11) likewise never replaces itself.
+  In these cases self-update changes nothing and says why.
 
 Host replacement is a management operation (§16.9): it happens only on an
 explicit self-update, never as part of a build or any workspace operation.
-A host left stale — by an unwritable location, a no-host update, or because it
-predates host self-update — is reported by the health update check (§16.31),
-which applies these same replacement rules to decide whether to flag it.
+A host left stale — by an unwritable location, or because it predates host
+self-update — is reported by the health update check (§16.31), which applies
+these same replacement rules to decide whether to flag it.
 
 ### 16.33 Environment inventory
 
@@ -2935,7 +2881,7 @@ status — so a script need not recount. `update` is the update check's outcome
 (§16.31): `{ status, channel, current, newest?, detail? }` with `status`
 `available` (a newer release exists), `current` (up to date) or `unknown` (the
 check failed — `detail` says why); it is absent when the check does not apply
-(a development / fused source or an unknown channel). `submodules` is the
+(a development build, the development facility, or an unknown channel). `submodules` is the
 submodule provider's report (§16.31), absent when it does not apply (no
 repository, no declaration file, no `git`): `{ root, entries[], error? }`, `root` the
 repository's top level and each entry `{ path, name?, nested, state,
@@ -3570,11 +3516,10 @@ toolchains, compiler caches, SDKs and editor tools.
 
 *(Proposed.)* Every release carries its own **release notes** — a
 human-written account of what changed, per version — and the runner shows
-them **offline**, from the bundle it is running. They reach the user three
-ways: on request (the release-notes command), right after an update
-(self-update's "what's new" lines, §16.32), and once on the first interactive
-run after an update the user was not told about (the **upgrade notice**).
-None of these ever prompts, fetches anything, or changes an exit status.
+them **offline**, from the release it is running. They reach the user two
+ways: on request (the release-notes command) and once on the first
+interactive run after an update the user was not told about (the **upgrade
+notice**). Neither ever prompts, fetches anything, or changes an exit status.
 
 **Source of truth.** The notes are one file at the root of the source tree,
 `CHANGELOG.md`, newest first: an optional **Unreleased** entry, then one entry
@@ -3608,21 +3553,19 @@ fails the change that introduces it, not the release. `Breaking` and
 `Upgrade notes` are what a reader must act on; the short forms below surface
 them, while the other sections appear in the full notes only.
 
-**Baking.** The release bundle (§16.12) carries the notes file verbatim,
-inside the bundle archive whose hash the signed manifest binds — so the notes a
-user reads are exactly the signed release's, and showing them needs no network.
-The notes are data of system Lua, never of the host: a host shows notes only by
-reading them from a bundle (§16.32). The whole history is carried (tens of
-kilobytes at most, compressed far smaller); nothing is truncated. A development
-source (§16.11) reads the file from its working tree. A build that carries no
-notes file (a development build with system Lua fused into the host) reports
-that release notes are not available in this build, exit 1. The reader and the
-renderer are pure functions over the file's text — no filesystem, process or
-editor access — so one implementation serves the release-notes command, the
-upgrade notice, and a host rendering a newly installed bundle's notes.
+**Baking.** Every release executable embeds the notes file verbatim, covered by
+its content hash (§16.12) — so the notes a user reads are exactly the verified
+release's, and showing them needs no network. (The transitional bundle, §16.14,
+carries the same file for older hosts.) The whole history is carried (tens of
+kilobytes at most); nothing is truncated. The development facility (§16.11)
+reads the file from its working tree. A build that carries no notes file
+reports that release notes are not available in this build, exit 1. The reader
+and the renderer are pure functions over the file's text — no filesystem,
+process or editor access — so one implementation serves the release-notes
+command and the upgrade notice.
 
 **Visible entries.** The version whose notes are current is the running
-release bundle's version (the release source of §16.11; in pinned context, the
+executable's embedded release version (§16.11; in pinned context, the
 pinned release). A development source has none. The entries **visible** to a
 run are:
 
@@ -3686,12 +3629,11 @@ versions the notes know.
 
 **Last-seen version.** The runner remembers, per user, the newest release whose
 notes the user has been pointed at — the **last-seen version**, kept in the
-per-user data directory beside the installed bundles. It is only ever raised,
-never lowered, and it is recorded when the release-notes command prints notes
-as text, when self-update prints its "what's new" lines (§16.32), and when the
+per-user data directory. It is only ever raised, never lowered, and it is
+recorded when the release-notes command prints notes as text and when the
 upgrade notice is shown. Failing to read or write it is silent.
 
-**Upgrade notice.** A command run from an installed release bundle — acquired
+**Upgrade notice.** A command run by the installed release executable — acquired
 by self-update or installation, not pinned (§16.21) — whose running version is
 newer than the last-seen version prints **one line** to standard error before
 the command's own output, then records the running version as seen:
@@ -3706,24 +3648,22 @@ non-interactive run shows nothing and records nothing, so the notice waits for
 the next interactive run. The release-notes command (which records instead),
 help, completion, and the host commands never show it. It never changes the
 command's output or exit status. With no last-seen version recorded yet (an
-installation that predates the notice), the newest older installed bundle in
-the data directory stands in for it; with neither, the running version is
+installation that predates the notice), the newest older release directory left
+by an earlier installation stands in for it (transitional, §16.14); with neither,
+the running version is
 recorded without a notice — a first installation has nothing to announce. A
 pinned run never shows the notice: the pin chose that version, and pin
 upgrades point at the notes themselves (§16.24).
 
-The notice and self-update's "what's new" lines are silenced — nothing printed,
+The notice is silenced — nothing printed,
 nothing recorded — by the `release-notes` setting set to `off`, or by the
 `LOOMWORKS_RELEASE_NOTES` environment variable set to `off`, `0` or `false`
 (which takes precedence over the setting). The release-notes command is never
 silenced.
 
-**Old hosts.** The command and the notice are system Lua and use no host (boot)
-interface — the last-seen version lives at a path derived from the running
-bundle's own location — so they work under every host the bundle supports
-(§16.14). A host that predates this section prints no "what's new" lines after
-its self-update; the upgrade notice on the next interactive run is how its
-user learns what changed.
+**Old hosts** (transitional, §16.14). Under a host released before
+self-contained executables, the transitional bundle provides the command and
+the notice.
 
 **Release pipeline.** Each change adds its items to the Unreleased entry.
 Cutting a **full release** renames Unreleased to that release's heading
