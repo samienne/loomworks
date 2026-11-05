@@ -391,8 +391,8 @@ directory. The rules, all mandatory:
    harmless — no server is pointed at it for a unit that is not
    configured here ([loomworks.nvim `spec/plugin.md` §9.1](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration)) — and is swept by the next nuke.
 
-A module's whole owned-database area is also removed by nuke (§1.11 of the
-UI spec, `lw nuke`): for every registered module that declares
+A module's whole owned-database area is also removed by nuke ([loomworks.nvim `spec/ui.md` §1.11](https://github.com/samienne/loomworks.nvim/blob/master/spec/ui.md)
+(the UI spec), `lw nuke`): for every registered module that declares
 `lsp_database_root`, `<root>/.nvim/cache/<lsp_database_root>/` is added to
 the nuke's path list and subjected to the nuke's own checks (absolute root,
 workspace marker present, every path under `root/.nvim/`) plus rules 3 and

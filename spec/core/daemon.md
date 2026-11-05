@@ -1646,7 +1646,7 @@ lets `/a/foo` claim a buffer in `/a/foobar`.
 **The tests view.** *(Step 5m, done: part 0 the spec; A the host-neutral
 builder, in-process only; B1 the daemon side; C1 the editor's read path.)*
 `loomworks.view.Tests/1` ([API.md](../protocol/API.md) §14.3), on `/views` like the two above, backs
-the test explorer, its gutter signs and inline marks (LOOMTEST.md). Its
+the test explorer, its gutter signs and inline marks ([`LOOMTEST.md`](https://github.com/samienne/loomworks.nvim/blob/master/LOOMTEST.md)). Its
 `stale` also counts the CLI's builds; discovery needs the client's
 environment (§19.16 "Tests"); the `message` of a unit is the in-process
 explorer's. In-process (A) a node's `id` is a local key with the same scope.
@@ -1745,7 +1745,7 @@ and adds `lw.buf_project(bufnr)`, returning the buffer's ProjectsIndex record
 by the separator-bounded longest-prefix rule above (or `nil` when no record
 matches) — from step 5l also the LSP layer's buffer → project rule, in both
 modes; `lw.buf_status(bufnr)` keeps its return shape and reads the two
-views, plus its `lsp` field (§9.8), which the editor adds from its own LSP
+views, plus its `lsp` field ([loomworks.nvim `spec/plugin.md` §9.8](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration)), which the editor adds from its own LSP
 layer in every mode (`lw.lsp_buf_state`).
 
 ### 19.14 Commands
@@ -2792,9 +2792,9 @@ mode every function keeps its model objects and behaviour.)*
 host-neutral builder of the state, in-process only; B the daemon side,
 [API.md](../protocol/API.md) §13; C the editor side.)* In `daemon` mode what the
 editor's language servers are configured with — each project's
-`lsp_configs` entries with their `db_state` (§9.1), the working copy's
+`lsp_configs` entries with their `db_state` ([loomworks.nvim `spec/plugin.md` §9.1](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration)), the working copy's
 per-server options (§2, `user.json` `lsp`), and whether the active profile's
-owned databases are ready (§9.7) — comes **only** from the workspace daemon,
+owned databases are ready ([loomworks.nvim `spec/plugin.md` §9.7](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration)) — comes **only** from the workspace daemon,
 as `LspConfig/1.get` answers it ([API.md](../protocol/API.md) §13). There is no in-process fallback:
 the editor never builds that state itself — it does not call `lsp_configs`,
 derive a `db_state`, read options from its own model, generate or scan an
@@ -2804,10 +2804,10 @@ withheld (below), never configured from anything else. The daemon's state is
 **in use** while the editor is connected through interfaces to a compatible
 daemon that offers `loomworks.LspConfig/1` and the last read answered with
 state `loaded`. The servers stay the editor's: starting and stopping them,
-the integrations (found on the editor's runtime path, §9.2) with their `cmd`
+the integrations (found on the editor's runtime path, [loomworks.nvim `spec/plugin.md` §9.2](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration)) with their `cmd`
 and `root_dir` factories and `withhold_reason` (with its absent-database
-check), the expansion of variables in a server binary, the §9.7 hold, the
-per-buffer status (§9.8) and the restart throttle (§9.6). `get` carries the
+check), the expansion of variables in a server binary, the [loomworks.nvim `spec/plugin.md` §9.7](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration) hold, the
+per-buffer status ([loomworks.nvim `spec/plugin.md` §9.8](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration)) and the restart throttle ([loomworks.nvim `spec/plugin.md` §9.6](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration)). `get` carries the
 editor process's whole environment at call time (§19.15 "Environment"), so
 an entry's server binary resolves as the editor would run it.
 
@@ -2815,11 +2815,11 @@ an entry's server binary resolves as the editor would run it.
   `LspConfig/1` `changed`, on `Workspace/1` `changed` and on reconnect; the
   first read is made once the interface is discovered. A cached state is
   dropped when its connection is lost.
-- **Readiness.** While the daemon's state is in use, the §9.7 hold is
+- **Readiness.** While the daemon's state is in use, the [loomworks.nvim `spec/plugin.md` §9.7](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration) hold is
   released on the state's `ready`; the editor model's own loading,
   readiness or failure takes no part in the hold or in any LSP decision.
   While the state is `loaded` but not `ready`, buffers under the root stay
-  held, bounded by the §9.7 safety timeout, at which they are resolved
+  held, bounded by the [loomworks.nvim `spec/plugin.md` §9.7](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration) safety timeout, at which they are resolved
   against the daemon's state (a buffer whose entry has no usable database is
   withheld, never started).
 - **Waiting.** While the editor waits for the daemon — the relay starting or
@@ -2828,7 +2828,7 @@ an entry's server binary resolves as the editor would run it.
   attach" below), or the
   workspace unloaded because the connection was lost ("Unloaded on
   disconnect" below) — buffers under the root stay
-  **held** (§9.8 status `held`) with **no timeout**: the §9.7 safety timeout
+  **held** ([loomworks.nvim `spec/plugin.md` §9.8](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration) status `held`) with **no timeout**: the [loomworks.nvim `spec/plugin.md` §9.7](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration) safety timeout
   does not apply, and nothing is resolved against another source. The
   Runtime line says so (`lsp configuration: waiting for the workspace daemon
   — language servers held`, spec/ui.md §1.1). The hold ends when a read
@@ -2839,7 +2839,7 @@ an entry's server binary resolves as the editor would run it.
   `loomworks.LspConfig/1` missing or offered only at another version, a
   `get` that is declined or fails, or a state of `error` or `refused` (the
   daemon's load of the workspace failed or was refused) — buffers under the
-  root are **withheld** (§9.8: `withheld_error` for a state `error` or
+  root are **withheld** ([loomworks.nvim `spec/plugin.md` §9.8](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration): `withheld_error` for a state `error` or
   `refused`, `withheld_daemon` otherwise), and the reason is the Runtime
   line's note in the warning highlight (e.g. `lsp configuration: daemon
   offers no loomworks.LspConfig/1 — language servers withheld`, `lsp
@@ -2847,13 +2847,13 @@ an entry's server binary resolves as the editor would run it.
   declined or failed read is retried on the next `changed`, `Workspace/1`
   `changed` or reconnect; a state `loaded` re-evaluates the withheld buffers.
 - **Running clients.** A lost connection stops every client of a server
-  loomworks controls (§9.4 default path) under the root, through the
-  managed-stop path (§9.6, so it is neither suppressed nor counted against
+  loomworks controls ([loomworks.nvim `spec/plugin.md` §9.4](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration) default path) under the root, through the
+  managed-stop path ([loomworks.nvim `spec/plugin.md` §9.6](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration), so it is neither suppressed nor counted against
   the restart throttle), and its buffers become `held` ("Unloaded on
   disconnect" below); they start again only when the daemon, after the
   reconnect, reports the workspace `loaded` and their entry usable and
-  `ready` (§9.7). Otherwise only a state in use changes a running client:
-  when its entry becomes withheld it is stopped the same way (§9.8
+  `ready` ([loomworks.nvim `spec/plugin.md` §9.7](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration)). Otherwise only a state in use changes a running client:
+  when its entry becomes withheld it is stopped the same way ([loomworks.nvim `spec/plugin.md` §9.8](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration)
   "Re-evaluation"). Waiting while connected, or an unavailable
   configuration, starts no client and stops none — a client started from an
   earlier state keeps running, and its buffers keep status `ok`, until a
@@ -2864,10 +2864,10 @@ an entry's server binary resolves as the editor would run it.
   startup scan, not after a task, not on a watched path — whether or not the
   state is in use. A database the daemon (re)writes reaches the editor as a
   raised `db_rev` on its entry ([API.md](../protocol/API.md) §13), on which the editor runs the
-  owned-database completion handling of §9.8 for that entry.
+  owned-database completion handling of [loomworks.nvim `spec/plugin.md` §9.8](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration) for that entry.
 - **Re-evaluation.** When a read gives entries or options that differ from
   the ones in use, or the state starts or stops being in use, the editor
-  re-evaluates as for an active-set change (§9.8 "Re-evaluation"): a
+  re-evaluates as for an active-set change ([loomworks.nvim `spec/plugin.md` §9.8](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration) "Re-evaluation"): a
   withheld or held buffer whose entry became usable is started, a client
   whose entry became withheld is stopped through the managed-stop path, and
   a changed but still usable entry restarts through its integration.
@@ -2884,8 +2884,8 @@ an entry's server binary resolves as the editor would run it.
   state's project by key; `lw.project_for_buf` stays public API.
 
 *(Transition, until step 6b-β.)* In `in-process` mode the editor still builds
-the state from its own model with the same builder (§9.2), generates the
-owned databases and writes options in-process, under §9.7 as before 5l; the
+the state from its own model with the same builder ([loomworks.nvim `spec/plugin.md` §9.2](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration)), generates the
+owned databases and writes options in-process, under [loomworks.nvim `spec/plugin.md` §9.7](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration) as before 5l; the
 buffer → project rule above applies there too. That path is the
 `in-process` mode's, removed with the in-process editor (§19.19 6b-β); it is
 never used in `daemon` mode.
@@ -2900,7 +2900,7 @@ program's output or results file, match a test to a build target, or keep
 results of its own. The test tree, its states and the last results come
 **only** from `view.Tests/1` (with `Tests/1` `results` for a run's
 progress); discovery, runs and debug preparations are `Tests/1` calls. The
-test explorer, its gutter signs and inline marks (LOOMTEST.md) are the
+test explorer, its gutter signs and inline marks ([`LOOMTEST.md`](https://github.com/samienne/loomworks.nvim/blob/master/LOOMTEST.md)) are the
 editor's — rendering, navigation, the cursor's test, the output window.
 
 - **Discovery.** `Tests/1.discover` is a task ([API.md](../protocol/API.md) §10.2), owned by the editor
@@ -3803,7 +3803,7 @@ protocol 10 and the optional parts 5k D and 5m D; 6b-α next, then 6, 6b-β,
        end-to-end suite for the editor client, unless folded into C1 and C2.
        B1 and B2 are independent. *(Done, except the optional D.)*
      - **5l — LSP configuration through the daemon** (§19.16 "LSP
-       configuration"; §19.20 `LspConfig/1`; §9.2, §9.7, §9.8), in parts:
+       configuration"; §19.20 `LspConfig/1`; [loomworks.nvim `spec/plugin.md` §9.2](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration), [loomworks.nvim `spec/plugin.md` §9.7](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration), [loomworks.nvim `spec/plugin.md` §9.8](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration)), in parts:
        0 — spec *(done)*; A — preparation with no behaviour
        change, in-process only: one host-neutral builder of the state
        (entries with `db_state`, `db_dir` and `db_rev`, options, readiness),
@@ -3822,7 +3822,7 @@ protocol 10 and the optional parts 5k D and 5m D; 6b-α next, then 6, 6b-β,
        (needs A and B; may land as C1, the read path, and C2, the writes and
        the generation owner). *(Done.)*
      - **5m — Tests through the daemon** (§19.13 "The tests view"; §19.15
-       "Tests"; §19.16 "Tests"; §19.20 `Tests/1`; §8.9; LOOMTEST.md), in
+       "Tests"; §19.16 "Tests"; §19.20 `Tests/1`; §8.9; [`LOOMTEST.md`](https://github.com/samienne/loomworks.nvim/blob/master/LOOMTEST.md)), in
        parts: 0 — spec (this; the `loomworks.view.Tests/1` schema, the
        `loomworks.Tests/1` `results` signal schema and the shared result
        types in `loomworks.Common/1`; the `Tests/1` method schemas land with
