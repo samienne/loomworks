@@ -11,26 +11,17 @@ set -euo pipefail
 command -v luvi >/dev/null 2>&1 || { echo "luvi not found on PATH"; exit 1; }
 
 repo="$(cd "$(dirname "$0")/.." && pwd)"
-stage="$(mktemp -d)"
-trap 'rm -rf "$stage"' EXIT
-out="$stage/lw"
-
-# Fuse a staged copy of lua/ with the release notes beside the loomworks tree,
-# where a release bundle carries them (loomworks/CHANGELOG.md), so
-# `lw release-notes` works in a dev build too.
-src="$stage/src"
-cp -R "$repo/lua" "$src"
-[ -f "$repo/CHANGELOG.md" ] && cp "$repo/CHANGELOG.md" "$src/loomworks/CHANGELOG.md"
-# The protocol's schema documents (spec 19.20), served by Root.schema, as a
-# release bundle carries them (loomworks/protocol/; the frozen snapshots stay
-# in the source tree).
-mkdir -p "$src/loomworks/protocol"
-cp "$repo/spec/protocol/transport.json" "$src/loomworks/protocol/"
-cp -R "$repo/spec/protocol/meta" "$repo/spec/protocol/interfaces" "$src/loomworks/protocol/"
+# Fuse the tree a release executable embeds (scripts/release/stage_tree.sh:
+# main.lua, boot/, the system Lua, the release notes and the protocol's schema
+# documents), so `lw release-notes` and Root.schema work in a dev build too.
+src="$(bash "$repo/scripts/release/stage_tree.sh")"
+out_dir="$(mktemp -d)"
+trap 'rm -rf "$src" "$out_dir"' EXIT
+out="$out_dir/lw"
 
 case "$(uname -s)" in
   MINGW*|MSYS*|CYGWIN*)
-    out="$stage/lw.exe"
+    out="$out_dir/lw.exe"
     luvi "$(cygpath -w "$src")" --output "$(cygpath -w "$out")" ;;
   *)
     luvi "$src" --output "$out" ;;
@@ -43,8 +34,8 @@ esac
 
 echo
 echo "This is a development build: \`lw self-update\` never replaces it (re-run"
-echo "\`make install\` instead), and a release bundle already installed in the data"
-echo "dir takes precedence over its fused code. It carries the release key, so"
+echo "\`make install\` instead); it always runs its own embedded code, never an"
+echo "installed release bundle. It carries the release key, so"
 echo "\`lw bootstrap install --version <x.y.z>\` and \`lw bootstrap upgrade\` work against real releases."
 echo
 echo "Point --dev at this checkout (once):"
