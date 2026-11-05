@@ -413,6 +413,7 @@ expected parent. The specs `build_dir_safety_spec.lua`,
 | `lua/loomworks/progress/`, `test_units/`, `integrations/inventory/` | progress parsers, test units, tool inventory |
 | `lua/loomworks/shim/` | the `vim.*` shim for the luvi host |
 | `spec/protocol/` | the wire protocol ([`PROTOCOL.md`](spec/protocol/PROTOCOL.md)), the interface suite ([`API.md`](spec/protocol/API.md)), JSON schemas, frozen versions, golden transcripts |
+| `spec/core/`, `spec/modules/`, `spec/sdks/` | the behavioural specification ([`spec/core/README.md`](spec/core/README.md)), per-module and per-SDK-provider specs |
 | `spec/formats.md` | the on-disk file formats |
 | `docs/diagrams/` | the diagrams of this document |
 | `bin/` | development launchers (`bin/lw`, `bin/lw.cmd`) |
