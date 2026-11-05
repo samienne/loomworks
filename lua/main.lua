@@ -168,7 +168,17 @@ end
 publish_code()
 
 -- ---- pin: sentinel, override, and workspace root ----------------------------
+-- The pinned-context marker and the forwarded workspace root are host-internal
+-- (spec §16.22): read once here, kept for system Lua (loomworks.host_env) and
+-- removed from the environment, as LOOMWORKS_LAUNCHER is below, so nothing
+-- this process starts inherits them — an lw run by a build, run or test step
+-- resolves its own workspace and pin — and a daemon request's environment
+-- never carries them. Starting a daemon or forwarding passes them explicitly.
 local pinned_sentinel = getenv("LOOMWORKS_PINNED")
+local lw_root_env = getenv("LW_ROOT")
+_G.__loomworks_host_env = { pinned = pinned_sentinel, root = lw_root_env }
+if pinned_sentinel then pcall(uv.os_unsetenv, "LOOMWORKS_PINNED") end
+if lw_root_env then pcall(uv.os_unsetenv, "LW_ROOT") end
 local lw_override = getenv("LOOMWORKS_LW") ~= nil
 -- The command and its sub-command (`daemon run`), tolerant of a leading
 -- global flag (e.g. `lw --no-input self-update`), the same way the redirect
@@ -183,7 +193,7 @@ local command, command_sub = pin.command_words(forwarded)
 -- For a daemon command its --root wins over LW_ROOT: a launcher's LW_ROOT is
 -- the user's cwd, which may lie in another (nested / submodule) pinned root.
 local pin_start = (command == "daemon") and paths.norm(pin.root_option(forwarded)) or nil
-pin_start = pin_start or paths.norm(getenv("LW_ROOT"))
+pin_start = pin_start or paths.norm(lw_root_env)
 local pin_root = pin.find_pin_root(pin_start or uv.cwd())
 
 -- The install folder: a relative LOOMWORKS_INSTALL_DIR is not
@@ -257,7 +267,7 @@ if host_command == "bootstrap" then
   end
   if not o then usage(perr) end
   -- Where to look: the launcher-passed root, else the current directory.
-  local start = paths.norm(getenv("LW_ROOT")) or (uv.cwd():gsub("\\", "/"):gsub("/+$", ""))
+  local start = paths.norm(lw_root_env) or (uv.cwd():gsub("\\", "/"):gsub("/+$", ""))
   -- The version a NEW pin defaults to: the running release (the bundle this
   -- host resolved, else the host's own release identity); nil for a dev build.
   local host_version = running_code_version() or release_version
@@ -671,8 +681,10 @@ do
         tostring(lerr) .. "\n")
       exit(1)
     end
-    -- Carry the sentinel + workspace root across the exec; the child inherits
-    -- our environment (uv.os_setenv is visible to spawned children).
+    -- Pass the sentinel + workspace root to the pinned lw explicitly (they
+    -- were removed from our environment at startup, spec §16.22): set just
+    -- before the exec, which is the only process this one starts from here
+    -- on (uv.os_setenv is visible to spawned children).
     io.stderr:write("loomworks " .. p.version .. " (pinned)\n")
     uv.os_setenv("LOOMWORKS_PINNED", p.version)
     -- (A daemon's root is its --root: it runs from the per-user state dir.)

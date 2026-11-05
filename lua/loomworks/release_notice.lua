@@ -89,7 +89,7 @@ end
 --- @param getenv fun(name: string): string|nil
 --- @return string|nil
 function M.release_data_dir(luaroot, getenv)
-  getenv = getenv or os.getenv
+  getenv = getenv or require("loomworks.host_env").getenv
   local code = (luaroot == nil) and M.code() or nil
   if code and code.kind ~= "release" then
     if not M.running_version() then return nil end

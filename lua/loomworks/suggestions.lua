@@ -924,7 +924,7 @@ function M._host_facts()
     local facts = {
         release_version = ok_v and type(verify) == "table" and verify.RELEASE_VERSION or nil,
         self_update = ok_h and type(hu) == "table" and type(hu.decide) == "function",
-        pinned = os.getenv("LOOMWORKS_PINNED") ~= nil,
+        pinned = require("loomworks.host_env").pinned() ~= nil,
         fused_system_lua = fused,
     }
     if facts.self_update then

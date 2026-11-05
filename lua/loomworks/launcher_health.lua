@@ -91,7 +91,7 @@ end
 --- @return loomworks.Suggestion[]
 function M.provider(workspace)
     local start = (type(workspace) == "table" and type(workspace.root) == "string" and workspace.root)
-        or os.getenv("LW_ROOT") or uv.cwd()
+        or require("loomworks.host_env").root() or uv.cwd()
     local r = M.report(start)
     return r and r.items or {}
 end

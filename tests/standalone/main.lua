@@ -1779,6 +1779,108 @@ do
   ok(code == 0, "release exe: install succeeds  (exit " .. tostring(code) .. ": " .. out .. err .. ")")
   ok(kept, "release exe: install prunes no installed release  (removed: " .. gone .. ")")
   ok(uv.fs_stat(home .. "/lua-0.0.0-test") == nil, "release exe: install fetches no bundle")
+
+  -- Host-internal values (§16.22): the pinned-context marker and LW_ROOT are
+  -- read once by the host and never inherited by what it starts. A stand-in
+  -- executable records what it was started with (its arguments, the two
+  -- values) and, as a build step, the `lw version` of a nested lw it runs.
+  local dump_app, dump_exe = sb .. "/dump-app", sb .. "/bin/dump" .. (paths.is_windows and ".exe" or "")
+  local dump_out = sb .. "/dump.txt"
+  paths.mkdirp(dump_app)
+  writef(dump_app .. "/main.lua", [[
+local uv = require("uv")
+local args = { ... }
+local f = assert(io.open(assert(os.getenv("DUMP_OUT")), "ab"))
+f:write("ARGS=" .. table.concat(args, " ") .. "\n")
+f:write("PINNED=" .. (uv.os_getenv("LOOMWORKS_PINNED") or "") .. "\n")
+f:write("ROOT=" .. (uv.os_getenv("LW_ROOT") or "") .. "\n")
+local nested = os.getenv("NESTED_LW")
+if nested and args[1] == "build" then
+  local log = os.getenv("DUMP_OUT") .. ".nested"
+  local fd = uv.fs_open(log, "w", 420)
+  local done = false
+  local h = uv.spawn(nested, { args = { "version" }, stdio = { nil, fd, fd } }, function() done = true end)
+  if h then while not done do uv.run("once") end; h:close() end
+  uv.fs_close(fd)
+  local n = io.open(log, "rb")
+  f:write("NESTED=" .. (n and n:read("*a"):gsub("[\r\n]+", " ") or "") .. "\n")
+  if n then n:close() end
+end
+f:close()
+os.exit(0)
+]])
+  do
+    local done = false
+    local h = uv.spawn(uv.exepath(), { args = { native(dump_app), "--output", native(dump_exe) },
+      stdio = { nil, nil, nil } }, function() done = true end)
+    if h then while not done do uv.run("once") end; h:close() end
+  end
+  ok(uv.fs_stat(dump_exe) ~= nil, "fused the stand-in executable")
+  local function dumped()
+    local s = slurp(dump_out) or ""
+    os.remove(dump_out)
+    local recs, cur = {}, nil
+    for line in s:gmatch("[^\n]+") do
+      local k, v = line:match("^(%u+)=(.*)$")
+      if k == "ARGS" then cur = {}; recs[#recs + 1] = cur end
+      if k and cur then cur[k] = v end
+    end
+    return recs, s
+  end
+
+  -- A build step of a pinned run (in-process, then through the daemon).
+  local wsdir = repo
+  paths.mkdirp(wsdir .. "/App")
+  writef(wsdir .. "/loomworks.json", json.encode({ projects = { App = { shell = {
+    build_dir = "${workspace_root}/out/${variant}",
+    configure_cmd = { native(dump_exe), "configure" },
+    build_cmd = { native(dump_exe), "build" },
+    configurations = { Debug = { variables = { x = "1" } } },
+  } } } }))
+  local step_env = { LOOMWORKS_PINNED = "9.8.7", LW_ROOT = wsdir, DUMP_OUT = dump_out,
+    NESTED_LW = native(exe) }
+  lw({ "--no-input", "configuration-set", "create", "Dev", "App=Debug" }, step_env, wsdir)
+  code, out, err = lw({ "--no-input", "profile", "create", "Dev", "--activate" }, step_env, wsdir)
+  ok(code == 0, "pinned run: profile created  (exit " .. tostring(code) .. ": " .. out .. err .. ")")
+  local function check_steps(how)
+    local recs, raw = dumped()
+    local ran, clean, nested_ok = 0, true, nil
+    for _, r in ipairs(recs) do
+      ran = ran + 1
+      if r.PINNED ~= "" or r.ROOT ~= "" then clean = false end
+      if r.NESTED then
+        nested_ok = r.NESTED:find("| channel:", 1, true) ~= nil and r.NESTED:find("pinned:", 1, true) == nil
+      end
+    end
+    ok(ran > 0 and clean, how .. ": a step inherits neither the pinned marker nor LW_ROOT  (" .. raw .. ")")
+    ok(nested_ok == true, how .. ": an lw a step runs starts outside the pinned context  (" .. raw .. ")")
+  end
+  code, out, err = lw({ "--no-input", "--no-daemon", "build", "Dev" }, step_env, wsdir)
+  ok(code == 0, "pinned run, in-process: build succeeds  (exit " .. tostring(code) .. ": " .. out .. err .. ")")
+  check_steps("pinned run, in-process")
+  lw({ "settings", "set", "runtime-mode", "daemon" }, step_env, wsdir)
+  local daemon_env = { LOOMWORKS_NO_DAEMON = "0" }
+  for k, v in pairs(step_env) do daemon_env[k] = v end
+  code, out, err = lw({ "--no-input", "build", "Dev" }, daemon_env, wsdir)
+  ok(code == 0, "pinned run, daemon: build succeeds  (exit " .. tostring(code) .. ": " .. out .. err .. ")")
+  check_steps("pinned run, daemon (the request's environment)")
+  lw({ "daemon", "stop" }, daemon_env, wsdir)
+
+  -- The redirect forwards both to the pinned lw it runs (here the stand-in).
+  local fwd, mirror2 = sb .. "/repo-fwd", sb .. "/mirror-fwd"
+  paths.mkdirp(fwd); paths.mkdirp(mirror2)
+  local dump_bytes = readfile(dump_exe)
+  writef(mirror2 .. "/" .. asset, dump_bytes)
+  local zip = pinmod.bundle_asset("0.0.0-test")
+  writef(mirror2 .. "/" .. zip, readfile(FX .. zip))
+  writef(fwd .. "/lw.pin", pinmod.serialize("0.0.0-test", {
+    [asset] = verify.sha256_hex(dump_bytes), [zip] = verify.sha256_hex(readfile(FX .. zip)) }))
+  code, out, err = lw({ "build" }, { LOOMWORKS_RELEASE_URL = mirror2, DUMP_OUT = dump_out }, fwd)
+  local recs, raw = dumped()
+  local r = recs[1] or {}
+  ok(code == 0 and r.PINNED == "0.0.0-test" and (paths.norm(r.ROOT or "") or ""):lower() == paths.norm(fwd):lower(),
+    "the redirect passes the pinned marker and LW_ROOT to the pinned lw  (exit " .. tostring(code) .. ": "
+      .. raw .. out .. err .. ")")
   paths.rm_rf(sb)
 end
 
