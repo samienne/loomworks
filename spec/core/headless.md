@@ -660,36 +660,34 @@ cannot prompt: several candidates are then an error that lists each as the
 explicit with-path declaration. It also lists every provider's detected
 installations on request, read-only and outside a workspace.
 
-### 16.11 Runner distribution and system-Lua resolution
+### 16.11 Release executables and code resolution
 
-The standalone runner separates a **generic runtime host** (the Lua VM and
-asynchronous primitives of §16.1) from the **system Lua** (the behavioral
-implementation of §1–§15). The host carries no behavioral logic of its own;
-per invocation it resolves system Lua from exactly one source, chosen by
-precedence:
+A release is distributed as one **release executable** per supported
+platform. A release executable contains all the code that runs for it: its
+behavior depends on no other file being present, and nothing outside it is
+code that runs on its behalf, except modules acquired by the user (§16.20).
+Its content hash therefore identifies everything it runs. A release
+executable carries its release's version identity and the trusted release
+public key (§16.12).
 
-1. an explicit caller override naming a directory;
-2. a **development source** — a working tree designated in host
-   configuration — when the caller opts into it;
-3. otherwise the **release source** — a verified release bundle.
-
-Absent (1) and (2), the release source is used. The chosen source is fixed
-for the whole invocation. The resolution is a host concern: it does not
-affect any §1–§15 contract, and system Lua behaves identically whichever
-source supplied it.
+An implementation MAY offer a development facility that runs other code than
+the embedded one (for the reference implementation: a development source
+directory, `--dev` / `LOOMWORKS_LUA`). It is used only on an explicit caller
+opt-in, is never selected by a release's own data, a repository or another
+tool, and is not part of any contract with other tools. A release executable
+without that opt-in runs its embedded code and nothing else.
 
 ### 16.12 Release integrity
 
-A release bundle MUST be cryptographically verified against a trusted public
-key carried by the host before any of its Lua executes. Verification covers
-a signed manifest that binds the identity and content hash of every bundle
-artifact; an artifact whose hash does not match, or a manifest whose
-signature does not verify, MUST NOT execute. Verification integrity MUST NOT
-depend on transport security: a bundle obtained over an untrusted or
-intercepted channel is accepted if and only if its signature verifies. A
-development source (§16.11) is exempt from verification — it is local,
-explicit, and caller-owned. The component that performs verification is part
-of the host, never part of the bundle it verifies.
+A release executable MUST NOT run unless its content hash equals either a
+hash pinned by its caller (a repository pin, §16.21, or a tool's own pin) or
+the entry for that asset in the release's `SHA256SUMS`, whose detached
+signature verifies with the trusted key carried by the running executable,
+and which names that release's version-bearing descriptor asset
+(`lw-<version>-descriptor.json`) so that another release's genuine list
+cannot be replayed. Integrity MUST NOT depend on transport security. The
+component that verifies is part of the executable that downloads, never of
+the one downloaded.
 
 The trusted key carried by the host is the **production release public key in
 every build**, including a host built from a working tree: the committed
@@ -708,11 +706,14 @@ corrupt or non-official artifact; a mirror serving other files) — never only
 
 ### 16.13 Acquisition and activation
 
-Acquiring a release bundle — an initial install or an update — MUST verify
-it (§16.12) before it becomes active. Activation MUST be atomic and MUST NOT
-overwrite the code of a running invocation; a failed or partial acquisition
-MUST leave the previously active bundle intact, so a runner is never left
-without a working system Lua. Acquisition and activation are management
+Acquiring a release — an initial install, a self-update, a pinned version —
+is acquiring its release executable for this platform, verified (§16.12)
+before it is made executable under its final name. Activation of an installed
+executable MUST be atomic and MUST NOT disturb a running invocation; a failed
+or partial acquisition leaves the previous executable intact. Downloaded
+executables other than the installed one live in a machine-local cache
+addressed by content hash, never inside a repository, and are re-verified
+before each run. Acquisition and activation are management
 operations (§16.9): they are never performed as part of a build (§16.4), so
 a read-only or CI invocation neither fetches nor mutates the active bundle. An
 un-pinned acquisition resolves its target release through the active **update
@@ -720,18 +721,10 @@ channel** (§16.29).
 
 ### 16.14 Host/bundle compatibility
 
-A release bundle declares the minimum runtime-host capability it requires. A
-host that does not meet a bundle's minimum MUST refuse to execute it — rather
-than fail unpredictably — and MUST report that a host update is required.
-Within its compatible range a single host build executes any bundle, so
-behavioral updates ship as bundles without replacing the host. Changes to the
-host itself reach an installed host through host self-update (§16.32).
-
-Besides system Lua, a bundle carries its release's **release notes** (§16.37)
-as a data file inside the signed archive; the manifest's hash over the archive
-covers them, so they need no signature of their own. A bundle's features that
-rely on the host — rather than on system Lua alone — degrade on an older host
-within the compatible range instead of failing; release notes rely on none.
+*Retired.* While loomworks still publishes a release bundle for hosts
+released before self-contained executables (until a cutover announced in
+the CHANGELOG), that bundle and its signed manifest keep their old meaning
+for those hosts only; a self-contained executable ignores both.
 
 ### 16.15 Host acquisition integrity
 
@@ -1406,23 +1399,12 @@ cached host binaries (one per pinned version and asset) and a marker naming
 the last one fetched. Older cached binaries are pruned by pin management
 (§16.24), never by the launcher itself.
 
-Because a host binary carries only the runtime bootstrap and not the behavioral
-system Lua (§16.11), a host running in **pinned context** — launched by the repo
-launcher, or re-exec'd by the redirect (§16.23) — MUST **provision** the pinned
-release's bundle before it resolves system Lua (a command that resolves none —
-pin management, §16.24 — provisions nothing): acquire the bundle for the pinned
-version, verify it against the pinned bundle hash, and extract it to a
-**pinned-release cache in the install folder** (below; the per-user data
-directory unless overridden), keyed by the pinned
-version **and** the pinned bundle hash, then resolve system Lua from there rather
-than from the newest machine-global install. Provisioning is idempotent: a bundle
-the host itself extracted there after verification is reused without
-re-downloading, and a failed or partial provision leaves any prior state intact
-(§16.13). Pinning keeps a run reproducible — host and bundle are the same pinned
-version — and leaves the machine-global installation (§16.13) untouched. The
-trust anchor for provisioning is the **committed pin hash** checked against an
-artifact the host fetched from the fixed origin (§16.23), consistent with
-§16.15/§16.20 anchoring integrity to something other than the served artifact.
+In pinned context, a self-contained executable whose own release version
+equals the pinned version runs its embedded code; one whose version differs
+refuses with an error and never redirects again. A pin naming a release older
+than the first self-contained release is honored as before by that release's
+own executable (which provisions its bundle); the redirecting host provisions
+nothing for it but the executable.
 
 A pinned host MUST NOT execute or load anything it did not fetch and verify
 itself: in particular it never trusts a bundle or binary found **inside the
@@ -1509,9 +1491,8 @@ pin. It resolves the pinned version from the workspace root — the same root
 discovery that locates the workspace files (§2). When the pinned version equals
 the running host's own release version it runs the operation **in-process**: no
 download and no redirect (the fast path). When they differ it MUST acquire and
-verify the pinned host binary, provision the pinned bundle (§16.22), and
-**re-exec** the pinned binary with the same arguments, so the operation runs
-under exactly the pinned release. The one exception is the color options (§16.7
+verify the pinned release executable (§16.13) and **re-exec** it with the same
+arguments, so the operation runs under exactly the pinned release. The one exception is the color options (§16.7
 *Highlighting*): the host drops `--color=…` and `--no-color` from the arguments
 it forwards to a pinned host that predates those options, and forwards them
 unchanged otherwise. It never turns them into an environment variable. Where the re-exec is a child process rather
@@ -1522,6 +1503,11 @@ never acts on an interrupt (§16.6) itself — the pinned host handles it and
 cleans up, and the redirecting host neither dies nor exits before the pinned
 host has finished; an interrupt addressed to the redirecting host alone (a
 POSIX signal sent to its process only) is forwarded to the pinned host.
+
+The forwarding environment carries only the pinned-context marker (the pinned
+version, which also stops any further redirect) and the workspace root; it
+names no code location. The fast path compares the pin with the running
+executable's embedded release version.
 
 **A pin older than the command.** Some redirected commands are newer than
 version pins: `reset` (first released in 0.1.27), `daemon run` and `daemon
@@ -1953,6 +1939,14 @@ a binary still executing on Windows) is skipped silently and retried by the next
 run; pruning never fails the operation. Legacy repository-local bundle
 directories (§16.22) and the per-user pinned cache, which other repositories may
 share, are not pruned.
+
+**Pruning of cached executables.** Cached release executables are pruned only
+on explicit request, past an age threshold since last use (every run through
+the cache marks it used; a running daemon marks its own executable at least
+daily), and never when it is the current pin's, the running executable, or the
+executable of a live workspace daemon (by its daemon record). Leftover code
+directories of releases before self-contained executables are reported by
+health and removed only by an explicit legacy cleanup.
 
 **Upgrading through the launcher.** Pin management is a host command, so it runs
 on whichever host is invoked. Run through the repository's launcher
@@ -2818,6 +2812,13 @@ change through the ordinary build gate. No build-time flag turns caching on or
 off — that decision lives entirely in the `cache` policy variable.
 
 ### 16.32 Host self-update
+
+Self-update replaces the installed release executable with the target
+release's (latest of the channel, or an exact `--version`), verified per
+§16.12; there is no separate bundle step and no capability version. A
+development build (no embedded release version) is never replaced. The
+version report names the release version and "self-contained", or "dev
+build".
 
 A host built from a release carries that release's **version identity**,
 fixed into the binary when it is built. A host built from a working tree (a
