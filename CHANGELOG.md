@@ -49,6 +49,13 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
 
 ### Changed
 
+- An `lw` executable that embeds the loomworks code runs that code and
+  nothing else: it never loads a release bundle installed beside it, and
+  `lw version` reports its release and "self-contained", or "dev build". In
+  a repository's pinned context it runs only as the pinned release and
+  otherwise refuses with an error naming both versions, instead of
+  provisioning another release (#131).
+
 - `lw`, the workspace daemon and its protocol moved here from loomworks.nvim,
   which is now a client of the daemon. The history of the 0.1.x releases is in
   the CHANGELOG of loomworks.nvim.
