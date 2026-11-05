@@ -889,10 +889,16 @@ M.register(M.cache_compat_provider, { area = "cache" })
 
 --- The version of the running `lw` release, or nil when there is no comparable
 --- version — a development/fused source, or the in-editor plugin (which is not
---- self-updated through `lw`). The standalone host publishes the active release
---- root as `_G.__loomworks_luaroot` (…/lua-<version>); the version is its tail.
+--- self-updated through `lw`). The release a self-contained executable embeds,
+--- else (an old host's transitional bundle) the tail of the release root it
+--- publishes as `_G.__loomworks_luaroot` (…/lua-<version>):
+--- release_notice.running_version, the one identity accessor.
 --- @return string|nil
 function M._current_release_version()
+    local ok, notice = pcall(require, "loomworks.release_notice")
+    if ok and type(notice) == "table" and type(notice.code) == "function" and notice.code() then
+        return notice.running_version()
+    end
     local luaroot = _G.__loomworks_luaroot
     if type(luaroot) ~= "string" then return nil end
     return luaroot:match("lua%-(.+)$")
@@ -923,7 +929,8 @@ function M._host_facts()
     }
     if facts.self_update then
         facts.exe = hu.exe_path()
-        facts.dev_build = hu.dev_build({ exe = facts.exe, fused_system_lua = fused }) ~= nil
+        facts.dev_build = hu.dev_build({ exe = facts.exe, fused_system_lua = fused,
+            release_version = facts.release_version }) ~= nil
     else
         facts.dev_build = fused
     end

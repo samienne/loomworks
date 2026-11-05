@@ -260,6 +260,52 @@ describe("release notice (last-seen and the one-line notice)", function()
       function(n) return n == "LOOMWORKS_PINNED" and "0.1.40" or nil end))
   end)
 
+  describe("what the host runs (_G.__loomworks_code)", function()
+    local saved_code, saved_root
+    before_each(function()
+      saved_code, saved_root = _G.__loomworks_code, _G.__loomworks_luaroot
+      -- A stale bundle root must not win over the embedded release.
+      _G.__loomworks_luaroot = "/d/loomworks/lua-0.1.40"
+    end)
+    after_each(function()
+      _G.__loomworks_code, _G.__loomworks_luaroot = saved_code, saved_root
+    end)
+
+    it("embedded code: its release version; the data dir is the per-user data dir", function()
+      _G.__loomworks_code = { kind = "embedded", version = "0.2.0-beta.1" }
+      assert.equals("0.2.0-beta.1", notice.running_version())
+      assert.equals(require("boot.paths").data_dir(), notice.release_data_dir(nil, none))
+      assert.is_nil(notice.release_data_dir(nil,
+        function(n) return n == "LOOMWORKS_PINNED" and "0.2.0-beta.1" or nil end))
+      local sug = require("loomworks.suggestions")
+      assert.equals("0.2.0-beta.1", sug._current_release_version())
+    end)
+
+    it("a development build or source has no release version", function()
+      _G.__loomworks_code = { kind = "embedded" }
+      assert.is_nil(notice.running_version())
+      assert.is_nil(notice.release_data_dir(nil, none))
+      _G.__loomworks_code = { kind = "dev" }
+      assert.is_nil(notice.running_version())
+      assert.is_nil(require("loomworks.suggestions")._current_release_version())
+    end)
+
+    it("an old host (nothing published) or a transitional bundle: the lua-<ver> tail", function()
+      _G.__loomworks_code = nil
+      assert.equals("0.1.40", notice.running_version())
+      assert.equals("/d/loomworks", notice.release_data_dir(nil, none))
+      assert.equals("0.1.40", require("loomworks.suggestions")._current_release_version())
+      _G.__loomworks_code = { kind = "release", version = "0.1.40" }
+      assert.equals("0.1.40", notice.running_version())
+      assert.equals("/d/loomworks", notice.release_data_dir(nil, none))
+    end)
+
+    it("an explicit bundle root is read as given", function()
+      _G.__loomworks_code = { kind = "embedded", version = "0.2.0" }
+      assert.equals("0.1.39", notice.running_version("/d/loomworks/lua-0.1.39"))
+    end)
+  end)
+
   it("only ever raises the last-seen version", function()
     assert.is_true(notice.write_seen(data, "0.1.40"))
     assert.equals("0.1.40", notice.read_seen(data))
