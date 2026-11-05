@@ -56,6 +56,11 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
   otherwise refuses with an error naming both versions, instead of
   provisioning another release (#131).
 
+- Release `lw` executables carry all of loomworks (the code, the release
+  notes and the protocol documents), so a freshly installed `lw` works
+  without downloading a release bundle, and `lw self-update` replaces only
+  the executable (#132).
+
 - `LOOMWORKS_PINNED` and `LW_ROOT` no longer leak into what `lw` starts: a
   build, run or test step (and an `lw` it runs) no longer inherits the
   pinned context or the launcher's workspace root, so a nested `lw` resolves
