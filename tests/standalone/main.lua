@@ -1718,6 +1718,8 @@ do
     and err:find("9.8.6", 1, true) and not err:find("fetching", 1, true)
     and not err:find("could not", 1, true),
     "pinned context, other version: refused, naming both  (exit " .. tostring(code) .. ": " .. err .. ")")
+  ok(uv.fs_stat(home .. "/pinned") == nil and uv.fs_stat(inst .. "/pinned") == nil,
+    "pinned context, other version: nothing provisioned")
   -- The dev facility (an explicit opt-in) runs the development source.
   code, out, err = lw({ "version" }, { LOOMWORKS_PINNED = "9.8.6", LW_ROOT = repo_other,
     LOOMWORKS_LUA = paths.norm(root .. "/lua") }, repo_other)

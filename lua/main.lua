@@ -1,12 +1,11 @@
 -- Universal luvi entry point — the host bootstrap.
 --
--- It carries no behavioral logic; it
--- (1) resolves where *system Lua* (the loomworks implementation) comes from,
--- (2) handles the host-level commands `version`, `self-update`, `install`,
--- `bootstrap` and `release query` (which must work even with no bundle
--- installed) —
--- and, when there is no system Lua at all, their help (boot.help) — and
--- (3) runs the CLI from the resolved source.
+-- It carries no behavioral logic; it (1) resolves where *system Lua* (the
+-- loomworks implementation) comes from, (2) handles the host-level commands
+-- `version`, `self-update`, `install`, `bootstrap` and `release query` (which
+-- must work even with no bundle installed) and, when there is no system Lua
+-- at all, their help (boot.help), and (3) runs the CLI from the resolved
+-- source.
 --
 -- System-Lua source precedence:
 --   LOOMWORKS_LUA env > `--dev[=PATH]` > settings `default-source=dev`
