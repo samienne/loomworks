@@ -3246,9 +3246,9 @@ terminal). It runs none of the editor's own operations; where those run is
      download above). Only that binary resolves a channel — never an `lw`
      from the search path or an explicit one, which are the user's to update.
   2. It runs `<pinned lw> release query --channel <channel> --json` (§16.42)
-     with the release-source override (`binary.release_url`) and the
-     install-folder override of "Install location" passed through, the
-     editor's data directory as working directory, and bounded fetch limits.
+     with the release-source override (`binary.release_url`) passed through,
+     the editor's data directory as working directory, and bounded fetch
+     limits.
      The output must name a valid release version, this host's asset and a
      64-hex hash, and carry the release's descriptor; that descriptor must
      pass the interface check of "Plugin pin", with the pre-launch probe's
