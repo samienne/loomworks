@@ -190,6 +190,8 @@ command in its own process. `lw daemon status` and `lw daemon stop` manage it.
 
 - [ARCHITECTURE.md](ARCHITECTURE.md): how the code is organised, for
   contributors.
+- [spec/core/](spec/core/README.md): the behavioural specification (data
+  model, lifecycle, modules, headless `lw`, trust, devices, the daemon).
 - [spec/protocol/PROTOCOL.md](spec/protocol/PROTOCOL.md): the workspace
   protocol (transport, handshake, envelope, tasks, schemas).
 - [spec/protocol/API.md](spec/protocol/API.md): the interfaces a daemon

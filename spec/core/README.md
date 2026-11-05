@@ -1,0 +1,315 @@
+# loomworks — Core Specification
+
+This is the behavioral specification of the loomworks workspace engine, the
+`lw` command-line tool and the workspace daemon. It defines *what* the system
+does — data model, state machines, module and SDK contracts, headless
+execution, trust, remote execution and the workspace runtime — not how it is
+implemented. The implementation (code) and architecture
+([ARCHITECTURE.md](../../ARCHITECTURE.md)) must conform to it.
+
+The wire protocol and the interfaces a daemon serves are specified in
+[`spec/protocol/PROTOCOL.md`](../protocol/PROTOCOL.md) and
+[`spec/protocol/API.md`](../protocol/API.md), and the syntax of the on-disk
+files in [`spec/formats.md`](../formats.md).
+
+## Document layout
+
+This file is the **index** over the core specification. The core spec
+describes contracts and behavior that hold for any module, language-server
+integration, debug-adapter integration or SDK provider. It does not name
+specific modules, tools, compilers, or SDKs in normative prose. Its normative
+sections are partitioned into topic files in this directory; this file keeps
+the preamble and **§15 Invariants** (the global cross-cutting contract)
+inline. The split is physical only: section numbers are never renumbered, and
+no top-level `§N` is ever split across two files.
+
+**Core specification — section range → file:**
+
+| Sections | Topic | File |
+|--|--|--|
+| §1 | Data Model | [`data-model.md`](data-model.md) |
+| §2 | Three-File Model | [`three-file-model.md`](three-file-model.md) |
+| §3–§7 | State & Lifecycle (state machine, profile lifecycle, task execution, events) | [`state-lifecycle.md`](state-lifecycle.md) |
+| §8 | Module Interface | [`module-interface.md`](module-interface.md) |
+| §10–§12 | Integrations (SDK, device, overseer) | [`integrations.md`](integrations.md) |
+| §15 | Invariants | this file |
+| §16 | Headless / Standalone Execution | [`headless.md`](headless.md) |
+| §17 | Workspace Trust | [`trust.md`](trust.md) |
+| §18 | Remote Execution on Devices | [`remote-exec.md`](remote-exec.md) |
+| §19 | Workspace Runtime and Daemon (target design, implemented in steps; per-part status) | [`daemon.md`](daemon.md) |
+
+The editor-side sections — §6 UI, §9 LSP integration, §13 auto-load, §14
+Neovim commands, §18.11 remote execution in the editor and §19.16 the editor
+as a client — are specified by the Neovim plugin, in
+[loomworks.nvim `spec/plugin.md`](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md);
+each keeps a one-line pointer at its place here. §19.8 and §19.12 are covered
+by [`PROTOCOL.md`](../protocol/PROTOCOL.md).
+
+Implementation-specific specs live in sibling directories:
+
+- [`spec/modules/`](../modules/) — per-module implementations
+  ([cmake](../modules/cmake.md), [meson](../modules/meson.md),
+  [shell](../modules/shell.md), [typescript](../modules/typescript.md))
+- [`spec/sdks/`](../sdks/) — per-SDK-provider details
+  ([cpp_compiler](../sdks/cpp_compiler.md))
+
+Section numbering differs by subtree. The `spec/core/*.md` files are a
+physical partition of the single global core §-namespace: they keep their
+**original** section numbers (§1, §2, …, §19) and do **not** restart at §1.
+Section numbers inside `spec/modules/` and `spec/sdks/` are local to each
+file and restart at §1; there, "core §N" means a section of the core spec.
+
+This specification was written in
+[samienne/loomworks.nvim](https://github.com/samienne/loomworks.nvim) before
+`lw` moved here. Pull-request numbers in it (`#N`, including the status
+markers of §19) and the branch name `master` refer to that repository.
+
+**Naming rule for core**: core sections forbid module / tool / compiler /
+SDK / integration names in normative prose. Specific names may appear in
+fenced "example" blocks when they aid reasoning, but never as the
+authoritative description of behavior. The authoritative description
+belongs in the matching `spec/` file.
+
+---
+
+## 15. Invariants
+
+1. **Cache is truth**: The cache reflects what exists on disk. It is never
+   contradicted or overridden by config or user files. When the two diverge
+   because a build directory was removed out of band, disk wins: a cached
+   `configured` / `built` / `failed_*` unit whose build directory is absent
+   resets to `unconfigured` on the next load/remerge and at the build gate
+   (§3.1, rule 7), excluding the `unknown` / `deleting` states reserved for
+   in-flight deletion.
+
+2. **No auto-clean**: Failed states, orphaned configurations, and stale
+   profiles are never automatically removed. Only explicit user action
+   modifies or removes cache entries. Orphaned configurations (cached configs
+   with state but no profile reference) are preserved and shown in the UI
+   for the user to manage.
+
+3. **Deletion safety**: All build directory deletions (config delete, clean,
+   nuke) verify that the target path is under the workspace root before
+   proceeding. Paths resolving outside the workspace are refused with an
+   error notification. A module-owned LSP database removed alongside its
+   build directory is restricted to that module's area under
+   `root/.nvim/cache/`, is derived from the BuildDir rather than read from
+   the cache, is removed only after the build directory's deletion
+   succeeded and only when no remaining build directory maps to it, and
+   never through a link or junction (§4.6 *Owned LSP database cleanup*). The nuke operation (`<C-n>`, `lw nuke`) is further
+   restricted to `root/.nvim/` and requires that `loomworks.json` or the
+   working copy (`.nvim/loomworks.user.json`) exists at the root.
+
+4. **Atomic writes**: All file writes (cache, user) use temp + fsync + rename
+   with .bak recovery on read failure.
+   A save never blindly overwrites a working copy or cache another process
+   changed since this one last read it: the cache merges per entry, the
+   working copy refuses and reloads, and a file with a newer schema is never
+   rewritten (§2.7).
+
+5. **ConfigUnit is source of truth for runtime state**: Running, deleting,
+   and progress state are never stored elsewhere. All queries go through
+   ConfigUnit.
+
+6. **Cache is keyed by build directory, not profile**: Build state lives in
+   `cache.build_dirs`, keyed by each ConfigUnit's id: its build-directory
+   path, plus its `config_key` in a module's shared tree (§1.7 "Unit
+   identity"); there is no `cache.profiles` dict. A materialized profile's
+   cache footprint is the skeleton `build_dirs` entries of its configured
+   ConfigUnits (§7); the profile's own definition (configuration set + tool)
+   is persisted to user.json, not the cache.
+
+7. **Materialization before action**: No build/configure task runs without
+   the profile being materialized to cache first.
+
+8. **Event-driven UI refresh**: The status page never polls. All updates are
+   triggered by events from the core system.
+
+9. **Idempotent materialization**: Materializing an already-cached profile
+   is a no-op. `ConfigurationSet:activate()` finds the existing profile by
+   property matching and skips materialization.
+
+10. **Generation counter**: Objects (Profile, Project) track staleness via a
+    generation counter incremented on every remerge. Stale objects may have
+    outdated data.
+
+11. **Validity is the operation gate**: Every state-bearing domain object
+    (Profile, Configuration, ConfigurationSet, LaunchTarget, ...) exposes
+    `:is_valid() → bool, string[]` returning a yes/no plus a list of
+    human-readable reasons (empty when valid). Build, configure, launch,
+    and debug operations refuse to run on an invalid target — the per-method
+    guards return early with an error citing the reasons. The same
+    predicate drives the status-page Diagnostics section (each invalid
+    object's `:diagnostic()` is a thin formatter on top of `:is_valid()`)
+    and the inline UI markers (e.g. `⚠ missing source`). One predicate,
+    three views — gate, diagnostic, indicator — guaranteed in sync.
+
+12. **Stubs preserve identity, not data**: Source-missing references
+    (configurations referenced from a config_set or inherits chain that
+    don't resolve to a live source) are kept as `_source_missing = true`
+    Configuration stubs in the project's registry. This preserves data-
+    graph soundness across temporary breakage (branch switches, in-flight
+    edits) — every reference always resolves to *some* object, so consumers
+    don't need nil handling. Stubs are filtered from every serialization
+    path (`_serialize_user`, `_serialize_project_partial`,
+    `_serialize_project_shared`, `_user_config_from_objects`,
+    `_type_config_for_module`) — they never reach `loomworks.json`,
+    `user.json`, or the in-memory user_overlay that drives subsequent
+    remerges. The reference TO a stub (in `ConfigurationSet:raw_mappings`)
+    IS preserved on save so the user's intent isn't silently cleaned up.
+
+    Stubs are also garbage-collected promptly when the last referrer
+    is removed: `ConfigurationSet:update_mapping` drops a stub from
+    the project's `_configurations` array if the change leaves it
+    with no remaining referrer (no other set mapping, no sibling
+    inherits chain). Without this, fixing a stale mapping in the UI
+    would leave the stub visible in the project's config list until
+    the next full remerge. Diagnostic surface deduplication: the
+    project-side `Configuration:diagnostic` for `_source_missing`
+    stubs is suppressed when a `ConfigurationSet` already covers
+    the same condition — the set-side message is more actionable
+    and the jump target lands on the broken mapping rather than the
+    stub. Sibling-inherits-only stubs (no set referrer) keep their
+    project-side diagnostic.
+
+11. **Cache version check**: On load, the cache version (`_meta.version`) is
+    checked against the expected version. An older version that has a
+    migration (version 8, three-file-model §2.3) is migrated in memory and
+    written as the current version by the next save. If the version is
+    incompatible, setup refuses to load — the workspace stays nil, the cache
+    file on disk is untouched, and the user is notified. The status page
+    shows the normal "No workspace loaded" state. The user can press `<C-n>`
+    to nuke the cache and build artifacts, which deletes `.nvim/build/` and
+    `loomworks.cache.json`, then re-runs setup. This is the only way to
+    resolve a version mismatch — the system never silently discards or
+    overwrites an incompatible cache.
+    A cache (or working copy) whose version is **newer** than the running
+    loomworks understands is refused the same way, but the remedy shown is to
+    update loomworks, not to reset — the file is valid, only newer (§2.7).
+
+12. **Non-blocking initialization**: Workspace setup never blocks the
+    Neovim UI thread. File reads use async I/O. Tool detection runs
+    as a background task. Generation of a loomworks-owned LSP
+    compilation database (cmake's `compile_commands.json`, §8.4
+    `refresh_lsp_database`) runs asynchronously and yielding, never
+    synchronously on the UI thread however large the project. Only
+    JSON parsing and merge (both fast, CPU-bound operations) run
+    synchronously within callbacks; the owned-database freshness
+    *guard* (a cheap mtime check) may run synchronously, but the
+    reconstruction it gates may not.
+
+13. **The tool owns the compiler**: The compiler for a profile is
+    determined solely by the profile's tool (kit). A project
+    configuration's own `options` and `env` (§1.3.3) may not select a compiler:
+    CMake cache keys matching `^CMAKE_<LANG>_COMPILER$` and the
+    compiler-driver environment variables (`CC`, `CXX`, `FC`, `CUDACXX`,
+    `CUDAHOSTCXX`, `OBJC`, `OBJCXX`, `ISPC` — matched case-insensitively)
+    are reserved. They are rejected at config-edit time and defensively
+    stripped at task-build time (with a warning and an inline diagnostic)
+    if present from a hand-edited file,
+    so the tool's compiler always wins — keeping the tool's compiler
+    identity (which keys build directories and selects the clangd binary)
+    in sync with the compiler actually used. Excluded: compiler flags
+    (`CFLAGS`/`CXXFLAGS`/…), compiler launchers
+    (`CMAKE_<LANG>_COMPILER_LAUNCHER`), toolchain files, and CMake presets
+    (a preset owns its own toolchain — see the cmake module spec).
+
+    The **compiler-cache launcher** rides this same ownership boundary from the
+    other side: it is not a compiler and never selects one (it wraps the tool's
+    own compiler), so it is core-resolved from the `cache` **policy** variable
+    (§1.3.2) and the active compiler family rather than from a project's
+    `options`/`env`. The resolved launcher is a build input like any resolved
+    option value: it is recorded at configure time and a change to it
+    (policy edited, or the cache tool appearing/disappearing on the toolchain
+    path) makes an already-configured unit **stale**, so the build gate
+    reconfigures before the next build (§3.1, §5; module `is_stale()`). The
+    launcher never keys the build directory. Like every configure input, a
+    launcher change is applied by a full reconfigure unless the module declares
+    that change safe to apply in place (§5.1).
+
+14. **Blank variables gate the build**: A declared project variable that is
+    blank after configuration resolution (§1.3.1) — no default, no
+    configuration or compiler override — MUST be filled by the active profile.
+    A profile with an unfilled blank variable, for a project in its
+    configuration set, is not buildable: configure and build refuse to run
+    (§5) and the condition surfaces as a profile-scoped diagnostic (§16.18).
+    Profile fill values are per-machine working-copy state and are never
+    published (§2.4).
+
+15. **Output-artifact conflicts need force, not guesswork**: A ConfigUnit's
+    resolved artifact set (§1.7) is known only after a successful configure
+    and is never inferred otherwise — a unit reporting no artifacts takes no
+    part in conflict detection. Two units **conflict** when their artifact
+    sets overlap; the relation is symmetric, but the build **block** is
+    directional (§5.9): starting a build that would overwrite a
+    *still-`built`* unit's shared artifact is refused unless the build is
+    explicitly forced. Force is the only bypass — no setting disables the
+    check. A forced (or otherwise superseding) build marks every other
+    `built` unit sharing that artifact **overwritten** (§1.7), so the cache
+    never claims two units simultaneously own the same on-disk artifact as
+    fresh (invariant 1).
+
+16. **Controlled servers start ready, not twice**: A language server
+    loomworks installs ([loomworks.nvim `spec/plugin.md` §9.4](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration)) is not started against a
+    default/fallback configuration and then restarted once the
+    workspace loads. For a buffer under the workspace root, loomworks
+    holds the server's start until the active profile's owned LSP
+    database is ready (generated on disk), or there is nothing to
+    generate, or init failed/timed out, then starts it once with the
+    resolved binary and a populated compilation-database directory
+    ([loomworks.nvim `spec/plugin.md` §9.7](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration)). Buffers outside any
+    workspace root, and the `lsp = false` opt-out path (where
+    loomworks does not own the start), are exempt — the latter falls
+    back to attach-time reconciliation.
+
+16a. **No server on a foreign database**: Inside a workspace, a
+    compilation database reaches a language server only from a unit
+    configured on this machine ([loomworks.nvim `spec/plugin.md` §9.1](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration), §17.8) — never from an
+    unconfigured unit's build directory, whatever is on disk there. A
+    buffer under the loaded workspace's root (in a project or not) whose server
+    needs a database it cannot have is
+    **withheld** — no client at all, not a database-less one — and
+    starts by itself once a database becomes available; the hold's
+    terminal conditions (no active profile, init failure, safety
+    timeout) never start a database-less server for a buffer under the
+    workspace root ([loomworks.nvim `spec/plugin.md` §9.7](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration), [loomworks.nvim `spec/plugin.md` §9.8](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration)). Being withheld is shown, not silent
+    ([loomworks.nvim `spec/plugin.md` Part II](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#part-ii-ui) §3–§4). Buffers outside the loaded workspace —
+    including those of a workspace on disk that is not loaded — are
+    unaffected (stock server).
+
+17. **Nothing runs from the current directory by accident**: A bare
+    program name is resolved to an absolute path from absolute search-path
+    entries only — never the working directory or an empty/relative entry —
+    and is not spawned when it does not resolve (§5.10). Plugin code named
+    by workspace data (module / SDK provider / progress-parser ids) is loaded
+    only from the runtime path, never through a generic module search path
+    that includes the working directory (§8.0). A pinned run executes only
+    artifacts the host fetched and verified itself, never files found inside
+    the repository (§16.22).
+
+18. **Only signed local state names programs**: A workspace's shared snapshot
+    (`loomworks.json`) never names a program, adds arguments, sets a spawned
+    environment or working directory, or places a deploy outside the
+    workspace — such fields are ignored with a diagnostic and preserved on
+    publish (§17.6). The working copy and the caches under `.nvim/` are used
+    only when they carry this machine's signature (§17.3–§17.4); cached tool
+    data is never the source of an executable path (§17.7); opening a
+    workspace executes nothing that unsigned or shared data names (§17.8); and
+    loader/interpreter-hijack environment variables are refused from every
+    environment source (§17.9).
+
+19. **Foreign programs never run on the host**: A build-target artifact whose
+    kit targets another platform, or whose executable format the host cannot
+    run, is never executed locally — by a launch, a headless run, a test run
+    or a discovery probe. It is routed to a device through the device runner
+    of the SDK that serves its platform, or refused with a message naming the
+    platform (§18.1). A remote run's exit status is the program's, recovered
+    explicitly; a transport that loses it reports a transport failure, never
+    a program status (§18.5).
+
+20. **Descriptions are inert and optional**: A description (§1.10) is display
+    text only. It never influences what is built or run, is never expanded or
+    interpreted, never makes a unit stale, and is not part of any key. It is
+    rendered inert in every host (§17.11). Absence is the default: an empty
+    description is never stored, and loading, merging, publishing, reverting,
+    renaming and pulling never drop a present one (§1.10, §2.4).
