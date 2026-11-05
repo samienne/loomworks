@@ -83,9 +83,13 @@ features.
    `version`, `install`, `self-update`, `bootstrap`, `release query`, and
    their help ([`boot/help.lua`](lua/boot/help.lua));
 3. resolves the **source** of the rest of the code, in this order:
-   `LOOMWORKS_LUA` > `--dev[=PATH]` > the `default-source=dev` setting >
-   the newest verified release bundle (`<data>/loomworks/lua-<version>/`) >
-   a bundle fused into the binary (development builds);
+   `LOOMWORKS_LUA` > `--dev[=PATH]` > the `default-source=dev` setting (the
+   development facility, only on that opt-in) > the code embedded in the
+   executable (a release executable or a development build: it runs, and
+   never an installed bundle) > for a bootstrap-only host (transitional) the
+   newest verified release bundle (`<data>/loomworks/lua-<version>/`). In
+   pinned context, embedded code runs only when its release version is the
+   pinned one and refuses otherwise;
 4. honours a repository's **version pin** (`lw.pin`): workspace commands are
    redirected to the pinned release, which is provisioned on demand into the
    per-user data directory;

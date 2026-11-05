@@ -81,22 +81,24 @@ end
 --- predicate shared by `decide` (a dev build never replaces itself) and the
 --- `lw version` label (only a dev build is called one), so the two can't
 --- disagree. A dev build is the bare luvi runtime running a source tree, or a
---- host with system Lua fused in (`make install` / `luvi lua --`); a release
---- host fuses only the bootstrap — with or without an embedded version.
---- @param o { exe?: string, fused_system_lua?: boolean }
+--- host whose embedded code carries no release version (`make install` /
+--- `luvi lua --`). A release executable (the whole tree fused with its release
+--- version, spec §16.11) and a bootstrap-only release host (transitional, with
+--- or without an embedded version) are release hosts.
+--- @param o { exe?: string, fused_system_lua?: boolean, release_version?: string }
 --- @return string|nil reason why it is a dev build, or nil for a release host
 function M.dev_build(o)
   local exe = (o.exe or ""):gsub("\\", "/"):lower()
   local base = (exe:match("([^/]+)$") or ""):gsub("%.exe$", "")
   if base == "luvi" then return "running from the bare luvi runtime (a source run)" end
-  if o.fused_system_lua then
-    return "this is a development build (system Lua fused into the binary)"
+  if o.fused_system_lua and not o.release_version then
+    return "this is a development build (embedded code without a release version)"
   end
   return nil
 end
 
 --- Should the running host replace itself? Pure — all inputs explicit.
---- @param o { exe?: string, running_version?: string, target_version?: string, no_host?: boolean, pinned?: boolean, dev?: boolean, fused_system_lua?: boolean }
+--- @param o { exe?: string, running_version?: string, target_version?: string, no_host?: boolean, pinned?: boolean, dev?: boolean, fused_system_lua?: boolean, release_version?: string }
 --- @return "swap"|"current"|"skip" action
 --- @return string reason
 function M.decide(o)
@@ -210,7 +212,7 @@ function M.update_host(o)
   local action, reason = M.decide({
     exe = exe, running_version = running, target_version = target,
     no_host = o.no_host, pinned = o.pinned, dev = o.dev,
-    fused_system_lua = o.fused_system_lua,
+    fused_system_lua = o.fused_system_lua, release_version = verify.RELEASE_VERSION,
   })
   if action == "skip" then return { status = "skipped", message = reason } end
   if action == "current" then return { status = "current", message = reason } end

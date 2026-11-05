@@ -503,6 +503,11 @@ end
 --- @param except? string a version never removed (the one just installed)
 --- @param running_root? string the running bundle's root, never removed
 function M.gc(keep, except, running_root)
+  -- Embedded code (a release executable, spec §16.11) runs no bundle and keeps
+  -- no install folder: nothing here is its to prune, and the install folder may
+  -- be any user-chosen directory. Never delete anything then.
+  local code = rawget(_G, "__loomworks_code")
+  if type(code) == "table" and code.kind == "embedded" then return end
   local base = canon_path(paths.install_dir())
   if not base then return end
   local running = canon_path(running_root or rawget(_G, "__loomworks_luaroot"))
@@ -651,11 +656,29 @@ end
 --- update channel: the line names the pinned version (marked prerelease when it
 --- is one) and the pin file, and carries no channel. A release bundle that is a
 --- prerelease is marked `(prerelease)` too.
+---
+--- Embedded code (a release executable, spec §16.32) has no bundle and no
+--- capability version: the line names the release version (marked prerelease)
+--- and "self-contained", or "dev build", then the pin or the channel.
 --- @param info { host_version: integer, release_version?: string, dev_build?: boolean, source: string, bundle: string }
 --- @param channel string the resolved update channel
 --- @param pinned? { file: string, version: string } the pin this invocation runs under
 --- @return string line
 function M.version_line(info, channel, pinned)
+  local function pin_or_channel(line)
+    if pinned then
+      return line .. " | pinned: " .. pinned.version
+        .. (paths.is_prerelease(pinned.version) and " (prerelease)" or "")
+        .. " by " .. pinned.file
+    end
+    return line .. " | channel: " .. channel
+  end
+  if info.source == "embedded" then
+    local v = (not info.dev_build) and info.release_version or nil
+    local label = v and (v .. (paths.is_prerelease(v) and " (prerelease)" or "") .. " (self-contained)")
+      or "dev build"
+    return pin_or_channel("lw - host: " .. label)
+  end
   local label = info.release_version
     or (info.dev_build and "dev build" or "unknown release")
   local host = label .. " (v" .. info.host_version .. ")"
@@ -663,14 +686,8 @@ function M.version_line(info, channel, pinned)
   -- `unstable` keeps it until a newer stable arrives).
   local bundle = info.bundle
   if info.source == "release" and paths.is_prerelease(bundle) then bundle = bundle .. " (prerelease)" end
-  local line = string.format("lw - host: %s | source: %s | bundle: %s",
-    host, info.source, bundle)
-  if pinned then
-    return line .. " | pinned: " .. pinned.version
-      .. (paths.is_prerelease(pinned.version) and " (prerelease)" or "")
-      .. " by " .. pinned.file
-  end
-  return line .. " | channel: " .. channel
+  return pin_or_channel(string.format("lw - host: %s | source: %s | bundle: %s",
+    host, info.source, bundle))
 end
 
 --- Describe the resolved runtime for `lw version`.
@@ -679,12 +696,23 @@ end
 --- `opts.fused_system_lua`); otherwise nothing is installed — a release host
 --- before its first `lw self-update` — and the report says so rather than
 --- claiming a bundle every other command would then fail to find.
+--- Embedded code (`source_kind` "embedded", spec §16.11) has no bundle: the
+--- info names its release version (`opts.release_version`, default the host's).
 --- @param luaroot string|nil the resolved system-Lua root
---- @param source_kind "dev"|"release"|nil the system-Lua source
---- @param opts? { dev_build?: boolean, fused_system_lua?: boolean } whether the host is a development build (host_update.dev_build) / carries system Lua fused in
+--- @param source_kind "dev"|"release"|"embedded"|nil the system-Lua source
+--- @param opts? { dev_build?: boolean, fused_system_lua?: boolean, release_version?: string } whether the host is a development build (host_update.dev_build) / carries system Lua fused in
 --- @return { host_version: integer, release_version: string|nil, dev_build: boolean, source: string, bundle: string, luaroot: string|nil }
 function M.version_info(luaroot, source_kind, opts)
   local bundle, source = nil, source_kind
+  if source_kind == "embedded" then
+    return {
+      host_version = verify.HOST_VERSION,
+      release_version = (opts and opts.release_version) or verify.RELEASE_VERSION,
+      dev_build = (opts and opts.dev_build) and true or false,
+      source = "embedded",
+      bundle = "embedded",
+    }
+  end
   if source_kind == "dev" then
     bundle = "dev (" .. (luaroot or "?") .. ")"
   elseif source_kind == "release" and luaroot then
