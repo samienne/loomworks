@@ -1419,52 +1419,22 @@ launcher's form (§16.24 "Invoked form"). The host removes the value from its ow
 environment once read, so nothing it starts inherits it. A launcher that does not
 set it (an earlier generation) is still honoured, with the `./lw.sh` form.
 
-**Install folder.** What the host installs — the release bundles of an
-acquisition or self-update (§16.13), and the pinned-release cache above (the
-redirect's pinned host binaries, §16.23, and the pinned bundles), together with
-the record of which release's notes were last shown (§16.37), which describes
-those bundles — lives in the **install folder**: the per-user data directory,
-unless the environment value `LOOMWORKS_INSTALL_DIR` names another one (an
-absolute path; a relative value is not honoured and the host says so, once, on
-standard error). It exists for an lw that another program runs and provisions —
-the editor plugin runs its own lw with the install folder inside the editor's
-data, so everything that lw downloads stays there. The value is inherited, so a
-daemon the host starts installs into the same folder, and so does a pinned host
-a redirect re-execs — when that pinned release knows the install folder. A
-pinned release from before it ignores the value: the redirecting host still
-fetches the pinned host binary and provisions the pinned bundle into the
-install folder (§16.23), but that pinned host then provisions its own copy of
-the bundle into the per-user data directory, as it always did. (There is no
-clean hand-over: such a host accepts a system-Lua root only as a development
-source, §16.11, which changes what it reports and allows.)
-
-The install folder may be any directory, shared with unrelated files, so the
-host MUST recognise its release bundles there strictly. It lists, ranks (the
-newest bundle is what runs, §16.13) and removes (keeping the newest three)
-only entries named `lua-<version>` whose version is a release version —
-`<n>.<n>.<n>` with an optional `-<pre-release>` of dot-separated alphanumeric
-identifiers, and a safe path segment (§16.23) — that are real directories (a
-symbolic link or junction never counts, and is never followed) holding a real
-`loomworks/` directory with the bundle's CLI entry `loomworks/cli.lua` as a
-regular file. A removal re-checks the entry, requires its resolved path to be a
-direct child of the resolved install folder, and never removes the bundle just
-installed or the bundle the running host loaded. Installing a release whose
-`lua-<version>` name is taken there by anything else fails with a message
-naming it; that entry is never replaced. A forced reinstall (`--force`) of
-the version whose bundle the running host loaded (the same resolved-path
-identity) is refused with a message, before anything is fetched: the bundle in
-use is never removed or swapped (its files may be open), and reinstalling it
-takes a different lw version. Its temporary download and staging
-names (`.dl-<version>.zip`, `.stage-<version>`) are formed only from such a
-version.
-
-It moves only installations: the **shared runtime state** — the
-trust store (§17), the daemons' runtime directory, sockets, identity and logs
-(§19), device locks (§18), acquired modules (§16.20), host settings — stays in
-the per-user data and configuration directories for every lw on the machine,
-whoever runs it, so a plugin-run lw and a user's own lw see one trust store and
-meet one workspace daemon. Housekeeping (§16.40) prunes only the per-user data
-directory; an install folder is its owner's to prune.
+**No install folder.** A host keeps no code outside its executable, so there
+is nothing to install beside it: the executables it downloads live in the
+machine-local executable cache (§16.13, §16.40), and `LOOMWORKS_INSTALL_DIR`
+is not read. A program that runs its own lw (the editor plugin, §19.16) keeps
+that executable where it chooses; what that lw downloads, the record of which
+release's notes were last shown (§16.37), and the **shared runtime state** —
+the trust store (§17), the daemons' runtime directory, sockets, identity and
+logs (§19), device locks (§18), acquired modules (§16.20), host settings —
+stay in the per-user data and configuration directories for every lw on the
+machine, whoever runs it, so a plugin-run lw and a user's own lw see one
+trust store, one executable cache and one workspace daemon.
+*Transitional (§16.14):* a pinned release from before self-contained
+executables provisions its own bundle, into the location that release chose
+(honouring `LOOMWORKS_INSTALL_DIR` when that release knows it and the value
+is in its environment); the redirecting host neither sets the value nor
+prunes what that release writes outside the per-user data directory.
 
 A launcher fetches and execs only the release executable, so it depends on
 nothing beyond a system downloader and a hash tool.
@@ -1929,7 +1899,7 @@ never recursion) whose name is exactly a cached-binary name — the cache's
 prefix, a version that passes the safe-version rule (§16.23), and a known
 host-binary asset name — are candidates; the binary for the pin's version is
 never a candidate, nor is the running executable or the executable of a live
-workspace daemon (by its daemon record). A failure to remove one (e.g. a binary
+workspace daemon (§16.40). A failure to remove one (e.g. a binary
 still executing on Windows) is skipped silently and retried by the next run;
 pruning never fails the operation. This prune is part of the explicit install
 request and touches only that repository's launcher cache: legacy
@@ -1941,9 +1911,10 @@ cache (§16.13) are pruned only
 on explicit request, past an age threshold since last use (every run through
 the cache marks it used; a running daemon marks its own executable at least
 daily), and never when it is the current pin's, the running executable, or the
-executable of a live workspace daemon (by its daemon record). Leftover code
+executable of a live workspace daemon (§16.40). Leftover code
 directories of releases before self-contained executables are reported by
-health and removed only by an explicit legacy cleanup.
+health (§16.31) and removed only by an explicit legacy cleanup
+(`lw cleanup --legacy`, §16.40).
 
 **Upgrading through the launcher.** Pin management is a host command, so it runs
 on whichever host is invoked. Run through the repository's launcher
@@ -2782,6 +2753,18 @@ processes and reads files outside resolved state), it never runs on the passive
 `N suggestions` path and writes nothing to the health cache; its actionable
 items are listed with the report's other actionable items but, like provider
 #3's, never reach the passive count.
+
+**Provider #5 — legacy code directories (on-demand, report-only).** When the
+per-user data directory is lw's (§16.40 "Housekeeping") and holds legacy code
+directories (§16.40 "Legacy code directories"), health reports one
+**informational** item in the `lw` area: "N code directories of releases
+before self-contained executables in `<data>` — `lw cleanup --legacy` lists
+them", its `detail` the count of each form and how many are past the 30-day
+threshold. It recognises entries exactly as `lw cleanup --legacy` does,
+reads only `<data>` and `<data>/pinned` one level deep (never sizing a tree),
+removes nothing, and is silent when there are none. It is
+workspace-independent, never runs on the passive `N suggestions` path and
+writes nothing to the health cache.
 
 **Health runs without a workspace.** A provider is either **workspace-scoped**
 (it inspects the resolved workspace — e.g. the compiler-cache provider) or
@@ -4239,19 +4222,14 @@ except where the last column says so.
 | `<data>/trust.key` | one key (§17.2) | never |
 | `<cache>/tools.json` | one file; one entry per module type (§16.43) | rewritten by a tool scan |
 | `<data>/release-notes-seen` | one line (§16.37) | never |
-| `<data>/lua-<ver>/` | the newest three releases (§16.13) | self-update |
 | `<data>/modules/<name>/` | the installed modules (§16.20) | module removal |
-| `<data>/pinned/<sha256>/lua-<ver>/`, `<data>/pinned/lw-<ver>-<asset>` | the pinned releases in use (§16.22, §16.23) | `lw cleanup --all`, once unused for 30 days |
+| `<data>/exe/<sha256>/lw` (`lw.exe` on Windows) | the cached release executables (§16.13, §16.23), one per content hash | `lw cleanup --all`, once unused for 30 days |
 | `<data>/daemon/` | an empty directory, the daemon's working directory (§19.10) | never |
 | `<data>/device-locks/<serial>.lock` | one per device, while an operation on it runs (§18.7) | its holder; housekeeping once the holder is provably gone |
 | `<data>/device-locks/<serial>.leftover` | one per device with a program left running on it (§18.7) | the run that stops the program; never housekeeping |
 | `<run>/<hash>.sock` | one per running daemon (§19.7) | the daemon; housekeeping once stale |
 | `<data>/.housekeeping` | one empty stamp file | never |
 | `<exe>` | the binary | the user |
-
-With an install folder (`LOOMWORKS_INSTALL_DIR`, §16.22) the release bundles,
-`release-notes-seen` and `pinned/` are in that folder instead of `<data>`;
-neither housekeeping nor `lw cleanup` looks there — its owner prunes it.
 
 **Transient.** These exist only while an operation runs. One that is still
 there afterwards was left by an interrupted process: a **leftover**. A
@@ -4260,9 +4238,9 @@ leftover is removed once it is older than the age given, by modification time
 
 | Leftover | Made by | Removed when older than |
 |---|---|---|
-| `<data>/.dl-<ver>.zip`, `<data>/.stage-<ver>/` | self-update (§16.13) | 24 hours |
-| `<data>/pinned/.dl-<sha256>-<ver>.zip`, `<data>/pinned/.stage-<sha256>-<ver>/`, `<data>/pinned/lw-<ver>-<asset>.dl` | pinned provisioning (§16.22, §16.23) | 24 hours |
-| `<data>/pinned/.trash-<nonce>/` | pruning a pinned release (below) | any age |
+| `<data>/exe/<sha256>.<pid>.<nonce>.dl` | acquiring a cached executable (§16.13) | 24 hours |
+| `<data>/.dl-<ver>.zip`, `<data>/.stage-<ver>/`, `<data>/pinned/.dl-<sha256>-<ver>.zip`, `<data>/pinned/.stage-<sha256>-<ver>/`, `<data>/pinned/lw-<ver>-<asset>.dl` | bundle provisioning by a release before self-contained executables | 24 hours |
+| `<data>/.trash-<nonce>/`, `<data>/pinned/.trash-<nonce>/` | `lw cleanup --legacy` (below) | any age |
 | `<data>/modules/.dl-<name>.zip`, `<data>/modules/.stage-<name>/` | module installation (§16.20) | 24 hours |
 | `<data>/release-notes-seen.tmp`, `<data>/release-notes-seen.tmp<digits>` | recording the seen release (§16.37) | 24 hours |
 | `<data>/device-locks/<serial>.leftover.tmp.<pid>`, `<data>/device-locks/<serial>.lock.reclaim.<nonce>` | device-lock writes and reclaims (§18.7, §19.5) | 24 hours |
@@ -4272,8 +4250,9 @@ leftover is removed once it is older than the age given, by modification time
 | `<exe>.new` | host self-update (§16.32) | 24 hours |
 | `<exe>.old` (Windows) | host self-update (§16.32) | any age (it cannot be removed while it still runs) |
 
-`<exe>.new` and `<exe>.old` are looked for only beside a running `lw` host:
-not in the editor, and not beside a bare runtime running a source tree.
+`<exe>.new` and `<exe>.old` are looked for only beside a running release
+executable: not in the editor, and not beside a runtime that runs a source
+tree through the development facility (§16.11).
 `<exe>.old` only on Windows: elsewhere the binary is replaced in one rename,
 and an `<exe>.old` is the user's own (a rollback copy, say) and stays.
 
@@ -4290,6 +4269,23 @@ versions left behind:
 | `<tmp>/lw-describe-<hex>.txt` | when older than 7 days |
 
 These are exact regular files directly in a `.nvim` that is a real directory of the root; another slot's `loomworks.daemon-<S>.*` files are never among them.
+
+**Legacy code directories.** Releases before self-contained executables kept
+their code in directories outside the executable. A self-contained host never
+writes or runs them; while a repository pins such a release, that release
+still provisions them (§16.22). They are reported by health (§16.31) and
+removed only by `lw cleanup --legacy` (below), never by housekeeping:
+
+| Leftover | Removed |
+|---|---|
+| `<data>/lua-<ver>/` | by `lw cleanup --legacy`, once unused for 30 days |
+| `<data>/pinned/<sha256>/lua-<ver>/`, `<data>/pinned/lw-<ver>-<asset>` | by `lw cleanup --legacy`, once unused for 30 days |
+
+A `lua-<ver>` entry is one only when it is a real directory (`lstat`) holding
+a real `loomworks/` directory with a regular file `loomworks/cli.lua`; a
+pinned host binary only when it is a regular file. Their use is read from
+their modification time (below); nothing marks a `<data>/lua-<ver>/`, so its
+age is that of its installation.
 
 **Inside the workspace.** The runtime log is `<root>/.nvim/loomworks.daemon-<S>.log`,
 with one rotated predecessor (§19.10). The results file of a named test
@@ -4310,16 +4306,16 @@ an existing `.log.1` that is not lw's stops rotation (nothing more is
 written). The lines lost that way are only diagnostics; rewriting a file the
 repository owns would not be.
 
-**Last use of a pinned release.** A host that redirects to a pinned release
-(§16.23) sets the modification time of the pinned bundle directory and of the
-pinned host binary to the current time. The bundle does the same for itself at
-the start of every command-line run: when the running bundle root, or the
-running executable, resolves to `<data>/pinned/<sha256>/lua-<ver>` or
-`<data>/pinned/lw-<ver>-<asset>`, it gets the current time. So a pinned
-release run through a host older than this rule is still recorded once the
-release itself has it. Otherwise the time of provisioning stands in for the
-last use, and a pruned release that is still needed is provisioned again
-(downloaded and verified, §16.22) on its next use.
+**Last use of a cached executable.** Every run of an executable through the
+cache (a redirect, §16.23) sets the modification time of its
+`<data>/exe/<sha256>/` directory to the current time, and so does a command-line
+run whose running executable resolves to one; a running workspace daemon
+does so for its own at least once a day (§16.24). Otherwise the time of
+acquisition stands in for the last use, and a pruned executable that is still
+needed is acquired again (downloaded and verified, §16.13) on its next use.
+*Transitional:* a release before self-contained executables, run pinned,
+still marks its own `<data>/pinned/` entries when it runs; nothing marks a
+`<data>/lua-<ver>/`.
 
 #### Housekeeping
 
@@ -4333,14 +4329,16 @@ A command-line invocation removes leftovers at the start of its run:
   concurrent remover. The editor host never runs it, and neither does a run
   with `LOOMWORKS_NO_HOUSEKEEPING=1` (the test suites set it).
 - **Only lw's data directory.** `<data>` (and everything below it) is read
-  only when it shows it is lw's: it holds the machine key, the stamp,
-  `pinned/`, or an installed release `lua-<ver>/loomworks/cli.lua`. A data
-  directory without one (`LOOMWORKS_DATA_DIR` pointed at a home directory,
-  say) is never scanned, and no stamp is written into it.
+  only when it shows it is lw's: it holds the machine key, the stamp, a
+  cached executable `exe/<sha256>/lw` (`lw.exe` on Windows) as a regular
+  file, `pinned/`, or a release `lua-<ver>/loomworks/cli.lua` of an earlier
+  lw. A data directory without one (`LOOMWORKS_DATA_DIR` pointed at a home
+  directory, say) is never scanned, and no stamp is written into it.
 - **What.** Exactly the leftovers in the tables above whose age has passed,
-  and the leftovers in the current workspace's `.nvim/tmp/`. Never the pinned
-  releases (only `lw cleanup --all` prunes them), and never a legacy runtime
-  log modified within 30 days.
+  and the leftovers in the current workspace's `.nvim/tmp/`. Never a cached
+  executable (only `lw cleanup --all` prunes them), never a legacy code
+  directory (only `lw cleanup --legacy`), and never a legacy runtime log
+  modified within 30 days.
 - **Bounded.** It reads only the fixed directories above, one level deep. It
   never walks a tree, except a leftover directory it removes. It stops
   reading `<tmp>` after 10,000 entries. Its socket tests wait about a second
@@ -4349,16 +4347,16 @@ A command-line invocation removes leftovers at the start of its run:
   and never stops the command. Every error is swallowed. When the run is in a
   workspace and the pass removed something or failed to, it writes one line
   to the runtime log (§19.10).
-- **In the bundle.** It lives in the release bundle, not the host. Every
-  host then runs it, including hosts older than this rule, which load the
-  newest bundle (§16.14), and it needs no host interface newer than the oldest
-  host in use. Only the last-use update above is host-side; on an older host
-  its absence makes pruning earlier, never unsafe.
+- **In the release.** It is part of the release executable's code (§16.11).
+  *Transitional (§16.14):* the bundle still published for older hosts carries
+  the same code, so those hosts run it too, and it needs no host interface
+  newer than the oldest host in use; on such a host the missing last-use
+  update makes pruning earlier, never unsafe.
 
 #### `lw cleanup`
 
 ```
-lw cleanup [--dry-run | --yes] [--all] [--pinned-older-than <duration>]
+lw cleanup [--dry-run | --yes] [--all] [--legacy] [--pinned-older-than <duration>]
 ```
 
 Lists what `lw` left outside the workspace and, on request, removes it. It
@@ -4378,28 +4376,48 @@ prompts.
   before anything is removed. (Housekeeping, which removes without asking,
   keeps the 30-day age: a repository pinning a release older than this rule
   still writes there.)
-- `--all` adds the **pinned releases unused for 30 days**
-  (`<data>/pinned/<sha256>/lua-<ver>/`, `<data>/pinned/lw-<ver>-<asset>`) —
-  only those — and counts the pinned releases it keeps. With nothing to remove
-  and no `--all`, the command says what `--all` would add.
-- `--pinned-older-than <duration>` sets that 30-day threshold and implies the
-  pinned part of `--all`. A duration is a whole number of seconds, or a whole
-  number with `s`, `m`, `h` or `d` (`90d`, `12h`). An invalid duration is a
-  usage error.
+- `--all` adds the **cached executables unused for 30 days**
+  (`<data>/exe/<sha256>/`) — only those — and counts the cached executables
+  it keeps. With nothing to remove and no `--all`, the command says what
+  `--all` would add.
+- `--legacy` adds the **legacy code directories unused for 30 days**
+  (`<data>/lua-<ver>/`, `<data>/pinned/<sha256>/lua-<ver>/`,
+  `<data>/pinned/lw-<ver>-<asset>`; "Legacy code directories" above) — only
+  those — and counts the ones it keeps. Without it, a run that finds any says
+  what `--legacy` would add.
+- `--pinned-older-than <duration>` sets that 30-day threshold, for `--all`
+  and `--legacy` alike, and implies the cached-executable part of `--all`. A
+  duration is a whole number of seconds, or a whole number with `s`, `m`, `h`
+  or `d` (`90d`, `12h`). An invalid duration is a usage error.
 - A `--yes` run also sets the housekeeping stamp.
 
-A pinned release is **never** pruned when it is
+A cached executable or legacy code directory is **never** pruned when it is
 
 - of the version that the nearest `lw.pin` above the current directory pins
-  (whatever its hash);
-- the running executable or the running bundle;
-- used within the threshold (by modification time).
+  (whatever its hash), or the executable whose hash that pin names;
+- the running executable, or a directory the running process loaded code
+  from;
+- the executable of a running workspace daemon of this user: every daemon
+  the process scan of §19.6.1 finds, by the resolved executable path the
+  operating system reports for it. When the scan fails, or a daemon's
+  executable path cannot be read, no cached executable and no legacy pinned
+  host binary is pruned;
+- used within the threshold (by modification time; a time in the future
+  counts as recent).
 
-A pinned bundle directory is removed by first renaming it, in one step, to
-`<data>/pinned/.trash-<nonce>`. A rename that fails (on Windows: a file in it
-is in use) skips the item. Then the renamed tree is removed. A `<sha256>/`
-directory left empty is removed with `rmdir`. A pinned host binary is
-unlinked (on Windows a running one cannot be, and is skipped).
+Each candidate is examined again (`lstat`, its name and its markers) just
+before it is removed. A cached executable is removed only when its
+`<sha256>/` directory is a real directory holding nothing but the regular
+file `lw` (`lw.exe` on Windows): that file is unlinked, then the directory is
+removed with `rmdir`. Anything else in the directory, or a failed unlink (on
+Windows a running executable cannot be unlinked), skips the item. A legacy
+code directory is removed by first renaming it, in one step, to
+`.trash-<nonce>` — `<data>/pinned/.trash-<nonce>` for a pinned one,
+`<data>/.trash-<nonce>` for a `<data>/lua-<ver>/`. A rename that fails (on
+Windows: a file in it is in use) skips the item. Then the renamed tree is
+removed. A `<data>/pinned/<sha256>/` directory left empty is removed with
+`rmdir`. A legacy pinned host binary is unlinked (on Windows a running one
+cannot be, and is skipped). Nothing is removed by following a link.
 
 #### Removal safety
 
@@ -4414,7 +4432,8 @@ Every removal by housekeeping and `lw cleanup` follows these rules:
    are hex digits of the stated length, and `<pid>` is digits. A near miss is
    never touched.
 2. **Fixed parents.** A candidate is a direct child of one of the fixed
-   directories: `<data>`, `<data>/pinned`, `<data>/pinned/<sha256>`,
+   directories: `<data>`, `<data>/exe`, `<data>/exe/<sha256>`,
+   `<data>/pinned`, `<data>/pinned/<sha256>`,
    `<data>/modules`, `<data>/device-locks` (in its default location only),
    `<data>/daemon/logs`, `<tmp>`, the directory of `<exe>`, a `<run>`
    directory, and `<root>/.nvim/tmp`. The directory must be a real directory
@@ -4444,7 +4463,8 @@ Every removal by housekeeping and `lw cleanup` follows these rules:
    moved aside; if what was moved is not the file tested (same device, inode
    and modification time; a daemon bound the name meanwhile), it is put back,
    and if the name is taken again already it is left where it was moved,
-   never unlinked. Pinned releases follow the rules above.
+   never unlinked. Cached executables and legacy code directories follow the
+rules above.
 6. **Never anything else.** The kept items, `.leftover` files, the
    `<data>/daemon/` directory, and anything not listed here are never removed.
 
@@ -4455,10 +4475,11 @@ for a program that has to decide whether it can use a binary before starting a
 daemon with it (the editor's quick pre-check, §19.16; authoritative is
 `Root.describe` after connecting, [API.md](../protocol/API.md) §3). It is a host command (§16.23: it
 never redirects), needs no workspace and starts no daemon. It describes the
-system Lua this invocation resolved (§16.11) — the release bundle, the pinned
-bundle in pinned context, a development source — so a host with no system Lua
-at all (a release host before its first `lw self-update`) has none to describe
-and exits non-zero. Plain `lw version` is unchanged: one line of text.
+code this invocation runs (§16.11): the executable's embedded code, or the
+source the development facility runs. *Transitional (§16.14):* a host from
+before self-contained executables that has no bundle installed has none to
+describe and exits non-zero. Plain `lw version` is unchanged: one line of
+text.
 
 The descriptor describes the binary invoked, never what a redirect command
 (§16.23) would run in a pinned repository: a caller that launches `daemon run`
@@ -4485,7 +4506,7 @@ bytes.
 **Published with each release.** The release publishes the descriptor of the
 release as the asset `lw-<version>-descriptor.json`, listed in the signed
 `SHA256SUMS` (§16.15) like every other asset. It is produced by the release
-itself — the released host running the released bundle as `lw version --json`
+itself — the released executable running `lw version --json`
 — and the release fails unless it names that release (not a development
 build). A program that pins a release can so learn what it implements before
 downloading its binary.
@@ -4516,9 +4537,8 @@ The release source follows §16.29: the fixed origin, or the user-set
 release-source override (environment or host configuration; a local
 directory, `file://` or a mirror). An override supersedes the channel; the
 result then says so (`channel_ignored`), and the plain output warns as
-self-update does. The install-folder override (§16.22) is honoured for
-anything the host itself needs; the query adds nothing to it. Every fetch is
-bounded (`--timeout <seconds>` overrides the overall limit).
+self-update does. Every fetch is bounded (`--timeout <seconds>` overrides
+the overall limit).
 
 **Output.** With `--json`, one canonical JSON document (keys sorted,
 two-space indent):
