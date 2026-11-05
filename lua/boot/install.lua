@@ -198,7 +198,8 @@ end
 --- Install the running host. opts:
 ---   assume_yes (`-y`: replace an existing binary / edit PATH without asking),
 ---   no_input (non-interactive: never ask — refuse what needs a yes),
----   no_modify_path, no_bundle, dry_run; fused_system_lua (the host carries its
+---   no_modify_path, no_bundle, dry_run; embedded (the code is embedded: no
+---   bundle is fetched); fused_system_lua (the host carries its
 ---   system Lua - a development build: no self-update advice); exe_path / ask
 ---   are test seams.
 --- Returns a list of human-readable report lines (prefixed with the outcome),
@@ -296,6 +297,10 @@ function M.install(opts)
     say("  whose release bundle would take precedence over the fused code.")
   elseif opts.no_bundle then
     say("- bundle: skipped (--no-bundle). Run `lw self-update` when ready.")
+  elseif opts.embedded then
+    -- Embedded code (a release executable): the binary is the release, so
+    -- there is no bundle to fetch (and no installed release is touched).
+    say("- bundle: none needed: this lw carries its code (self-contained)")
   elseif opts.dry_run then
     say("- would run self-update to fetch the current release bundle")
   else

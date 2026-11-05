@@ -52,27 +52,54 @@ function M.read_text(dir)
   return nil
 end
 
---- The running release version: the `lua-<ver>` basename of the system-Lua
---- root the host resolved. nil for a development source, a fused build and
+--- What code the host runs, as main.lua publishes it
+--- (`_G.__loomworks_code`: kind "embedded" | "dev" | "release", version), or
+--- nil: the editor, or a host from before it was published (an old host runs
+--- this code from its transitional bundle).
+--- @return { kind: string, version?: string, exe?: string }|nil
+function M.code()
+  local c = rawget(_G, "__loomworks_code")
+  if type(c) == "table" and type(c.kind) == "string" then return c end
+  return nil
+end
+
+--- The running release version: the release a self-contained executable embeds
+--- (spec §16.11), else the `lua-<ver>` basename of the system-Lua root the host
+--- resolved (a transitional bundle). nil for a development build or source and
 --- the editor.
---- @param luaroot string|nil default `_G.__loomworks_luaroot`
+--- @param luaroot string|nil default: what the host runs (`M.code()`), else `_G.__loomworks_luaroot`
 --- @return string|nil
 function M.running_version(luaroot)
+  local code = (luaroot == nil) and M.code() or nil
+  if code and code.kind ~= "release" then
+    return require("loomworks.release_notes").normalize(code.version)
+  end
   luaroot = luaroot or rawget(_G, "__loomworks_luaroot")
   if type(luaroot) ~= "string" then return nil end
   local v = luaroot:gsub("\\", "/"):gsub("/+$", ""):match("/lua%-([^/]+)$")
   return require("loomworks.release_notes").normalize(v)
 end
 
---- The per-user data directory of a globally installed release — the parent
---- of `<data>/lua-<ver>` — or nil (a development source, or a pinned release:
---- `<data>/pinned/<sha256>/lua-<ver>`, or the pinned sentinel set).
+--- The per-user data directory of a globally installed release — for a
+--- self-contained executable the per-user data directory (spec §16.22), for a
+--- transitional bundle the parent of `<data>/lua-<ver>` — or nil (a development
+--- build or source, or a pinned release: the pinned sentinel set, or
+--- `<data>/pinned/<sha256>/lua-<ver>`).
 --- @param luaroot string|nil
 --- @param getenv fun(name: string): string|nil
 --- @return string|nil
 function M.release_data_dir(luaroot, getenv)
+  getenv = getenv or require("loomworks.host_env").getenv
+  local code = (luaroot == nil) and M.code() or nil
+  if code and code.kind ~= "release" then
+    if not M.running_version() then return nil end
+    local pinned = getenv("LOOMWORKS_PINNED")
+    if pinned and pinned ~= "" then return nil end
+    local okp, paths = pcall(require, "boot.paths")
+    if not okp or type(paths) ~= "table" or type(paths.data_dir) ~= "function" then return nil end
+    return paths.data_dir()
+  end
   luaroot = luaroot or rawget(_G, "__loomworks_luaroot")
-  getenv = getenv or os.getenv
   if not M.running_version(luaroot) then return nil end
   local p = luaroot:gsub("\\", "/"):gsub("/+$", "")
   local parent = p:match("^(.*)/[^/]+$")
@@ -140,7 +167,7 @@ end
 --- @param getenv fun(name: string): string|nil
 --- @param cfg table|nil lw settings
 function M.silenced(getenv, cfg)
-  local e = (getenv or os.getenv)("LOOMWORKS_RELEASE_NOTES")
+  local e = (getenv or require("loomworks.host_env").getenv)("LOOMWORKS_RELEASE_NOTES")
   if e and e ~= "" then
     e = e:lower()
     return e == "off" or e == "0" or e == "false" or e == "no"
@@ -174,7 +201,7 @@ end
 --- @return string|nil
 function M.maybe_notice(o)
   local ok, line = pcall(function()
-    local getenv = o.getenv or os.getenv
+    local getenv = o.getenv or require("loomworks.host_env").getenv
     if M.silenced(getenv, o.cfg) then return nil end
     local dir = M.release_data_dir(o.luaroot, getenv)
     if not dir then return nil end

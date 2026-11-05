@@ -11,9 +11,12 @@
 ---   * working directory: the per-user state directory, never the workspace
 ---     (the daemon must not keep it busy);
 ---   * environment: the client's, de-duplicated (Windows: case-insensitively,
----     keeping the entry this process resolves), plus `LW_ROOT` and
+---     keeping the entry this process resolves), plus `LW_ROOT`,
 ---     `LOOMWORKS_LUA` = the source this process runs (so the daemon runs the
----     same code, and an older host binary re-executes it);
+---     same code, and an older host binary re-executes it) and, in a pinned
+---     context, the pinned-context marker `LOOMWORKS_PINNED` — host-internal
+---     values the client's environment no longer holds (spec §16.22), passed
+---     explicitly;
 ---   * readiness: wait about 10 s for a handle naming a live daemon while
 ---     watching the child for an early exit. A child that exits because
 ---     another daemon holds the runtime lock (`server.EXIT_HELD`) is not a
@@ -84,6 +87,8 @@ function M.env(root, extra)
         by_key[is_win() and k:upper() or k] = { k, v }
     end
     set("LW_ROOT", root)
+    local pinned = require("loomworks.host_env").pinned()
+    if pinned then set("LOOMWORKS_PINNED", pinned) end
     local src = require("loomworks.daemon.version").lua_root()
     -- The luvi host runs the source it resolved (a release bundle, a pinned
     -- one, a dev checkout): the daemon must run the same one, whatever host

@@ -1532,6 +1532,360 @@ do
   paths.rm_rf(sb)
 end
 
+print("boot.host_update — dev_build: a release fuse of the whole tree is a release host (§16.32)")
+do
+  local hu = require("boot.host_update")
+  ok(hu.dev_build({ exe = "C:/tools/luvi.exe", fused_system_lua = true, release_version = "1.2.3" }) ~= nil,
+    "bare luvi is a dev build, whatever it runs")
+  ok(hu.dev_build({ exe = "/x/lw", fused_system_lua = true }) ~= nil,
+    "embedded code without a release version is a dev build")
+  eq(hu.dev_build({ exe = "/x/lw", fused_system_lua = true, release_version = "1.2.3" }), nil,
+    "embedded code with a release version is a release host")
+  eq(hu.dev_build({ exe = "/x/lw", release_version = "1.2.3" }), nil,
+    "a bootstrap-only release host stays a release host")
+  eq(hu.dev_build({ exe = "/x/lw" }), nil, "a bootstrap-only host without a version is not a dev build")
+  local a = hu.decide({ exe = "/x/lw", fused_system_lua = true, release_version = "1.2.3",
+    running_version = "1.2.3", target_version = "1.2.4" })
+  eq(a, "swap", "a self-contained release host replaces itself with a newer release")
+end
+
+print("boot.update — the version line of embedded code (§16.32)")
+do
+  local rel = update.version_info(nil, "embedded", { release_version = "0.1.50" })
+  local line = update.version_line(rel, "stable")
+  eq(line, "lw - host: 0.1.50 (self-contained) | channel: stable", "a release: version and self-contained")
+  local pre = update.version_info(nil, "embedded", { release_version = "0.1.50-beta.1" })
+  eq(update.version_line(pre, "unstable"), "lw - host: 0.1.50-beta.1 (prerelease) (self-contained) | channel: unstable",
+    "a prerelease is marked")
+  eq(update.version_line(pre, "stable", { file = "/repo/lw.pin", version = "0.1.50-beta.1" }),
+    "lw - host: 0.1.50-beta.1 (prerelease) (self-contained) | pinned: 0.1.50-beta.1 (prerelease) by /repo/lw.pin",
+    "pinned context names the pin, not the channel")
+  local dev = update.version_info(nil, "embedded", { dev_build = true })
+  eq(update.version_line(dev, "stable"), "lw - host: dev build | channel: stable",
+    "embedded code without a release version is a dev build")
+  ok(line:match("^[%w%p ]+$") ~= nil, "ASCII")
+end
+
+print("boot.update — gc never runs when the code is embedded (deletion safety)")
+do
+  local sb = paths.norm(root .. "/tests/.tmp-embedded-gc"); paths.rm_rf(sb)
+  for _, v in ipairs({ "1.0.0", "1.0.1" }) do
+    paths.mkdirp(sb .. "/lua-" .. v .. "/loomworks")
+    local f = assert(io.open(sb .. "/lua-" .. v .. "/loomworks/cli.lua", "wb")); f:write("return {}\n"); f:close()
+  end
+  local old_dir = uv.os_getenv("LOOMWORKS_INSTALL_DIR")
+  uv.os_setenv("LOOMWORKS_INSTALL_DIR", sb)
+  local saved = rawget(_G, "__loomworks_code")
+  _G.__loomworks_code = { kind = "embedded", version = "1.0.2" }
+  local okg, gerr = pcall(update.gc, 0, nil, nil)
+  _G.__loomworks_code = saved
+  ok(okg, "gc returns  (" .. tostring(gerr) .. ")")
+  ok(uv.fs_stat(sb .. "/lua-1.0.0/loomworks/cli.lua") and uv.fs_stat(sb .. "/lua-1.0.1/loomworks/cli.lua"),
+    "embedded code: gc removes nothing")
+  update.gc(1, nil, nil)
+  ok(uv.fs_stat(sb .. "/lua-1.0.0") == nil and uv.fs_stat(sb .. "/lua-1.0.1/loomworks/cli.lua"),
+    "a bundle-running host still prunes old bundles")
+  if old_dir then uv.os_setenv("LOOMWORKS_INSTALL_DIR", old_dir) else uv.os_unsetenv("LOOMWORKS_INSTALL_DIR") end
+  paths.rm_rf(sb)
+end
+
+print("embedded code is the release (§16.11, §16.22, §16.32, §16.41)")
+do
+  local sb = paths.norm(root .. "/tests/.tmp-embedded"); paths.rm_rf(sb)
+  local stage, home, inst = sb .. "/stage", sb .. "/home", sb .. "/inst"
+  local function copy_tree(src, dst)
+    paths.mkdirp(dst)
+    local h = uv.fs_scandir(src)
+    while h do
+      local name, typ = uv.fs_scandir_next(h)
+      if not name then break end
+      if typ == "directory" then copy_tree(src .. "/" .. name, dst .. "/" .. name)
+      elseif typ == "file" then
+        local f = assert(io.open(dst .. "/" .. name, "wb")); f:write(readfile(src .. "/" .. name)); f:close()
+      end
+    end
+  end
+  local function writef(p, s)
+    local f = assert(io.open(p, "wb")); f:write(s); f:close()
+  end
+  -- A release fuse of the whole tree, as release.yml will build it: the
+  -- release version written into boot/verify.lua.
+  copy_tree(root .. "/lua", stage)
+  local vsrc = readfile(stage .. "/boot/verify.lua")
+  local patched, n = ("\n" .. vsrc):gsub("\nM%.RELEASE_VERSION = nil", '\nM.RELEASE_VERSION = "9.8.7"', 1)
+  patched = patched:sub(2)
+  eq(n, 1, "staged a release version")
+  -- Trusting the TEST key (as fuse_host.sh does for a test host), so the
+  -- fixtures' signed manifest verifies (self-update below).
+  local nk
+  patched, nk = patched:gsub("M%.PUBLIC_KEY_PEM = %[%[.-%]%]",
+    function() return "M.PUBLIC_KEY_PEM = [[\n" .. test_pub:gsub("%s+$", "") .. "\n]]" end, 1)
+  eq(nk, 1, "staged the test key")
+  writef(stage .. "/boot/verify.lua", patched)
+  paths.mkdirp(sb .. "/bin")
+  local exe = sb .. "/bin/lw" .. (paths.is_windows and ".exe" or "")
+  local function native(p) return paths.is_windows and (p:gsub("/", "\\")) or p end
+  do
+    local done = false
+    local h = uv.spawn(uv.exepath(), { args = { native(stage), "--output", native(exe) }, stdio = { nil, nil, nil } },
+      function() done = true end)
+    if h then while not done do uv.run("once") end; h:close() end
+  end
+  ok(uv.fs_stat(exe) ~= nil, "fused a release executable")
+  -- Decoy release bundles in the data dir and in LOOMWORKS_INSTALL_DIR: newer
+  -- than anything, and fatal if loaded.
+  for _, d in ipairs({ home .. "/lua-999.0.0", inst .. "/lua-999.0.1" }) do
+    paths.mkdirp(d .. "/loomworks/daemon")
+    local decoy = 'io.stderr:write("DECOY LOADED\\n"); os.exit(42)\n'
+    writef(d .. "/loomworks/cli.lua", decoy)
+    writef(d .. "/loomworks/daemon/descriptor.lua", decoy)
+  end
+  local pinmod = require("boot.pin")
+  local asset = pinmod.detect_asset()
+  local function pinned_repo(dir, v)
+    paths.mkdirp(dir)
+    writef(dir .. "/lw.pin", pinmod.serialize(v, {
+      [asset or "lw-linux-x86_64"] = string.rep("a", 64),
+      [pinmod.bundle_asset(v)] = string.rep("b", 64) }))
+  end
+  local repo, repo_other = sb .. "/repo", sb .. "/repo-other"
+  pinned_repo(repo, "9.8.7")
+  pinned_repo(repo_other, "9.8.6")
+  local override = { LOOMWORKS_DATA_DIR = home, LOCALAPPDATA = home, APPDATA = home, XDG_DATA_HOME = home,
+    XDG_CONFIG_HOME = home, LOOMWORKS_INSTALL_DIR = inst, LOOMWORKS_NO_HOUSEKEEPING = "1",
+    LOOMWORKS_RELEASE_URL = sb .. "/no-mirror" }
+  -- The environment by (Windows: upper-cased) name; `extra` replaces an entry,
+  -- or removes it with `false`.
+  local function ekey(k) return paths.is_windows and k:upper() or k end
+  local base_env = {}
+  for k, v in pairs(uv.os_environ()) do
+    if override[k] == nil and k ~= "LOOMWORKS_PINNED" and k ~= "LOOMWORKS_LW" and k ~= "LW_ROOT"
+        and k ~= "LOOMWORKS_LUA" and k ~= "LOOMWORKS_LAUNCHER" then
+      base_env[ekey(k)] = { k, v }
+    end
+  end
+  for k, v in pairs(override) do base_env[ekey(k)] = { k, v } end
+  local function run(bin, args, extra, cwd)
+    local m = {}
+    for key, kv in pairs(base_env) do m[key] = kv end
+    for k, v in pairs(extra or {}) do m[ekey(k)] = v and { k, v } or nil end
+    local env = {}
+    for _, kv in pairs(m) do env[#env + 1] = kv[1] .. "=" .. kv[2] end
+    local logf, errf = sb .. "/out.txt", sb .. "/err.txt"
+    local fd = assert(uv.fs_open(logf, "w", 420))
+    local fe = assert(uv.fs_open(errf, "w", 420))
+    local done, code = false, nil
+    local argv = {}
+    for _, a2 in ipairs(args) do argv[#argv + 1] = a2 end
+    local h = uv.spawn(bin, { args = argv, cwd = cwd or sb, env = env, stdio = { nil, fd, fe } },
+      function(c) code = c; done = true end)
+    if h then
+      local t = uv.new_timer()
+      t:start(60000, 0, function() if not done then pcall(uv.process_kill, h, "sigterm") end end)
+      while not done do uv.run("once") end
+      t:stop(); t:close(); h:close()
+    end
+    uv.fs_close(fd); uv.fs_close(fe)
+    return code, slurp(logf) or "", slurp(errf) or ""
+  end
+  local function lw(args, extra, cwd) return run(exe, args, extra, cwd) end
+
+  local code, out, err = lw({ "version" })
+  eq(code, 0, "release exe: lw version exits 0  (" .. err .. ")")
+  ok(out:find("lw - host: 9.8.7 (self-contained) | channel: ", 1, true) == 1,
+    "release exe: reports its release and self-contained  (got " .. out .. ")")
+  code, out, err = lw({ "version", "--json" })
+  local doc = json.decode(out)
+  doc = type(doc) == "table" and doc or {}
+  ok(code == 0 and type(doc.binary) == "table" and doc.binary.lw_version == "9.8.7"
+    and doc.binary.dev == false and doc.binary.impl == "lua",
+    "release exe: the descriptor names the release, not a dev build  (" .. err:sub(1, 300) .. ")")
+  code, out, err = lw({ "help" })
+  ok(code == 0 and not (out .. err):find("DECOY", 1, true),
+    "release exe: runs its embedded code, never <data>/lua-* nor LOOMWORKS_INSTALL_DIR  (exit "
+      .. tostring(code) .. ": " .. err:sub(1, 300) .. ")")
+
+  -- Pinned context: the equal version runs in-process, nothing provisioned.
+  code, out, err = lw({ "version" }, { LOOMWORKS_PINNED = "9.8.7", LW_ROOT = repo }, repo)
+  ok(code == 0 and out:find("pinned: 9.8.7 by", 1, true) and not err:find("fetching", 1, true),
+    "pinned context, same version: runs, nothing fetched  (exit " .. tostring(code) .. ": " .. out .. err .. ")")
+  ok(uv.fs_stat(home .. "/pinned") == nil, "pinned context, same version: nothing provisioned")
+  code, out, err = lw({ "help" }, { LOOMWORKS_PINNED = "9.8.7", LW_ROOT = repo }, repo)
+  ok(code == 0 and not (out .. err):find("DECOY", 1, true), "pinned context, same version: embedded code runs")
+  -- A different version refuses: never a redirect, never provisioning.
+  code, out, err = lw({ "status" }, { LOOMWORKS_PINNED = "9.8.6", LW_ROOT = repo_other }, repo_other)
+  ok(code == 1 and err:find("refusing to run in pinned context", 1, true) and err:find("9.8.7", 1, true)
+    and err:find("9.8.6", 1, true) and not err:find("fetching", 1, true)
+    and not err:find("could not", 1, true),
+    "pinned context, other version: refused, naming both  (exit " .. tostring(code) .. ": " .. err .. ")")
+  ok(uv.fs_stat(home .. "/pinned") == nil and uv.fs_stat(inst .. "/pinned") == nil,
+    "pinned context, other version: nothing provisioned")
+  -- The dev facility (an explicit opt-in) runs the development source.
+  code, out, err = lw({ "version" }, { LOOMWORKS_PINNED = "9.8.6", LW_ROOT = repo_other,
+    LOOMWORKS_LUA = paths.norm(root .. "/lua") }, repo_other)
+  ok(code == 0 and not err:find("refusing to run in pinned context", 1, true)
+    and out:find("source: dev", 1, true) ~= nil,
+    "pinned context with LOOMWORKS_LUA: the dev facility, not refused  (exit " .. tostring(code) .. ": " .. out .. err .. ")")
+  code, out = lw({ "--dev=" .. paths.norm(root .. "/lua"), "version" })
+  ok(code == 0 and out:find("source: dev", 1, true) ~= nil, "--dev runs the development source  (got " .. out .. ")")
+
+  -- Outside pinned context the pin decides: its version is this exe's => run
+  -- here; another => redirect.
+  code, out, err = lw({ "build" }, nil, repo)
+  ok(not (out .. err):find("pinned lw", 1, true) and not (out .. err):find("fetching", 1, true)
+    and not (out .. err):find("DECOY", 1, true),
+    "a pin naming this release: runs in-process  (" .. out .. err .. ")")
+  code, out, err = lw({ "build" }, nil, repo_other)
+  ok(err:find("could not fetch pinned lw 9.8.6", 1, true) ~= nil,
+    "a pin naming another release: redirected  (exit " .. tostring(code) .. ": " .. out .. err .. ")")
+
+  -- A development build (no release version: here a source run) refuses a
+  -- pinned context unless the dev facility is asked for.
+  code, out, err = run(uv.exepath(), { native(paths.norm(root .. "/lua")), "--", "status" },
+    { LOOMWORKS_PINNED = "0.1.0", LW_ROOT = repo }, repo)
+  ok(code == 1 and err:find("refusing to run in pinned context", 1, true) and err:find("dev build", 1, true)
+    and err:find("0.1.0", 1, true), "dev build in pinned context: refused  (exit " .. tostring(code) .. ": " .. err .. ")")
+  code, out = run(uv.exepath(), { native(paths.norm(root .. "/lua")), "--", "version" })
+  ok(out:find("lw - host: dev build", 1, true) == 1, "a source run reports a dev build  (got " .. out .. ")")
+
+  -- Self-update and install from a release executable: its code is embedded,
+  -- so no bundle is installed and no installed release is pruned - the decoy
+  -- bundles in the install folder and in the data dir all survive (deletion
+  -- safety: these run before the CLI, from the host's own commands).
+  local survivors = {}
+  for _, d in ipairs({ home, inst }) do
+    for _, v in ipairs({ "1.0.0", "1.0.1", "1.0.2", "1.0.3" }) do
+      paths.mkdirp(d .. "/lua-" .. v .. "/loomworks")
+      writef(d .. "/lua-" .. v .. "/loomworks/cli.lua", "return {}\n")
+      survivors[#survivors + 1] = d .. "/lua-" .. v .. "/loomworks/cli.lua"
+    end
+    survivors[#survivors + 1] = d .. "/lua-999.0." .. (d == home and "0" or "1") .. "/loomworks/cli.lua"
+  end
+  local function all_survive()
+    local gone = {}
+    for _, p in ipairs(survivors) do if not uv.fs_stat(p) then gone[#gone + 1] = p end end
+    return #gone == 0, table.concat(gone, ", ")
+  end
+  local mirror = FX:gsub("/$", "")
+  code, out, err = lw({ "self-update", "--no-host" }, { LOOMWORKS_RELEASE_URL = mirror })
+  local kept, gone = all_survive()
+  ok(code == 0 and out:find("0.0.0-test", 1, true) ~= nil,
+    "release exe: self-update resolves the release  (exit " .. tostring(code) .. ": " .. out .. err .. ")")
+  ok(kept, "release exe: self-update prunes no installed release  (removed: " .. gone .. ")")
+  ok(uv.fs_stat(inst .. "/lua-0.0.0-test") == nil and uv.fs_stat(home .. "/lua-0.0.0-test") == nil,
+    "release exe: self-update installs no bundle")
+  -- install, into the data dir (no install folder override).
+  code, out, err = lw({ "install", "-y", "--no-modify-path" },
+    { LOOMWORKS_RELEASE_URL = mirror, LOOMWORKS_INSTALL_DIR = false, HOME = home })
+  kept, gone = all_survive()
+  ok(code == 0, "release exe: install succeeds  (exit " .. tostring(code) .. ": " .. out .. err .. ")")
+  ok(kept, "release exe: install prunes no installed release  (removed: " .. gone .. ")")
+  ok(uv.fs_stat(home .. "/lua-0.0.0-test") == nil, "release exe: install fetches no bundle")
+
+  -- Host-internal values (§16.22): the pinned-context marker and LW_ROOT are
+  -- read once by the host and never inherited by what it starts. A stand-in
+  -- executable records what it was started with (its arguments, the two
+  -- values) and, as a build step, the `lw version` of a nested lw it runs.
+  local dump_app, dump_exe = sb .. "/dump-app", sb .. "/bin/dump" .. (paths.is_windows and ".exe" or "")
+  local dump_out = sb .. "/dump.txt"
+  paths.mkdirp(dump_app)
+  writef(dump_app .. "/main.lua", [[
+local uv = require("uv")
+local args = { ... }
+local f = assert(io.open(assert(os.getenv("DUMP_OUT")), "ab"))
+f:write("ARGS=" .. table.concat(args, " ") .. "\n")
+f:write("PINNED=" .. (uv.os_getenv("LOOMWORKS_PINNED") or "") .. "\n")
+f:write("ROOT=" .. (uv.os_getenv("LW_ROOT") or "") .. "\n")
+local nested = os.getenv("NESTED_LW")
+if nested and args[1] == "build" then
+  local log = os.getenv("DUMP_OUT") .. ".nested"
+  local fd = uv.fs_open(log, "w", 420)
+  local done = false
+  local h = uv.spawn(nested, { args = { "version" }, stdio = { nil, fd, fd } }, function() done = true end)
+  if h then while not done do uv.run("once") end; h:close() end
+  uv.fs_close(fd)
+  local n = io.open(log, "rb")
+  f:write("NESTED=" .. (n and n:read("*a"):gsub("[\r\n]+", " ") or "") .. "\n")
+  if n then n:close() end
+end
+f:close()
+os.exit(0)
+]])
+  do
+    local done = false
+    local h = uv.spawn(uv.exepath(), { args = { native(dump_app), "--output", native(dump_exe) },
+      stdio = { nil, nil, nil } }, function() done = true end)
+    if h then while not done do uv.run("once") end; h:close() end
+  end
+  ok(uv.fs_stat(dump_exe) ~= nil, "fused the stand-in executable")
+  local function dumped()
+    local s = slurp(dump_out) or ""
+    os.remove(dump_out)
+    local recs, cur = {}, nil
+    for line in s:gmatch("[^\n]+") do
+      local k, v = line:match("^(%u+)=(.*)$")
+      if k == "ARGS" then cur = {}; recs[#recs + 1] = cur end
+      if k and cur then cur[k] = v end
+    end
+    return recs, s
+  end
+
+  -- A build step of a pinned run (in-process, then through the daemon).
+  local wsdir = repo
+  paths.mkdirp(wsdir .. "/App")
+  writef(wsdir .. "/loomworks.json", json.encode({ projects = { App = { shell = {
+    build_dir = "${workspace_root}/out/${variant}",
+    configure_cmd = { native(dump_exe), "configure" },
+    build_cmd = { native(dump_exe), "build" },
+    configurations = { Debug = { variables = { x = "1" } } },
+  } } } }))
+  local step_env = { LOOMWORKS_PINNED = "9.8.7", LW_ROOT = wsdir, DUMP_OUT = dump_out,
+    NESTED_LW = native(exe) }
+  lw({ "--no-input", "configuration-set", "create", "Dev", "App=Debug" }, step_env, wsdir)
+  code, out, err = lw({ "--no-input", "profile", "create", "Dev", "--activate" }, step_env, wsdir)
+  ok(code == 0, "pinned run: profile created  (exit " .. tostring(code) .. ": " .. out .. err .. ")")
+  local function check_steps(how)
+    local recs, raw = dumped()
+    local ran, clean, nested_ok = 0, true, nil
+    for _, r in ipairs(recs) do
+      ran = ran + 1
+      if r.PINNED ~= "" or r.ROOT ~= "" then clean = false end
+      if r.NESTED then
+        nested_ok = r.NESTED:find("| channel:", 1, true) ~= nil and r.NESTED:find("pinned:", 1, true) == nil
+      end
+    end
+    ok(ran > 0 and clean, how .. ": a step inherits neither the pinned marker nor LW_ROOT  (" .. raw .. ")")
+    ok(nested_ok == true, how .. ": an lw a step runs starts outside the pinned context  (" .. raw .. ")")
+  end
+  code, out, err = lw({ "--no-input", "--no-daemon", "build", "Dev" }, step_env, wsdir)
+  ok(code == 0, "pinned run, in-process: build succeeds  (exit " .. tostring(code) .. ": " .. out .. err .. ")")
+  check_steps("pinned run, in-process")
+  lw({ "settings", "set", "runtime-mode", "daemon" }, step_env, wsdir)
+  local daemon_env = { LOOMWORKS_NO_DAEMON = "0" }
+  for k, v in pairs(step_env) do daemon_env[k] = v end
+  code, out, err = lw({ "--no-input", "build", "Dev" }, daemon_env, wsdir)
+  ok(code == 0, "pinned run, daemon: build succeeds  (exit " .. tostring(code) .. ": " .. out .. err .. ")")
+  check_steps("pinned run, daemon (the request's environment)")
+  lw({ "daemon", "stop" }, daemon_env, wsdir)
+
+  -- The redirect forwards both to the pinned lw it runs (here the stand-in).
+  local fwd, mirror2 = sb .. "/repo-fwd", sb .. "/mirror-fwd"
+  paths.mkdirp(fwd); paths.mkdirp(mirror2)
+  local dump_bytes = readfile(dump_exe)
+  writef(mirror2 .. "/" .. asset, dump_bytes)
+  local zip = pinmod.bundle_asset("0.0.0-test")
+  writef(mirror2 .. "/" .. zip, readfile(FX .. zip))
+  writef(fwd .. "/lw.pin", pinmod.serialize("0.0.0-test", {
+    [asset] = verify.sha256_hex(dump_bytes), [zip] = verify.sha256_hex(readfile(FX .. zip)) }))
+  code, out, err = lw({ "build" }, { LOOMWORKS_RELEASE_URL = mirror2, DUMP_OUT = dump_out }, fwd)
+  local recs, raw = dumped()
+  local r = recs[1] or {}
+  ok(code == 0 and r.PINNED == "0.0.0-test" and (paths.norm(r.ROOT or "") or ""):lower() == paths.norm(fwd):lower(),
+    "the redirect passes the pinned marker and LW_ROOT to the pinned lw  (exit " .. tostring(code) .. ": "
+      .. raw .. out .. err .. ")")
+  paths.rm_rf(sb)
+end
+
 print("boot.update — versioned_base URL shapes")
 do
   eq(update.versioned_base("1.2.3", { url = update.DEFAULT_RELEASE_URL }),

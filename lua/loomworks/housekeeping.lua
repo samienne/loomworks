@@ -320,7 +320,7 @@ end
 local function current_pin_version()
     local ok, pin = pcall(require, "boot.pin")
     if not ok or type(pin) ~= "table" or type(pin.find_pin_root) ~= "function" then return nil end
-    local start = os.getenv("LW_ROOT")
+    local start = require("loomworks.host_env").root()
     if not start or start == "" then start = uv().cwd() end
     local ok2, p = pcall(function() return pin.read(pin.find_pin_root(start)) end)
     return (ok2 and type(p) == "table") and p.version or nil

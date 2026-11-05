@@ -129,7 +129,12 @@ function M.invoked()
   if g then return g end
   local l = os.getenv("LOOMWORKS_LAUNCHER")
   if l == "lw.sh" or l == "lw.cmd" then return l end
-  if (os.getenv("LOOMWORKS_PINNED") or "") ~= "" then return "launcher" end
+  -- The pinned-context marker is host-internal (spec §16.22): the host's kept
+  -- value, else (no luvi host) the environment's.
+  local s = rawget(_G, "__loomworks_host_env")
+  local pinned
+  if type(s) == "table" then pinned = s.pinned else pinned = os.getenv("LOOMWORKS_PINNED") end
+  if (pinned or "") ~= "" then return "launcher" end
   return "global"
 end
 

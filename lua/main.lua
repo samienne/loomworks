@@ -1,17 +1,20 @@
 -- Universal luvi entry point — the host bootstrap.
 --
--- The only Lua fused into the host binary. It carries no behavioral logic; it
--- (1) resolves where *system Lua* (the loomworks implementation) comes from,
--- (2) handles the host-level commands `version`, `self-update`, `install`,
--- `bootstrap` and `release query` (which must work even with no bundle
--- installed) —
--- and, when there is no system Lua at all, their help (boot.help) — and
--- (3) runs the CLI from the resolved source.
+-- It carries no behavioral logic; it (1) resolves where *system Lua* (the
+-- loomworks implementation) comes from, (2) handles the host-level commands
+-- `version`, `self-update`, `install`, `bootstrap` and `release query` (which
+-- must work even with no bundle installed) and, when there is no system Lua
+-- at all, their help (boot.help), and (3) runs the CLI from the resolved
+-- source.
 --
 -- System-Lua source precedence:
 --   LOOMWORKS_LUA env > `--dev[=PATH]` > settings `default-source=dev`
---     > newest verified release bundle (<data>/loomworks/lua-<ver>/)
---     > fused luvi bundle (a full-fused dev exe / `luvi . --` source run).
+--     (the development facility: only on that explicit opt-in, spec §16.11)
+--   > the embedded code: when the fused bundle holds loomworks/cli.lua (a
+--     release executable, a full-fused dev exe, a `luvi lua --` source run)
+--     it runs, and nothing else — never an installed bundle (§16.11)
+--   > transitional, a bootstrap-only host: the newest verified release bundle
+--     (<data>/loomworks/lua-<ver>/).
 -- A resolved on-disk root is authoritative — no silent bundle fallback.
 --
 -- Bootstrap-only modules live under `lua/boot/` (verify, download, update,
@@ -109,6 +112,12 @@ local dev_flag, dev_flag_path, no_pin = host_flags.dev, host_flags.dev_path, hos
 local cfg = paths.read_config()
 local env_lua = paths.norm(os.getenv("LOOMWORKS_LUA"))
 local dev_opt_in = env_lua ~= nil or dev_flag or cfg["default-source"] == "dev"
+-- Does this executable embed the loomworks code (spec §16.11)? A release
+-- executable and a development fuse do; a bootstrap-only host (transitional,
+-- releases before self-contained executables) does not.
+local embedded = bundle.readfile("loomworks/cli.lua") ~= nil
+-- The release version fused into this executable; nil for a development build.
+local release_version = require("boot.verify").RELEASE_VERSION
 
 local luaroot, source_kind
 if dev_opt_in then
@@ -124,13 +133,51 @@ if dev_opt_in then
       "directory\n    (no `loomworks/` subdir found there).\n")
     os.exit(1)
   end
+elseif embedded then
+  -- The embedded code is the release: never an installed bundle, never the
+  -- install folder.
+  luaroot, source_kind = nil, "embedded"
 else
+  -- Transitional: a bootstrap-only host runs the newest installed bundle.
   luaroot = paths.newest_release_root()
   source_kind = luaroot and "release" or nil
 end
 
+--- The release version of the code this invocation runs: the embedded
+--- release's, or (transitional) the installed bundle's `lua-<ver>`; nil for a
+--- development build or the development facility.
+local function running_code_version()
+  if source_kind == "embedded" then return release_version end
+  if source_kind == "release" and luaroot then return luaroot:match("lua%-(.+)$") end
+  return nil
+end
+
+--- What code runs, for every later reader: the host commands below
+--- (self-update and gc must know the code is embedded) as well as system Lua
+--- (release_notice and the other identity readers). Kind "embedded" | "dev" |
+--- "release" (transitional bundle), its release version (nil for a
+--- development build or source), and the executable. Published as soon as the
+--- source is resolved, and again when the pinned context switches it to a
+--- provisioned bundle.
+local function publish_code()
+  local okx, exe = pcall(uv.exepath)
+  _G.__loomworks_code = { kind = source_kind, version = running_code_version(),
+    exe = okx and exe or nil }
+end
+publish_code()
+
 -- ---- pin: sentinel, override, and workspace root ----------------------------
+-- The pinned-context marker and the forwarded workspace root are host-internal
+-- (spec §16.22): read once here, kept for system Lua (loomworks.host_env) and
+-- removed from the environment, as LOOMWORKS_LAUNCHER is below, so nothing
+-- this process starts inherits them — an lw run by a build, run or test step
+-- resolves its own workspace and pin — and a daemon request's environment
+-- never carries them. Starting a daemon or forwarding passes them explicitly.
 local pinned_sentinel = getenv("LOOMWORKS_PINNED")
+local lw_root_env = getenv("LW_ROOT")
+_G.__loomworks_host_env = { pinned = pinned_sentinel, root = lw_root_env }
+if pinned_sentinel then pcall(uv.os_unsetenv, "LOOMWORKS_PINNED") end
+if lw_root_env then pcall(uv.os_unsetenv, "LW_ROOT") end
 local lw_override = getenv("LOOMWORKS_LW") ~= nil
 -- The command and its sub-command (`daemon run`), tolerant of a leading
 -- global flag (e.g. `lw --no-input self-update`), the same way the redirect
@@ -145,7 +192,7 @@ local command, command_sub = pin.command_words(forwarded)
 -- For a daemon command its --root wins over LW_ROOT: a launcher's LW_ROOT is
 -- the user's cwd, which may lie in another (nested / submodule) pinned root.
 local pin_start = (command == "daemon") and paths.norm(pin.root_option(forwarded)) or nil
-pin_start = pin_start or paths.norm(getenv("LW_ROOT"))
+pin_start = pin_start or paths.norm(lw_root_env)
 local pin_root = pin.find_pin_root(pin_start or uv.cwd())
 
 -- The install folder: a relative LOOMWORKS_INSTALL_DIR is not
@@ -162,9 +209,10 @@ end
 -- command's own option (`lw build -v`), while
 -- `lw -v build` is still the version.
 if pin.asks_version(forwarded) then command = "version" end
---- Is system Lua fused into this host? A dev build (`make install` /
---- `luvi lua --`) fuses it; a release host carries only the bootstrap.
-local function fused_system_lua() return bundle.readfile("loomworks/cli.lua") ~= nil end
+--- Is system Lua fused into this host (`embedded`)? A release executable and a
+--- dev build (`make install` / `luvi lua --`) fuse it; a bootstrap-only host
+--- (transitional) carries only the bootstrap.
+local function fused_system_lua() return embedded end
 
 -- `lw <host-command> --help` / `-h` must show help, never perform the operation
 -- (a `self-update --help` that replaced the binary was a real bug). Leave such
@@ -218,11 +266,10 @@ if host_command == "bootstrap" then
   end
   if not o then usage(perr) end
   -- Where to look: the launcher-passed root, else the current directory.
-  local start = paths.norm(getenv("LW_ROOT")) or (uv.cwd():gsub("\\", "/"):gsub("/+$", ""))
+  local start = paths.norm(lw_root_env) or (uv.cwd():gsub("\\", "/"):gsub("/+$", ""))
   -- The version a NEW pin defaults to: the running release (the bundle this
   -- host resolved, else the host's own release identity); nil for a dev build.
-  local host_version = ((source_kind == "release" and luaroot) and luaroot:match("lua%-(.+)$"))
-    or require("boot.verify").RELEASE_VERSION
+  local host_version = running_code_version() or release_version
   if o.sub == nil then
     local st = bootstrap.status(start, { invoked = invoked, host_version = host_version,
       self_version = require("boot.verify").RELEASE_VERSION, channel = o.channel, check = o.check })
@@ -265,13 +312,28 @@ if host_command == "release" then
   exit(code)
 end
 
--- ---- pinned context: provision the pinned bundle ----------------------------
+-- ---- pinned context: embedded code ------------------------------------------
+-- Set by the launcher script or the redirect. Embedded code runs only as the
+-- release it is (spec §16.22): the pinned version runs here, in-process, with
+-- nothing provisioned; any other version — or a development build, which has
+-- none — refuses, and never redirects again. The development facility (an
+-- explicit opt-in) keeps the transitional behaviour below.
+if pinned_sentinel and not dev_opt_in and source_kind == "embedded"
+    and pinned_sentinel ~= release_version then
+  io.stderr:write("lw: refusing to run in pinned context: this lw is " ..
+    (release_version and ("release " .. release_version) or "a dev build") ..
+    ", but the pin requires " .. pinned_sentinel .. "\n" ..
+    "    Run the repository's launcher (./lw.sh or lw.cmd) or the pinned release's lw.\n")
+  exit(1)
+end
+
+-- ---- pinned context: provision the pinned bundle (transitional) -------------
 -- Set by the launcher script or the redirect below. We are the pinned host;
 -- load system Lua from the pinned bundle — provisioned and verified into the
 -- machine-local pinned cache (<data>/pinned/<sha256>/lua-<ver>), never read
 -- from the repository — rather than the newest global install, and never
 -- redirect again (the sentinel is our guard).
-if pinned_sentinel and not dev_opt_in then
+if pinned_sentinel and not dev_opt_in and source_kind ~= "embedded" then
   local p = pin_root and pin.read(pin_root)
   if p and p.version == pinned_sentinel then
     local dir, err = require("boot.update").ensure_version(p.version, {
@@ -293,6 +355,7 @@ if pinned_sentinel and not dev_opt_in then
     -- it (the bundle tree must stay byte-identical to the release).
     pcall(uv.fs_utime, dir, os.time(), os.time())
     luaroot, source_kind = dir, "release"
+    publish_code()
   end
 end
 
@@ -312,7 +375,8 @@ if host_command == "version" and not version_json then
   -- calls a host a dev build that self-update would replace, or vice versa.
   local hu = require("boot.host_update")
   local fused = fused_system_lua()
-  local dev_build = hu.dev_build({ exe = hu.exe_path(), fused_system_lua = fused }) ~= nil
+  local dev_build = hu.dev_build({ exe = hu.exe_path(), fused_system_lua = fused,
+    release_version = release_version }) ~= nil
   -- `fused_system_lua` decides "bundled (fused)" vs "none installed": a release
   -- host with no bundle must not claim one (every other command would say none).
   local info = upd.version_info(luaroot, source_kind, { dev_build = dev_build, fused_system_lua = fused })
@@ -376,7 +440,7 @@ elseif host_command == "self-update" then
   -- from it.
   local prev_bundle = (paths.installed_releases()[1] or {}).ver
   local res, err, info = require("boot.update").self_update({ force = force, channel = channel,
-    running_root = luaroot })
+    running_root = luaroot, embedded = source_kind == "embedded" })
   if not res and info and info.host_incompatible then
     -- The (verified) release needs a newer host than this one. Replace the
     -- host first — otherwise the first release raising min_host_version would
@@ -420,12 +484,19 @@ elseif host_command == "self-update" then
       "the `release-url` setting). The channel governs only the default origin; " ..
       "unset the override to use channels.\n")
   end
-  io.write(res.updated
-    and ("lw: installed loomworks " .. res.version .. "\n")
-    or ("lw: already up to date (" .. res.version .. ")\n"))
+  if res.embedded then
+    -- This lw carries its code: no bundle was installed (and none pruned);
+    -- only the host binary below can update it.
+    io.write("lw: latest release: " .. res.version ..
+      " (this lw is self-contained: no bundle to install)\n")
+  else
+    io.write(res.updated
+      and ("lw: installed loomworks " .. res.version .. "\n")
+      or ("lw: already up to date (" .. res.version .. ")\n"))
+  end
   -- Back on `stable` with a newer prerelease installed: bundles never
   -- downgrade, so say which one keeps running, and until when.
-  do
+  if not res.embedded then
     local newest = paths.installed_releases()[1]
     local note = require("boot.update").newer_bundle_note(newest and newest.ver, res.version)
     if note then io.write("lw: note: " .. note .. "\n") end
@@ -498,6 +569,8 @@ elseif host_command == "install" then
   -- A host with its system Lua fused in (a `make install` development build)
   -- gets no "run lw self-update" advice for a skipped bundle.
   opts.fused_system_lua = fused_system_lua()
+  -- Embedded code (a release executable) needs no bundle: none is fetched.
+  opts.embedded = source_kind == "embedded"
   -- install may report progress AND fail: the binary can be placed while the
   -- bundle fetch dies. Print whatever it got done, then honour the error —
   -- exiting 0 on a partial install is what leaves a job to fail later with a
@@ -519,8 +592,7 @@ end
 -- host binary, set the sentinel, and re-exec it — that host then provisions the
 -- pinned bundle (above) and never redirects again.
 do
-  local self_version = (source_kind == "release" and luaroot)
-    and luaroot:match("lua%-(.+)$") or nil
+  local self_version = running_code_version()
   local p = pin_root and pin.read(pin_root)
   local stdio = false
   for i = 1, pin.own_end(forwarded) - 1 do if forwarded[i] == "--stdio" then stdio = true end end
@@ -608,8 +680,10 @@ do
         tostring(lerr) .. "\n")
       exit(1)
     end
-    -- Carry the sentinel + workspace root across the exec; the child inherits
-    -- our environment (uv.os_setenv is visible to spawned children).
+    -- Pass the sentinel + workspace root to the pinned lw explicitly (they
+    -- were removed from our environment at startup, spec §16.22): set just
+    -- before the exec, which is the only process this one starts from here
+    -- on (uv.os_setenv is visible to spawned children).
     io.stderr:write("loomworks " .. p.version .. " (pinned)\n")
     uv.os_setenv("LOOMWORKS_PINNED", p.version)
     -- (A daemon's root is its --root: it runs from the per-user state dir.)
@@ -647,7 +721,7 @@ else
   -- nothing installed yet — guide the user to fetch a release. Help still
   -- works: a user must be able to learn what `install` / `self-update` do
   -- before either has run (host usage + per-host-command help, exit 0).
-  if not bundle.readfile("loomworks/cli.lua") then
+  if not embedded then
     -- In a pinned repository the full-help note names the launcher (which
     -- runs the pinned release and provisions its bundle), not self-update.
     local help_text = require("boot.help").for_args(forwarded, { pinned = pin_root ~= nil })

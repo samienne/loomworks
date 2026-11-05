@@ -25,6 +25,8 @@ if not src:match("^bundle:") then
 end
 
 local uv = vim.uv or vim.loop
+-- The launcher-passed workspace root (LW_ROOT) is host-internal (spec §16.22).
+local host_env = require("loomworks.host_env")
 
 -- Windows: render UTF-8 diagnostics (em dashes, arrows — shared with the editor
 -- UI) correctly in any console, in-process. Both the nvim and luvi hosts run
@@ -522,7 +524,7 @@ local function is_windows() return package.config:sub(1, 1) == "\\" end
 --- process runs from the bundle dir, so the launcher passes the real cwd in
 --- LW_ROOT; under `nvim -l` the process already runs in the user's cwd.
 local function user_cwd()
-  local d = os.getenv("LW_ROOT")
+  local d = host_env.root()
   if d and #d > 0 then return (d:gsub("\\", "/"):gsub("/+$", "")) end
   return (uv.cwd():gsub("\\", "/"):gsub("/+$", ""))
 end
@@ -3951,7 +3953,7 @@ end
 
 --- loomworks.json is written later by `lw publish` (working-copy model).
 function M.cmd_init(args)
-  local dir = (os.getenv("LW_ROOT") or uv.cwd()):gsub("\\", "/"):gsub("/+$", "")
+  local dir = (host_env.root() or uv.cwd()):gsub("\\", "/"):gsub("/+$", "")
   -- Optional `--name <name>` overrides the directory-basename default.
   local name
   local i = 2
@@ -11748,7 +11750,7 @@ function M.cmd_complete(cword, words)
   if n == 0 then emit(COMP_COMMANDS); return 0 end
 
   local cmd, sub = a[1], a[2]
-  local root = find_root(os.getenv("LW_ROOT"))
+  local root = find_root(host_env.root())
 
   if cmd == "help" then
     if n == 1 then
@@ -14310,7 +14312,7 @@ local function main()
   -- LW_ROOT lets a launcher pass the user's directory when the process itself
   -- runs from elsewhere (the luvi host runs from the bundle dir).
   -- `root_info.submodule` is set when the root came from a superproject.
-  local root, root_info = find_root(os.getenv("LW_ROOT"))
+  local root, root_info = find_root(host_env.root())
   -- Every kill and forced unlock is recorded in the workspace's runtime log.
   if root then
     pcall(function()
