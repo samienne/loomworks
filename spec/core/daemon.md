@@ -2091,6 +2091,11 @@ group, as Git Bash starts the native program it then signals with `kill
 -INT` — would otherwise never see it, while in-process the build's own
 processes in that console still stop).
 
+A client disconnects when its connection ends or fails, including a write to
+it that fails because the peer went away; a disconnect never ends the daemon
+or another client's operations. No lw process is ended by a write to a closed
+socket or pipe; processes lw starts keep the platform's default.
+
 **Task ownership.** *(Step 5i: the CLI's two-stage Ctrl-C is implemented,
 part F — `cli.lua` `_routed_cancel`, the interrupt handler's interceptor.)* Every task a connection starts — build, test, run preparation,
 configure, clean, reset — is owned by that connection ([PROTOCOL.md](../protocol/PROTOCOL.md) §14.3). When the
