@@ -167,7 +167,7 @@ end
 --- @param getenv fun(name: string): string|nil
 --- @param cfg table|nil lw settings
 function M.silenced(getenv, cfg)
-  local e = (getenv or os.getenv)("LOOMWORKS_RELEASE_NOTES")
+  local e = (getenv or require("loomworks.host_env").getenv)("LOOMWORKS_RELEASE_NOTES")
   if e and e ~= "" then
     e = e:lower()
     return e == "off" or e == "0" or e == "false" or e == "no"
@@ -201,7 +201,7 @@ end
 --- @return string|nil
 function M.maybe_notice(o)
   local ok, line = pcall(function()
-    local getenv = o.getenv or os.getenv
+    local getenv = o.getenv or require("loomworks.host_env").getenv
     if M.silenced(getenv, o.cfg) then return nil end
     local dir = M.release_data_dir(o.luaroot, getenv)
     if not dir then return nil end

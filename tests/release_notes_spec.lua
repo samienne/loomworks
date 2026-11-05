@@ -349,6 +349,19 @@ describe("release notice (last-seen and the one-line notice)", function()
     assert.equals("0.1.40", notice.read_seen(data))
   end)
 
+  it("maybe_notice: the host's kept pinned marker counts without a getenv (§16.22)", function()
+    assert.is_nil(os.getenv("LOOMWORKS_PINNED"))
+    notice.write_seen(data, "0.1.39")
+    local root = install("0.1.40")
+    local saved = rawget(_G, "__loomworks_host_env")
+    _G.__loomworks_host_env = { pinned = "0.1.40" }
+    local ok, line = pcall(notice.maybe_notice, { interactive = true, luaroot = root })
+    _G.__loomworks_host_env = saved
+    assert.is_true(ok)
+    assert.is_nil(line)
+    assert.equals("0.1.39", notice.read_seen(data))
+  end)
+
   it("is silenced by the setting or the environment (which wins)", function()
     notice.write_seen(data, "0.1.39")
     local root = install("0.1.40")
