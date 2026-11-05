@@ -3,29 +3,26 @@
 #
 #   descriptor.sh <version> <dir> [<host>]
 #
-# Runs <host> (default <dir>/lw-linux-x86_64, a released host binary) as
-# `lw version --json` with this release's bundle (<dir>/loomworks-lua-<version>.zip,
-# unpacked into a sandboxed data dir as lua-<version>/, the layout an installed
-# bundle has) and writes <dir>/lw-<version>-descriptor.json. The descriptor is
-# what the published release implements, computed by the release itself — the
-# same document a user's `lw version --json` prints — so nothing is listed by
-# hand. Fails unless the descriptor names <version> as a release (not a
-# development build).
+# Runs <host> (default <dir>/lw-linux-x86_64, this release's self-contained
+# executable, spec §16.11) as `lw version --json` in a sandbox with an empty
+# data dir — its embedded code is the release, no bundle is involved — and
+# writes <dir>/lw-<version>-descriptor.json. The descriptor is what the
+# published release implements, computed by the release itself — the same
+# document a user's `lw version --json` prints — so nothing is listed by hand.
+# Fails unless the descriptor names <version> as a release (not a development
+# build).
 set -euo pipefail
 
 version="${1:?usage: descriptor.sh <version> <dir> [<host>]}"
 dir="${2:?missing dir}"
 host="${3:-$dir/lw-linux-x86_64}"
-bundle="$dir/loomworks-lua-${version}.zip"
 out="$dir/lw-${version}-descriptor.json"
 
-[ -f "$bundle" ] || { echo "descriptor.sh: no bundle $bundle" >&2; exit 1; }
 [ -f "$host" ] || { echo "descriptor.sh: no host binary $host" >&2; exit 1; }
 
 T="$(mktemp -d)"
 trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/data" "$T/home"
-python3 -m zipfile -e "$bundle" "$T/data/lua-$version"
 cp "$host" "$T/lw"
 chmod +x "$T/lw"
 

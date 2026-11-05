@@ -1,21 +1,23 @@
 #!/usr/bin/env bash
-# Fuse a host binary: stage the bootstrap (main.lua + boot/), embed the given
-# public key (the production key for a release — which the committed source
-# already carries — or a test key for a test fuse) and, for a release, the
-# release version into boot/verify.lua, then fuse it into a copy of luvi.
+# Fuse a release executable: stage the full Lua tree (scripts/release/
+# stage_tree.sh: main.lua, boot/, the system Lua, the release notes and the
+# protocol documents), embed the given public key (the production key for a
+# release — which the committed source already carries — or a test key for a
+# test fuse) and, for a release, the release version into boot/verify.lua, then
+# fuse it into a copy of luvi.
 #
 #   fuse_host.sh <luvi_binary> <public_key.pem> <out_path> [<release_version>]
 #
-# <release_version> (no leading v) becomes the host's M.RELEASE_VERSION
+# <release_version> (no leading v) becomes the executable's M.RELEASE_VERSION
 # (spec §16.32): `lw version` reports it, and `lw self-update` compares it to
-# the target release to decide whether to replace the host. Omit it for a
-# local fuse — the host then reports an unknown release (it fuses only the
-# bootstrap, like a release host) and `lw self-update` would replace it.
+# the target release to decide whether to replace the executable. Omit it for a
+# local fuse — the result is then a development build (embedded code without a
+# release version), which `lw self-update` never replaces.
 #
 # Run on the target OS/arch with that platform's luvi — `luvi --output` fuses
 # the running luvi, so there is no cross-fusing. The result is a single
-# self-contained `lw` binary that carries NO loomworks system Lua (that ships
-# as the separately-fetched, verified release bundle).
+# self-contained `lw` executable (spec §16.11): its embedded code runs as the
+# release, never an installed bundle.
 set -euo pipefail
 
 luvi="${1:?usage: fuse_host.sh <luvi> <pubkey.pem> <out>}"
@@ -33,11 +35,8 @@ if [ -n "$relver" ]; then
 fi
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
-stage="$(mktemp -d)"
+stage="$(bash "$repo/scripts/release/stage_tree.sh")"
 trap 'rm -rf "$stage"' EXIT
-
-cp "$repo/lua/main.lua" "$stage/main.lua"
-cp -r "$repo/lua/boot" "$stage/boot"
 
 # The committed boot/verify.lua already embeds the PRODUCTION public key
 # (keys/loomworks-release.pub.pem, spec §16.12). Embed the given key — a test
@@ -68,7 +67,7 @@ if relver:
 open(vf, "w").write(new)
 PY
 
-# luvi on Windows (git-bash) needs native paths for the bundle + --output.
+# luvi on Windows (git-bash) needs native paths for the tree + --output.
 case "$(uname -s)" in
   MINGW*|MSYS*|CYGWIN*)
     "$luvi" "$(cygpath -w "$stage")" --output "$(cygpath -w "$outp")" ;;

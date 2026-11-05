@@ -4,8 +4,8 @@ name: release
 # built, signed and staged (immutable releases: a published tag name burns):
 #
 #   build    (workflow_dispatch, stage=build, on the build commit C = head of
-#            --ref): build the lw host binary for each platform (luvi + fused
-#            bootstrap), the signed system-Lua bundle, the descriptor, signed
+#            --ref): build the self-contained lw executable for each platform
+#            (luvi + the full tree fused), the signed system-Lua bundle, the descriptor, signed
 #            SHA256SUMS and provenance, and stage them all as an UNPUBLISHED
 #            DRAFT release vX in this repository, targeting C (no tag yet).
 #   publish  (push of the annotated tag vX on C; or workflow_dispatch
@@ -84,10 +84,13 @@ jobs:
           path: notes/release-body.md
           if-no-files-found: error
 
-  # One host binary per platform. `luvi --output` fuses the *running* luvi, so
+  # One self-contained executable per platform (spec §16.11): luvi with the
+  # full tree fused in (scripts/release/stage_tree.sh), CHANGELOG.md included,
+  # so it waits for the notes gate. `luvi --output` fuses the *running* luvi, so
   # each leg must run on its own OS/arch (no cross-fusing).
   hosts:
     if: github.event_name == 'workflow_dispatch' && inputs.stage == 'build'
+    needs: [notes]
     strategy:
       fail-fast: false
       matrix:
@@ -160,19 +163,16 @@ jobs:
           VERSION: ${{ steps.v.outputs.version }}
         run: bash scripts/release/fuse_host.sh "./${{ matrix.luvi }}" keys/loomworks-release.pub.pem "${{ matrix.out }}" "$VERSION"
 
-      # Prove the injection took: the fused host must report the version it was
-      # built as, or self-update would replace it forever (unknown = replace).
-      - name: Check embedded release version
+      # Prove the injection took and the executable is self-contained: it must
+      # report the release it was built as (or self-update would replace it
+      # forever), run `lw help`, and never load a bundle from the install
+      # folder (a decoy one is planted). Records its size and cold-start time
+      # in the job summary.
+      - name: Smoke-test the executable
         shell: bash
         env:
           VERSION: ${{ steps.v.outputs.version }}
-        run: |
-          out="$("./${{ matrix.out }}" version)"
-          echo "$out"
-          case "$out" in
-            *"host: $VERSION "*) ;;
-            *) echo "fused host does not report release $VERSION" >&2; exit 1 ;;
-          esac
+        run: bash scripts/release/smoke_exe.sh "./${{ matrix.out }}" "$VERSION"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -282,8 +282,8 @@ jobs:
 
       # The binary descriptor (spec §16.41): what this release implements
       # (protocol range, interface versions + schema digests, working-copy
-      # schemas), printed by the released Linux host running this release's
-      # bundle — the same `lw version --json` a user runs. Published as
+      # schemas), printed by this release's self-contained Linux executable —
+      # the same `lw version --json` a user runs. Published as
       # lw-<version>-descriptor.json and covered by SHA256SUMS below.
       - name: Generate the binary descriptor
         shell: bash

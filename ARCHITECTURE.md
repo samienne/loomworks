@@ -47,15 +47,19 @@ execution; the daemon adds a server, a task stream and views on top.
 *Transition.* The specification now defines a release as one self-contained
 executable per platform (spec §16.11–16.13): all code embedded, pinned and
 upgraded releases cached as executables under `<data>/exe/<sha256>/`, no
-separately fetched bundle. The implementation still ships the host binary +
-bundle model described below; this document changes with the code.
+separately fetched bundle. The implementation is part-way there: release
+executables already embed the full tree and run it as the release, while the
+bundle, its manifest and the bundle-provisioning paths described below still
+ship for older hosts; this document changes with the code.
 
 All of `lw` is Lua 5.1 / LuaJIT on top of libuv. It runs on one of two hosts:
 
 - **luvi** (the release host). A release `lw` binary is a copy of
-  [luvi](https://github.com/luvit/luvi) (LuaJIT, libuv and OpenSSL) with a
-  small bootstrap fused into it. The rest of the code arrives as a separately
-  downloaded, signature-verified **bundle**. The code is written against a
+  [luvi](https://github.com/luvit/luvi) (LuaJIT, libuv and OpenSSL) with the
+  whole Lua tree fused into it (the bootstrap, the system Lua, the release
+  notes and the protocol documents; `scripts/release/stage_tree.sh`). A
+  bootstrap-only host from before self-contained executables instead runs a
+  separately downloaded, signature-verified **bundle**. The code is written against a
   subset of Neovim's `vim.*` API, and
   [`lua/loomworks/shim/`](lua/loomworks/shim/) provides that subset on luvi:
   `vim.json`, `vim.uv`, `vim.system` and the job API, `PATH` probing, table
@@ -74,7 +78,7 @@ features.
 
 ### 1. Host bootstrap: `lua/main.lua` and `lua/boot/`
 
-`main.lua` is the only Lua fused into the host binary. It:
+`main.lua` is the entry point fused into the executable. It:
 
 1. installs its own module searchers ahead of `package.path`, so that a file
    in the current directory or next to the executable can never shadow a
@@ -413,7 +417,7 @@ expected parent. The specs `build_dir_safety_spec.lua`,
 
 | Path | Contents |
 |---|---|
-| `lua/main.lua`, `lua/boot/` | the host bootstrap fused into the `lw` binary |
+| `lua/main.lua`, `lua/boot/` | the host bootstrap, fused into the `lw` executable with the rest of the tree |
 | `lua/loomworks/cli*.lua` | the CLI |
 | `lua/loomworks/*.lua` | core, workspace, domain objects, planning, locks, trust, housekeeping |
 | `lua/loomworks/daemon/` | the workspace daemon and its client side |
@@ -428,7 +432,7 @@ expected parent. The specs `build_dir_safety_spec.lua`,
 | `docs/diagrams/` | the diagrams of this document |
 | `bin/` | development launchers (`bin/lw`, `bin/lw.cmd`) |
 | `keys/` | the release public key |
-| `scripts/release/` | release build: bundle, signed manifest, fused host, descriptor, release-notes gate |
+| `scripts/release/` | release build: the staged tree (`stage_tree.sh`), fused executables and their smoke test, bundle, signed manifest, descriptor, release-notes gate |
 | `scripts/ci/`, `scripts/conformance.lua` | end-to-end CI scripts, protocol conformance replay |
 | `scripts/run_specs.lua`, `scripts/dev-install.sh` | the test runner; a local install from the working tree |
 | `tests/` | spec files (`*_spec.lua`), fixtures, the standalone suite (`tests/standalone/`) |
@@ -476,8 +480,9 @@ A release consists of:
 - `manifest.json` with the SHA-256 of every artifact, and
   `manifest.json.sig`, its ECDSA P-256 signature;
 - one **host binary** per platform (`lw-linux-x86_64`, `lw-macos-arm64`,
-  `lw-windows-x86_64.exe`, ...): luvi with `main.lua` and `lua/boot/` fused
-  in and the release public key embedded in `boot/verify.lua`;
+  `lw-windows-x86_64.exe`, ...): luvi with the whole tree fused in (the
+  same `loomworks/` the bundle carries, plus `main.lua` and `lua/boot/`), the
+  release version and the release public key embedded in `boot/verify.lua`;
 - `SHA256SUMS` and its signature `SHA256SUMS.sig`, used by first installs and
   by `lw bootstrap` to pin hashes;
 - a binary descriptor (`lw-<version>-descriptor.json`) that states what the

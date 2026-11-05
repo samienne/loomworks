@@ -117,10 +117,18 @@ jobs:
             "https://github.com/luvit/luvi/releases/download/v2.15.0/${asset}"
           chmod +x "$out" || true
 
+      # The full tree a release executable embeds (scripts/release/stage_tree.sh),
+      # without a release version: a development build.
       - name: Fuse the lw binary
         shell: bash
         run: |
-          if [ -f luvi.exe ]; then ./luvi.exe lua --output lw.exe; else ./luvi lua --output lw && chmod +x lw; fi
+          stage="$(bash scripts/release/stage_tree.sh)"
+          if [ -f luvi.exe ]; then
+            ./luvi.exe "$(cygpath -w "$stage")" --output lw.exe
+          else
+            ./luvi "$stage" --output lw && chmod +x lw
+          fi
+          rm -rf "$stage"
 
       - name: Smoke test — the fused binary runs
         shell: bash
@@ -137,6 +145,14 @@ jobs:
         run: |
           l="$PWD/luvi"; [ -f "$PWD/luvi.exe" ] && l="$PWD/luvi.exe"
           bash scripts/ci/host-self-update-e2e.sh "$l"
+
+      # The release scripts fuse the full tree (spec §16.11): the executable is
+      # self-contained, and the publish gate refuses a host asset without it.
+      - name: Release executables end-to-end
+        shell: bash
+        run: |
+          l="$PWD/luvi"; [ -f "$PWD/luvi.exe" ] && l="$PWD/luvi.exe"
+          bash scripts/ci/release-exe-e2e.sh "$l"
 
       - name: Run CLI end-to-end (meson + cmake, build/run/test/clean)
         shell: bash
