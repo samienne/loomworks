@@ -482,10 +482,10 @@ while the transition lasts, solely so that hosts older than self-contained
 releases can still follow the pin; a self-contained executable ignores it,
 and a pin without it is complete.
 
-It is a trivially
-parseable key/value list (not JSON) so a launcher can read it with a system
-shell alone — one `version` entry, one hashed entry per host binary keyed by the
-binary's asset identity, and one hashed entry for the bundle. The pin carries a
+It is a trivially parseable key/value list (not JSON) so a launcher can read it
+with a system shell alone — one `version` entry and one hashed entry per release
+executable keyed by its asset identity (plus the transitional bundle entry
+above). The pin carries a
 version and hashes **only, never a location**: the download origin is fixed by
 the host and overridable solely by the user's environment or host configuration,
 never by repository content.
