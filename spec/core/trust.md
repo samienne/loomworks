@@ -27,47 +27,22 @@ Explicit operations may run the project's own build system (§17.8).
 
 ### 17.2 Machine key
 
-On first use loomworks creates a **machine key**: 32 bytes from the host's
-secure random source, stored as 64 hexadecimal characters in `trust.key` in the
-**per-user data directory** — the same directory the standalone host uses for
-releases (§16.11), so the editor and the CLI on one machine share one key. The
-key is never stored in, or derived from, a workspace. It is created with
-owner-only permissions where the platform has them (mode `0600`, in a `0700`
-directory); on Windows the per-user local application-data directory is
-already private to the user. An existing key is never overwritten; a malformed
-key is an error that names the file (deleting it creates a new key — every
-workspace's signed files then read as `invalid`, §17.4).
+On first use loomworks creates a **machine key**. Its format, location and
+creation rules are [formats.md](../formats.md) §2.1.
 
 ### 17.3 Signed files
 
-Every file loomworks writes under a workspace's `.nvim/` whose content can
-cause execution — the working copy, the build cache and the health cache —
-carries a signature. The signature is the **first member** of the file's
-top-level object, alone on the file's second line, in exactly this form:
+The working copy, the build cache and the health cache carry a signature
+under the machine key. The signature envelope, the signed bytes, the
+signature and what it does and does not bind are
+[formats.md](../formats.md) §2.2.
 
-```
-{
-  "_sig": "<64 lowercase hex digits>",
-  …rest of the file…
-```
-
-The **signed bytes** are the file with that member removed (`{`, a newline,
-then everything after the member's line). The signature is
-
-```
-HMAC-SHA256(machine key, "loomworks-sig-v1\n" + kind + "\n" + SHA256-hex(signed bytes))
-```
-
-where `kind` is the file's role (`user`, `cache`, `health`), so a signed file of
-one role cannot be renamed into another. Signing the exact bytes — which are the
-deterministic sorted encoding of §2 — avoids any canonicalization ambiguity, and
-the fixed first-line position cannot be confused with a nested member of the
-same name. The workspace root is deliberately **not** bound: moving or renaming
-the workspace directory, or seeding a git worktree from the main checkout on the
-same machine (§16.25), keeps the files valid. Both hosts produce identical
-signatures for identical content. Readers remove the member before decoding, so
-it never appears in loaded data; older loomworks versions read a signed file as
-ordinary JSON.
+Copying a working copy from one workspace to another on the same machine is
+the same case as moving the workspace: the copy is **valid** there, and
+everything it names (profiles, toolchain selections, launch configurations,
+environment) is used as from any signed working copy — it was written by this
+machine's user, which is what the signature attests; it does not attest which
+workspace it was written for.
 
 A file is, on read:
 
@@ -135,6 +110,10 @@ way: an unsigned or invalid working copy, or an invalid cache, puts the
 workspace back into the refused state rather than merging the change; an
 unsigned cache change is ignored (the in-memory state is kept, and the next save
 replaces the file).
+
+A refused working copy that becomes valid on disk (restored, or re-signed by
+`lw trust`) loads the workspace again. Likewise, the **trust** action on a
+working copy that is already valid loads a workspace refused for trust.
 
 ### 17.5 Writers
 
@@ -305,6 +284,15 @@ or a file was viewed — run only what trusted state names:
   configured on this machine; a build directory that merely exists on disk (it
   came with the copy) is never introspected and its binaries are never
   executed passively.
+- **The editor's host binary** (§19.16): opening a workspace in daemon mode
+  may download and run **official releases only** (the plugin-managed `lw`,
+  verified against the hash the plugin pin carries, §19.16 "Plugin pin", or
+  against a hash the plugin-pinned `lw` obtained from an official release's
+  signed `SHA256SUMS`, §19.16 "Channel upgrades", §16.42); never a binary, a
+  URL or a channel that a workspace file names. The channel and the release
+  source come only from the editor's setup and the user's environment, and
+  the channel query and the pre-launch probe (§19.16) never run with the
+  workspace as working directory or with workspace-sourced environment.
 - **Version-control queries** (§16.25–§16.27, status hints, the `lw health`
   submodule report §16.31) disable
   repository-configured command hooks (file-system monitor, hooks path) on
@@ -340,10 +328,25 @@ comes only from the staging manifest.
   (program-bearing fields first) and asks for confirmation; `--yes` confirms
   non-interactively; `--discard` deletes the working copy instead. `lw nuke`
   resets an invalid build cache (with confirmation; `-y` skips it, and is
-  mandatory in a non-interactive host — the reset posture of §16.30).
+  mandatory in a non-interactive host — the reset posture of §16.30). Both
+  hold the workspace operation lock while they remove files, and nuke also the
+  build lock of every build directory it removes (§19.3): it refuses while a
+  build runs instead of deleting under it.
   `lw help trust` explains this section.
+  `lw status` (which a refused workspace never reaches) shows a `Trust` row:
+  whether a working copy is present — then signed on this machine — or absent,
+  and the number of program-bearing fields ignored in `loomworks.json` that
+  the working copy does not supply (§17.6). It is the page's only statement of
+  trust; the title is the workspace's name, which may be any word. A build
+  whose profile's projects (or the workspace) have such ignored fields prints
+  one notice line on standard error after naming the profile — the count, that
+  only the local config may name programs or environment, and pointers to
+  `lw status` and `lw help trust` — on the in-process and the daemon path
+  alike (§19.15).
 - **Editor.** The status page shows the refusal with the same actions (trust,
   discard, reset); a trust command shows the summary in a confirmation prompt.
+  In `daemon` mode, with the workspace not loaded, the actions are refused
+  and name `lw trust` / `lw trust --discard` / `lw nuke` (daemon.md §19.16).
 
 Example messages:
 

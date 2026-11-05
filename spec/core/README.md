@@ -39,11 +39,10 @@ no top-level `§N` is ever split across two files.
 | §19 | Workspace Runtime and Daemon (target design, implemented in steps; per-part status) | [`daemon.md`](daemon.md) |
 
 The editor-side sections — §6 UI, §9 LSP integration, §13 auto-load, §14
-Neovim commands, §18.11 remote execution in the editor and §19.16 the editor
-as a client — are specified by the Neovim plugin, in
+Neovim commands and §18.11 remote execution in the editor — are specified by
+the Neovim plugin, in
 [loomworks.nvim `spec/plugin.md`](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md);
-each keeps a one-line pointer at its place here. §19.8 and §19.12 are covered
-by [`PROTOCOL.md`](../protocol/PROTOCOL.md).
+each keeps a one-line pointer at its place here.
 
 Implementation-specific specs live in sibling directories:
 
@@ -52,6 +51,20 @@ Implementation-specific specs live in sibling directories:
   [shell](../modules/shell.md), [typescript](../modules/typescript.md))
 - [`spec/sdks/`](../sdks/) — per-SDK-provider details
   ([cpp_compiler](../sdks/cpp_compiler.md))
+- [`spec/protocol/PROTOCOL.md`](../protocol/PROTOCOL.md) — the wire
+  protocol between the workspace daemon and its clients, standalone:
+  transport bindings, framing, handshake, envelope, objects and interfaces,
+  errors, ids, signals, tasks, schemas and evolution. Its JSON schemas
+  (`transport.json`, `meta/`, `interfaces/`, `transcripts/`) sit beside it
+- [`spec/protocol/API.md`](../protocol/API.md) — the loomworks interface
+  suite served over that protocol: objects, shared types and outcomes, the
+  environment, and the meaning of every interface version that has a schema
+  (workspace, tasks, build, launch, tests, toolchains, profiles, debug and
+  LSP configuration, views, module interfaces)
+- [`spec/formats.md`](../formats.md) — the formats of the files another
+  implementation must read, write or honour: `loomworks.json`, the working
+  copy, the machine key and signature envelope, lock files, the commit
+  journal, the daemon handle and `lw.pin` (the build cache informatively)
 
 Section numbering differs by subtree. The `spec/core/*.md` files are a
 physical partition of the single global core §-namespace: they keep their
@@ -313,3 +326,22 @@ belongs in the matching `spec/` file.
     rendered inert in every host (§17.11). Absence is the default: an empty
     description is never stored, and loading, merging, publishing, reverting,
     renaming and pulling never drop a present one (§1.10, §2.4).
+
+21. **Workspace state stays in the workspace**: What a workspace's own
+    operations produce (its runtime log, temporary results and editor files)
+    is kept under its `.nvim/`. Outside the workspace only the bounded
+    per-user state of §16.40 is kept, and a leftover of an interrupted process
+    there is removed by the next run or by `lw cleanup` — only by exact name,
+    never through a link, never while in use (§16.40).
+
+22. **One build directory, one configuration**: A ConfigUnit's id is its
+    build directory, plus its `config_key` in a module's shared tree, so two
+    (project, configuration) pairs never share a ConfigUnit. A shared tree is
+    a module's own multi-config layout, within one project and tool; its
+    configurations are distinct ConfigUnits on one build directory (§1.7,
+    §8.4). Two pairs with one effective directory outside a shared tree
+    collide. A pair's effective directory is the `build_dir` its cache entry
+    records, else the directory it resolves to. The configuration a cache
+    entry for the directory names keeps it; otherwise the pair that sorts
+    first by project key, then configuration name, keeps it. The others are
+    refused with a load error naming both, until they resolve elsewhere.

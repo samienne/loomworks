@@ -36,7 +36,8 @@
    │ configure_failed │
    └──────────────────┘
 
-   Any state ──── delete/clean ────► deleting ────► unconfigured (clean, success)
+   Any state ──── delete/clean ────► deleting ────► unconfigured (wipe clean, success;
+                                                      module clean: §4.7)
                                                     or removed (delete, success)
                                                     or unknown (failure)
 
@@ -212,7 +213,7 @@ When a configuration set is removed from `loomworks.json`:
 4. Profile remains fully functional — builds still work using cached mappings
 5. UI shows `[stale]` tag and a warning about the removed set
 
-### 4.5 Orphaned Configurations
+### 4.5 Orphaned Build Dirs
 
 A cached configuration is **orphaned** when it has build state
 (configured/built/failed) but is not referenced by any profile's `projects`
@@ -221,7 +222,7 @@ one branch but the configuration set that produced it no longer exists.
 
 **On startup**:
 - Cached configs with state but no profile reference → kept as orphans
-  (shown in the Orphaned Configurations UI section)
+  (shown in the Orphaned Build Dirs UI section)
 - Cached configs without state (unconfigured skeletons) and no profile
   reference → silently dropped from cache
 
@@ -318,12 +319,17 @@ configurations (Debug and Release produce output in the same directory,
 selected at build time via `--config`). When deleting a configuration that
 shares a build directory with other configurations:
 
-1. A reverse index (`_build_dir_refs`) maps each build directory, keyed by
-   its directory identity (canonical form: Windows 8.3 short and long names
-   and case reconciled, links resolved; a path that does not resolve falls
-   back to its normalized form), to the set of cache keys that reference it,
-   so two spellings of one directory share an entry. Every lookup uses the
-   same key. Rebuilt during every remerge and before each deletion batch.
+1. A reverse index (`_build_dir_refs`) maps each build directory to the set
+   of cache keys that reference it. Rebuilt during every remerge. Build
+   directories are compared by resolved real path (for a directory that does
+   not exist yet, the real path of its nearest existing ancestor plus the rest
+   of the path), so one folder spelled differently -- a junction or symlink, a
+   Windows 8.3 short name, an aliased workspace root -- is one directory; this
+   applies equally to grouping a clean's wipes into one batch (§4.7) and to
+   the build-directory locks (§5.3, §16.6). A deletion batch's directories
+   are deduplicated, marked `unknown` before removal (§5.7), and matched
+   against a reset's overlap exemption by the same identity, so every entry
+   naming a removed directory under any spelling is covered.
 2. Before adding a directory to the deletion queue, subtract the cache keys
    being deleted in the current batch from the ref set.
 3. If remaining refs > 0 → skip the directory (don't rm -rf). The cache
@@ -393,8 +399,20 @@ workspace marker present, every path under `root/.nvim/`) plus rules 3 and
 5 above; in place of rule 4 the target must be exactly the direct child
 `<root>/.nvim/cache/<lsp_database_root>` (a valid single segment). Nothing else under
 `<root>/.nvim/cache/` (e.g. pinned launcher binaries, §16.24) is touched.
+The area check runs before any lock is taken (a failed check aborts the
+nuke with nothing deleted); the area itself is removed together with the
+build caches, under the nuke's operation and build locks (§19.3) and before
+the build tree is moved aside. A nuke that then refuses because the tree
+cannot be moved aside has removed the area like the caches: harmless,
+derived data regenerated on the next configure.
 
 ### 4.7 Cleaning
+
+A module clean (the build system's own artifact clean, §16.1) that succeeds
+moves its `built` / `failed_build` units to `configured` (other states are
+unchanged); a core-performed wipe (§8.1) resets them to `unconfigured`. The
+state is recorded only after the clean succeeded — a failed module clean
+records nothing. The steps below are the wipe's.
 
 **Profile clean** (`C` key):
 1. For each project in the profile:
@@ -722,6 +740,9 @@ the build. The build dir operation queue prevents this:
 run concurrently when dequeued), but shared batching stops at an exclusive
 boundary.
 
+**Identity**: A build directory's lock is keyed by its §4.6 identity, so
+operations naming one folder by two spellings share one lock.
+
 **Scope**: The build dir lock is a separate layer from task readiness
 (section 5.1). Readiness checks ConfigUnit state; the build dir lock gates
 actual task launching to prevent filesystem corruption.
@@ -772,13 +793,31 @@ Operations have three completion modes:
   clears on all affected units. Success if units return to "unconfigured",
   failure if they end up in "unknown" state (partial deletion).
 
+**Invalid ProfileProjects.** A profile-level operation runs every valid
+ProfileProject of the profile. A ProfileProject that is invalid for the
+action (a tool compat error, §8.4 `validate_config_tool`; a refused build
+directory, §1.7 "One build directory per configuration") is not run. It
+counts as finished and failed, with its reason in the result message, so
+the Operation fails and a CLI invocation exits non-zero after the other
+projects have run. A clean leaves an invalid ProfileProject's build
+directory as it is, also when a valid one shares it (a core-performed wipe
+of that directory is not done). A rebuild (clean, then build) whose clean
+failed only on invalid ProfileProjects still builds the others, then fails
+naming them; a clean that failed otherwise stops it, and its failure names
+the invalid ones too.
+
 Multiple Operations can coexist — they are independent objects, not a
 single slot on Profile. This means overlapping actions on different
 profiles don't clobber each other.
 
 **Preemption rules**:
 - Clean/delete **cancel** any active build/configure Operations on the
-  same ConfigUnits (stopping their overseer tasks).
+  same ConfigUnits (stopping their overseer tasks). *(Step 5k, plan:)* for
+  an operation the editor runs in the workspace daemon, the cancel is
+  `Tasks/1.cancel` and only for tasks the editor owns; a conflicting task
+  another client started (a `lw build` in a terminal) is not cancelled, and
+  the clean meets its build-directory locks (daemon.md §19.15 "The editor as
+  owner").
 - Build/configure issued during a clean/delete are **deferred** via
   `after_deletions()` until the deletion Operation completes.
 
@@ -965,6 +1004,7 @@ Events are the primary mechanism for cross-component communication.
 | `deletion_failed`      | `{ items, errors }` | One or more build dir deletions failed |
 | `tools_detected`       | `tools_by_type` | Tool detection completed |
 | `lsp_ready`            | (none) | Active profile's owned LSP databases generated/settled — releases the deferred-LSP gate ([loomworks.nvim `spec/plugin.md` §9.7](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration)) |
+| `lsp_database_written` | `{ workspace, db_dir }` | An owned LSP database was (re)written (§8.4 `refresh_lsp_database`'s `done(true)`), after its `db_rev` was raised — the daemon's `LspConfig/1` `changed` ([API.md](../protocol/API.md) §13) |
 | `lsp_buf_state_changed` | `{ bufnr, server, state }` | A buffer's per-server LSP status ([loomworks.nvim `spec/plugin.md` §9.8](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration): `none` / `held` / `ok` / `withheld_*`) changed; emitted scheduled, followed by a statusline redraw. `state` is the status for that one `server`, not the aggregated per-buffer status (`loomworks.lsp_buf_state(bufnr)`) |
 | `devices_changed`      | `Device[]` | Device scan completed |
 
