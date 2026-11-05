@@ -1615,6 +1615,12 @@ do
   local patched, n = ("\n" .. vsrc):gsub("\nM%.RELEASE_VERSION = nil", '\nM.RELEASE_VERSION = "9.8.7"', 1)
   patched = patched:sub(2)
   eq(n, 1, "staged a release version")
+  -- Trusting the TEST key (as fuse_host.sh does for a test host), so the
+  -- fixtures' signed manifest verifies (self-update below).
+  local nk
+  patched, nk = patched:gsub("M%.PUBLIC_KEY_PEM = %[%[.-%]%]",
+    function() return "M.PUBLIC_KEY_PEM = [[\n" .. test_pub:gsub("%s+$", "") .. "\n]]" end, 1)
+  eq(nk, 1, "staged the test key")
   writef(stage .. "/boot/verify.lua", patched)
   paths.mkdirp(sb .. "/bin")
   local exe = sb .. "/bin/lw" .. (paths.is_windows and ".exe" or "")
@@ -1648,18 +1654,23 @@ do
   local override = { LOOMWORKS_DATA_DIR = home, LOCALAPPDATA = home, APPDATA = home, XDG_DATA_HOME = home,
     XDG_CONFIG_HOME = home, LOOMWORKS_INSTALL_DIR = inst, LOOMWORKS_NO_HOUSEKEEPING = "1",
     LOOMWORKS_RELEASE_URL = sb .. "/no-mirror" }
+  -- The environment by (Windows: upper-cased) name; `extra` replaces an entry,
+  -- or removes it with `false`.
+  local function ekey(k) return paths.is_windows and k:upper() or k end
   local base_env = {}
   for k, v in pairs(uv.os_environ()) do
     if override[k] == nil and k ~= "LOOMWORKS_PINNED" and k ~= "LOOMWORKS_LW" and k ~= "LW_ROOT"
         and k ~= "LOOMWORKS_LUA" and k ~= "LOOMWORKS_LAUNCHER" then
-      base_env[#base_env + 1] = k .. "=" .. v
+      base_env[ekey(k)] = { k, v }
     end
   end
-  for k, v in pairs(override) do base_env[#base_env + 1] = k .. "=" .. v end
+  for k, v in pairs(override) do base_env[ekey(k)] = { k, v } end
   local function run(bin, args, extra, cwd)
+    local m = {}
+    for key, kv in pairs(base_env) do m[key] = kv end
+    for k, v in pairs(extra or {}) do m[ekey(k)] = v and { k, v } or nil end
     local env = {}
-    for _, e in ipairs(base_env) do env[#env + 1] = e end
-    for k, v in pairs(extra or {}) do env[#env + 1] = k .. "=" .. v end
+    for _, kv in pairs(m) do env[#env + 1] = kv[1] .. "=" .. kv[2] end
     local logf, errf = sb .. "/out.txt", sb .. "/err.txt"
     local fd = assert(uv.fs_open(logf, "w", 420))
     local fe = assert(uv.fs_open(errf, "w", 420))
@@ -1734,6 +1745,40 @@ do
     and err:find("0.1.0", 1, true), "dev build in pinned context: refused  (exit " .. tostring(code) .. ": " .. err .. ")")
   code, out = run(uv.exepath(), { native(paths.norm(root .. "/lua")), "--", "version" })
   ok(out:find("lw - host: dev build", 1, true) == 1, "a source run reports a dev build  (got " .. out .. ")")
+
+  -- Self-update and install from a release executable: its code is embedded,
+  -- so no bundle is installed and no installed release is pruned - the decoy
+  -- bundles in the install folder and in the data dir all survive (deletion
+  -- safety: these run before the CLI, from the host's own commands).
+  local survivors = {}
+  for _, d in ipairs({ home, inst }) do
+    for _, v in ipairs({ "1.0.0", "1.0.1", "1.0.2", "1.0.3" }) do
+      paths.mkdirp(d .. "/lua-" .. v .. "/loomworks")
+      writef(d .. "/lua-" .. v .. "/loomworks/cli.lua", "return {}\n")
+      survivors[#survivors + 1] = d .. "/lua-" .. v .. "/loomworks/cli.lua"
+    end
+    survivors[#survivors + 1] = d .. "/lua-999.0." .. (d == home and "0" or "1") .. "/loomworks/cli.lua"
+  end
+  local function all_survive()
+    local gone = {}
+    for _, p in ipairs(survivors) do if not uv.fs_stat(p) then gone[#gone + 1] = p end end
+    return #gone == 0, table.concat(gone, ", ")
+  end
+  local mirror = FX:gsub("/$", "")
+  code, out, err = lw({ "self-update", "--no-host" }, { LOOMWORKS_RELEASE_URL = mirror })
+  local kept, gone = all_survive()
+  ok(code == 0 and out:find("0.0.0-test", 1, true) ~= nil,
+    "release exe: self-update resolves the release  (exit " .. tostring(code) .. ": " .. out .. err .. ")")
+  ok(kept, "release exe: self-update prunes no installed release  (removed: " .. gone .. ")")
+  ok(uv.fs_stat(inst .. "/lua-0.0.0-test") == nil and uv.fs_stat(home .. "/lua-0.0.0-test") == nil,
+    "release exe: self-update installs no bundle")
+  -- install, into the data dir (no install folder override).
+  code, out, err = lw({ "install", "-y", "--no-modify-path" },
+    { LOOMWORKS_RELEASE_URL = mirror, LOOMWORKS_INSTALL_DIR = false, HOME = home })
+  kept, gone = all_survive()
+  ok(code == 0, "release exe: install succeeds  (exit " .. tostring(code) .. ": " .. out .. err .. ")")
+  ok(kept, "release exe: install prunes no installed release  (removed: " .. gone .. ")")
+  ok(uv.fs_stat(home .. "/lua-0.0.0-test") == nil, "release exe: install fetches no bundle")
   paths.rm_rf(sb)
 end
 

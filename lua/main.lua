@@ -153,6 +153,20 @@ local function running_code_version()
   return nil
 end
 
+--- What code runs, for every later reader: the host commands below
+--- (self-update and gc must know the code is embedded) as well as system Lua
+--- (release_notice and the other identity readers). Kind "embedded" | "dev" |
+--- "release" (transitional bundle), its release version (nil for a
+--- development build or source), and the executable. Published as soon as the
+--- source is resolved, and again when the pinned context switches it to a
+--- provisioned bundle.
+local function publish_code()
+  local okx, exe = pcall(uv.exepath)
+  _G.__loomworks_code = { kind = source_kind, version = running_code_version(),
+    exe = okx and exe or nil }
+end
+publish_code()
+
 -- ---- pin: sentinel, override, and workspace root ----------------------------
 local pinned_sentinel = getenv("LOOMWORKS_PINNED")
 local lw_override = getenv("LOOMWORKS_LW") ~= nil
@@ -332,6 +346,7 @@ if pinned_sentinel and not dev_opt_in and source_kind ~= "embedded" then
     -- it (the bundle tree must stay byte-identical to the release).
     pcall(uv.fs_utime, dir, os.time(), os.time())
     luaroot, source_kind = dir, "release"
+    publish_code()
   end
 end
 
@@ -416,7 +431,7 @@ elseif host_command == "self-update" then
   -- from it.
   local prev_bundle = (paths.installed_releases()[1] or {}).ver
   local res, err, info = require("boot.update").self_update({ force = force, channel = channel,
-    running_root = luaroot })
+    running_root = luaroot, embedded = source_kind == "embedded" })
   if not res and info and info.host_incompatible then
     -- The (verified) release needs a newer host than this one. Replace the
     -- host first — otherwise the first release raising min_host_version would
@@ -460,12 +475,19 @@ elseif host_command == "self-update" then
       "the `release-url` setting). The channel governs only the default origin; " ..
       "unset the override to use channels.\n")
   end
-  io.write(res.updated
-    and ("lw: installed loomworks " .. res.version .. "\n")
-    or ("lw: already up to date (" .. res.version .. ")\n"))
+  if res.embedded then
+    -- This lw carries its code: no bundle was installed (and none pruned);
+    -- only the host binary below can update it.
+    io.write("lw: latest release: " .. res.version ..
+      " (this lw is self-contained: no bundle to install)\n")
+  else
+    io.write(res.updated
+      and ("lw: installed loomworks " .. res.version .. "\n")
+      or ("lw: already up to date (" .. res.version .. ")\n"))
+  end
   -- Back on `stable` with a newer prerelease installed: bundles never
   -- downgrade, so say which one keeps running, and until when.
-  do
+  if not res.embedded then
     local newest = paths.installed_releases()[1]
     local note = require("boot.update").newer_bundle_note(newest and newest.ver, res.version)
     if note then io.write("lw: note: " .. note .. "\n") end
@@ -538,6 +560,8 @@ elseif host_command == "install" then
   -- A host with its system Lua fused in (a `make install` development build)
   -- gets no "run lw self-update" advice for a skipped bundle.
   opts.fused_system_lua = fused_system_lua()
+  -- Embedded code (a release executable) needs no bundle: none is fetched.
+  opts.embedded = source_kind == "embedded"
   -- install may report progress AND fail: the binary can be placed while the
   -- bundle fetch dies. Print whatever it got done, then honour the error —
   -- exiting 0 on a partial install is what leaves a job to fail later with a
@@ -664,15 +688,6 @@ do
 end
 
 -- ---- install the loomworks searcher + run -----------------------------------
--- What code runs, for system Lua (release_notice.running_version and the
--- other identity readers): kind "embedded" | "dev" | "release" (transitional
--- bundle), its release version (nil for a development build or source), and
--- the executable.
-do
-  local okx, exe = pcall(uv.exepath)
-  _G.__loomworks_code = { kind = source_kind, version = running_code_version(),
-    exe = okx and exe or nil }
-end
 if luaroot then
   -- On-disk root (dev or release) is authoritative; no bundle fallback, so a
   -- partial tree fails loudly instead of silently mixing in bundled code.

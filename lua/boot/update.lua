@@ -482,6 +482,14 @@ function M.rename_with_retry(src, dst, opts)
   return false, last
 end
 
+--- Does this process run embedded code (a release executable or a
+--- development fuse, spec §16.11)? main.lua publishes `__loomworks_code` as
+--- soon as it has resolved the source, before any host command runs.
+local function embedded_code()
+  local code = rawget(_G, "__loomworks_code")
+  return type(code) == "table" and code.kind == "embedded"
+end
+
 --- A path resolved (realpath when it exists), forward-slashed, without a
 --- trailing slash, lowercased on Windows — for identity comparisons only.
 local function canon_path(p)
@@ -506,8 +514,7 @@ function M.gc(keep, except, running_root)
   -- Embedded code (a release executable, spec §16.11) runs no bundle and keeps
   -- no install folder: nothing here is its to prune, and the install folder may
   -- be any user-chosen directory. Never delete anything then.
-  local code = rawget(_G, "__loomworks_code")
-  if type(code) == "table" and code.kind == "embedded" then return end
+  if embedded_code() then return end
   local base = canon_path(paths.install_dir())
   if not base then return end
   local running = canon_path(running_root or rawget(_G, "__loomworks_luaroot"))
@@ -534,9 +541,11 @@ end
 --- override superseded a non-default channel (nil otherwise) — for the caller
 --- to surface as a warning. `info` is set only when the (verified) release
 --- needs a newer host than this one — { version, host_incompatible = true } —
---- so the caller can update the host binary first.
---- @param opts? { url?: string, force?: boolean, channel?: string }
---- @return { version: string, updated: boolean, dir: string, channel_overridden?: string }|nil result
+--- so the caller can update the host binary first. Embedded code (or
+--- `opts.embedded`) installs no bundle and prunes nothing: the result then
+--- carries only the verified release (`embedded = true`, no `dir`).
+--- @param opts? { url?: string, force?: boolean, channel?: string, embedded?: boolean, running_root?: string }
+--- @return { version: string, updated: boolean, dir?: string, embedded?: boolean, channel_overridden?: string }|nil result
 --- @return string|nil err
 --- @return { version: string, host_incompatible: boolean }|nil info
 function M.self_update(opts)
@@ -588,6 +597,13 @@ function M.self_update(opts)
   -- installed_releases: only a strict release version is accepted.
   if not paths.is_release_version(version) then
     return nil, "manifest names an invalid release version '" .. tostring(version) .. "'"
+  end
+  -- Embedded code runs no bundle: there is none to install and no installed
+  -- release to prune (gc). Only the verified release is resolved, for the
+  -- caller's host-binary step.
+  if opts.embedded or embedded_code() then
+    return { version = version, updated = false, embedded = true,
+      channel_overridden = channel_overridden }
   end
   local install = paths.install_dir()
   local dest_dir = install .. "/lua-" .. version
