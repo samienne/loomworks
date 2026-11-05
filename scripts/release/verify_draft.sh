@@ -10,6 +10,8 @@
 #   - every asset listed in SHA256SUMS is present and matches its hash;
 #   - SHA256SUMS lists every asset a release must carry (the host binaries,
 #     the bundle, its signed manifest and the descriptor);
+#   - every host asset (lw-*, not the descriptor) is a self-contained
+#     executable: its fused zip carries loomworks/cli.lua (spec §16.11);
 #   - manifest.json.sig verifies, and the manifest names <version> and the bundle;
 #   - the descriptor names <version> as a release (not a development build).
 #
@@ -59,6 +61,25 @@ for need in lw-linux-x86_64 lw-macos-arm64 lw-windows-x86_64.exe \
   esac
 done
 echo "every asset matches SHA256SUMS"
+
+# Self-contained executables (spec §16.11): each host asset's fused zip carries
+# the full tree, not only the bootstrap.
+for name in $listed; do
+  case "$name" in
+    "$descriptor") ;;
+    lw-*)
+      python3 - "$dir/$name" <<'PY' || die "host asset $name does not carry loomworks/cli.lua (not a self-contained executable)"
+import sys, zipfile
+try:
+    names = zipfile.ZipFile(sys.argv[1]).namelist()
+except Exception:
+    sys.exit(1)
+sys.exit(0 if "loomworks/cli.lua" in names else 1)
+PY
+      ;;
+  esac
+done
+echo "every host asset is self-contained"
 
 openssl dgst -sha256 -verify "$key" -signature "$dir/manifest.json.sig" "$dir/manifest.json" >/dev/null \
   || die "manifest.json.sig does not verify under $key"

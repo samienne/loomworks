@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
 # Release executables end-to-end (spec §16.11): the release scripts fuse the
-# full tree into `lw`, and the result is self-contained.
+# full tree into `lw`, and the publish gate refuses a host asset that does not
+# carry it.
 #
 #   bash scripts/ci/release-exe-e2e.sh <luvi_binary>
 #
 # Fuses a release executable with the TEST key (scripts/release/fuse_host.sh),
 # smoke-tests it (scripts/release/smoke_exe.sh), builds the bundle and the
 # descriptor from it, then stages a draft signed with the TEST key and runs
-# scripts/release/verify_draft.sh on it (accepted). Hermetic: no network;
-# per-user dirs are sandboxed. Needs python3, openssl and sha256sum or shasum.
+# scripts/release/verify_draft.sh on it — once as built (accepted) and once with
+# a bootstrap-only host asset (main.lua + boot/ only, as releases before
+# self-contained executables shipped; refused). Hermetic: no network; per-user
+# dirs are sandboxed. Needs python3, openssl and sha256sum or shasum.
 set -u
 
 luvi="${1:?usage: release-exe-e2e.sh <luvi>}"
@@ -92,6 +95,13 @@ cp "$host" "$D/lw-macos-arm64"; cp "$host" "$D/lw-windows-x86_64.exe"
 sign_draft "$D"
 bash "$rel/verify_draft.sh" "$ver" "$D" "$fx/test_ec_pub.pem" >/dev/null 2>&1 \
   && ok "verify_draft.sh accepts the draft" || bad "verify_draft.sh refused a good draft"
+
+echo "=== the publish gate refuses a host asset without loomworks/cli.lua ==="
+cp "$old" "$D/lw-macos-arm64"
+sign_draft "$D"
+out="$(bash "$rel/verify_draft.sh" "$ver" "$D" "$fx/test_ec_pub.pem" 2>&1)"; code=$?
+[ $code -ne 0 ] && ok "verify_draft.sh exits non-zero" || bad "verify_draft.sh accepted a bootstrap-only host asset"
+case "$out" in *"lw-macos-arm64"*"loomworks/cli.lua"*) ok "names the asset and the missing entry" ;; *) bad "unexpected message: $out" ;; esac
 
 echo
 echo "release executables e2e: $PASS passed, $FAIL failed"
