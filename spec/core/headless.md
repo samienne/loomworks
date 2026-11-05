@@ -1419,6 +1419,15 @@ launcher's form (§16.24 "Invoked form"). The host removes the value from its ow
 environment once read, so nothing it starts inherits it. A launcher that does not
 set it (an earlier generation) is still honoured, with the `./lw.sh` form.
 
+**Host-internal values.** The pinned-context marker and the workspace root
+of a forwarding environment (§16.23) are read once, at startup, by the host
+they are forwarded to, which then removes them from its own environment, as
+it does `LOOMWORKS_LAUNCHER`: nothing it starts inherits them, and the
+environment a client sends with a request (§19) never carries them. A host
+that starts a daemon or forwards again passes them explicitly. So an `lw`
+that a build, run or test step runs starts outside the pinned context and
+resolves its own workspace and pin.
+
 **No install folder.** A host keeps no code outside its executable, so there
 is nothing to install beside it: the executables it downloads live in the
 machine-local executable cache (§16.13, §16.40), and `LOOMWORKS_INSTALL_DIR`
