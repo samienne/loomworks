@@ -44,6 +44,12 @@ execution; the daemon adds a server, a task stream and views on top.
 
 ## Runtime: one Lua code base, two hosts
 
+*Transition.* The specification now defines a release as one self-contained
+executable per platform (spec §16.11–16.13): all code embedded, pinned and
+upgraded releases cached as executables under `<data>/exe/<sha256>/`, no
+separately fetched bundle. The implementation still ships the host binary +
+bundle model described below; this document changes with the code.
+
 All of `lw` is Lua 5.1 / LuaJIT on top of libuv. It runs on one of two hosts:
 
 - **luvi** (the release host). A release `lw` binary is a copy of

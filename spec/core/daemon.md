@@ -2296,8 +2296,9 @@ the daemon's operations as with any other process:
 (`provision/select.lua`, `provision/managed.lua`) and the download, check and
 pruning of the plugin-managed `lw` of step 5h.3 (`provision/fetch.lua`,
 `provision/sha256.lua`, `provision/cache.lua`), the plugin pin of step 5h.4
-(`provision/pinned.lua`, `provision/needs.lua`, `scripts/release/pin.sh`, the
-two-stage `release.yml`), the pre-launch probe of step 5h.5
+(`provision/pinned.lua`, `provision/needs.lua`, `scripts/release/pin.sh` and
+`pin.lua` in the plugin's repository; the two-stage `release.yml` of `lw`'s),
+the pre-launch probe of step 5h.5
 (`provision/probe.lua`, `provision/needs.lua` `problems`), the editor's
 retirement of an incompatible daemon of step 5h.5 (`daemon/editor_retire.lua`,
 `Observer:_weigh_retire`; channel upgrades are step 5h.5, plan); remote tasks shown as
@@ -3144,31 +3145,36 @@ terminal). It runs none of the editor's own operations; where those run is
   `lua/loomworks/provision/pinned.lua`, `{ version, assets = { [<host asset>]
   = <sha256> } }` with one hash per published host asset (`lw-linux-x86_64`,
   `lw-macos-arm64`, `lw-windows-x86_64.exe`; the plugin keeps its own copy of
-  that table). It is never edited by hand: `scripts/release/pin.sh` writes it
+  that table). A pin of a release from before self-contained executables
+  also carries that release's bundle (`loomworks-lua-<version>.zip`), which
+  its host binary needs (§16.14); a pin of a self-contained release has no
+  bundle entry and is complete without one. It is never edited by hand:
+  `scripts/release/pin.sh` writes it
   from a release's `SHA256SUMS` after verifying `SHA256SUMS.sig` with the
   committed release key, and only when the release's descriptor (§16.41)
   offers what the editor client needs — a transport range overlapping the
   plugin's, schemas no newer than the plugin's, and `/` `loomworks.Root/1`,
   `/tasks` `loomworks.Tasks/1`, `/workspace` `loomworks.Workspace/1` (one
-  check, `provision/needs.lua`). The pin is not part of any lw release asset,
-  so the pin commit changes no release asset. Releases are cut in two stages: the
+  check, `provision/needs.lua`). `lw` is released from its own repository,
+  which does not depend on the plugin; a release is cut in two stages: the
   build stage builds every asset of `vX` from a build commit C into an
-  unpublished draft release (no tag, C recorded as its target); the cutter
-  pins the draft, commits only `pinned.lua` on top of C and tags that commit
-  `vX`; the tag push never rebuilds — it publishes the draft (the one draft
-  named `vX`; none or several fail) only when the
-  tagged commit changes nothing but `pinned.lua` since C, the pin names `X`
-  and equals the draft's signed hash for every host asset, the signature
-  verifies, every host binary of the draft is present and matches
-  `SHA256SUMS`, and the
-  descriptor passes the interface check. Any failure, or no draft, publishes
-  nothing. The cutter pushes only the tag first and pushes the pin commit to
-  a branch only after the publish succeeded, so a failed gate leaves no
-  branch pinning an unpublished draft. Hence a plugin checkout always pins a
-  published release, never one newer than every release. Ordinary CI runs the same check on the pinned
-  release as a warning only: a development checkout may need interfaces newer
-  than the last release (the editor then degrades with feature notes;
-  developers point `binary.path` / `LOOMWORKS_LW` at a newer `lw`).
+  unpublished draft release (no tag, C recorded as its target); pushing an
+  annotated tag `vX` on exactly C never rebuilds — it publishes the draft
+  (the one draft named `vX`; none or several fail) only when `SHA256SUMS.sig`
+  verifies with the committed release key, every asset `SHA256SUMS` lists is
+  present and matches it, every asset a release must carry is listed, and the
+  descriptor names `X` as a release. Any failure, or no draft, publishes
+  nothing. The plugin pins only a **published** release, by an ordinary
+  change in the plugin's repository that touches nothing but `pinned.lua`
+  and is merged like any other (its required checks pass): `pin.sh` fetches
+  the release by its tag, so a draft cannot be pinned, and it refuses a
+  release whose signature does not verify or whose descriptor fails the
+  interface check. Hence a plugin checkout always pins a published release,
+  never one newer than every release, and an `lw` release never waits for
+  the plugin. The plugin's CI runs its specs against the pinned release.
+  A development checkout may need interfaces newer than the last release
+  (the editor then degrades with feature notes; developers point
+  `binary.path` / `LOOMWORKS_LW` at a newer `lw`).
 
   **The plugin-managed `lw`** (step 5h.3) lives at
   `<editor data>/loomworks/lw/<sha256>/lw` (`lw.exe` on Windows),
@@ -3694,9 +3700,11 @@ protocol 10 and the optional parts 5k D and 5m D; 6b-α next, then 6, 6b-β,
        managed `lw` under the editor's data directory; `binary.download`,
        `binary.release_url`; pruning of other managed binaries. *(Done.)*
      - **5h.4** — the plugin's own pin (a hash per host asset, outside any
-       release asset), the release sequencing that commits it, the CI interface
-       check. *(Done: §19.16 "Plugin pin"; first seeded with
-       0.1.43-beta.15, which predates the descriptor.)*
+       release asset), pinning only published releases, the interface check
+       at pin time. *(Done: §19.16 "Plugin pin"; first seeded with
+       0.1.43-beta.15, which predates the descriptor. The release sequencing
+       that committed the pin on the build commit was retired when the plugin
+       moved to its own repository.)*
      - **5h.5** — channel upgrades through the verified `lw`
        (`binary.channel`, `lw release query`, §16.42; §19.16 "Channel
        upgrades"), compatibility-driven selection (§19.16 "Pre-launch
