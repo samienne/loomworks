@@ -105,8 +105,20 @@ during merge to discover available configurations.
   user-declared configuration's info, because a user configuration's
   description is core-owned and read from the workspace files. This field is
   additive and optional, so there is no `api_versions.module` bump (§8.0).
+- A configuration's info MAY carry `error`, a string: the module cannot use
+  the configuration as declared (e.g. a field names something the module
+  cannot resolve). Core then treats the configuration as invalid (§15
+  invariant 11) with that reason: no build directory is resolved for it
+  (`resolve_build_dir` is not called), no ConfigUnit exists for it, and every
+  operation on it is refused. The load raises it as an error-severity load
+  diagnostic naming the project and configuration, which reaches the status
+  page Diagnostics section, the daemon's persistent load diagnostics (daemon
+  §19.13 "Load warnings") and every CLI command's standard error (headless
+  §16). The next load that no longer reports it makes the configuration valid
+  again. Additive and optional: no `api_versions.module` bump.
 
-`description` is a **core-reserved key** in two places: the module section
+`description` and `error` are **core-reserved keys** of a configuration's info,
+never part of `module_config`. `description` is also reserved in two places: the module section
 (`type_config`), and every configuration table under
 `type_config.configurations`. Core removes the key from the module section
 before calling `validate`, `info` or `tasks`. A configuration's `description`
@@ -391,6 +403,17 @@ has no options. Called on demand, not cached.
 Modules may support module-specific grouping or filtering of options via
 their `type_config`. See per-module specs for details.
 
+An async companion `get_options_async(build_dir, config, callback, opts?)`
+may be provided by a module whose read spawns a program. It calls
+`callback(tree)` exactly once, later and on the main loop, with what
+`get_options` would return (nil when not configured or no options).
+`opts.system`, when set, is a spawner with the `vim.system` signature (as
+`TestUnit._system`, §8.9); the module runs every program through it, so the
+workspace daemon runs it in the client's environment. Without it the module
+spawns directly. A caller that must not block (the workspace daemon's
+`Projects/1.unit_options`, API.md §19) uses the companion when present, else
+`get_options`. Additive and optional: no `api_versions.module` bump.
+
 **`resolve_build_dir(project_name, config_name, config_info, workspace_root, tool_data) → string, shared?`** *(optional)*
 
 Return the absolute path of the build directory for a given project
@@ -485,7 +508,8 @@ Entry shape (core-defined fields):
 |-------|---------|
 | `server` | Server name — selects the integration |
 | `root_dir` | Absolute path used for root_dir matching and client scoping |
-| `db_state` | *(optional)* `"ready"` or `"unconfigured"`. `"unconfigured"` when the unit that would supply this entry's build-directory-derived inputs (its compilation database in particular) is **not configured on this machine** (§17.8), or there is no active profile / no active unit for the project; the entry then carries **no** database location ([loomworks.nvim `spec/plugin.md` §9.1](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration)). `"ready"` when that unit is configured here. Whether a configured unit's database actually exists yet is not part of this field — the integration checks that itself ([loomworks.nvim `spec/plugin.md` §9.3](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration) `withhold_reason`) |
+| `db_state` | *(optional)* `"ready"` or `"unconfigured"`. `"unconfigured"` when the unit that would supply this entry's build-directory-derived inputs (its compilation database in particular) is **not configured on this machine** (§17.8), or there is no active profile / no active unit for the project; the entry then carries **no** database location ([loomworks.nvim `spec/plugin.md` [loomworks.nvim `spec/plugin.md` §9.1](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration)](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration)). `"ready"` when that unit is configured here. Whether a configured unit's database actually exists yet is not part of this field — the integration checks that itself ([loomworks.nvim `spec/plugin.md` [loomworks.nvim `spec/plugin.md` §9.3](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration)](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration) `withhold_reason`) |
+| `db_dir` | *(optional)* The build directory whose owned database (`refresh_lsp_database` below) this entry reads — another unit's build directory when the module redirects its database there (a cross-configuration reference). When omitted, core sets it to the project's active build directory (absent when there is none). Core matches database writes against it (the completion nudge, `done` below) and keys the entry's database revision by it ([API.md](../protocol/API.md) §13); it does not locate the database for the server (that remains the integration's fields, [loomworks.nvim `spec/plugin.md` §9.1](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration)) |
 | _…per-server_ | Each integration documents its own additional fields. See [loomworks.nvim `spec/integrations/lsp/`](https://github.com/samienne/loomworks.nvim/tree/master/spec/integrations/lsp/). |
 
 Modules with no LSP needs return `{}` (or omit the method). The module
@@ -493,7 +517,7 @@ may traverse core domain objects (Project, ConfigUnit) to resolve
 references. A module emits its entry even when the active unit is not
 configured here (with `db_state = "unconfigured"` and no database
 location), so the buffer is recognised as a project buffer and its
-server withheld ([loomworks.nvim `spec/plugin.md` §9.8](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration)) rather than falling through to the stock server.
+server withheld ([loomworks.nvim `spec/plugin.md` [loomworks.nvim `spec/plugin.md` §9.8](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration)](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration)) rather than falling through to the stock server.
 A module that emits **no** entry for a project expresses "loomworks has
 no opinion" — such buffers take the fallback path, unchanged.
 
@@ -504,11 +528,14 @@ on the entry before any integration sees it, so an `"unconfigured"`
 result is withheld (and its database location ignored, see the clangd
 spec) exactly as if the module had reported it. A module that redirects its database to another unit (a
 cross-configuration reference) must set the field itself, since only it
-knows which unit supplies the database. Adding the field is additive and
-optional, with a safe derived default: no `api_versions.module` bump
+knows which unit supplies the database; for the same reason it sets
+`db_dir` to that unit's build directory. Adding either field is additive
+and optional, with a safe derived default: no `api_versions.module` bump
 (§8.0).
 
-Core reads entry contents only for `server`, `root_dir` and `db_state` —
+Core reads entry contents only for `server`, `root_dir`, `db_state` and
+`db_dir` — a module field of any other name (a `build_dir` of its own, for
+instance) passes through unread —
 all other interpretation is delegated to the per-server integration.
 
 **`parse_targets(ctx) → targets?`** *(optional)*
@@ -562,7 +589,7 @@ does not model. See the per-module specs for which modules implement it.
 
 Regenerate any loomworks-owned LSP compilation database for a build directory, if stale. Best-effort, **idempotent**, and **non-blocking** — the module must gate the work on its own freshness check (e.g. an mtime guard) so repeated calls are cheap no-ops, and it must run any actual (re)generation asynchronously so a large database never blocks the UI thread. Core calls this after a successful configure or build task for the affected ConfigUnit, and again whenever a watched path (see below) changes. `ctx` carries `build_dir`, `workspace_root`, `variant`, and `compiler` (the module uses only what it needs).
 
-`done` is an optional completion callback the module invokes once when the refresh settles: `done(changed)` with `changed = true` iff it actually (re)wrote the database. Core uses it to re-resolve LSP wiring for the affected ConfigUnit's projects when the database changed, so a client picks up a database that first appeared after it started. A module with nothing to report may omit calling `done`; core treats a never-called `done` as "no observable change". Modules with no owned database (the common case) omit this method entirely. See [`spec/modules/cmake.md`](../modules/cmake.md) §12 for cmake's use.
+`done` is an optional completion callback the module invokes once when the refresh settles: `done(changed)` with `changed = true` iff it actually (re)wrote the database. Core uses it to re-resolve LSP wiring, when the database changed, for the projects with an entry whose `db_dir` is that build directory, so a client picks up a database that first appeared after it started. A module with nothing to report may omit calling `done`; core treats a never-called `done` as "no observable change". Modules with no owned database (the common case) omit this method entirely. See [`spec/modules/cmake.md`](../modules/cmake.md) §12 for cmake's use. With `lsp_configs`, this hook and `lsp_database_watch_path` below are called only by the host that builds the LSP configuration state ([loomworks.nvim `spec/plugin.md` §9.2](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration)): the workspace daemon, or the CLI and an editor in `in-process` mode — never an editor in `daemon` mode (daemon.md §19.16 "LSP configuration").
 
 **`lsp_database_watch_path(ctx) → string?`** *(optional)*
 
@@ -584,7 +611,7 @@ one build directory (`ctx` carries `build_dir` and `workspace_root`), or
 `nil` when the module owns none for it. A module that implements
 `refresh_lsp_database` should implement both; core uses them only for
 cleanup (§4.6 *Owned LSP database cleanup*), never to locate a database
-for a server (that remains the entry's job, [loomworks.nvim `spec/plugin.md` §9.1](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration)). Additive and optional:
+for a server (that remains the entry's job, [loomworks.nvim `spec/plugin.md` [loomworks.nvim `spec/plugin.md` §9.1](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration)](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration)). Additive and optional:
 no `api_versions.module` bump (§8.0).
 
 **`compile_command_for(ctx, file) → { directory, file, arguments, origin }?`** *(optional)*
@@ -760,7 +787,7 @@ project uses. Additive and optional: no `api_versions.module` bump (§8.0).
 
 **`lsp_servers`** *(optional static property)*
 
-`string[]` — the names of the language-server integrations ([loomworks.nvim `spec/plugin.md` §9.3](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration)) whose
+`string[]` — the names of the language-server integrations ([loomworks.nvim `spec/plugin.md` [loomworks.nvim `spec/plugin.md` §9.3](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration)](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration)) whose
 configurations this module's `lsp_configs` can emit. Used only by the health
 scope (§16.36): a language-server inventory companion is relevant to a
 workspace when one of its modules names it here. Absent = the module's
@@ -1232,7 +1259,12 @@ When a config unit is deleted or cleaned (sections 4.6, 4.7):
 
 1. Scan deploy records for entries where `source_build_dir` matches the
    affected config unit's id
-2. Delete the destination files (if they exist on disk)
+2. Delete each destination file that lies inside the workspace (canonical
+   path strictly under the workspace root, no link on the way, a regular
+   file). A destination outside the workspace — legal only from the working
+   copy (§17.6) — is never removed by cleanup: its record is dropped and the
+   file is left in place, reported. A record that is not an absolute,
+   traversal-free path to a regular file is dropped without touching disk.
 3. Remove the deploy records from cache
 4. Save cache
 
@@ -1270,6 +1302,17 @@ working copy. Published deploy steps are written to loomworks.json on `:w`.
 Loomworks provides test discovery, execution, and result reporting through
 a neotest adapter. ConfigUnit is the test interface — callers never interact
 with TestUnit or framework helpers directly.
+
+*(Step 5m, daemon.md §19.15 "Tests", §19.16 "Tests".)* In `daemon` mode the
+ConfigUnit test interface and the TestUnits run **only in the workspace
+daemon**: discovery (`Tests/1.discover`), runs of selected tests
+(`Tests/1.run_cases`, the pre-run build in the same task), debug preparation
+(`Tests/1.prepare_debug`) and results parsing happen there, and the editor
+reads the tree and results from `view.Tests/1`. The editor's own ConfigUnits
+discover, build and run no tests then; the paths below that the editor drives
+(the loomtest adapter's `ensure_built` and RunSpecs, the neotest adapter,
+the debug listener's XML parsing) are the `in-process` mode's, until step
+6b-β.
 
 #### 8.9.1 Architecture
 
@@ -1317,18 +1360,31 @@ Includes framework detection and source location mapping.
 **`discover_async(callback)`**
 
 Async version. Calls `callback(entries)` when done. Used during
-background cache population.
+background cache population. *(Step 5m.)* While the caller set
+`_system` on the TestUnit (`ConfigUnit:discover_tests_async(cb, { system })`:
+the workspace daemon's discovery, §19.15 "Tests"), every program the
+discovery runs is spawned through it (`TestUnit.system(tu, cmd, opts,
+on_exit)`, the `vim.system` signature and result shape; `gtest.probe`
+takes it as `opts.system`) instead of `vim.system`, so the daemon runs it in
+the client's environment and can kill it. A TestUnit that spawns directly
+still works, in the daemon's own environment and without being killed on a
+cancel.
 
 **`test_command(test_id, opts?) → RunSpec|nil`**
 
 Construct the command to run a specific test. Returns
-`{ cmd, env, cwd, output_path }` or nil.
+`{ cmd, env, cwd, output_path }` or nil. *(Step 5m.)* `opts.output_path`, when
+given, is where the run writes its results file; the daemon passes a per-run
+path (`<root>/.nvim/tmp/lw-test-<hex>.xml`, §16.40) so concurrent runs never
+share one. Without it a TestUnit uses its own location (the `in-process`
+editor's path, unchanged until step 6b-β).
 
 **`test_command_all(opts?) → RunSpec|nil`**
 
 Construct the command to run all tests as structured, per-test output (for the
 editor UI): typically the test executable run under a framework harness that
-emits a machine-readable results file. `opts.filter` for name filtering.
+emits a machine-readable results file. `opts.filter` for name filtering;
+`opts.output_path` as for `test_command`.
 Returns `{ cmd, env, cwd, output_path }` or nil.
 
 **`run_command_all(opts?) → { cmd, env?, cwd?, junit_out?, no_rebuild? }|nil`**
@@ -1485,6 +1541,13 @@ Same chain, runs all tests.
 
 #### 8.9.4 Neotest adapter
 
+*(Step 5m.)* In `daemon` mode the neotest adapter is not available: it
+discovers nothing and shows one notification per session pointing at the
+loomtest explorer (daemon.md §19.16 "Tests"). What follows is the
+`in-process` mode's adapter. A daemon-mode adapter (positions and results
+from `view.Tests/1`, runs through a CLI relay) is a later, optional part
+(daemon.md §19.19 5m part D).
+
 The loomworks neotest adapter (`neotest/init.lua`) bridges ConfigUnit's
 test interface to neotest's adapter protocol. No framework-specific code
 in the adapter — it works through TestUnit/TestTree only.
@@ -1526,7 +1589,7 @@ and asks it for the run command. Checks ConfigUnit state and warns if
 the project needs configuring.
 
 **Owning-unit dispatch (every adapter).** An adapter — this one and the
-loomtest adapter (loomworks.nvim [`LOOMTEST.md`](https://github.com/samienne/loomworks.nvim/blob/master/LOOMTEST.md)) — never assumes one TestUnit per ConfigUnit,
+loomtest adapter (loomworks.nvim [`LOOMTEST.md`](https://github.com/samienne/loomworks.nvim/blob/master/[`LOOMTEST.md`](https://github.com/samienne/loomworks.nvim/blob/master/LOOMTEST.md))) — never assumes one TestUnit per ConfigUnit,
 nor that the first ConfigUnit with tests owns everything:
 
 - a single test, suite or target runs through the TestUnit that **owns its
@@ -1565,7 +1628,31 @@ target paths are supported. The DAP adapter is resolved per language
 from `user.json` `debug.adapters` mapping, with per-language fallback
 defaults provided by the integrations.
 
-**Test debugging.** `loomtest.debug(test_id)` mirrors `loomtest.run()`:
+**One spec for run and debug.** *(Step 5k, part C2: implemented.
+Behaviour change.)* The program a debug session starts is resolved exactly as the
+run of the same target: the same program, arguments, working directory
+and environment (§8.7 — for a module target the working-directory
+precedence per-invocation override → descriptor `working_dir` → project
+directory, and the run environment with its `PATH` additions; for a launch
+configuration its `args`, `env` and `working_dir`; the §17.9 denylist
+applied to both), followed by the ordered debug languages with their
+resolved adapters. Debug only hands that spec to the debugger instead of the
+task runner. Until this step a module target was debugged in its **build
+directory** with **no arguments and no run environment**, unlike its run;
+from it a module target is debugged where and how it runs. One resolver
+serves both hosts (in-process and the daemon's `Launch/1.prepare_debug`,
+daemon.md §19.15 "Debug"); the adapter-specific request shape and the
+installed-adapter check stay in the editor (below).
+
+**Test debugging.** *(Step 5m: in `daemon` mode the daemon prepares a test
+debug session — `Tests/1.prepare_debug` builds what a run of the node would
+and returns the `DebugSpec` of that run's step, its program, arguments (the
+filter and the results option included), working directory, environment and
+resolved debug languages; the editor hands it to `debug.run()` and, when the
+session ends, calls `Tests/1.collect` so the daemon parses the results.
+No language or adapter is assumed by the editor; daemon.md §19.15 "Tests".
+The rest of this paragraph is the `in-process` mode's.)*
+`loomtest.debug(test_id)` mirrors `loomtest.run()`:
 same resolution logic (test/suite/target), same build-before-run via
 `ensure_built()`, but dispatches to `runner.debug()` which calls
 `debug.run()` with the test executable, gtest filter args, and
@@ -1614,7 +1701,10 @@ section listing the current adapter per language. Enter on an item
 opens a picker with known adapters showing installed/default/current
 status. Selection persists to `user.json` via
 `Workspace:set_debug_adapter(language, adapter)`. Known adapters per
-language are reported by the integrations themselves.
+language are reported by the integrations themselves. *(Step 5k, plan:)*
+in `daemon` runtime mode the section reads and writes the mapping through
+the daemon's `loomworks.DebugConfig/1` ([API.md](../protocol/API.md) §12), in-process when
+that interface is unavailable; the installed status stays the editor's.
 
 **Language-based adapter resolution.** Adapters are resolved per
 language, not per module type. Modules declare their supported
@@ -1687,7 +1777,7 @@ declaration (§16.33, category *debug adapters*) whose probe locates the
 adapter's executable through the filesystem and the executable search path only
 — never through the debugger plugin's registered-adapter table or a package
 manager's editor API, which a headless host lacks. Like a language server's, the
-declaration lives in a host-neutral inventory companion ([loomworks.nvim `spec/plugin.md` §9.3](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration)). Where the
+declaration lives in a host-neutral inventory companion ([loomworks.nvim `spec/plugin.md` [loomworks.nvim `spec/plugin.md` §9.3](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration)](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration)). Where the
 adapter is looked for is adapter-specific (its spec file). A debug adapter is
 never a workspace requirement (§16.33).
 

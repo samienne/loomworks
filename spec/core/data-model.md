@@ -66,6 +66,31 @@ typescript, etc.). Projects are declared in `loomworks.json` and/or
   config (both loomworks.json and user.json). Orphaned projects are shown at
   the end of the Projects section with an "(orphaned)" label.
 
+### 1.2.1 Launch Configuration
+
+A launch configuration is a named way to run something of a project
+(§8.7), declared under the project's `"launch"` (name → table) in
+`loomworks.json` and/or `loomworks.user.json`, merged per name (§2.4).
+
+- Key: its name, unique within its project.
+- Owned by its project; it is a domain object like a configuration:
+  identity-preserving across refreshes (the same object is updated, matched
+  by name within the project), kept across a rename (§8.7), marked removed
+  when its declaration goes or its project is removed (a removed launch
+  refuses every change). Its declared fields (target or command, args,
+  working directory, environment, debug, deploy, device log, description)
+  are its data; it serializes back to the same table, so the files do not
+  change shape.
+- It has no publish state of its own: it is published, reverted and shown
+  modified with its project (§2.4 "Per-item granularity").
+- A host that hands out entity ids (§19.12) gives it one, like every other
+  domain object; the id follows the object, so it survives a rename and a
+  refresh.
+
+A project's variables (§1.3.1), deploy destinations and `type_config`
+fields are not domain objects: they are fields of the project, edited as
+such.
+
 ### 1.3 Configuration
 
 Configurations live in two tiers, distinguished by canonical name
@@ -700,6 +725,11 @@ module-specific `data`).
 Tool detection runs asynchronously in the background:
 - Automatically after workspace initialization completes
 - On `rescan_tools()` / `L` key in the status page
+- After an SDK is added or removed (the shared command layer starts it, so
+  the SDK's kits are offered, or leave the toolchains and no profile resolves
+  against the removed SDK). The editor does not wait for it; the daemon's
+  `Sdks/1.add` / `remove` reply once it settled or the wait ran out
+  ([API.md](../protocol/API.md) §21)
 
 Detection results are cached in memory for the session. Merge and
 build operations work without detection results — cached profiles
@@ -900,6 +930,78 @@ id.
 - An id is never parsed. The directory comes from the entry's `build_dir`;
   the configuration from its `project_key` and `config_key`.
 
+**One build directory per configuration.** Outside a shared tree, two
+configurations that resolve to one directory would get one id, and so one
+ConfigUnit: the second would build as the first and report the first's state.
+Core refuses that instead.
+
+- Core compares the **effective** build directories of every profile's
+  ProfileProjects, by directory identity: the same comparison the
+  build-directory reverse index uses (state-lifecycle §4.6, "Shared build
+  directory protection"), so two spellings of one folder are one directory.
+- A configuration's effective directory is the `build_dir` of its cache
+  entry, the one that names its `project_key` and `config_key`. The unit
+  keeps that directory after its template or `binaryDir` changes; the
+  directory is its **anchor**. A configuration with no cache entry has the
+  directory core resolves (§8.4 `resolve_build_dir`, or the default
+  formula) as its effective directory.
+- An anchor is a shared tree when its entry's key is the directory, `#`, and
+  the configuration's `config_key`. Otherwise the module's report decides
+  (§8.4 `resolve_build_dir`, second return value).
+- Two configurations **collide** when they are different (project,
+  configuration) pairs with the same effective directory. This covers two
+  configurations of one project, configurations of different projects, and
+  a configuration that resolves to another's anchor. The anchored
+  configuration's cache entry names it, so it is the owner below.
+- **Exemption**: two configurations of the **same project** resolved with the
+  **same tool** do not collide when the module reported the directory as a
+  shared tree for both. They get distinct ids, as above. A shared tree is
+  never shared across projects.
+- One (project, configuration) resolved under different tools is not compared
+  with itself.
+- A **claimant** of a directory is one configuration, or all the
+  configurations of one shared tree together. A shared tree is placed in the
+  order below by its first configuration.
+- **The owner keeps the directory.** If a cache entry for the directory names
+  a colliding configuration (its `project_key` and `config_key`), that
+  configuration's claimant is the owner. If entries name several claimants,
+  or none, the owner is the claimant that sorts first by project key, then
+  configuration name, in byte order (among the named ones, if any). Every
+  configuration of every other claimant is **refused**.
+- A refused configuration gets no ConfigUnit for that directory and never
+  adopts the owner's cache entry. Its ProfileProject carries the collision as
+  an error, like a tool compat error (§8.4 `validate_config_tool`): build,
+  rebuild, configure, clean, deploy, launch, debug and test are refused with
+  the reason; delete is allowed and removes no directory and no cache entry.
+  The ProfileProject is invalid (invariant 11), so the profile's marker shows
+  ✗. A profile-level operation treats it as state-lifecycle §5.4 says.
+- A cache entry whose project or configuration no longer exists names no
+  colliding configuration. A configuration whose id equals the entry's key
+  adopts it, as today; that is not a collision. A shared-tree unit never
+  adopts an entry keyed by the plain directory.
+- The refusal lasts until the configuration resolves to a directory of its
+  own: a changed template or `binaryDir`, a renamed configuration, or removal
+  of the owner. The next load re-evaluates it. Nothing is migrated or
+  deleted.
+- An anchored owner keeps its anchor until its cache entry leaves the cache:
+  deleting its unit, a reset (headless `lw reset`) or a nuke. Changing the
+  owner's template does not release the anchor.
+- **Load reports it.** Each refused configuration raises one load diagnostic
+  with severity `error`, naming the directory and both configurations:
+  `Build directory <dir> of <project>/<configuration> is already used by
+  <owner project>/<owner configuration>; <project>/<configuration> cannot be
+  built until its build directory resolves elsewhere.` It reaches the status
+  page Diagnostics section, the daemon's persistent load diagnostics
+  (daemon §19.13 "Load warnings") and every CLI command's standard error
+  (headless §16) by the usual load-diagnostic paths.
+- **Commands refuse to create one.** A command that would make a configuration
+  collide is refused with the same message and writes nothing. Resolving to
+  another configuration's anchor is a collision. This covers
+  mapping a configuration into a profile, creating or materializing a profile,
+  adding a project or configuration, renaming one, or editing a build-directory
+  field from the UI. A collision that arrives through a file edit (loomworks.json,
+  user.json, CMakePresets.json) is reported by the load as above.
+
 **Overwritten marker.** A ConfigUnit may carry an **overwritten-by**
 reference to another ConfigUnit that most recently built over one of its
 shared artifacts (§5.9); `unit:is_overwritten()` reports the condition.
@@ -956,92 +1058,17 @@ via `lw device select` (§18.3).
 
 ### 1.9 loomworks.json Schema
 
-```json
-{
-  "name": "MyWorkspace",
-  "projects": {
-    "App": {
-      "path": "packages/app",
-      "cmake": {
-        "configurations": {
-          "Debug": {},
-          "Release": {},
-          "cross-debug": {
-            "toolchain": "${VENDOR_SDK_ROOT}/cmake/cross.toolchain.cmake"
-          }
-        },
-        "compile_commands_from": "ninja-debug",
-        "clangd": "${VENDOR_SDK_ROOT}/llvm/bin/clangd"
-      }
-    },
-    "Frontend": { "typescript": {} }
-  },
-  "configuration_sets": {
-    "Debug":   { "App": "Debug",   "Frontend": "development" },
-    "Release": { "App": "Release", "Frontend": "production"  }
-  },
-  "profiles": {
-    "cross": {
-      "configuration_set": "Debug",
-      "kit_id": "ninja-cross-clang"
-    }
-  }
-}
-```
+The shape of `loomworks.json` is [formats.md](../formats.md) §3.2. The labels
+below are kept for references into this section.
 
-**Top-level fields**:
+**Top-level fields**: [formats.md](../formats.md) §3.2.
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| `name` | No | Workspace display name (defaults to root dir name). Published from the working copy's `name` (§2.2); the working copy wins at load |
-| `projects` | Yes | Dict of project_key → project definition |
-| `configuration_sets` | No | Dict of set_name → { project_key → variant } |
-| `profiles` | No | Dict of profile_key → explicit profile definition |
-| `configuration_set_descriptions` | No | Dict of set_name → description (§1.10). A sidecar because a set's own table is a flat project → configuration map with no room for a field |
+**Project definition fields**: [formats.md](../formats.md) §3.2, including the
+core-owned keys of the module section (`description`, `tests`).
 
-**Project definition fields**:
+**CMake type_config fields**: [formats.md](../formats.md) §3.2.
 
-| Field | Description |
-|-------|-------------|
-| `path` | Relative path from workspace root (defaults to project key) |
-| `depends_on` | Reserved for future cross-project dependencies (ignored in v1) |
-| `<type>` | Inner key determines project type; value is the type-specific config |
-
-The type key (`cmake`, `meson`, `typescript`, etc.) is the only required field. Its
-value is a table passed to the module as `type_config`.
-
-The project's **description** (§1.10) is the core-owned key `description` inside
-the module section (`projects.<key>.<type>.description`), not a project-level
-key. Core lifts it out before the section reaches the module as `type_config`.
-(An older loomworks reads an unknown project-level key as a second module type
-and refuses the file; it keeps an unknown module-section field. This is the
-same placement rule as the `device` block, §18.9.) The project-wide saved test
-targets (`projects.<key>.<type>.tests`, §1.3.4) are another such core-owned
-key in the module section.
-
-**CMake type_config fields**:
-
-| Field | Description |
-|-------|-------------|
-| `configurations` | Dict of config_name → config overrides |
-| `compile_commands_from` | Name of another configuration to source compile_commands.json from |
-| `clangd` | Path to project-specific clangd binary (`${ENV_VAR}` expanded) |
-
-Configuration overrides may include:
-- `toolchain`: path to CMake toolchain file (`${ENV_VAR}` expanded, no absolute paths)
-- `role`: `"compile_commands"` hides the configuration from UI
-- `description`: the configuration's description (§1.10), valid in every module's
-  configuration table; a generic field, not a module field
-- `tests`: the configuration's saved test targets (§1.3.4); a generic field,
-  not a module field
-
-**Explicit profile fields**:
-
-| Field | Description |
-|-------|-------------|
-| `configuration_set` | Name of a configuration set to derive mappings from |
-| `kit_id` | Tool key to use (e.g., `"ninja-clang-18.0.0"`) |
-| `description` | The profile's description (§1.10) |
+**Explicit profile fields**: [formats.md](../formats.md) §3.2.
 
 ### 1.10 Descriptions
 
@@ -1053,29 +1080,11 @@ built-in variables), not matched against anything, and not interpreted as
 markup, a format string or a command. It is not part of any item's identity or
 key.
 
-**Location in the files.** The same locations apply in loomworks.json and in
-user.json:
+**Location in the files.** Moved to [formats.md](../formats.md) §3.3, with
+the rule that the field is additive and optional.
 
-| Item | Location |
-|--|--|
-| Project | `projects.<key>.<type>.description` (inside the module section, §1.9) |
-| Configuration | `projects.<key>.<type>.configurations.<name>.description` |
-| Configuration set | `configuration_set_descriptions.<set_name>` (top-level sidecar, §1.9) |
-| Profile | `profiles.<key>.description` |
-| Launch configuration | `projects.<key>.launch.<name>.description` (inside the launch configuration's own table, §8.7) |
-
-The field is additive and optional. Absence means "no description", and there
-is no format-version bump. The loomworks.json file has no version, user.json
-stays at `_meta.version` 2, and the cache is unaffected. A sidecar entry naming
-no configuration set is ignored, and the next write of that file drops it.
-
-**Shape.** A description is a JSON string. It is stored **normalised**:
-
-1. Line endings are LF. CRLF and lone CR become LF.
-2. Trailing whitespace is removed from every line.
-3. Leading and trailing blank lines are removed.
-4. A description that is then empty is **absent**. The key is removed from the
-   file and never stored as `""`.
+**Shape.** Moved to [formats.md](../formats.md) §3.3 (a JSON string, stored
+normalised).
 
 Descriptions are **not inherited**. A configuration inheriting a base, a profile
 derived from a set, and a project's configurations each show only their own
@@ -1119,13 +1128,12 @@ change or a set rename), a working-copy pull (§16.25), and publish or revert
 (§2.4). Deleting an item
 deletes its description, including the sidecar entry of a configuration set.
 
-**Domain objects.** `Project`, `Configuration`, `ConfigurationSet` and `Profile`
-each carry a first-class `description` field (a string or nil), set in `_apply`
-from the deserialised data. No raw table is retained. Launch configurations
-are not domain objects: a project holds them as tables keyed by name (§8.7). A
-launch configuration's description is the `description` key of that table,
-normalised on write. Its owning `Project` performs the mutations: setting the
-description, and renaming (§8.7). On `Configuration`,
+**Domain objects.** `Project`, `Configuration`, `ConfigurationSet`, `Profile`
+and `LaunchConfiguration` (§1.2.1) each carry a first-class `description`
+field (a string or nil), set in `_apply` from the deserialised data. No raw
+table is retained. A launch configuration's description is written back as
+the `description` key of its table, normalised on write; renaming a launch
+configuration is its project's mutation (§8.7), which keeps the object. On `Configuration`,
 `description` is a **generic** field and never part of `module_config`, so a
 description change never makes a configured unit stale (§5.1) and never reaches
 the module's task context.
