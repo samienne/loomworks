@@ -79,7 +79,7 @@ end
 
 -- A write to a closed socket or pipe is an EPIPE error, never a SIGPIPE that
 -- ends this process (the daemon, a relay, the CLI): boot.signals.
-require("boot.signals").ignore_sigpipe()
+require("boot.signals").catch_sigpipe()
 
 local paths = require("boot.paths")
 local pin = require("boot.pin")

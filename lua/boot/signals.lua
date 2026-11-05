@@ -24,7 +24,7 @@ local sigpipe_handle
 --- Returns true when the handler is installed.
 --- @param opts? { new_signal?: fun(): table }
 --- @return boolean
-function M.ignore_sigpipe(opts)
+function M.catch_sigpipe(opts)
   if sigpipe_handle then return true end
   if package.config:sub(1, 1) == "\\" then return false end
   local new_signal = (opts and opts.new_signal) or uv.new_signal

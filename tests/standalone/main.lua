@@ -4613,12 +4613,12 @@ print("boot.signals — a write to a closed pipe is EPIPE, not SIGPIPE")
 do
   local signals = require("boot.signals")
   if package.config:sub(1, 1) == "\\" then
-    eq(signals.ignore_sigpipe(), false, "no SIGPIPE on Windows")
+    eq(signals.catch_sigpipe(), false, "no SIGPIPE on Windows")
   elseif not uv.pipe then
     ok(true, "skipped: this luv has no uv.pipe")
   else
-    eq(signals.ignore_sigpipe(), true, "the SIGPIPE handler is installed")
-    eq(signals.ignore_sigpipe(), true, "installing it again is a no-op")
+    eq(signals.catch_sigpipe(), true, "the SIGPIPE handler is installed")
+    eq(signals.catch_sigpipe(), true, "installing it again is a no-op")
     -- Without the handler this process would die here, of SIGPIPE.
     local fds = assert(uv.pipe())
     uv.fs_close(fds.read)
