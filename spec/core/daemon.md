@@ -453,11 +453,12 @@ let go within the wait:
 2. **Kill** — only once the process the record names is verified to be such
    a holder: its command line (Windows: the process's command line; Linux:
    `/proc/<pid>/cmdline`; macOS: `KERN_PROCARGS2`) is an `lw` host — the `lw`
-   binary, a release host under its download name (`lw-linux-x86_64`, …) or a
-   pinned copy `lw-<version>-<asset>` (§16.24); `luvi` running the loomworks
-   app (a source directory named `lua` or `lua-<version>`, which when given as
-   an absolute path must hold `loomworks/cli.lua` — a `luvi` running any other
-   app is not an `lw` host); or the nvim-hosted
+   binary (a cached executable is named `lw` too, §16.40), a release host under
+   its download name (`lw-linux-x86_64`, …) or, *transitionally*, a legacy
+   pinned copy `lw-<version>-<asset>` (§16.40); `luvi` running the loomworks
+   app (a source directory named `lua`, or *transitionally* `lua-<version>`,
+   which when given as an absolute path must hold `loomworks/cli.lua` — a
+   `luvi` running any other app is not an `lw` host); or the nvim-hosted
    `nvim … -l …/loomworks/cli.lua` — and, for a daemon holder,
    `lw … daemon run` (for this workspace when it names one with `--root`).
    A record is data from a shared directory: one naming an unrelated process
@@ -986,10 +987,10 @@ Client and daemon are the same binary, so after a self-update (§16.32) or a pin
 change (§16.24) a newer client can meet an older daemon. Both sides send their
 protocol version, host version and the working-copy and cache schema versions
 in the handshake. A CLI client **matches** a daemon when all of them are equal
-(a development build compares its source fingerprint as its version: the
-paths, sizes and modification times of its Lua sources whenever they are on
-disk — a development source tree or a directory bundle — so editing a source
-is a mismatch; only a fused executable, whose sources cannot change, uses the
+(a development build compares its source fingerprint as its version: when it
+runs a source tree through the development facility (§16.11), the paths,
+sizes and modification times of those sources, so editing a source is a
+mismatch; when it runs its embedded code, whose sources cannot change, the
 executable itself, identified by its resolved path, size and modification
 time, so every spelling of it
 (a link, a differently cased name) is the same executable). An editor
@@ -1102,9 +1103,9 @@ holder is gone) launches `<own executable> daemon run --root <root>`:
 - **Working directory**: the per-user state directory — never the workspace,
   so the daemon never holds the workspace directory open or busy.
 - **Environment**: the client's, de-duplicated (on Windows case-insensitively,
-  keeping the entry the process itself resolves); when the client runs from a
-  development source, `LOOMWORKS_LUA` is forwarded so the daemon runs the same
-  source.
+  keeping the entry the process itself resolves); when the client uses the
+  development facility (§16.11), its opt-in is forwarded so the daemon runs the
+  same source.
 - **Readiness**: the client waits (about 10 s) for a handle naming a live
   daemon, and watches the child for an **early exit**. A child that exits
   because another daemon holds the runtime lock is not a failure — the client
@@ -2030,8 +2031,8 @@ applies it to the operation and to nothing else. In the daemon:
   and restored afterwards. These pieces run one at a time (a FIFO), so two
   clients never see each other's environment;
 - a step never gets the daemon's launch environment, whose
-  loomworks-internal variables (`LOOMWORKS_LUA`, `LW_ROOT`) therefore do not
-  leak into builds;
+  loomworks-internal values (the pinned-context marker, `LW_ROOT`, the
+  development facility's opt-in) therefore do not leak into builds;
 - the daemon's workspace model is kept for the environment it was loaded in:
   a request whose environment differs reloads the workspace from disk first,
   as an in-process load in that environment would read it; the reloaded
@@ -3101,9 +3102,9 @@ terminal). It runs none of the editor's own operations; where those run is
     a status note naming the problems ("too old/incompatible: …") and the
     search goes on to the managed `lw`; an explicit binary is never
     replaced (rule 1), the verdict is only noted;
-  - **unknown** (`version --json` exits non-zero — e.g. a host with no
-    system Lua — a descriptor with no `schemas`, or a timeout) — the binary
-    is used and the handshake decides.
+  - **unknown** (`version --json` exits non-zero — e.g. a host from before
+    self-contained executables with no bundle installed — a descriptor with no
+    `schemas`, or a timeout) — the binary is used and the handshake decides.
 
   A missing feature interface is not a failure: that feature degrades with a
   note ("Interface client" above). The managed `lw` is not probed at run
@@ -3115,8 +3116,8 @@ terminal). It runs none of the editor's own operations; where those run is
   before 2. Its consequence: the daemon's version can then depend on who
   launched it (the CLI starts the daemon from its own `lw`, the editor from
   the managed one; §19.9 decides what each does with the other's). Running a
-  host binary with the plugin's or another Lua source tree (`binary.source`,
-  `LOOMWORKS_LUA`, §16.11) is a development opt-in only, never automatic: it
+  host binary with another source tree (`binary.source`, the development
+  facility of §16.11) is a development opt-in only, never automatic: it
   sets the source of the binary selected above and never selects one.
 
   The editor **reads no `lw.pin`**. A global or managed `lw` follows the
@@ -3149,8 +3150,8 @@ terminal). It runs none of the editor's own operations; where those run is
   offers what the editor client needs — a transport range overlapping the
   plugin's, schemas no newer than the plugin's, and `/` `loomworks.Root/1`,
   `/tasks` `loomworks.Tasks/1`, `/workspace` `loomworks.Workspace/1` (one
-  check, `provision/needs.lua`). The pin is not part of the lw bundle, so the
-  pin commit changes no release asset. Releases are cut in two stages: the
+  check, `provision/needs.lua`). The pin is not part of any lw release asset,
+  so the pin commit changes no release asset. Releases are cut in two stages: the
   build stage builds every asset of `vX` from a build commit C into an
   unpublished draft release (no tag, C recorded as its target); the cutter
   pins the draft, commits only `pinned.lua` on top of C and tags that commit
@@ -3245,9 +3246,9 @@ terminal). It runs none of the editor's own operations; where those run is
      download above). Only that binary resolves a channel — never an `lw`
      from the search path or an explicit one, which are the user's to update.
   2. It runs `<pinned lw> release query --channel <channel> --json` (§16.42)
-     with the release-source override (`binary.release_url`) and the
-     install-folder override of "Install location" passed through, the
-     editor's data directory as working directory, and bounded fetch limits.
+     with the release-source override (`binary.release_url`) passed through,
+     the editor's data directory as working directory, and bounded fetch
+     limits.
      The output must name a valid release version, this host's asset and a
      64-hex hash, and carry the release's descriptor; that descriptor must
      pass the interface check of "Plugin pin", with the pre-launch probe's
@@ -3274,7 +3275,7 @@ terminal). It runs none of the editor's own operations; where those run is
   `loomworks/lw/`, written atomically, never pruned); changing
   `binary.channel` invalidates it. Switching from `unstable` to `stable`
   keeps a newer accepted pre-release until stable overtakes it (as for lw's
-  own bundles, §16.29); unsetting `binary.channel` returns to the pin. A
+  own self-update, §16.29); unsetting `binary.channel` returns to the pin. A
   query result older than the accepted one (a withdrawn release) is ignored.
   Offline, a bad signature, a tampered descriptor or a pinned `lw` older than
   the query command are one note each; the editor keeps the current wanted
@@ -3349,13 +3350,12 @@ terminal). It runs none of the editor's own operations; where those run is
   that reports no `busy_clients` (§19.9 "Busy"), its own observer connection
   is counted among the observers, not subtracted again.
 
-  **Install location.** Everything the plugin installs (host binaries,
-  release bundles, and what an `lw` the plugin runs downloads for it: its
-  own provisioning and the pin redirect's, through that `lw`'s install-folder
-  override `LOOMWORKS_INSTALL_DIR`, §16.22, step 5h.2) stays under the
-  editor's data directory (`<editor data>/loomworks/`) — except the bundle
-  copy a pinned release older than the install folder provisions for itself,
-  which lands in `lw`'s per-user data directory (§16.22). The plugin never installs a system-wide `lw`
+  **Install location.** Everything the plugin installs (its managed `lw`
+  executables) stays under the editor's data directory
+  (`<editor data>/loomworks/`). What an `lw` the plugin runs downloads for
+  itself (a pin redirect's executable, §16.23) goes to that `lw`'s
+  machine-local executable cache (§16.13), shared with every other `lw` on
+  the machine (§16.22). The plugin never installs a system-wide `lw`
   and never writes configuration into the user's home. Shared runtime state
   stays where `lw` keeps it, for every `lw` on the machine: daemon sockets and
   identity, the trust store (§17.2), daemon logs. The plugin reads `lw`'s
@@ -3688,13 +3688,13 @@ protocol 10 and the optional parts 5k D and 5m D; 6b-α next, then 6, 6b-β,
        downloads. *(Done.)*
      - **5h.2** — binary side: `lw version --json` (also a release asset
        listed in `SHA256SUMS`), the daemon commands as pin-redirect commands
-       (§16.23), the install-folder override for an `lw` the plugin runs.
-       *(Done.)*
+       (§16.23), the install-folder override for an `lw` the plugin runs
+       (retired with self-contained executables, §16.22). *(Done.)*
      - **5h.3** — download, verify (against the plugin's hash) and cache the
        managed `lw` under the editor's data directory; `binary.download`,
        `binary.release_url`; pruning of other managed binaries. *(Done.)*
-     - **5h.4** — the plugin's own pin (a hash per host asset, outside the
-       bundle), the release sequencing that commits it, the CI interface
+     - **5h.4** — the plugin's own pin (a hash per host asset, outside any
+       release asset), the release sequencing that commits it, the CI interface
        check. *(Done: §19.16 "Plugin pin"; first seeded with
        0.1.43-beta.15, which predates the descriptor.)*
      - **5h.5** — channel upgrades through the verified `lw`
@@ -4014,7 +4014,7 @@ before), the root object with `loomworks.Root/1` (`describe`, `schema`,
 `subscribe`, `unsubscribe`, `objects_changed`, `retiring`) and
 `welcome.objects` (`daemon/interfaces.lua`), the schema format and the
 documents of the transport, `loomworks.Root/1` and `loomworks.Common/1`
-(`spec/protocol/`, shipped in the bundle as `loomworks/protocol/`), the
+(`spec/protocol/`, embedded in the release executable as `loomworks/protocol/`), the
 validator and the lint and ratchet tests (`proto/schema.lua`,
 `proto/schema_check.lua`). Arguments are always validated; results are
 validated in development builds and tests (a violation is an `internal`
