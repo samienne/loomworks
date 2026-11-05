@@ -420,30 +420,62 @@ describe("lw run on a foreign target", function()
         assert.is_true(cli._posix_sighup_ignored(false, false))
     end)
 
-    it("POSIX SIGPIPE: the CLI ends with its cleanup (141); daemon run keeps running", function()
+    it("a closed stdout/stderr ends lw with its cleanup (141); SIGPIPE itself is a no-op", function()
         local handlers = {}
         local function fake_new_signal()
             return { start = function(_, name, cb) handlers[name] = cb end, unref = function() end }
         end
         local codes = {}
         cli._install_interrupt_handler(function(c) codes[#codes + 1] = c end, fake_new_signal,
-            { sighup_ignored = function() return false end, windows = false })
-        assert.is_function(handlers.sigpipe)
-        cli._output_closing = nil
-        handlers.sigpipe("sigpipe")
-        handlers.sigpipe("sigpipe") -- once only
-        assert.same({ 141 }, codes)
-        cli._output_closing = nil
-        -- `lw daemon run`: the same handle, now a no-op (never the default).
-        cli._sigpipe_is_disconnect()
-        handlers.sigpipe("sigpipe")
-        assert.same({ 141 }, codes)
-        -- Windows has no SIGPIPE.
-        handlers = {}
-        cli._install_interrupt_handler(function() end, fake_new_signal,
-            { sighup_ignored = function() return false end, windows = true })
+            { sighup_ignored = function() return false end })
+        -- A SIGPIPE also comes from a write to a dead daemon's socket or a
+        -- child's stdin, which their own code handles: never "output closed".
         assert.is_nil(handlers.sigpipe)
-        cli._sigpipe_handle = nil
+        -- Another write error is not a closed reader.
+        cli._check_write(nil, "No space left on device", 28)
+        assert.same({}, codes)
+        -- A line written to a closed stdout (stdio reports EPIPE as errno 32).
+        local real_write = io.write
+        io.write = function() return nil, "Broken pipe", 32 end
+        local ok, err = pcall(cli._verbose_out, { "x" })
+        io.write = real_write
+        assert.is_true(ok, err)
+        assert.same({ 141 }, codes)
+        cli._check_write(nil, "EPIPE: broken pipe", nil) -- once only
+        assert.same({ 141 }, codes)
+        cli._active_cleanup = nil
+        -- `lw daemon run`: a closed output is a disconnect, never the end.
+        cli._closed_output_is_disconnect()
+        cli._install_interrupt_handler(function(c) codes[#codes + 1] = c end, fake_new_signal,
+            { sighup_ignored = function() return false end })
+        cli._check_write(nil, "Broken pipe", 32)
+        assert.same({ 141 }, codes)
+        cli._closed_output_kept = nil
+        cli._active_cleanup = nil
+    end)
+
+    it("the Ctrl-C and the closed-output cleanups share one guard: the first wins", function()
+        local handlers = {}
+        local function fake_new_signal()
+            return { start = function(_, name, cb) handlers[name] = cb end, unref = function() end }
+        end
+        for _, first in ipairs({ "closed", "sigint" }) do
+            local codes, runs = {}, 0
+            local function exit_fn(c) codes[#codes + 1] = c end
+            cli._install_interrupt_handler(exit_fn, fake_new_signal,
+                { sighup_ignored = function() return false end })
+            -- An exit hook (a device stop) that is interrupted by a Ctrl-C and
+            -- writes to the closed stdout while it runs.
+            cli._on_exit(function()
+                runs = runs + 1
+                handlers.sigint("sigint")
+                cli._output_closed(exit_fn)
+            end)
+            if first == "closed" then cli._output_closed(exit_fn) else handlers.sigint("sigint") end
+            assert.equals(1, runs, first)
+            assert.same({ first == "closed" and 141 or 130 }, codes, first)
+            cli._active_cleanup = nil
+        end
     end)
 
     it("the interrupt context bounds the device stop only for a Windows console close", function()

@@ -99,6 +99,9 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
 - On Linux the workspace daemon no longer dies, leaving its running step
   behind, when a client disconnects while the daemon is writing to it: a
   write to a closed connection is a disconnect, never a signal that ends lw.
+  When the reader of lw's output goes away (`lw build | head`), lw now runs
+  its cleanup, releasing its build and device locks and stopping a device
+  run, before it exits with status 141; before, SIGPIPE killed it outright.
   (#123)
 - A workspace load still reading its files when the workspace was closed no
   longer replaces the next workspace loaded, or refuses it with the first

@@ -84,7 +84,7 @@ local function out(s, role)
   if role then s = require("loomworks.cli_color").paint(role, s or "", "stdout") end
   local r = term.render(s or "")
   if M._ascii_out then r = term.ascii(r) end
-  io.write(r .. "\n")
+  M._check_write(io.write(r .. "\n"))
 end
 
 --- Write an informational line to stderr. Used when stdout must stay clean for a
@@ -95,7 +95,7 @@ end
 --- this one on a shared terminal.
 local function note(s, role)
   if role then s = require("loomworks.cli_color").paint(role, s or "", "stderr") end
-  io.stdout:flush(); io.stderr:write(term.render(s or "") .. "\n")
+  M._check_write(io.stdout:flush()); M._check_write(io.stderr:write(term.render(s or "") .. "\n"))
 end
 
 --- A workspace load's notification (`core._deps.notify`), as `lw` prints it:
@@ -115,7 +115,7 @@ end
 --- child process does not use it.
 local function errw(s, role)
   if role then s = require("loomworks.cli_color").paint(role, s or "", "stderr") end
-  io.stdout:flush(); io.stderr:write(term.render(s or ""))
+  M._check_write(io.stdout:flush()); M._check_write(io.stderr:write(term.render(s or "")))
 end
 
 --- A daemon reply's notes, in order on stderr, each painted by
@@ -356,23 +356,27 @@ end
 --- device program), flush the output streams, then exit with `code`. The
 --- returned closure fires the cleanup at most once — a repeated Ctrl-C or a
 --- second signal is ignored — except that a Ctrl-C while an interceptor is set
---- (`M._set_interrupt_intercept`) goes to it first. `exit_fn` defaults to os.exit and is injectable
---- so tests can drive the callback without terminating the process.
+--- (`M._set_interrupt_intercept`) goes to it first. `exit_code` (default
+--- `code`) is the status of this firing: a closed output passes 141 through the
+--- same guard (M._output_closed), so whichever fires first wins and the exit
+--- hooks never run twice, nor again while they run. `exit_fn` defaults to
+--- os.exit and is injectable so tests can drive the callback without
+--- terminating the process.
 --- @param code integer
 --- @param exit_fn? fun(code: integer)
---- @return fun(signal?: string) callback
+--- @return fun(signal?: string, exit_code?: integer) callback
 local function make_interrupt_cleanup(code, exit_fn)
   local fired = false
-  local function fire(signal)
+  local function fire(signal, exit_code)
     if fired then return end
     fired = true
     run_exit_hooks(interrupt_context(type(signal) == "string" and signal or nil,
       package.config:sub(1, 1) == "\\"))
     pcall(function() io.stdout:flush() end)
     pcall(function() io.stderr:flush() end)
-    ;(exit_fn or os.exit)(code)
+    ;(exit_fn or os.exit)(exit_code or code)
   end
-  return function(signal)
+  return function(signal, exit_code)
     if fired then return end
     -- The two-stage Ctrl-C: a Ctrl-C (sigint
     -- only; Ctrl-Break, a closed console, a hangup or a termination request
@@ -386,7 +390,7 @@ local function make_interrupt_cleanup(code, exit_fn)
       local ok, handled = pcall(intercept, function() fire(signal) end)
       if ok and handled then return end
     end
-    fire(signal)
+    fire(signal, exit_code)
   end
 end
 
@@ -423,13 +427,14 @@ M._posix_sighup_ignored = posix_sighup_ignored
 --- one simply leaves the CLI running normally (each install is pcall-guarded —
 --- a handler-install failure must never break `lw`). On POSIX, SIGHUP is left
 --- alone when it was inherited as ignored (`posix_sighup_ignored`). `exit_fn`,
---- the signal source `new_signal` (default uv.new_signal),
---- `opts.sighup_ignored` and `opts.windows` (the platform) are injectable for
---- tests. On POSIX it also handles SIGPIPE: lw's output closed, exit 141.
+--- the signal source `new_signal` (default uv.new_signal) and
+--- `opts.sighup_ignored` are injectable for tests. The returned cleanup is
+--- also the one a closed output ends lw through (`M._active_cleanup`,
+--- M._output_closed).
 --- @param exit_fn? fun(code: integer)
 --- @param new_signal? fun(): table
---- @param opts? { sighup_ignored?: fun(): boolean, windows?: boolean }
---- @return fun(signal?: string) cleanup the shared guarded callback the handlers invoke
+--- @param opts? { sighup_ignored?: fun(): boolean }
+--- @return fun(signal?: string, exit_code?: integer) cleanup the shared guarded callback the handlers invoke
 local function install_interrupt_handler(exit_fn, new_signal, opts)
   new_signal = new_signal or uv.new_signal
   local sighup_ignored = (opts and opts.sighup_ignored) or function()
@@ -446,32 +451,8 @@ local function install_interrupt_handler(exit_fn, new_signal, opts)
       _signal_handles[#_signal_handles + 1] = h
     end)
   end
-  -- POSIX: the reader of lw's output went away (`lw build | head`). The
-  -- write fails with EPIPE (boot.signals keeps SIGPIPE from ending lw);
-  -- this ends lw with its cleanup run (M._output_closed). The daemon and the
-  -- relay keep running instead (M._sigpipe_is_disconnect).
-  local windows = opts and opts.windows
-  if windows == nil then windows = package.config:sub(1, 1) == "\\" end
-  if not windows then
-    pcall(function()
-      local h = new_signal()
-      if not h then return end
-      h:start("sigpipe", function() M._output_closed(exit_fn) end)
-      h:unref()
-      _signal_handles[#_signal_handles + 1] = h
-      M._sigpipe_handle = h
-    end)
-  end
+  M._active_cleanup = cleanup
   return cleanup
-end
-
---- In the workspace daemon and the relay, a SIGPIPE is only the failed write
---- to a peer that went away — a disconnect their connections handle — so it
---- no longer ends lw (the handler stays installed: removing the last one would
---- restore the default action, which ends the process).
-function M._sigpipe_is_disconnect()
-  local h = M._sigpipe_handle
-  if h then pcall(function() h:start("sigpipe", function() end) end) end
 end
 
 -- Test seams: `_on_exit` registers a cleanup hook the way with_build_locks does
@@ -482,16 +463,41 @@ M._on_exit = on_exit
 M._make_interrupt_cleanup = make_interrupt_cleanup
 M._install_interrupt_handler = install_interrupt_handler
 
---- The reader of lw's output went away (EPIPE on standard output or error):
---- end lw as an interrupt does — its exit hooks release locks and stop a
---- remote run — with the status SIGPIPE would have given (128 + 13).
---- `exit_fn` is injectable for tests.
+--- The reader of lw's output went away (EPIPE on standard output or error,
+--- `lw build | head`): end lw as an interrupt does — its exit hooks release
+--- locks and stop a remote run — with the status SIGPIPE would have given
+--- (128 + 13), through the interrupt handler's guarded cleanup
+--- (`M._active_cleanup`), so a Ctrl-C or another failed write while it runs
+--- never runs the hooks again. Only a failed write to lw's own output gets
+--- here (M._check_write, M._raw_write): a SIGPIPE itself is caught as a no-op
+--- (boot.signals), since a write to a dead daemon's socket or a child's stdin
+--- raises it too and their own code handles that. `exit_fn` (used only when
+--- no handler is installed) is injectable for tests.
 --- @param exit_fn? fun(code: integer)
 function M._output_closed(exit_fn)
-  -- Once: the exit hooks may write to the closed stream again.
-  if M._output_closing then return end
-  M._output_closing = true
-  make_interrupt_cleanup(141, exit_fn)("sigpipe")
+  -- `lw daemon run`: a client gone is a disconnect, never the end of lw.
+  if M._closed_output_kept then return end
+  if not M._active_cleanup then M._active_cleanup = make_interrupt_cleanup(141, exit_fn) end
+  M._active_cleanup("sigpipe", 141)
+end
+
+--- In the workspace daemon and the relay, a closed output is a peer that went
+--- away — a disconnect their connections handle — so it never ends lw.
+function M._closed_output_is_disconnect()
+  M._closed_output_kept = true
+end
+
+--- Check the result of a write (or flush) to lw's standard output or error
+--- (`file:write` / `io.write` return the file, or nil, the message and errno):
+--- EPIPE — its reader went away — ends lw (M._output_closed). Other results
+--- pass through. Returns its arguments.
+--- @return any, string?, integer?
+function M._check_write(res, err, errno)
+  if res == nil and (errno == 32 or tostring(err):find("EPIPE", 1, true)
+      or tostring(err):lower():find("broken pipe", 1, true)) then
+    M._output_closed()
+  end
+  return res, err, errno
 end
 
 --- Walk up from `start` for the workspace root. The search itself
@@ -4315,7 +4321,8 @@ function M._raw_write(fd, s)
     local ok, n, werr = pcall(uv.fs_write, fd, s:sub(pos))
     if ok and n == nil and tostring(werr):find("EPIPE", 1, true) then
       -- Its reader went away (`lw build | head`): a write to a closed pipe
-      -- fails rather than raising SIGPIPE (boot.signals), so end lw here.
+      -- fails rather than raising SIGPIPE (boot.signals), so end lw here
+      -- (unless this is the daemon: M._closed_output_is_disconnect).
       M._output_closed()
       return
     end
@@ -9826,7 +9833,7 @@ end
 function M.cmd_daemon(root, args)
   -- `lw daemon run` (the daemon, or the relay to it): a client that goes away
   -- mid-write is a disconnect, never the end of this process.
-  if args[2] == "run" then M._sigpipe_is_disconnect() end
+  if args[2] == "run" then M._closed_output_is_disconnect() end
   return require("loomworks.daemon.command").run(args[2], root, args, M._daemon_host())
 end
 
