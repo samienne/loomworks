@@ -4609,5 +4609,25 @@ do
   paths.rm_rf(base)
 end
 
+print("boot.signals — a write to a closed pipe is EPIPE, not SIGPIPE")
+do
+  local signals = require("boot.signals")
+  if package.config:sub(1, 1) == "\\" then
+    eq(signals.ignore_sigpipe(), false, "no SIGPIPE on Windows")
+  elseif not uv.pipe then
+    ok(true, "skipped: this luv has no uv.pipe")
+  else
+    eq(signals.ignore_sigpipe(), true, "the SIGPIPE handler is installed")
+    eq(signals.ignore_sigpipe(), true, "installing it again is a no-op")
+    -- Without the handler this process would die here, of SIGPIPE.
+    local fds = assert(uv.pipe())
+    uv.fs_close(fds.read)
+    local n, err = uv.fs_write(fds.write, "x")
+    uv.fs_close(fds.write)
+    ok(n == nil and tostring(err):find("EPIPE", 1, true) ~= nil,
+      "the write fails with EPIPE and the process lives  (got " .. tostring(n) .. ", " .. tostring(err) .. ")")
+  end
+end
+
 print(string.format("\n%d passed, %d failed", pass, fail))
 os.exit(fail == 0 and 0 or 1)

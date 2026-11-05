@@ -423,11 +423,12 @@ M._posix_sighup_ignored = posix_sighup_ignored
 --- one simply leaves the CLI running normally (each install is pcall-guarded —
 --- a handler-install failure must never break `lw`). On POSIX, SIGHUP is left
 --- alone when it was inherited as ignored (`posix_sighup_ignored`). `exit_fn`,
---- the signal source `new_signal` (default uv.new_signal) and
---- `opts.sighup_ignored` are injectable for tests.
+--- the signal source `new_signal` (default uv.new_signal),
+--- `opts.sighup_ignored` and `opts.windows` (the platform) are injectable for
+--- tests. On POSIX it also handles SIGPIPE: lw's output closed, exit 141.
 --- @param exit_fn? fun(code: integer)
 --- @param new_signal? fun(): table
---- @param opts? { sighup_ignored?: fun(): boolean }
+--- @param opts? { sighup_ignored?: fun(): boolean, windows?: boolean }
 --- @return fun(signal?: string) cleanup the shared guarded callback the handlers invoke
 local function install_interrupt_handler(exit_fn, new_signal, opts)
   new_signal = new_signal or uv.new_signal
@@ -445,7 +446,32 @@ local function install_interrupt_handler(exit_fn, new_signal, opts)
       _signal_handles[#_signal_handles + 1] = h
     end)
   end
+  -- POSIX: the reader of lw's output went away (`lw build | head`). The
+  -- write fails with EPIPE (boot.signals keeps SIGPIPE from ending lw);
+  -- this ends lw with its cleanup run (M._output_closed). The daemon and the
+  -- relay keep running instead (M._sigpipe_is_disconnect).
+  local windows = opts and opts.windows
+  if windows == nil then windows = package.config:sub(1, 1) == "\\" end
+  if not windows then
+    pcall(function()
+      local h = new_signal()
+      if not h then return end
+      h:start("sigpipe", function() M._output_closed(exit_fn) end)
+      h:unref()
+      _signal_handles[#_signal_handles + 1] = h
+      M._sigpipe_handle = h
+    end)
+  end
   return cleanup
+end
+
+--- In the workspace daemon and the relay, a SIGPIPE is only the failed write
+--- to a peer that went away — a disconnect their connections handle — so it
+--- no longer ends lw (the handler stays installed: removing the last one would
+--- restore the default action, which ends the process).
+function M._sigpipe_is_disconnect()
+  local h = M._sigpipe_handle
+  if h then pcall(function() h:start("sigpipe", function() end) end) end
 end
 
 -- Test seams: `_on_exit` registers a cleanup hook the way with_build_locks does
@@ -455,6 +481,18 @@ end
 M._on_exit = on_exit
 M._make_interrupt_cleanup = make_interrupt_cleanup
 M._install_interrupt_handler = install_interrupt_handler
+
+--- The reader of lw's output went away (EPIPE on standard output or error):
+--- end lw as an interrupt does — its exit hooks release locks and stop a
+--- remote run — with the status SIGPIPE would have given (128 + 13).
+--- `exit_fn` is injectable for tests.
+--- @param exit_fn? fun(code: integer)
+function M._output_closed(exit_fn)
+  -- Once: the exit hooks may write to the closed stream again.
+  if M._output_closing then return end
+  M._output_closing = true
+  make_interrupt_cleanup(141, exit_fn)("sigpipe")
+end
 
 --- Walk up from `start` for the workspace root. The search itself
 --- — including why a linked worktree is a hard boundary while a submodule is
@@ -4274,7 +4312,13 @@ function M._raw_write(fd, s)
   io.stderr:flush()
   local pos = 1
   while pos <= #s do
-    local ok, n = pcall(uv.fs_write, fd, s:sub(pos))
+    local ok, n, werr = pcall(uv.fs_write, fd, s:sub(pos))
+    if ok and n == nil and tostring(werr):find("EPIPE", 1, true) then
+      -- Its reader went away (`lw build | head`): a write to a closed pipe
+      -- fails rather than raising SIGPIPE (boot.signals), so end lw here.
+      M._output_closed()
+      return
+    end
     if not ok or type(n) ~= "number" or n <= 0 then
       local f = fd == 2 and io.stderr or io.stdout
       f:write(s:sub(pos))
@@ -9780,6 +9824,9 @@ function M.cmd_cleanup(root, args)
 end
 
 function M.cmd_daemon(root, args)
+  -- `lw daemon run` (the daemon, or the relay to it): a client that goes away
+  -- mid-write is a disconnect, never the end of this process.
+  if args[2] == "run" then M._sigpipe_is_disconnect() end
   return require("loomworks.daemon.command").run(args[2], root, args, M._daemon_host())
 end
 

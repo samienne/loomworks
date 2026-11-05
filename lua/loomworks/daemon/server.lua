@@ -578,7 +578,28 @@ function Server:_send(conn, msg, cb)
         inf[msg.req_id] = nil
         if self.retiring then self:_maybe_retire() end
     end
-    pcall(function() conn.sock:write(protocol.encode(msg), cb) end)
+    -- A failed write (EPIPE, ECONNRESET: the peer went away) is a disconnect,
+    -- closed like the end of its input — never a signal (boot.signals).
+    local function failed(err)
+        if conn.closed then return end
+        self:log("a write to %s failed: %s", self:_peer_text(conn), tostring(err))
+        self:_close(conn)
+    end
+    local ok, res, werr = pcall(function()
+        return conn.sock:write(protocol.encode(msg), function(err)
+            if cb then cb(err) end
+            if err then failed(err) end
+        end)
+    end)
+    -- Refused at once: closed from the loop, not inside this send's caller.
+    if not ok or res == nil then
+        local err = ok and werr or res
+        local t = uv.new_timer()
+        t:start(0, 0, function()
+            t:close()
+            failed(err)
+        end)
+    end
 end
 
 --- Log once (a warning) each request in flight past STUCK_REQUEST_MS: it

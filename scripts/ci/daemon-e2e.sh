@@ -339,6 +339,27 @@ JSON
     ok "the daemon survived 8 clients killed mid-output"
     n=$(grep -c "disconnected" "$PIPE_WS/.nvim/loomworks.daemon-$SLOT.log" 2>/dev/null)
     [ "${n:-0}" -ge 8 ] && ok "it logged each disconnect ($n)" || bad "disconnects logged: ${n:-0}"
+    # The CLI's own reader goes away (`lw build | head`): lw ends (141, as
+    # SIGPIPE would) with its cleanup, rather than running on, and the
+    # disconnect cancels its build.
+    rm -f "$PSTEP"
+    (cd "$PIPE_WS" && LOOMWORKS_RUNTIME=daemon "$LW" --no-input build dev 2>/dev/null | head -c 2000 >/dev/null
+     echo "${PIPESTATUS[0]}" > "$PIPE_WS/code") &
+    hp=$!
+    i=0; while kill -0 "$hp" 2>/dev/null && [ $i -lt 300 ]; do sleep 0.1; i=$((i + 1)); done
+    if kill -0 "$hp" 2>/dev/null; then
+      bad "lw build | head did not end"; pkill -9 -P "$hp" 2>/dev/null; kill -9 "$hp" 2>/dev/null
+    else
+      code=$(cat "$PIPE_WS/code" 2>/dev/null)
+      [ "$code" = 141 ] && ok "lw build | head: lw exited 141" || bad "lw build | head: lw exited '$code'"
+    fi
+    sp=$(cat "$PSTEP" 2>/dev/null)
+    if [ -n "$sp" ]; then
+      i=0; while kill -0 "$sp" 2>/dev/null && [ $i -lt 100 ]; do sleep 0.1; i=$((i + 1)); done
+      kill -0 "$sp" 2>/dev/null && { bad "the step $sp still runs after lw | head"; kill -9 "$sp"; } \
+        || ok "the step of lw | head was cancelled"
+    fi
+    alive "$ppid_d" && ok "the daemon survived lw | head" || bad "the daemon died with lw | head"
     (cd "$PIPE_WS" && "$LW" daemon stop >/dev/null 2>&1) && ok "it still answers (stop)" || bad "stop failed"
   fi
   [ -n "$ppid_d" ] && { wait_gone "$ppid_d" || bad "stop left $ppid_d"; }

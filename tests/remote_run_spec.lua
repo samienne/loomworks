@@ -420,6 +420,32 @@ describe("lw run on a foreign target", function()
         assert.is_true(cli._posix_sighup_ignored(false, false))
     end)
 
+    it("POSIX SIGPIPE: the CLI ends with its cleanup (141); daemon run keeps running", function()
+        local handlers = {}
+        local function fake_new_signal()
+            return { start = function(_, name, cb) handlers[name] = cb end, unref = function() end }
+        end
+        local codes = {}
+        cli._install_interrupt_handler(function(c) codes[#codes + 1] = c end, fake_new_signal,
+            { sighup_ignored = function() return false end, windows = false })
+        assert.is_function(handlers.sigpipe)
+        cli._output_closing = nil
+        handlers.sigpipe("sigpipe")
+        handlers.sigpipe("sigpipe") -- once only
+        assert.same({ 141 }, codes)
+        cli._output_closing = nil
+        -- `lw daemon run`: the same handle, now a no-op (never the default).
+        cli._sigpipe_is_disconnect()
+        handlers.sigpipe("sigpipe")
+        assert.same({ 141 }, codes)
+        -- Windows has no SIGPIPE.
+        handlers = {}
+        cli._install_interrupt_handler(function() end, fake_new_signal,
+            { sighup_ignored = function() return false end, windows = true })
+        assert.is_nil(handlers.sigpipe)
+        cli._sigpipe_handle = nil
+    end)
+
     it("the interrupt context bounds the device stop only for a Windows console close", function()
         assert.same({ signal = "sighup", stop_timeout = cli.CLOSE_STOP_TIMEOUT },
             cli._interrupt_context("sighup", true))
