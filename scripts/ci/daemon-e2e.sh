@@ -15,6 +15,8 @@
 #   - `lw daemon list` shows two daemons with their roots; `stop --all` stops both;
 #   - the first Ctrl-C of a routed build cancels it, lw reporting its end
 #     (POSIX);
+#   - a client killed while the daemon streams it output is a disconnect,
+#     never a SIGPIPE that ends the daemon (POSIX);
 #   - no daemon process is left running at the end.
 #
 #   LW=<path to lw> bash scripts/ci/daemon-e2e.sh
@@ -285,6 +287,82 @@ JSON
   fi
   (cd "$CTRLC_WS" && "$LW" daemon stop >/dev/null 2>&1)
   [ -n "$cpid" ] && { wait_gone "$cpid" || bad "stop left $cpid"; }
+fi
+
+say "a client killed while the daemon streams it output: the daemon survives"
+if [ "$os" = windows ]; then
+  # A write to a closed peer raises no signal on Windows.
+  ok "skipped on Windows"
+else
+  # The step floods its output, which the daemon writes to the client; the
+  # client is then killed mid-stream. A write to the closed socket must be a
+  # disconnect (EPIPE), never a SIGPIPE that ends the daemon. Several rounds:
+  # whether the daemon writes before it reads the end of the connection is a
+  # race.
+  PIPE_WS="$TMP/pipe"; mkdir -p "$PIPE_WS/app"
+  PSTEP="$PIPE_WS/step.pid"
+  cat > "$PIPE_WS/loomworks.json" <<JSON
+{"projects":{"app":{"path":"app","shell":{"build_dir":"\${workspace_root}/out/\${variant}",
+ "configure_cmd":["sh","-c","echo \$\$ > '$PSTEP'; exec yes 'output line of a step that floods its client with text'"],
+ "build_cmd":["true"],"configurations":{"Debug":{}}}}},
+ "configuration_sets":{"dev":{"app":"Debug"}}}
+JSON
+  (cd "$PIPE_WS" && "$LW" --no-input --no-daemon profile create dev >/dev/null 2>&1) || bad "profile create"
+  (cd "$PIPE_WS" && "$LW" daemon restart >/dev/null 2>&1) || bad "restart"
+  ppid_d=$(pid_of "$(lockf "$PIPE_WS")"); [ -n "$ppid_d" ] && track "$ppid_d"
+  rounds=0; died=
+  for r in 1 2 3 4 5 6 7 8; do
+    rm -f "$PSTEP"
+    (cd "$PIPE_WS" && LOOMWORKS_RUNTIME=daemon exec "$LW" --no-input build dev >/dev/null 2>"$PIPE_WS/err") &
+    cl=$!
+    i=0
+    while { [ ! -s "$PSTEP" ] || ! grep -q "building through the workspace daemon" "$PIPE_WS/err" 2>/dev/null; } \
+      && [ $i -lt 300 ]; do sleep 0.1; i=$((i + 1)); done
+    sp=$(cat "$PSTEP" 2>/dev/null)
+    if [ -z "$sp" ]; then
+      bad "round $r: the step never started: $(cat "$PIPE_WS/err")"; kill -9 "$cl" 2>/dev/null; wait "$cl" 2>/dev/null
+      break
+    fi
+    sleep 0.3
+    kill -9 "$cl" 2>/dev/null; wait "$cl" 2>/dev/null
+    # The disconnect cancels the client's build: its step ends.
+    i=0; while kill -0 "$sp" 2>/dev/null && [ $i -lt 100 ]; do sleep 0.1; i=$((i + 1)); done
+    sleep 0.3
+    rounds=$r
+    if ! alive "$ppid_d"; then died=$r; kill -9 "$sp" 2>/dev/null; break; fi
+    kill -0 "$sp" 2>/dev/null && { bad "round $r: the step $sp still runs"; kill -9 "$sp"; }
+  done
+  if [ -n "$died" ]; then
+    bad "the daemon died when its client was killed mid-output (round $died); log tail:"
+    tail -5 "$PIPE_WS/.nvim/loomworks.daemon-$SLOT.log" >&2
+  elif [ "$rounds" -eq 8 ]; then
+    ok "the daemon survived 8 clients killed mid-output"
+    n=$(grep -c "disconnected" "$PIPE_WS/.nvim/loomworks.daemon-$SLOT.log" 2>/dev/null)
+    [ "${n:-0}" -ge 8 ] && ok "it logged each disconnect ($n)" || bad "disconnects logged: ${n:-0}"
+    # The CLI's own reader goes away (`lw build | head`): lw ends (141, as
+    # SIGPIPE would) with its cleanup, rather than running on, and the
+    # disconnect cancels its build.
+    rm -f "$PSTEP"
+    (cd "$PIPE_WS" && LOOMWORKS_RUNTIME=daemon "$LW" --no-input build dev 2>/dev/null | head -c 2000 >/dev/null
+     echo "${PIPESTATUS[0]}" > "$PIPE_WS/code") &
+    hp=$!
+    i=0; while kill -0 "$hp" 2>/dev/null && [ $i -lt 300 ]; do sleep 0.1; i=$((i + 1)); done
+    if kill -0 "$hp" 2>/dev/null; then
+      bad "lw build | head did not end"; pkill -9 -P "$hp" 2>/dev/null; kill -9 "$hp" 2>/dev/null
+    else
+      code=$(cat "$PIPE_WS/code" 2>/dev/null)
+      [ "$code" = 141 ] && ok "lw build | head: lw exited 141" || bad "lw build | head: lw exited '$code'"
+    fi
+    sp=$(cat "$PSTEP" 2>/dev/null)
+    if [ -n "$sp" ]; then
+      i=0; while kill -0 "$sp" 2>/dev/null && [ $i -lt 100 ]; do sleep 0.1; i=$((i + 1)); done
+      kill -0 "$sp" 2>/dev/null && { bad "the step $sp still runs after lw | head"; kill -9 "$sp"; } \
+        || ok "the step of lw | head was cancelled"
+    fi
+    alive "$ppid_d" && ok "the daemon survived lw | head" || bad "the daemon died with lw | head"
+    (cd "$PIPE_WS" && "$LW" daemon stop >/dev/null 2>&1) && ok "it still answers (stop)" || bad "stop failed"
+  fi
+  [ -n "$ppid_d" ] && { wait_gone "$ppid_d" || bad "stop left $ppid_d"; }
 fi
 
 say "no daemon left running"
