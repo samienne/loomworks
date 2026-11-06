@@ -5,7 +5,7 @@
 --
 -- install fetches a release's SIGNED hash list (SHA256SUMS + .sig), verifies
 -- the signature against the embedded release key, and writes lw.pin (version +
--- per-host-binary + bundle hashes) and — unless --pin-only — lw.sh / lw.cmd
+-- per-host-binary hashes, plus the bundle's while the release lists it) and — unless --pin-only — lw.sh / lw.cmd
 -- (boot.launcher), then brings the repository metadata up to date
 -- (boot.repo_meta: ignore rule, line-ending attributes, lw.sh exec bit) and
 -- prunes old cached binaries. Reports only what changed. The status page runs
@@ -64,18 +64,34 @@ function M.fetch_hashes(version, opts)
   return M.parse_sums(sums)
 end
 
---- The assets a pin must cover for `version`: every host binary + the bundle.
+--- The assets a pin must cover for `version`: every host binary, plus the
+--- bundle for a release before self-contained executables (which loads it).
 function M.required_assets(version)
   local list = {}
   for _, a in pairs(pin.HOST_ASSETS) do list[#list + 1] = a end
-  list[#list + 1] = pin.bundle_asset(version)
+  if not pin.is_self_contained(version) then list[#list + 1] = pin.bundle_asset(version) end
   table.sort(list)
   return list
 end
 
---- Select the pin's hashes from a full sums map; errors if any required asset is
---- absent (a release that did not publish it).
+--- Select the pin's hashes from a release's verified sums map (spec formats §9,
+--- §16.24). The list must be bound to `version` by an entry that names it, so
+--- a genuine list of another release is refused: for a self-contained release
+--- its own descriptor (`lw-<version>-descriptor.json`, §16.12); for a release
+--- before self-contained executables, which published no descriptor, its
+--- (required) bundle `loomworks-lua-<version>.zip` (§16.14). Every required
+--- asset must be listed. A self-contained release's bundle entry is written
+--- only while its list still carries it (the transition, §16.14) — for hosts
+--- released before self-contained executables; the descriptor's hash is never
+--- pinned.
 function M.pin_hashes(version, sums)
+  local own = pin.is_self_contained(version) and pin.descriptor_asset(version)
+    or pin.bundle_asset(version)
+  if not sums[own] then
+    return nil, "SHA256SUMS is not release " .. version .. "'s hash list (no '" .. own ..
+      "' entry - a replayed or mismatched list" ..
+      (pin.is_self_contained(version) and ", or a release that predates the descriptor)" or ")")
+  end
   local hashes = {}
   for _, a in ipairs(M.required_assets(version)) do
     if not sums[a] then
@@ -83,6 +99,8 @@ function M.pin_hashes(version, sums)
     end
     hashes[a] = sums[a]
   end
+  local bundle = pin.bundle_asset(version)
+  if sums[bundle] then hashes[bundle] = sums[bundle] end
   return hashes
 end
 
@@ -523,7 +541,8 @@ function M.status(start, opts)
     local n = 0
     for _ in pairs(pin.HOST_ASSETS) do n = n + 1 end
     local cover = #r.missing_hashes == 0
-      and ("hashes for " .. n .. " platforms + bundle")
+      and ("hashes for " .. n .. " platforms" ..
+        (r.pin.hashes[pin.bundle_asset(r.version)] and " + bundle" or ""))
       or ("no hash for " .. table.concat(r.missing_hashes, ", "))
     row("pin", "lw.pin -> lw " .. r.version .. "; " .. cover)
   end

@@ -204,6 +204,9 @@ function M.run_checks(root, env)
   local p, perr = pin.parse(read(root .. "/lw.pin") or "")
   res.pin, res.pin_error = p, (not p) and tostring(perr) or nil
   res.version = p and p.version or nil
+  -- Informational, listed after the all-good line: a self-contained pin is
+  -- complete without the transitional bundle entry (formats §9).
+  local no_bundle
   if not p then
     nag("pin-unreadable", "lw.pin cannot be read (" .. tostring(perr) .. ")",
       M.run(invoked, "bootstrap install --version <x.y.z>") .. " to rewrite it - lw help launcher")
@@ -211,7 +214,14 @@ function M.run_checks(root, env)
     local want = {}
     for _, a in pairs(pin.HOST_ASSETS) do want[#want + 1] = a end
     table.sort(want)
-    want[#want + 1] = pin.bundle_asset(p.version)
+    local bundle = pin.bundle_asset(p.version)
+    if not pin.is_self_contained(p.version) then
+      want[#want + 1] = bundle   -- that release loads it
+    elseif not p.hashes[bundle] then
+      no_bundle = { id = "pin-no-bundle", kind = "info",
+        title = "lw.pin has no bundle entry - a global lw released before " ..
+          pin.SELF_CONTAINED_SINCE .. " cannot follow it" }
+    end
     for _, a in ipairs(want) do
       if not p.hashes[a] then res.missing_hashes[#res.missing_hashes + 1] = a end
     end
@@ -431,6 +441,7 @@ function M.run_checks(root, env)
       info("ok", "lw " .. tostring(res.version) .. " pinned; lw.sh / lw.cmd current, modes and line endings ok")
     end
   end
+  if no_bundle then findings[#findings + 1] = no_bundle end
   -- actionable first, then informational (stable within each kind)
   local sorted = {}
   for _, f in ipairs(findings) do if f.kind == "suggestion" then sorted[#sorted + 1] = f end end

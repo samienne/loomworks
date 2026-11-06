@@ -160,8 +160,9 @@ lw bootstrap install       # write lw.pin, lw.sh and lw.cmd (pins this lw's rele
 lw bootstrap upgrade       # move the pin to the newest release
 ```
 
-`lw.pin` records a release version and the SHA-256 of every host binary and
-of the bundle, taken from that release's signed `SHA256SUMS`. `lw.sh` (Linux,
+`lw.pin` records a release version and the SHA-256 of every host binary
+(plus the bundle's, while the release still publishes one for older hosts),
+taken from that release's signed `SHA256SUMS`. `lw.sh` (Linux,
 macOS, Git Bash) and `lw.cmd` (Windows) download the pinned binary, check it
 against the pin, cache it under `.nvim/cache/` and run it:
 

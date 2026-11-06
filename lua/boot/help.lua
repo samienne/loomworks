@@ -194,8 +194,11 @@ the release's SIGNED SHA256SUMS (the signature is checked against the key built
 into lw before any hash is trusted), and the release is checked to be
 fetchable before anything is written.
 
-What install writes: lw.pin (the version and the SHA-256 of every lw binary and
-of the release bundle), lw.sh and lw.cmd, and the repository metadata:
+What install writes: lw.pin (the version and the SHA-256 of every lw binary,
+plus that of the release bundle when the release publishes one - a release from
+before self-contained executables needs it, and a global lw older than
+0.2.0-beta.3 cannot follow a pin without it), lw.sh and lw.cmd, and the
+repository metadata:
   .gitignore      .nvim/cache/ ignored - appended unless a committed rule of the
                   repo already covers it (your personal gitignore does not
                   count: teammates and CI do not have it)
@@ -213,9 +216,9 @@ Which launcher: `./lw.sh <cmd>` in a POSIX shell - Linux, macOS, and Git Bash /
 MSYS2 on Windows; `.\lw.cmd <cmd>` in cmd.exe or PowerShell (the `.\` matters: a
 bare `lw.cmd` can run another lw.cmd found on PATH). The launcher downloads the
 pinned lw binary into .nvim/cache/ (quietly, retrying a failed download up to
-3 times), verifies its sha256 against the pin, and runs it - that lw then
-provisions (downloads + verifies) the pinned bundle into your per-user data
-dir, never into the repository. So a clean checkout goes from `./lw.sh build`
+3 times), verifies its sha256 against the pin, and runs it - a self-contained release
+needs nothing more; an older one provisions (downloads + verifies) its bundle
+into your per-user data dir, never into the repository. So a clean checkout goes from `./lw.sh build`
 to building, reproducibly. `./lw.sh version` names the pin it runs.
 
 Pin only (--pin-only): no scripts are committed; a globally installed lw runs
