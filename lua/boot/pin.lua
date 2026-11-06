@@ -193,9 +193,40 @@ function M.find_pin_root(start)
   return nil
 end
 
--- The pinned artifacts the HOST provisions (the redirect's host binary and the
--- pinned bundle) live in the per-user data dir, never under the pin root — see
--- boot.update.pinned_binary_path / pinned_bundle_dir.
+-- The executable the HOST runs for a redirect lives in the machine-local
+-- executable cache (`<data>/exe/<sha256>/`, boot.exe_cache), never under the
+-- pin root.
+
+--- The first release whose executable is self-contained (spec §16.22): it
+--- runs only its embedded code and never reads a release bundle. A pin to an
+--- older release (from REPO_BUNDLE_BEFORE on) is honoured by that release's
+--- own executable, which provisions its own bundle.
+M.SELF_CONTAINED_SINCE = "0.2.0-beta.3"
+
+--- The first release whose host keeps its bundle machine-local (spec
+--- §16.22): earlier ones provision it into the repository-local
+--- `.nvim/cache/lua-<ver>/` and load it from there, so a redirect never
+--- targets them.
+M.REPO_BUNDLE_BEFORE = "0.1.32"
+
+--- Does the release `version` load its bundle from the repository (before
+--- REPO_BUNDLE_BEFORE, pre-releases ordered below their release)? True for
+--- an unsafe version, so a caller refusing on it refuses that too.
+--- @param version string
+--- @return boolean
+function M.reads_repo_bundle(version)
+  if not M.valid_version(version) then return true end
+  return require("boot.paths").compare_versions(version, M.REPO_BUNDLE_BEFORE) < 0
+end
+
+--- Is `version` a self-contained release (SELF_CONTAINED_SINCE or later,
+--- pre-releases ordered below their release)? False for an unsafe version.
+--- @param version string
+--- @return boolean
+function M.is_self_contained(version)
+  if not M.valid_version(version) then return false end
+  return require("boot.paths").compare_versions(version, M.SELF_CONTAINED_SINCE) >= 0
+end
 
 --- Is `cmd` (with its sub-command `sub`, the next word) a workspace operation
 --- that honors a pin?

@@ -95,8 +95,12 @@ features.
    pinned context, embedded code runs only when its release version is the
    pinned one and refuses otherwise;
 4. honours a repository's **version pin** (`lw.pin`): workspace commands are
-   redirected to the pinned release, which is provisioned on demand into the
-   per-user data directory;
+   redirected to the pinned release executable, acquired on demand into the
+   content-addressed executable cache `<data>/exe/<sha256>/` and verified
+   against the pin before every run (`boot/exe_cache.lua`). The redirect
+   never provisions a bundle: a pinned release from before self-contained
+   executables provisions its own. A pin before 0.1.32, whose release loads
+   its bundle from the repository, is refused up front (`pin.reads_repo_bundle`);
 5. runs `loomworks/cli.lua` from the resolved source.
 
 The modules under `lua/boot/` load only from the fused binary, never from a
@@ -107,6 +111,7 @@ bundle, because they verify bundles:
 | `verify.lua` | ECDSA P-256 signature check of a release manifest, SHA-256 of artifacts; carries the release public key |
 | `update.lua` | fetch, verify, extract and install a bundle; update channels (stable, unstable); pruning old bundles (`gc`) |
 | `host_update.lua` | replace the running host binary during `lw self-update` |
+| `exe_cache.lua` | the content-addressed cache of release executables a redirect runs (`<data>/exe/<sha256>/`) |
 | `install.lua` | `lw install`: place the binary on `PATH`, then fetch the first bundle |
 | `pin.lua`, `bootstrap.lua`, `launcher.lua`, `launcher_check.lua`, `repo_meta.lua` | the repo-local launcher (`lw.sh`, `lw.cmd`) and `lw.pin`: authoring, checks and repository metadata |
 | `release_query.lua` | `lw release query`: the newest verified release on a channel |

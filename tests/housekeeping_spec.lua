@@ -690,3 +690,94 @@ describe("tool cache temp files (spec §16.40, §16.43)", function()
         require("loomworks.io").rm_rf(sb.base)
     end)
 end)
+
+describe("executable cache leftovers (spec §16.40, `<data>/exe`)", function()
+    local NONCE = string.rep("d", 16)
+    local sb
+    local function dl(sha, pid, nonce) return sb.data .. "/exe/" .. sha .. "." .. pid .. "." .. nonce .. ".dl" end
+    before_each(function() sb = sandbox() end)
+    after_each(function() require("loomworks.io").rm_rf(sb.base) end)
+
+    it("removes another process's aged .dl, keeps a young one, never a slot", function()
+        local aged = write(dl(SHA, 4242, NONCE)); age(aged)
+        local young = write(dl(SHA2, 4243, NONCE)); age(young, NOW - 3600)
+        local future = write(dl(SHA, 4244, NONCE)); age(future, NOW + 86400)
+        local exe = write(sb.data .. "/exe/" .. SHA .. "/" .. (IS_WIN and "lw.exe" or "lw")); age(exe)
+        age(sb.data .. "/exe/" .. SHA)
+        local items = hk.collect(opts(sb))
+        local got = paths_of(items)
+        assert.is_truthy(got[aged])
+        assert.is_nil(got[young]); assert.is_nil(got[future])
+        assert.is_nil(got[sb.data .. "/exe/" .. SHA]); assert.is_nil(got[exe])
+        for _, it in ipairs(items) do assert.is_true(hk.remove(it, NOW), it.path) end
+        assert.is_false(exists(aged))
+        assert.is_true(exists(young)); assert.is_true(exists(future)); assert.is_true(exists(exe))
+        -- Not even with --all: cached executables are pruned by `lw cleanup --all` (later).
+        assert.is_nil(paths_of(hk.collect(opts(sb, { all = true })))[sb.data .. "/exe/" .. SHA])
+    end)
+
+    it("never touches a near-miss name, a directory or a link at a .dl name", function()
+        local near = {
+            write(dl(SHA:upper(), 1, NONCE)),
+            write(dl(SHA:sub(2), 1, NONCE)),
+            write(dl(SHA, "x1", NONCE)),
+            write(dl(SHA, 1, NONCE:sub(2))),
+            write(dl(SHA, 1, NONCE .. "0")),
+            write(dl(SHA, 1, NONCE:upper())),
+            write(dl(SHA, 1, NONCE) .. ".keep"),
+            write(sb.data .. "/exe/" .. SHA .. ".1." .. NONCE .. ".tmp"),
+            mkdir(dl(SHA2, 2, NONCE)),
+        }
+        for _, p in ipairs(near) do age(p) end
+        local links = {}
+        local fl = dl(SHA, 3, NONCE)
+        if uv.fs_symlink(sb.outside .. "/precious.txt", fl) then links[#links + 1] = fl end
+        local jl = dl(SHA, 5, NONCE)
+        if dirlink(sb.outside, jl) then links[#links + 1] = jl end
+        local items = hk.collect(opts(sb))
+        local got = paths_of(items)
+        for _, p in ipairs(near) do assert.is_nil(got[p], p) end
+        for _, p in ipairs(links) do assert.is_nil(got[p], p) end
+        for _, it in ipairs(items) do hk.remove(it, NOW) end
+        for _, p in ipairs(near) do assert.is_true(exists(p), p) end
+        for _, p in ipairs(links) do assert.is_not_nil(uv.fs_lstat(p), p) end
+        assert.equals("precious", read(sb.outside .. "/precious.txt"))
+    end)
+
+    it("an <data>/exe that is a link is never scanned", function()
+        local real = mkdir(sb.outside .. "/exe")
+        local leftover = write(real .. "/" .. SHA .. ".1." .. NONCE .. ".dl"); age(leftover)
+        if not dirlink(real, sb.data .. "/exe") then return end
+        local items = hk.collect(opts(sb))
+        assert.is_nil(paths_of(items)[sb.data .. "/exe/" .. SHA .. ".1." .. NONCE .. ".dl"])
+        for _, it in ipairs(items) do hk.remove(it, NOW) end
+        assert.is_true(exists(leftover))
+    end)
+
+    it("a cached executable marks the data directory as lw's; an empty exe/ does not", function()
+        local h = mkdir(sb.base .. "/h-exe")
+        local d = write(h .. "/.dl-0.1.40.zip"); age(d)
+        mkdir(h .. "/exe")
+        assert.is_false(hk.is_lw_data(h))
+        mkdir(h .. "/exe/" .. SHA .. "/" .. (IS_WIN and "lw.exe" or "lw"))
+        assert.is_false(hk.is_lw_data(h), "a directory at the executable name is no marker")
+        require("loomworks.io").rm_rf(h .. "/exe/" .. SHA)
+        write(h .. "/exe/" .. string.rep("z", 64) .. "/" .. (IS_WIN and "lw.exe" or "lw"))
+        assert.is_false(hk.is_lw_data(h), "a slot whose name is not a sha256 is no marker")
+        write(h .. "/exe/" .. SHA .. "/" .. (IS_WIN and "lw.exe" or "lw"))
+        assert.is_true(hk.is_lw_data(h))
+        assert.is_truthy(paths_of(hk.collect(opts(sb, { data = h })))[d])
+    end)
+
+    it("a run of a cached executable records its slot's last use", function()
+        local slot = mkdir(sb.data .. "/exe/" .. SHA)
+        local bin = write(slot .. "/" .. (IS_WIN and "lw.exe" or "lw"))
+        age(slot)
+        local other = write(sb.outside .. "/exe/" .. SHA .. "/lw"); age(sb.outside .. "/exe/" .. SHA)
+        hk.touch_running({ data = sb.data, bundle = false, exe = other, now = NOW })
+        assert.equals(OLD, uv.fs_stat(slot).mtime.sec)
+        hk.touch_running({ data = sb.data, bundle = false, exe = bin, now = NOW })
+        assert.equals(NOW, uv.fs_stat(slot).mtime.sec)
+        assert.equals(OLD, uv.fs_stat(sb.outside .. "/exe/" .. SHA).mtime.sec)
+    end)
+end)

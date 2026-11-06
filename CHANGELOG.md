@@ -61,6 +61,15 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
   without downloading a release bundle, and `lw self-update` replaces only
   the executable (#132).
 
+- A global `lw` in a repository that pins another release runs that
+  release's executable from a cache in the per-user data directory
+  (`exe/<sha256>/`), verified against the pin before every run, and no
+  longer downloads or unpacks a release bundle for it. A pin to a release
+  from before self-contained executables is still honoured: that release
+  provisions its own bundle. A pin to a release before 0.1.32, which loads
+  code from the repository, is refused, naming the version and
+  `lw bootstrap upgrade`; nothing is deleted (#133).
+
 - `LOOMWORKS_PINNED` and `LW_ROOT` no longer leak into what `lw` starts: a
   build, run or test step (and an `lw` it runs) no longer inherits the
   pinned context or the launcher's workspace root, so a nested `lw` resolves

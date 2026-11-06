@@ -289,12 +289,9 @@ function M.pinned_bundle_dir(version, sha256)
   return M.pinned_root() .. "/" .. tostring(sha256):lower() .. "/lua-" .. version
 end
 
---- Where the global host caches a pinned host binary it redirects to:
---- `<data>/pinned/lw-<version>-<asset>`. Re-verified against the pin on every use.
-function M.pinned_binary_path(version, asset)
-  return M.pinned_root() .. "/lw-" .. version .. "-" .. asset
-end
-
+--- Transitional, for a bootstrap-only host (one that does not embed the code)
+--- in pinned context only; the redirect never provisions a bundle (it runs
+--- the pinned executable from boot.exe_cache).
 --- Provision the pinned release bundle for `version` into the MACHINE-LOCAL
 --- pinned cache (`pinned_bundle_dir`), verified against the pinned
 --- `opts.bundle_sha256`. Idempotent (a bundle this function already extracted
@@ -345,69 +342,6 @@ function M.ensure_version(version, opts)
   local okr, er = M.rename_with_retry(stage, dest)
   if not okr then paths.rm_rf(stage); return nil, "activate: " .. tostring(er) end
   return dest
-end
-
---- List every regular file under `dir` as { [relative/path] = true }, or nil
---- when `dir` is not a directory.
-local function list_tree(dir)
-  local st = uv.fs_stat(dir)
-  if not st or st.type ~= "directory" then return nil end
-  local out = {}
-  local function walk(rel)
-    local abs = rel == "" and dir or (dir .. "/" .. rel)
-    local req = uv.fs_scandir(abs)
-    while req do
-      local name, typ = uv.fs_scandir_next(req)
-      if not name then break end
-      local r = rel == "" and name or (rel .. "/" .. name)
-      typ = typ or ((uv.fs_stat(abs .. "/" .. name) or {}).type)
-      if typ == "directory" then walk(r) else out[r] = true end
-    end
-  end
-  walk("")
-  return out
-end
-
-local function read_bytes(p)
-  local f = io.open(p, "rb")
-  if not f then return nil end
-  local s = f:read("*a"); f:close()
-  return s
-end
-
---- Guard for a redirect to a pinned release whose host predates machine-local
---- provisioning: such a host still loads its bundle from the repository's
---- `<pin root>/.nvim/cache/lua-<version>/` when that directory exists. Before
---- exec'ing it, the redirecting host compares that directory with the bundle it
---- verified itself (`verified_dir`): absent, or byte-for-byte the same file
---- tree, is fine; anything else (a planted or modified bundle) is refused. It
---- never deletes anything in the repository. Returns true or nil, err.
---- @param legacy_dir string
---- @param verified_dir string
-function M.check_legacy_pinned_bundle(legacy_dir, verified_dir)
-  local got = list_tree(legacy_dir)
-  if not got then
-    if uv.fs_stat(legacy_dir) then
-      return nil, legacy_dir .. " exists but is not a directory"
-    end
-    return true
-  end
-  local want = list_tree(verified_dir)
-  if not want then return nil, "verified bundle missing at " .. verified_dir end
-  local mismatch = function(rel, why)
-    return nil, legacy_dir .. " does not match the pinned release (" .. rel .. ": " .. why ..
-      "); it is a cache - delete it and re-run"
-  end
-  for rel in pairs(got) do
-    if not want[rel] then return mismatch(rel, "not part of the release") end
-  end
-  for rel in pairs(want) do
-    if not got[rel] then return mismatch(rel, "missing") end
-    if read_bytes(legacy_dir .. "/" .. rel) ~= read_bytes(verified_dir .. "/" .. rel) then
-      return mismatch(rel, "content differs")
-    end
-  end
-  return true
 end
 
 --- Extract the zip at `zip_path` into `dest_dir` (created). Rejects unsafe
