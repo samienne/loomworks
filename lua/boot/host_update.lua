@@ -203,9 +203,12 @@ end
 ---                the target's / binary hash), or a failed rollback. Caller
 ---                exits non-zero.
 --- `message` explains; `manual` (warning/error) says how to replace it by hand.
+--- `o.info(line)` receives "downgrading <running> -> <target>" right before a
+--- forced swap to an older release. A "replaced" result has `hint` when the
+--- target predates self-contained executables (it carries no code of its own).
 ---
---- @param o { target_version: string, url?: string, exe?: string, running_version?: string, asset?: string, force?: boolean, pinned?: boolean, dev?: boolean, fused_system_lua?: boolean, fs?: table, is_windows?: boolean, sleep?: fun(ms:integer), attempts?: integer }
---- @return { status: "replaced"|"current"|"skipped"|"warning"|"error", message: string, from?: string, to?: string, exe?: string, manual?: string }
+--- @param o { target_version: string, url?: string, exe?: string, running_version?: string, asset?: string, force?: boolean, pinned?: boolean, dev?: boolean, fused_system_lua?: boolean, fs?: table, is_windows?: boolean, sleep?: fun(ms:integer), attempts?: integer, info?: fun(line:string) }
+--- @return { status: "replaced"|"current"|"skipped"|"warning"|"error", message: string, from?: string, to?: string, exe?: string, manual?: string, hint?: string }
 function M.update_host(o)
   local verify = require("boot.verify")
   local update = require("boot.update")
@@ -297,6 +300,11 @@ function M.update_host(o)
       message = tostring(ed) }
   end
 
+  -- --force may replace a newer host with an older release (spec §16.32): say
+  -- so before the swap, once the replacement is verified.
+  if o.info and running and paths.version_gt(running, target) then
+    o.info("downgrading " .. running .. " -> " .. target)
+  end
   local oks, es, fatal = M.swap(exe, new, {
     fs = fs, is_windows = o.is_windows, sleep = o.sleep, attempts = o.attempts,
   })
@@ -304,8 +312,17 @@ function M.update_host(o)
     pcall(fs.unlink, new)
     return { status = fatal and "error" or "warning", manual = manual, message = es }
   end
+  -- A release before self-contained executables is a bootstrap-only host: it
+  -- runs the newest installed code bundle (`<data>/lua-<ver>`), and its own
+  -- self-update downloads one - the channel's newest release's - first.
+  local hint
+  if not self_contained then
+    hint = "lw " .. target .. " predates self-contained executables and has no code of " ..
+      "its own: it runs the newest code bundle in its data folder, and its next " ..
+      "`lw self-update` downloads one (the channel's newest release's)"
+  end
   return { status = "replaced", message = "replaced " .. exe, exe = exe,
-    from = running, to = target }
+    from = running, to = target, hint = hint }
 end
 
 return M

@@ -83,7 +83,10 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
   only when the signed list names that release's bundle), and
   the replacement must match the target release's signed list, which must name
   that release's descriptor. `--version <x.y.z>` installs an exact release and
-  `--force` replaces the executable with an equal or older one too. When the
+  `--force` replaces the executable with an equal or older one too (saying
+  `downgrading <running> -> <target>` first; for a release before
+  self-contained executables it notes that the new `lw` downloads its code
+  bundle on its next `lw self-update`). When the
   executable cannot be replaced (an unwritable location, a missing asset) it
   exits non-zero. `lw install` installs only the executable; `--no-bundle` is
   accepted and ignored (#135).

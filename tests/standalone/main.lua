@@ -4718,6 +4718,10 @@ do
   eq(rpre.status, "replaced", "a pre-self-contained target is bound by its bundle entry"
     .. (rpre.status ~= "replaced" and (" — " .. tostring(rpre.message)) or ""))
   eq(slurp(exe), NEW, "forced older target: replaced")
+  ok(type(rpre.hint) == "string" and rpre.hint:find("0.1.40", 1, true) ~= nil
+    and rpre.hint:find("lw self-update", 1, true) ~= nil and rpre.hint:find("bundle", 1, true) ~= nil,
+    "a pre-self-contained target: the result hints that it fetches its code bundle on its next "
+    .. "`lw self-update`  (got " .. tostring(rpre.hint) .. ")")
 
   -- --force: an equal or older target is replaced too.
   stage(); reset_exe()
@@ -4726,6 +4730,27 @@ do
   stage(); reset_exe()
   eq(run({ is_windows = false, running_version = "9.0.0", force = true }).status, "replaced",
     "--force: older target replaces the newer host")
+  -- A forced downgrade says so before the swap; an upgrade or a same-version
+  -- reinstall does not.
+  do
+    local notes = {}
+    local function note(s) notes[#notes + 1] = s end
+    stage(); reset_exe()
+    local rdg = run({ is_windows = false, running_version = "9.0.0", force = true, info = note })
+    eq(rdg.status, "replaced", "--force downgrade: replaced")
+    eq(notes[1], "downgrading 9.0.0 -> " .. ver, "--force downgrade: a 'downgrading' line names both versions")
+    notes = {}
+    stage(); reset_exe()
+    run({ is_windows = false, running_version = "1.0.0", info = note })
+    eq(#notes, 0, "an upgrade prints no downgrade line")
+    stage(); reset_exe()
+    run({ is_windows = false, running_version = ver, force = true, info = note })
+    eq(#notes, 0, "a forced same-version reinstall prints no downgrade line")
+    stage({ hash_body = "SOMETHING-ELSE" }); reset_exe()
+    run({ is_windows = false, running_version = "9.0.0", force = true, info = note })
+    eq(#notes, 0, "a downgrade that fails verification prints no downgrade line")
+    eq(rdg.hint, nil, "a self-contained target needs no provisioning hint")
+  end
   -- Self-update creates no bundle anywhere: no `lua-*` entry under the sandbox.
   do
     local found = {}

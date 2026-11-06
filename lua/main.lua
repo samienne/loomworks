@@ -473,10 +473,12 @@ elseif host_command == "self-update" then
     pinned = pinned_sentinel ~= nil,
     dev = source_kind == "dev",
     fused_system_lua = fused_system_lua(),
+    info = function(line) io.write("lw: " .. line .. "\n") end,
   })
   if h.status == "replaced" then
     io.write("lw: updated lw " .. (h.from or "(unknown version)") .. " -> " ..
       h.to .. " (" .. h.exe .. ")\n")
+    if h.hint then io.write("lw: note: " .. h.hint .. "\n") end
     exit(0)
   elseif h.status == "current" then
     io.write("lw: already up to date (" .. target .. ")\n")
