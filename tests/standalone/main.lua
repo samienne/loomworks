@@ -356,7 +356,7 @@ do
     end
     local inst = t({ "install", "--help" }) or ""
     ok(inst:find("lw install [-y]", 1, true) and inst:find("--dry-run", 1, true)
-      and inst:find("--no-bundle", 1, true),
+      and not inst:find("--no-bundle", 1, true),
       "`lw install --help` prints install's host help  (got " .. inst .. ")")
     -- A host command's help IS its full help (the CLI reuses it), so it carries
     -- no "full help needs the bundle" note — which confused pinned-launcher users.
