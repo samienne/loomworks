@@ -1458,8 +1458,8 @@ do
       eq(paths.install_dir(), inst, "set: the install folder (normalized)")
       eq(paths.data_dir(), data, "set: the data dir (shared state) does not move")
       eq(update.pinned_root(), inst .. "/pinned", "set: pinned host binaries + bundles under it")
-      eq(update.pinned_binary_path("2.0.0", "lw-linux-x86_64"), inst .. "/pinned/lw-2.0.0-lw-linux-x86_64",
-        "set: the redirect's pinned host binary under it")
+      eq(require("boot.exe_cache").slot(string.rep("a", 64)), data .. "/exe/" .. string.rep("a", 64),
+        "set: the executable cache stays in the data dir (§16.22 No install folder)")
       eq(paths.newest_release_root(), inst .. "/lua-2.0.0", "set: release bundles from it")
       eq(paths.modules_dir(), data .. "/modules", "set: acquired modules stay in the data dir")
     end)
@@ -1796,6 +1796,14 @@ local f = assert(io.open(assert(os.getenv("DUMP_OUT")), "ab"))
 f:write("ARGS=" .. table.concat(args, " ") .. "\n")
 f:write("PINNED=" .. (uv.os_getenv("LOOMWORKS_PINNED") or "") .. "\n")
 f:write("ROOT=" .. (uv.os_getenv("LW_ROOT") or "") .. "\n")
+f:write("EXE=" .. (uv.exepath() or "") .. "\n")
+local lwenv = {}
+for k in pairs(uv.os_environ()) do
+  local u = k:upper()
+  if u:match("^LOOMWORKS_") or u:match("^LW_") then lwenv[#lwenv + 1] = u end
+end
+table.sort(lwenv)
+f:write("LWENV=" .. table.concat(lwenv, ",") .. "\n")
 local nested = os.getenv("NESTED_LW")
 if nested and args[1] == "build" then
   local log = os.getenv("DUMP_OUT") .. ".nested"
@@ -1868,21 +1876,93 @@ os.exit(0)
   check_steps("pinned run, daemon (the request's environment)")
   lw({ "daemon", "stop" }, daemon_env, wsdir)
 
-  -- The redirect forwards both to the pinned lw it runs (here the stand-in).
+  -- The redirect (§16.23) runs the pinned release executable from the
+  -- content-addressed cache `<data>/exe/<sha256>/` (here the stand-in). A pin
+  -- to a release before self-contained executables (0.0.0-test) still names
+  -- its bundle, but the redirect fetches the executable only: the mirror has
+  -- no bundle at all.
   local fwd, mirror2 = sb .. "/repo-fwd", sb .. "/mirror-fwd"
   paths.mkdirp(fwd); paths.mkdirp(mirror2)
   local dump_bytes = readfile(dump_exe)
+  local dump_sha = verify.sha256_hex(dump_bytes)
   writef(mirror2 .. "/" .. asset, dump_bytes)
   local zip = pinmod.bundle_asset("0.0.0-test")
-  writef(mirror2 .. "/" .. zip, readfile(FX .. zip))
   writef(fwd .. "/lw.pin", pinmod.serialize("0.0.0-test", {
-    [asset] = verify.sha256_hex(dump_bytes), [zip] = verify.sha256_hex(readfile(FX .. zip)) }))
-  code, out, err = lw({ "build" }, { LOOMWORKS_RELEASE_URL = mirror2, DUMP_OUT = dump_out }, fwd)
+    [asset] = dump_sha, [zip] = verify.sha256_hex(readfile(FX .. zip)) }))
+  local fwd_env = { LOOMWORKS_RELEASE_URL = mirror2, DUMP_OUT = dump_out, LOOMWORKS_INSTALL_DIR = false }
+  code, out, err = lw({ "build" }, fwd_env, fwd)
   local recs, raw = dumped()
   local r = recs[1] or {}
   ok(code == 0 and r.PINNED == "0.0.0-test" and (paths.norm(r.ROOT or "") or ""):lower() == paths.norm(fwd):lower(),
     "the redirect passes the pinned marker and LW_ROOT to the pinned lw  (exit " .. tostring(code) .. ": "
       .. raw .. out .. err .. ")")
+  local slot = home .. "/exe/" .. dump_sha
+  local slot_exe = slot .. "/lw" .. (paths.is_windows and ".exe" or "")
+  local function canon(p) p = paths.norm(uv.fs_realpath(p or "") or p or "") or ""; return paths.is_windows and p:lower() or p end
+  eq(canon(r.EXE), canon(slot_exe), "the redirect runs <data>/exe/<sha256>/lw from the executable cache")
+  -- Exactly the two forwarded values beyond the environment it was given:
+  -- never LOOMWORKS_INSTALL_DIR, nor any other lw value.
+  do
+    local want = { LOOMWORKS_PINNED = true, LW_ROOT = true }
+    for _, kv in pairs(base_env) do
+      local u = kv[1]:upper()
+      if (u:match("^LOOMWORKS_") or u:match("^LW_")) and fwd_env[kv[1]] ~= false then want[u] = true end
+    end
+    want.LOOMWORKS_RELEASE_URL = true
+    local wl = {}
+    for k in pairs(want) do wl[#wl + 1] = k end
+    table.sort(wl)
+    eq(r.LWENV, table.concat(wl, ","), "the forwarding environment adds exactly LOOMWORKS_PINNED and LW_ROOT")
+  end
+  ok(select(2, err:gsub("fetching", "")) == 1, "cold cache: one fetching notice  (" .. err .. ")")
+  ok(uv.fs_stat(home .. "/pinned") == nil and uv.fs_stat(inst .. "/pinned") == nil,
+    "a pre-cutover pin: no bundle provisioned, nothing under pinned/")
+  ok(uv.fs_stat(home .. "/lua-0.0.0-test") == nil, "a pre-cutover pin: no bundle installed")
+  -- Warm cache: no download (the mirror is gone), the slot's last use updated.
+  local older = os.time() - 40 * 86400
+  uv.fs_utime(slot, older, older)
+  code, out, err = lw({ "build" }, { LOOMWORKS_RELEASE_URL = sb .. "/no-mirror", DUMP_OUT = dump_out,
+    LOOMWORKS_INSTALL_DIR = false }, fwd)
+  recs, raw = dumped()
+  ok(code == 0 and #recs == 1 and not err:find("fetching", 1, true),
+    "warm cache: redirected without a download  (exit " .. tostring(code) .. ": " .. raw .. err .. ")")
+  ok(((uv.fs_stat(slot) or {}).mtime or { sec = 0 }).sec > older + 86400, "a redirect records the slot's last use")
+  -- A corrupt cached executable is acquired again before it is run.
+  writef(slot_exe, "TAMPERED")
+  code, out, err = lw({ "build" }, fwd_env, fwd)
+  recs, raw = dumped()
+  ok(code == 0 and #recs == 1 and readfile(slot_exe) == dump_bytes,
+    "a tampered cached executable is replaced before it runs  (exit " .. tostring(code) .. ": " .. err .. ")")
+  -- A hash mismatch at the origin: refused, nothing run, nothing left.
+  local bad_repo = sb .. "/repo-bad"
+  paths.mkdirp(bad_repo)
+  writef(bad_repo .. "/lw.pin", pinmod.serialize("0.0.0-test", { [asset] = string.rep("e", 64) }))
+  code, out, err = lw({ "build" }, fwd_env, bad_repo)
+  recs = dumped()
+  ok(code == 1 and #recs == 0 and err:find("could not fetch pinned lw 0.0.0-test", 1, true)
+    and uv.fs_lstat(home .. "/exe/" .. string.rep("e", 64)) == nil,
+    "a hash mismatch: refused, nothing run, no slot  (exit " .. tostring(code) .. ": " .. err .. ")")
+  -- A pin to a release that still reads the repository-local bundle
+  -- location: refused while it exists, which is never deleted.
+  local legacy = fwd .. "/.nvim/cache/lua-0.0.0-test"
+  paths.mkdirp(legacy .. "/loomworks")
+  writef(legacy .. "/loomworks/cli.lua", "return 'planted'")
+  code, out, err = lw({ "build" }, fwd_env, fwd)
+  recs = dumped()
+  ok(code == 1 and #recs == 0 and err:find("refusing to run pinned lw 0.0.0-test", 1, true)
+    and err:find(".nvim/cache/lua-0.0.0-test", 1, true),
+    "a legacy repository bundle dir: the redirect is refused, naming it  (exit " .. tostring(code) .. ": " .. err .. ")")
+  eq(slurp(legacy .. "/loomworks/cli.lua"), "return 'planted'", "a legacy repository bundle dir is never deleted")
+  -- A self-contained pinned release never reads that location: not refused.
+  local sc = sb .. "/repo-sc"
+  paths.mkdirp(sc .. "/.nvim/cache/lua-9.9.9/loomworks")
+  writef(sc .. "/lw.pin", pinmod.serialize("9.9.9", { [asset] = dump_sha }))
+  code, out, err = lw({ "build" }, fwd_env, sc)
+  recs, raw = dumped()
+  ok(code == 0 and (recs[1] or {}).PINNED == "9.9.9",
+    "a self-contained pin: redirected despite a lua-<ver> dir in the repository  (exit " .. tostring(code) .. ": "
+      .. raw .. err .. ")")
+  ok(uv.fs_stat(sc .. "/.nvim/cache/lua-9.9.9") ~= nil, "and that directory is kept")
   paths.rm_rf(sb)
 end
 
@@ -1964,27 +2044,6 @@ do
   eq(slurp(dir .. "/loomworks/cli.lua"), "return 'verified'", "the verified bundle's content, not a planted one")
   eq(update.pinned_bundle_dir(ver, bundle_sha:upper()), dir, "pinned_bundle_dir keys by lower-case hash")
 
-  -- Redirect guard for a pinned host that predates machine-local provisioning
-  -- (it would load <pin root>/.nvim/cache/lua-<ver> when present).
-  local legacy = repo .. "/.nvim/cache/lua-" .. ver
-  ok(select(1, update.check_legacy_pinned_bundle(legacy, dir)) == nil,
-    "legacy guard: a planted repo-local bundle is refused")
-  ok(update.check_legacy_pinned_bundle(sb .. "/nope", dir) == true,
-    "legacy guard: an absent repo-local bundle is fine")
-  do
-    local f = assert(io.open(legacy .. "/loomworks/cli.lua", "wb")); f:write("return 'verified'"); f:close()
-  end
-  ok(update.check_legacy_pinned_bundle(legacy, dir) == true,
-    "legacy guard: a byte-identical repo-local bundle is fine")
-  paths.mkdirp(legacy .. "/loomworks/modules")
-  do
-    local f = assert(io.open(legacy .. "/loomworks/modules/extra.lua", "wb")); f:write("return {}"); f:close()
-  end
-  ok(select(1, update.check_legacy_pinned_bundle(legacy, dir)) == nil,
-    "legacy guard: an extra file in the repo-local bundle is refused")
-  ok(uv.fs_stat(legacy .. "/loomworks/modules/extra.lua") ~= nil,
-    "legacy guard never deletes repository files")
-
   -- idempotent: a second call reuses without touching the mirror
   uv.os_setenv("LOOMWORKS_RELEASE_URL", mirror .. "/gone")
   local dir2 = update.ensure_version(ver, { root = repo, bundle_sha256 = bundle_sha,
@@ -2001,10 +2060,6 @@ do
   ok(not uv.fs_stat(update.pinned_bundle_dir(ver, other)), "a rejected provision leaves nothing behind")
   ok(select(1, update.ensure_version(ver, { bundle_sha256 = "abc" })) == nil,
     "refuses a pinned hash that is not a sha256")
-
-  -- the redirect's host binary is cached machine-locally too
-  local bp = update.pinned_binary_path("1.2.3", "lw-linux-x86_64")
-  eq(bp, data .. "/pinned/lw-1.2.3-lw-linux-x86_64", "pinned host binary path is machine-local")
 
   uv.os_unsetenv("LOOMWORKS_DATA_DIR")
   paths.rm_rf(sb)
@@ -2042,6 +2097,182 @@ do
   ok(select(1, update.ensure_host_binary("1.0.0", asset, nil, dest2)) == nil,
     "refuses with no pinned sha256 (hash is always mandatory)")
 
+  paths.rm_rf(sb)
+end
+
+print("boot.pin — the first self-contained release (§16.22 transitional)")
+do
+  local pinmod = require("boot.pin")
+  eq(pinmod.SELF_CONTAINED_SINCE, "0.2.0-beta.3", "SELF_CONTAINED_SINCE")
+  for v, want in pairs({ ["0.0.0-test"] = false, ["0.1.49"] = false, ["0.2.0-beta.2"] = false,
+      ["0.2.0-beta.3"] = true, ["0.2.0"] = true, ["0.3.1"] = true, ["1.0.0"] = true }) do
+    eq(pinmod.is_self_contained(v), want, "is_self_contained(" .. v .. ")")
+  end
+  eq(pinmod.is_self_contained("../x"), false, "is_self_contained refuses an unsafe version")
+end
+
+print("boot.exe_cache — content-addressed executable cache (§16.13, §16.22, §16.40)")
+do
+  local exe_cache = require("boot.exe_cache")
+  local pinmod = require("boot.pin")
+  local win = paths.is_windows
+  local sb = root .. "/tests/.tmp-execache"; paths.rm_rf(sb); paths.mkdirp(sb)
+  sb = paths.norm(uv.fs_realpath(sb) or sb)
+  local data, mirror, outside = sb .. "/data", sb .. "/mirror", sb .. "/outside"
+  paths.mkdirp(mirror); paths.mkdirp(outside)
+  local function put(p, s) local f = assert(io.open(p, "wb")); f:write(s); f:close(); return p end
+  local function entries(dir)
+    local t, h = {}, uv.fs_scandir(dir)
+    while h do local n = uv.fs_scandir_next(h); if not n then break end; t[#t + 1] = n end
+    table.sort(t)
+    return table.concat(t, ",")
+  end
+  --- A link at `link` to `target`: a symlink, or on Windows (where a file
+  --- symlink needs a privilege) a junction to a directory when `dir_target`
+  --- is given. Returns whether one was made.
+  local function link(target, lnk, dir_target)
+    if uv.fs_symlink(target, lnk) then return true end
+    if win and dir_target then return uv.fs_symlink(dir_target, lnk, { junction = true }) and true or false end
+    return false
+  end
+  local old_data, old_url = uv.os_getenv("LOOMWORKS_DATA_DIR"), uv.os_getenv("LOOMWORKS_RELEASE_URL")
+  uv.os_setenv("LOOMWORKS_DATA_DIR", data)
+  uv.os_setenv("LOOMWORKS_RELEASE_URL", mirror)
+  local asset = pinmod.detect_asset() or "lw-linux-x86_64"
+  local function publish(s) put(mirror .. "/" .. asset, s); return verify.sha256_hex(s) end
+  local body = "FAKE-LW-EXECUTABLE 1\n"
+  local sha = publish(body)
+  local exe_name = win and "lw.exe" or "lw"
+  local fetched = 0
+  local function on_fetch() fetched = fetched + 1 end
+
+  eq(exe_cache.slot(sha), data .. "/exe/" .. sha, "the slot is <data>/exe/<sha256>")
+  eq(exe_cache.path(sha), data .. "/exe/" .. sha .. "/" .. exe_name, "the executable is <slot>/lw[.exe]")
+  local tn = exe_cache.temp_name(sha, 4242, string.rep("0", exe_cache.NONCE_LEN))
+  eq(tn, sha .. ".4242." .. string.rep("0", exe_cache.NONCE_LEN) .. ".dl", "the temp name is <sha256>.<pid>.<nonce>.dl")
+  ok(exe_cache.is_temp_name(tn), "the temp name matches its pattern")
+  for _, n in ipairs({ sha:upper() .. ".1." .. string.rep("0", exe_cache.NONCE_LEN) .. ".dl",
+      sha:sub(2) .. ".1." .. string.rep("0", exe_cache.NONCE_LEN) .. ".dl",
+      sha .. ".x1." .. string.rep("0", exe_cache.NONCE_LEN) .. ".dl",
+      sha .. ".1." .. string.rep("0", exe_cache.NONCE_LEN - 1) .. ".dl",
+      sha .. ".1." .. string.rep("0", exe_cache.NONCE_LEN) .. ".dl.keep", sha }) do
+    ok(not exe_cache.is_temp_name(n), "near miss is not a temp name: " .. n)
+  end
+
+  -- Refused before the filesystem is touched.
+  ok(select(1, exe_cache.ensure("1.0.0", asset, "abc")) == nil, "a hash that is not a sha256 is refused")
+  ok(select(1, exe_cache.ensure("1.0.0", asset, sha:upper())) == nil, "an upper-case hash is refused")
+  ok(select(1, exe_cache.ensure("1.0.0", "../evil", sha)) == nil, "an unknown asset is refused")
+  ok(select(1, exe_cache.ensure("../x", asset, sha)) == nil, "an unsafe version is refused")
+  ok(uv.fs_lstat(data) == nil, "a refused request creates nothing")
+
+  -- Cold cache: downloaded, verified, moved into its slot.
+  local p, err = exe_cache.ensure("1.0.0", asset, sha, { on_fetch = on_fetch })
+  eq(p, exe_cache.path(sha), "cold cache: acquired into the slot  (" .. tostring(err) .. ")")
+  eq(slurp(exe_cache.path(sha)), body, "cold cache: the verified bytes")
+  eq(fetched, 1, "cold cache: on_fetch once, before the download")
+  eq(entries(data .. "/exe"), sha, "cold cache: no temp file left behind")
+  if not win then
+    eq((uv.fs_stat(exe_cache.path(sha)) or { mode = 0 }).mode % 512, 493, "cold cache: mode 755")
+  end
+  ok(exe_cache.verify_before_run(sha) == true, "verify_before_run accepts the cached executable")
+
+  -- Warm cache: reused without a download (the mirror is gone).
+  os.remove(mirror .. "/" .. asset)
+  eq(exe_cache.ensure("1.0.0", asset, sha, { on_fetch = on_fetch }), p, "warm cache: reused")
+  eq(fetched, 1, "warm cache: nothing downloaded")
+
+  -- A corrupt slot file is unlinked by name and acquired again.
+  publish(body)
+  put(exe_cache.path(sha), "TAMPERED")
+  ok(select(1, exe_cache.verify_before_run(sha)) == nil, "verify_before_run refuses a tampered executable")
+  local p3, e3 = exe_cache.ensure("1.0.0", asset, sha, { on_fetch = on_fetch })
+  ok(p3 == p and slurp(p) == body and fetched == 2,
+    "a corrupt slot file is acquired again  (" .. tostring(e3) .. ", fetched " .. fetched .. ")")
+
+  -- A hash mismatch leaves nothing behind.
+  local zero = string.rep("0", 64)
+  local p4, e4 = exe_cache.ensure("1.0.0", asset, zero)
+  ok(p4 == nil and type(e4) == "string" and e4:find("sha256", 1, true) ~= nil,
+    "a download whose hash does not match aborts  (" .. tostring(e4) .. ")")
+  eq(entries(data .. "/exe"), sha, "a hash mismatch leaves nothing behind (no slot, no temp file)")
+
+  -- A link at the exact temp name is removed as a link, never followed.
+  local victim = put(outside .. "/victim.txt", "precious")
+  paths.mkdirp(outside .. "/vdir"); put(outside .. "/vdir/keep.txt", "keep")
+  local body2 = "FAKE-LW-EXECUTABLE 2\n"
+  local sha2 = publish(body2)
+  local nonce = string.rep("a", exe_cache.NONCE_LEN)
+  local tlink = data .. "/exe/" .. exe_cache.temp_name(sha2, 4242, nonce)
+  local made = link(victim, tlink, outside .. "/vdir")
+  local p5, e5 = exe_cache.ensure("1.0.0", asset, sha2, { pid = 4242, nonce = nonce })
+  if made then
+    ok(p5 == exe_cache.path(sha2) and slurp(p5) == body2, "a link at the temp name: acquired anyway  (" .. tostring(e5) .. ")")
+    eq(slurp(victim), "precious", "a link at the temp name is never written through")
+    eq(slurp(outside .. "/vdir/keep.txt"), "keep", "a junction at the temp name is never followed")
+    ok(uv.fs_lstat(tlink) == nil, "the link at the temp name is gone")
+  else
+    print("  skip link at the temp name (no symlink or junction)")
+  end
+
+  -- A link at the slot is never followed nor removed: refused.
+  local body3 = "FAKE-LW-EXECUTABLE 3\n"
+  local sha3 = publish(body3)
+  paths.mkdirp(outside .. "/slot3"); put(outside .. "/slot3/" .. exe_name, body3)
+  if link(outside .. "/slot3", exe_cache.slot(sha3), outside .. "/slot3") then
+    local p6, e6 = exe_cache.ensure("1.0.0", asset, sha3)
+    ok(p6 == nil and type(e6) == "string", "a link at the slot is refused  (" .. tostring(e6) .. ")")
+    ok(uv.fs_lstat(exe_cache.slot(sha3)) ~= nil and slurp(outside .. "/slot3/" .. exe_name) == body3,
+      "a link at the slot is kept, its target untouched")
+    ok(select(1, exe_cache.verify_before_run(sha3)) == nil, "verify_before_run refuses a linked slot")
+  else
+    print("  skip link at the slot (no symlink or junction)")
+  end
+
+  -- A link at the slot's executable name: refused, its target untouched.
+  local body4 = "FAKE-LW-EXECUTABLE 4\n"
+  local sha4 = publish(body4)
+  paths.mkdirp(exe_cache.slot(sha4))
+  local v4 = put(outside .. "/v4", body4)
+  if uv.fs_symlink(v4, exe_cache.path(sha4)) then
+    local p7, e7 = exe_cache.ensure("1.0.0", asset, sha4)
+    ok(p7 == nil and type(e7) == "string", "a link at the executable name is refused  (" .. tostring(e7) .. ")")
+    eq(slurp(v4), body4, "its target is untouched")
+    ok(select(1, exe_cache.verify_before_run(sha4)) == nil, "verify_before_run refuses a linked executable")
+  else
+    print("  skip file link at the executable name (no symlink privilege)")
+  end
+
+  -- A regular file where the slot directory belongs: refused, kept.
+  local body5 = "FAKE-LW-EXECUTABLE 5\n"
+  local sha5 = publish(body5)
+  put(exe_cache.slot(sha5), "not a dir")
+  ok(select(1, exe_cache.ensure("1.0.0", asset, sha5)) == nil and slurp(exe_cache.slot(sha5)) == "not a dir",
+    "a file at the slot name is refused and kept")
+
+  -- Last use: the slot directory's modification time.
+  local old = os.time() - 40 * 86400
+  uv.fs_utime(exe_cache.slot(sha), old, old)
+  exe_cache.touch(sha)
+  ok(math.abs(((uv.fs_stat(exe_cache.slot(sha)) or {}).mtime or { sec = 0 }).sec - os.time()) <= 5,
+    "touch sets the slot's modification time to now")
+
+  -- `<data>/exe` itself a link: never followed.
+  local data2 = sb .. "/data2"
+  paths.mkdirp(data2); paths.mkdirp(outside .. "/exe2")
+  if link(outside .. "/exe2", data2 .. "/exe", outside .. "/exe2") then
+    uv.os_setenv("LOOMWORKS_DATA_DIR", data2)
+    publish(body)
+    local p8, e8 = exe_cache.ensure("1.0.0", asset, sha)
+    ok(p8 == nil and type(e8) == "string", "a link at <data>/exe is refused  (" .. tostring(e8) .. ")")
+    eq(entries(outside .. "/exe2"), "", "nothing written through a link at <data>/exe")
+    uv.os_setenv("LOOMWORKS_DATA_DIR", data)
+  else
+    print("  skip link at <data>/exe (no symlink or junction)")
+  end
+
+  if old_data then uv.os_setenv("LOOMWORKS_DATA_DIR", old_data) else uv.os_unsetenv("LOOMWORKS_DATA_DIR") end
+  if old_url then uv.os_setenv("LOOMWORKS_RELEASE_URL", old_url) else uv.os_unsetenv("LOOMWORKS_RELEASE_URL") end
   paths.rm_rf(sb)
 end
 

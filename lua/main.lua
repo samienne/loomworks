@@ -588,9 +588,9 @@ end
 
 -- ---- pin: redirect a workspace operation to the pinned release --------------
 -- A global host in a pinned repo runs the pinned release. Fast path: the pin
--- matches self, run in-process (no download). Otherwise fetch+verify the pinned
--- host binary, set the sentinel, and re-exec it — that host then provisions the
--- pinned bundle (above) and never redirects again.
+-- matches self, run in-process (no download). Otherwise acquire and verify the
+-- pinned release executable into the executable cache, set the sentinel, and
+-- re-exec it — that host runs as the pinned release and never redirects again.
 do
   local self_version = running_code_version()
   local p = pin_root and pin.read(pin_root)
@@ -634,52 +634,37 @@ do
       io.stderr:write("lw: cannot honor lw.pin: " .. tostring(aerr) .. "\n")
       exit(1)
     end
-    -- Machine-local (never the repo's .nvim/cache): a clone could ship a
-    -- binary there together with a pin naming its hash.
-    local bin = require("boot.update").pinned_binary_path(p.version, asset)
-    -- Say "fetching" only when a download really happens (host binary and/or
-    -- bundle not yet provisioned machine-locally). The cached host binary is
-    -- re-hashed against the pin on every run; a provisioned bundle is reused
-    -- by presence. Both lines go to stderr: stdout can be
-    -- machine-consumed (`lw run --print`).
-    local announced = false
-    local function on_fetch()
-      if announced then return end
-      announced = true
-      io.stderr:write("fetching loomworks " .. p.version .. " (pinned)...\n")
+    -- A pinned release from before self-contained executables that still
+    -- reads the repository-local bundle location would load code from the
+    -- repository: refuse while it exists, naming it. Nothing is deleted.
+    local exe_cache = require("boot.exe_cache")
+    if not pin.is_self_contained(p.version) then
+      local legacy = pin_root .. "/.nvim/cache/lua-" .. p.version
+      if uv.fs_lstat(legacy) then
+        io.stderr:write("lw: refusing to run pinned lw " .. p.version .. ": " .. legacy ..
+          " exists, and that release would load code from it; it is a cache - delete it and re-run\n")
+        exit(1)
+      end
     end
-    local ok, err = require("boot.update").ensure_host_binary(
-      p.version, asset, p.hashes[asset], bin, { on_fetch = on_fetch })
-    if not ok then
+    -- The pinned release executable, from the machine-local executable cache
+    -- <data>/exe/<sha256>/ (never the repository: a clone could ship a binary
+    -- there with a pin naming its hash), verified against the pin. Only the
+    -- executable: a release before self-contained executables provisions its
+    -- own bundle. "fetching" (stderr: stdout can be machine-consumed) only
+    -- when a download really happens.
+    local sha = type(p.hashes[asset]) == "string" and p.hashes[asset]:lower() or nil
+    local bin, err = exe_cache.ensure(p.version, asset, sha, {
+      on_fetch = function()
+        io.stderr:write("fetching loomworks " .. p.version .. " (pinned)...\n")
+      end,
+    })
+    if not bin then
       io.stderr:write("lw: could not fetch pinned lw " .. p.version .. ": " ..
         tostring(err) .. "\n")
       exit(1)
     end
-    -- Provision + verify the pinned bundle here too (machine-local), then make
-    -- sure a pinned host that predates machine-local provisioning — it would
-    -- load `<pin root>/.nvim/cache/lua-<ver>/` if present — can only find the
-    -- verified bundle there, never a repository-shipped one.
-    local upd = require("boot.update")
-    local vdir, verr = upd.ensure_version(p.version, {
-      bundle_sha256 = p.hashes[pin.bundle_asset(p.version)],
-      on_fetch = on_fetch,
-    })
-    if not vdir then
-      io.stderr:write("lw: could not provision pinned bundle " .. p.version ..
-        ": " .. tostring(verr) .. "\n")
-      exit(1)
-    end
-    -- Record the last use of both: `lw cleanup --all` prunes
-    -- pinned releases unused for long.
-    pcall(uv.fs_utime, vdir, os.time(), os.time())
-    pcall(uv.fs_utime, bin, os.time(), os.time())
-    local okl, lerr = upd.check_legacy_pinned_bundle(
-      pin_root .. "/.nvim/cache/lua-" .. p.version, vdir)
-    if not okl then
-      io.stderr:write("lw: refusing to run pinned lw " .. p.version .. ": " ..
-        tostring(lerr) .. "\n")
-      exit(1)
-    end
+    -- Record its last use (`lw cleanup --all` prunes executables unused for long).
+    exe_cache.touch(sha)
     -- Pass the sentinel + workspace root to the pinned lw explicitly (they
     -- were removed from our environment at startup, spec §16.22): set just
     -- before the exec, which is the only process this one starts from here
