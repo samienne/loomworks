@@ -1,6 +1,6 @@
 -- `lw install` — the host binary places itself where it can be invoked, and
--- ensures that location is on PATH. A host command: it runs before any bundle
--- exists and depends only on luv + boot helpers.
+-- ensures that location is on PATH. A host command: it installs only the
+-- executable (which carries all its code) and depends only on luv + boot helpers.
 --
 -- Install location (per-user, no admin):
 --   Windows:  %LOCALAPPDATA%\Microsoft\WindowsApps\lw.exe  (already on PATH)
@@ -18,7 +18,6 @@
 local uv_ok, uv = pcall(require, "uv")
 if not uv_ok then uv = require("luv") end
 local paths = require("boot.paths")
-local update = require("boot.update")
 
 local M = {}
 
@@ -198,10 +197,9 @@ end
 --- Install the running host. opts:
 ---   assume_yes (`-y`: replace an existing binary / edit PATH without asking),
 ---   no_input (non-interactive: never ask — refuse what needs a yes),
----   no_modify_path, no_bundle, dry_run; embedded (the code is embedded: no
----   bundle is fetched); fused_system_lua (the host carries its
----   system Lua - a development build: no self-update advice); exe_path / ask
----   are test seams.
+---   no_modify_path, dry_run; exe_path / ask are test seams. Only the
+---   executable is installed (spec §16.13): it carries all its code, so there
+---   is no bundle to fetch (`--no-bundle` is accepted and ignored).
 --- Returns a list of human-readable report lines (prefixed with the outcome),
 --- or nil, err.
 function M.install(opts)
@@ -286,46 +284,7 @@ function M.install(opts)
     end
   end
 
-  -- 3. fetch the first bundle so the tool is immediately usable
-  local bundle_err
-  if opts.no_bundle and opts.fused_system_lua then
-    -- A development build (`make install`): its system Lua is fused in.
-    -- self-update never replaces a development build, and a release bundle it
-    -- installed would take precedence over the fused code.
-    say("- bundle: skipped (--no-bundle): this lw carries its own system Lua (a development")
-    say("  build); update it by rebuilding it (make install), not with `lw self-update`,")
-    say("  whose release bundle would take precedence over the fused code.")
-  elseif opts.no_bundle then
-    say("- bundle: skipped (--no-bundle). Run `lw self-update` when ready.")
-  elseif opts.embedded then
-    -- Embedded code (a release executable): the binary is the release, so
-    -- there is no bundle to fetch (and no installed release is touched).
-    say("- bundle: none needed: this lw carries its code (self-contained)")
-  elseif opts.dry_run then
-    say("- would run self-update to fetch the current release bundle")
-  else
-    local res, err = update.self_update({})
-    if res then
-      say((res.updated and "+ fetched loomworks " or "- loomworks already at ") .. res.version)
-    else
-      -- An install without a bundle produces a binary that cannot run any
-      -- workspace command — it fails later with "no loomworks release is
-      -- installed", far from the fetch that actually failed. Report the
-      -- failure here, and let the caller exit non-zero: a CI job must not be
-      -- told an install succeeded when the result is unusable.
-      bundle_err = tostring(err)
-      say("x bundle: self-update failed (" .. bundle_err .. ").")
-      say("        The binary is installed but has no release to run. Retry")
-      say("        with `lw self-update`, or use `--no-bundle` to install the")
-      say("        binary alone on purpose.")
-    end
-  end
-
   say("")
-  if bundle_err then
-    say("Incomplete: the binary is on PATH but no release bundle was fetched.")
-    return out, "bundle fetch failed: " .. bundle_err
-  end
   say("Done. Next: `lw init` in a project (or `lw help`). Shell completion: `lw completion bash` (see `lw help completion`).")
   return out
 end

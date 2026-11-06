@@ -168,7 +168,7 @@ do
   eq(n, 5, "respects the attempt budget")
 end
 
-print("boot.update — self_update (isolated sandbox, local release)")
+print("boot.update — version_info / version_line (isolated sandbox)")
 do
   local sandbox = root .. "/tests/.tmp-update"
   paths.rm_rf(sandbox)
@@ -182,76 +182,6 @@ do
   uv.os_setenv("LOOMWORKS_RELEASE_URL", FX:gsub("/$", ""))
 
   local data = paths.data_dir()
-  local res, err = update.self_update({})
-  ok(res ~= nil, "self_update installs" .. (err and (" — " .. err) or ""))
-  if res then
-    eq(res.version, "0.0.0-test", "installed version")
-    ok(res.updated == true, "reports updated=true")
-    local m = io.open(data .. "/lua-0.0.0-test/loomworks/_release_marker.lua", "rb")
-    ok(m ~= nil, "release activated at lua-<ver>/loomworks/")
-    if m then m:close() end
-  end
-  local res2 = update.self_update({})
-  ok(res2 and res2.updated == false, "second run is a no-op (already installed)")
-
-  -- `--force` naming the version this process RUNS from must never rm_rf the
-  -- running bundle (same identity check as gc: realpath, Windows case): it is
-  -- refused and the bundle stays intact. A forced reinstall of a version that
-  -- is not running still replaces it.
-  do
-    local running = data .. "/lua-0.0.0-test"
-    local marker = running .. "/loomworks/_release_marker.lua"
-    local probe = running .. "/loomworks/_running_probe.txt"
-    local pf = io.open(probe, "wb"); pf:write("in use"); pf:close()
-    local win = package.config:sub(1, 1) == "\\"
-    local spelled = win and running:upper():gsub("/", "\\") or running
-    local fr, ferr = update.self_update({ force = true, running_root = spelled })
-    ok(fr == nil and type(ferr) == "string" and ferr:find("running", 1, true) ~= nil,
-      "forced reinstall of the running version is refused  (got " .. tostring(ferr) .. ")")
-    ok(uv.fs_stat(marker) ~= nil and uv.fs_stat(probe) ~= nil,
-      "the running bundle is left untouched")
-    ok(uv.fs_stat(data .. "/.stage-0.0.0-test") == nil and uv.fs_stat(data .. "/.dl-0.0.0-test.zip") == nil,
-      "a refused reinstall leaves no staging/download residue")
-    local fr2, ferr2 = update.self_update({ force = true, running_root = data .. "/lua-9.9.9" })
-    ok(fr2 and fr2.updated == true, "forced reinstall of a non-running version proceeds"
-      .. (ferr2 and (" — " .. ferr2) or ""))
-    ok(uv.fs_stat(marker) ~= nil and uv.fs_stat(probe) == nil, "and replaces that bundle")
-  end
-
-  -- tampered manifest at the mirror must be rejected (no install)
-  local good = readfile(FX .. "manifest.json")
-  local badmirror = sandbox .. "/badmirror"
-  paths.mkdirp(badmirror)
-  local function put(name, bytes) local f = io.open(badmirror .. "/" .. name, "wb"); f:write(bytes); f:close() end
-  put("manifest.json", (good:gsub("0%.0%.0%-test", "6.6.6-evil")))
-  put("manifest.json.sig", readfile(FX .. "manifest.json.sig"))
-  uv.os_setenv("LOOMWORKS_RELEASE_URL", badmirror)
-  local bad, berr, binfo = update.self_update({})
-  ok(bad == nil and type(berr) == "string", "tampered mirror rejected (signature)")
-  eq(binfo, nil, "an unverified manifest yields no host-update target")
-
-  -- A release that raises min_host_version must not strand the host (§16.32):
-  -- the (signature-verified) manifest still names the release, so self_update
-  -- returns it as a host-update target alongside the error.
-  do
-    local ossl = require("openssl")
-    local priv = ossl.pkey.read(readfile(FX .. "test_ec_priv.pem"), true, "pem")
-    local newer = sandbox .. "/newhostmirror"
-    paths.mkdirp(newer)
-    local mj = good:gsub('"min_host_version": %d+',
-      '"min_host_version": ' .. (verify.HOST_VERSION + 1)):gsub("0%.0%.0%-test", "0.0.1-test")
-    local function putn(name, bytes) local f = io.open(newer .. "/" .. name, "wb"); f:write(bytes); f:close() end
-    putn("manifest.json", mj)
-    putn("manifest.json.sig", priv:sign(mj, "sha256"))
-    uv.os_setenv("LOOMWORKS_RELEASE_URL", newer)
-    local r3, e3, i3 = update.self_update({})
-    ok(r3 == nil and type(e3) == "string" and e3:find("needs host version", 1, true) ~= nil,
-      "incompatible release refused  (got " .. tostring(e3) .. ")")
-    ok(type(i3) == "table" and i3.host_incompatible == true and i3.version == "0.0.1-test",
-      "incompatible release returned as a host-update target")
-    ok(uv.fs_stat(data .. "/lua-0.0.1-test") == nil, "incompatible bundle not installed")
-  end
-
   local info = update.version_info(data .. "/lua-0.0.0-test", "release")
   eq(info.bundle, "0.0.0-test", "version_info parses bundle version")
   -- Committed source carries no release version (fuse_host.sh injects it).
@@ -391,41 +321,18 @@ do
   local rep = install.install({ exe_path = sb .. "/lw", dry_run = true, no_bundle = true, no_modify_path = true })
   ok(type(rep) == "table" and #rep > 0, "install --dry-run returns a report")
   ok(not io.open(install.target_path(), "rb"), "install --dry-run wrote no binary")
+  -- Install places only the executable (spec §16.13, §16.32): nothing about a
+  -- bundle is fetched or reported, and `--no-bundle` is accepted and ignored.
   local rjoined = table.concat(rep or {}, "\n")
-  ok(rjoined:find("Run `lw self-update` when ready", 1, true) ~= nil,
-    "--no-bundle on a release host: fetch the bundle later with self-update")
-  -- `make install` fuses the whole tree and installs with --no-bundle: telling
-  -- that build to "run lw self-update when ready" was wrong — self-update never
-  -- replaces a development build, and a release bundle it installs takes
-  -- precedence over the fused code.
+  ok(rjoined:find("bundle", 1, true) == nil and rjoined:find("self-update", 1, true) == nil,
+    "install reports nothing about a bundle  (got " .. rjoined .. ")")
+  local rep_plain = install.install({ exe_path = sb .. "/lw", dry_run = true, no_modify_path = true })
+  eq(table.concat(rep_plain or {}, "\n"), rjoined, "--no-bundle is a no-op (same report without it)")
   local drep = install.install({ exe_path = sb .. "/lw", dry_run = true, no_bundle = true,
     no_modify_path = true, fused_system_lua = true })
-  local djoined = table.concat(drep or {}, "\n")
-  ok(djoined:find("carries its own system Lua", 1, true) ~= nil
-    and djoined:find("when ready", 1, true) == nil,
-    "--no-bundle on a fused dev build: no self-update advice  (got " .. djoined .. ")")
-
-  -- A failed bundle fetch must FAIL the install. Exiting 0 here leaves a
-  -- binary that cannot run anything, and the job dies later at an unrelated
-  -- command with "no loomworks release is installed".
-  do
-    local update_mod = require("boot.update")
-    local real = update_mod.self_update
-    update_mod.self_update = function()
-      return nil, "curl failed (56) for https://example/bundle: Connection reset"
-    end
-    local f2 = io.open(sb .. "/lw2", "wb"); f2:write("HOST"); f2:close()
-    local rep2, err2 = install.install({ exe_path = sb .. "/lw2", no_modify_path = true })
-    update_mod.self_update = real
-    ok(type(err2) == "string" and err2:find("bundle fetch failed", 1, true) ~= nil,
-      "install reports an error when the bundle fetch fails")
-    ok(type(rep2) == "table", "install still returns its progress report on failure")
-    local joined = table.concat(rep2 or {}, "\n")
-    ok(joined:find("Connection reset", 1, true) ~= nil,
-      "the underlying fetch error is surfaced, not swallowed")
-    ok(joined:find("Done.", 1, true) == nil,
-      "a failed install must not claim it is done")
-  end
+  ok(table.concat(drep or {}, "\n"):find("bundle", 1, true) == nil,
+    "a fused dev build's install reports nothing about a bundle either")
+  eq(require("boot.update").self_update, nil, "boot.update has no bundle self_update any more")
 
   paths.rm_rf(sb)
 end
@@ -449,7 +356,7 @@ do
     end
     local inst = t({ "install", "--help" }) or ""
     ok(inst:find("lw install [-y]", 1, true) and inst:find("--dry-run", 1, true)
-      and inst:find("--no-bundle", 1, true),
+      and not inst:find("--no-bundle", 1, true),
       "`lw install --help` prints install's host help  (got " .. inst .. ")")
     -- A host command's help IS its full help (the CLI reuses it), so it carries
     -- no "full help needs the bundle" note — which confused pinned-launcher users.
@@ -475,7 +382,7 @@ do
       and not pinned:find(HINT, 1, true),
       "pinned repo: the full-help note names the launcher, not self-update  (got " .. pinned .. ")")
     local su = t({ "help", "self-update" }) or ""
-    ok(su:find("lw self-update [--force] [--channel", 1, true) and su:find("--no-host", 1, true),
+    ok(su:find("lw self-update [--version <x.y.z>] [--force] [--channel", 1, true) and not su:find("--no-host", 1, true),
       "`lw help self-update` prints self-update's host help")
     ok((t({ "version", "-h" }) or ""):find("lw version", 1, true),
       "`lw version -h` prints version's host help")
@@ -1432,7 +1339,7 @@ do
   paths.rm_rf(sb)
 end
 
-print("boot.paths — install folder (LOOMWORKS_INSTALL_DIR)")
+print("boot.paths — LOOMWORKS_INSTALL_DIR is retired: ignored, its folder untouched (§16.22)")
 do
   local function with_env(name, value, fn)
     local old = uv.os_getenv(name)
@@ -1449,27 +1356,17 @@ do
     local f = assert(io.open(d .. "/loomworks/cli.lua", "wb")); f:write("return {}\n"); f:close()
   end
   with_env("LOOMWORKS_DATA_DIR", data, function()
-    with_env("LOOMWORKS_INSTALL_DIR", nil, function()
-      eq(paths.install_dir(), data, "unset: the install folder is the data dir")
-      eq(update.pinned_root(), data .. "/pinned", "unset: pinned cache under the data dir")
-      eq(paths.newest_release_root(), data .. "/lua-1.0.0", "unset: releases from the data dir")
-    end)
-    with_env("LOOMWORKS_INSTALL_DIR", inst .. "/", function()
-      eq(paths.install_dir(), inst, "set: the install folder (normalized)")
-      eq(paths.data_dir(), data, "set: the data dir (shared state) does not move")
-      eq(update.pinned_root(), inst .. "/pinned", "set: pinned host binaries + bundles under it")
+    with_env("LOOMWORKS_INSTALL_DIR", inst, function()
+      eq(paths.install_dir, nil, "paths.install_dir is gone")
+      eq(paths.install_dir_override, nil, "paths.install_dir_override is gone")
+      eq(update.pinned_root(), data .. "/pinned", "the pinned cache stays in the data dir")
       eq(require("boot.exe_cache").slot(string.rep("a", 64)), data .. "/exe/" .. string.rep("a", 64),
-        "set: the executable cache stays in the data dir (§16.22 No install folder)")
-      eq(paths.newest_release_root(), inst .. "/lua-2.0.0", "set: release bundles from it")
-      eq(paths.modules_dir(), data .. "/modules", "set: acquired modules stay in the data dir")
-    end)
-    with_env("LOOMWORKS_INSTALL_DIR", "relative/dir", function()
-      local d, why = paths.install_dir_override()
-      ok(d == nil and type(why) == "string" and why:find("not an absolute path", 1, true),
-        "a relative LOOMWORKS_INSTALL_DIR is not honoured, with a reason")
-      eq(paths.install_dir(), data, "relative: the data dir is used")
+        "the executable cache stays in the data dir")
+      eq(paths.newest_release_root(), data .. "/lua-1.0.0",
+        "a decoy lua-2.0.0 in LOOMWORKS_INSTALL_DIR is never ranked")
     end)
   end)
+  ok(uv.fs_stat(inst .. "/lua-2.0.0/loomworks/cli.lua") ~= nil, "the decoy folder is left untouched")
   paths.rm_rf(root .. "/tests/.tmp-install")
 end
 
@@ -1564,29 +1461,6 @@ do
   eq(update.version_line(dev, "stable"), "lw - host: dev build | channel: stable",
     "embedded code without a release version is a dev build")
   ok(line:match("^[%w%p ]+$") ~= nil, "ASCII")
-end
-
-print("boot.update — gc never runs when the code is embedded (deletion safety)")
-do
-  local sb = paths.norm(root .. "/tests/.tmp-embedded-gc"); paths.rm_rf(sb)
-  for _, v in ipairs({ "1.0.0", "1.0.1" }) do
-    paths.mkdirp(sb .. "/lua-" .. v .. "/loomworks")
-    local f = assert(io.open(sb .. "/lua-" .. v .. "/loomworks/cli.lua", "wb")); f:write("return {}\n"); f:close()
-  end
-  local old_dir = uv.os_getenv("LOOMWORKS_INSTALL_DIR")
-  uv.os_setenv("LOOMWORKS_INSTALL_DIR", sb)
-  local saved = rawget(_G, "__loomworks_code")
-  _G.__loomworks_code = { kind = "embedded", version = "1.0.2" }
-  local okg, gerr = pcall(update.gc, 0, nil, nil)
-  _G.__loomworks_code = saved
-  ok(okg, "gc returns  (" .. tostring(gerr) .. ")")
-  ok(uv.fs_stat(sb .. "/lua-1.0.0/loomworks/cli.lua") and uv.fs_stat(sb .. "/lua-1.0.1/loomworks/cli.lua"),
-    "embedded code: gc removes nothing")
-  update.gc(1, nil, nil)
-  ok(uv.fs_stat(sb .. "/lua-1.0.0") == nil and uv.fs_stat(sb .. "/lua-1.0.1/loomworks/cli.lua"),
-    "a bundle-running host still prunes old bundles")
-  if old_dir then uv.os_setenv("LOOMWORKS_INSTALL_DIR", old_dir) else uv.os_unsetenv("LOOMWORKS_INSTALL_DIR") end
-  paths.rm_rf(sb)
 end
 
 print("embedded code is the release (§16.11, §16.22, §16.32, §16.41)")
@@ -1748,10 +1622,11 @@ do
   code, out = run(uv.exepath(), { native(paths.norm(root .. "/lua")), "--", "version" })
   ok(out:find("lw - host: dev build", 1, true) == 1, "a source run reports a dev build  (got " .. out .. ")")
 
-  -- Self-update and install from a release executable: its code is embedded,
-  -- so no bundle is installed and no installed release is pruned - the decoy
-  -- bundles in the install folder and in the data dir all survive (deletion
-  -- safety: these run before the CLI, from the host's own commands).
+  -- Self-update and install from a release executable replace (at most) the
+  -- executable: no bundle is installed and nothing else is removed - the decoy
+  -- bundles in the retired install folder (LOOMWORKS_INSTALL_DIR, ignored)
+  -- and in the data dir all survive (deletion safety: these run before the
+  -- CLI, from the host's own commands).
   local survivors = {}
   for _, d in ipairs({ home, inst }) do
     for _, v in ipairs({ "1.0.0", "1.0.1", "1.0.2", "1.0.3" }) do
@@ -1767,13 +1642,42 @@ do
     return #gone == 0, table.concat(gone, ", ")
   end
   local mirror = FX:gsub("/$", "")
-  code, out, err = lw({ "self-update", "--no-host" }, { LOOMWORKS_RELEASE_URL = mirror })
+  -- A signed mirror whose latest release is this executable's (9.8.7): the
+  -- list names its descriptor, and no manifest.json exists.
+  local sumirror = sb .. "/su-mirror"
+  do
+    paths.mkdirp(sumirror)
+    local priv = require("openssl").pkey.read(readfile(FX .. "test_ec_priv.pem"), true, "pem")
+    local sums = verify.sha256_hex("descriptor") .. "  lw-9.8.7-descriptor.json\n"
+    writef(sumirror .. "/SHA256SUMS", sums)
+    writef(sumirror .. "/SHA256SUMS.sig", priv:sign(sums, "sha256"))
+  end
+  local exe_before = slurp(exe)
+  code, out, err = lw({ "self-update", "--no-host" }, { LOOMWORKS_RELEASE_URL = sumirror })
+  ok(code == 2 and err:find("replaces only the", 1, true) ~= nil
+    and not out:find("checking for updates", 1, true),
+    "release exe: --no-host is a usage error (exit 2)  (exit " .. tostring(code) .. ": " .. out .. err .. ")")
+  code, out, err = lw({ "self-update" }, { LOOMWORKS_RELEASE_URL = sumirror })
   local kept, gone = all_survive()
-  ok(code == 0 and out:find("0.0.0-test", 1, true) ~= nil,
-    "release exe: self-update resolves the release  (exit " .. tostring(code) .. ": " .. out .. err .. ")")
-  ok(kept, "release exe: self-update prunes no installed release  (removed: " .. gone .. ")")
-  ok(uv.fs_stat(inst .. "/lua-0.0.0-test") == nil and uv.fs_stat(home .. "/lua-0.0.0-test") == nil,
+  ok(code == 0 and out:find("9.8.7", 1, true) ~= nil and out:find("already", 1, true) ~= nil,
+    "release exe: self-update finds it current from the signed list  (exit " .. tostring(code) .. ": " .. out .. err .. ")")
+  ok(kept, "release exe: self-update removes no installed release  (removed: " .. gone .. ")")
+  ok(uv.fs_stat(inst .. "/lua-9.8.7") == nil and uv.fs_stat(home .. "/lua-9.8.7") == nil
+    and uv.fs_stat(inst .. "/lua-0.0.0-test") == nil and uv.fs_stat(home .. "/lua-0.0.0-test") == nil,
     "release exe: self-update installs no bundle")
+  code, out, err = lw({ "self-update", "--version", "9.8.6" }, { LOOMWORKS_RELEASE_URL = sb .. "/nowhere" })
+  ok(code == 0 and (out .. err):find("not downgrading", 1, true) ~= nil,
+    "release exe: an older --version without --force is skipped, nothing fetched  (exit "
+      .. tostring(code) .. ": " .. out .. err .. ")")
+  code, out, err = lw({ "self-update", "--version=9.8.6", "--force" }, { LOOMWORKS_RELEASE_URL = sumirror })
+  ok(code == 1 and err:find("lw-9.8.6-descriptor.json", 1, true) ~= nil,
+    "release exe: a signed list without the target's descriptor is an integrity error  (exit "
+      .. tostring(code) .. ": " .. out .. err .. ")")
+  ok(slurp(exe) == exe_before and uv.fs_stat(exe .. ".new") == nil, "release exe: the executable is untouched")
+  code, out, err = lw({ "self-update", "--version" }, { LOOMWORKS_RELEASE_URL = sumirror })
+  ok(code == 2, "release exe: --version needs a value (exit 2)  (exit " .. tostring(code) .. ")")
+  kept, gone = all_survive()
+  ok(kept, "release exe: no self-update removed an installed release  (removed: " .. gone .. ")")
   -- install, into the data dir (no install folder override).
   code, out, err = lw({ "install", "-y", "--no-modify-path" },
     { LOOMWORKS_RELEASE_URL = mirror, LOOMWORKS_INSTALL_DIR = false, HOME = home })
@@ -3321,7 +3225,7 @@ do
   ok(res ~= nil, "query resolves the mirror's release" .. (err and (" - " .. err) or ""))
   if res then
     eq(res.query, 1, "query format 1")
-    eq(res.version, V, "version from the mirror's manifest")
+    eq(res.version, V, "version from the mirror's signed list (its descriptor entry)")
     eq(res.prerelease, true, "a -beta version is a prerelease")
     eq(res.channel, "unstable", "the requested channel is reported")
     eq(res.channel_ignored, true, "a release-url override supersedes the channel")
@@ -3405,19 +3309,26 @@ do
 
   -- a release older than the descriptor
   stage(V, { no_descriptor = true })
+  paths.rm_rf(mirror .. "/manifest.json")  -- (the stand-in manifest is unsigned)
   local ores, oerr = rq.query({})
-  ok(ores == nil and oerr:find("predates the descriptor", 1, true), "a release without a descriptor fails")
+  ok(ores == nil and tostring(oerr):find("descriptor", 1, true), "a release without a descriptor fails  ("
+    .. tostring(oerr) .. ")")
 
-  -- a manifest naming an unsafe version
+  -- a signed list naming an unsafe version in its descriptor entry
   stage(V)
-  put(mirror .. "/manifest.json", json.encode({ version = "../../evil" }))
+  do
+    local sums = readfile(mirror .. "/SHA256SUMS") .. string.rep("0", 64) .. "  lw-../../evil-descriptor.json\n"
+    put(mirror .. "/SHA256SUMS", sums)
+    put(mirror .. "/SHA256SUMS.sig", sign(sums))
+  end
   local vres, verr = rq.query({})
-  ok(vres == nil and verr:find("unsafe version", 1, true), "an invalid release version fails")
+  ok(vres == nil and tostring(verr):find("unsafe", 1, true), "an invalid release version fails  ("
+    .. tostring(verr) .. ")")
 
   -- offline / unreachable: a missing mirror, an unreachable server
   uv.os_setenv("LOOMWORKS_RELEASE_URL", sb .. "/no-such-mirror")
   local mres, merr = rq.query({})
-  ok(mres == nil and merr:find("manifest", 1, true), "a missing mirror fails  (" .. tostring(merr) .. ")")
+  ok(mres == nil and merr:find("SHA256SUMS", 1, true), "a missing mirror fails  (" .. tostring(merr) .. ")")
   uv.os_setenv("LOOMWORKS_RELEASE_URL", "http://127.0.0.1:9/releases")
   local t0 = os.time()
   local nres = rq.query({ timeout = 5 })
@@ -4233,82 +4144,41 @@ do
   ok(paths.version_gt("0.2.0", "0.2.0-rc.1+build.7"), "build metadata ignored; pre-release still lower")
 end
 
-print("boot.paths — installed_releases + gc rank pre-releases below releases")
+print("boot.paths — installed_releases ranks and filters the data dir's bundles")
 do
-  local sb = root .. "/tests/.tmp-relorder"; paths.rm_rf(sb); paths.mkdirp(sb)
-  uv.os_setenv("LOCALAPPDATA", sb); uv.os_setenv("XDG_DATA_HOME", sb)
-  for _, v in ipairs({ "0.1.0", "0.2.0-beta.1", "0.2.0" }) do
-    local d = paths.data_dir() .. "/lua-" .. v
-    paths.mkdirp(d .. "/loomworks")
-    local f = assert(io.open(d .. "/loomworks/cli.lua", "wb")); f:write("return {}\n"); f:close()
-  end
-  local rels = paths.installed_releases()
-  eq(rels[1] and rels[1].ver, "0.2.0", "newest = the full release")
-  eq(rels[2] and rels[2].ver, "0.2.0-beta.1", "pre-release ranked directly below its release")
-  eq(rels[3] and rels[3].ver, "0.1.0", "older release last")
-  update.gc(1, nil)  -- keep only the single newest release
-  ok(uv.fs_stat(paths.data_dir() .. "/lua-0.2.0"), "gc keeps the newest full release")
-  ok(not uv.fs_stat(paths.data_dir() .. "/lua-0.2.0-beta.1"), "gc removes the pre-release below it")
-  ok(not uv.fs_stat(paths.data_dir() .. "/lua-0.1.0"), "gc removes the older release")
-  paths.rm_rf(sb)
-end
-
-print("boot.paths — installed_releases + gc in a shared install folder (§16.22 Install folder)")
-do
-  -- LOOMWORKS_INSTALL_DIR may name any folder (here: a stand-in for $HOME).
-  -- Only real `lua-<release version>` bundle directories are listed, ranked
-  -- or removed; foreign lua-* folders, links/junctions, and the running bundle
-  -- never are.
+  -- Only real `lua-<release version>` bundle directories are listed and ranked
+  -- (a pre-release directly below its release); foreign lua-* folders and
+  -- links/junctions never are. Nothing here deletes anything.
   local win = package.config:sub(1, 1) == "\\"
-  local sb = paths.norm(root .. "/tests/.tmp-relshared"); paths.rm_rf(sb)
+  local sb = paths.norm(root .. "/tests/.tmp-relorder"); paths.rm_rf(sb)
   local home, outside = sb .. "/home", sb .. "/outside"
   local function put(p, body)
     paths.mkdirp((p:gsub("/[^/]*$", "")))
     local f = assert(io.open(p, "wb")); f:write(body or "x"); f:close()
   end
   local function bundle(d) put(d .. "/loomworks/cli.lua", "return {}\n") end
-  bundle(home .. "/lua-0.1.40"); bundle(home .. "/lua-0.1.41"); bundle(home .. "/lua-0.1.42")
-  bundle(home .. "/lua-0.1.39"); bundle(home .. "/lua-0.1.38")
+  bundle(home .. "/lua-0.1.0"); bundle(home .. "/lua-0.2.0-beta.1"); bundle(home .. "/lua-0.2.0")
   put(home .. "/lua-language-server/bin/lua-language-server", "binary")
-  put(home .. "/lua-5.4.6/src/lua.c", "int main(){}")        -- ranks above 0.1.x by version
+  put(home .. "/lua-5.4.6/src/lua.c", "int main(){}")        -- ranks above 0.2.0 by version
   bundle(home .. "/lua-9.9.9-rc..1")                          -- unsafe version
   bundle(home .. "/lua-1.0.0+meta")                           -- not a strict release version
-  bundle(outside .. "/lua-7.7.7"); put(outside .. "/precious.txt", "keep")
+  bundle(outside .. "/lua-7.7.7")
   local linked = uv.fs_symlink(outside .. "/lua-7.7.7", home .. "/lua-7.7.7", win and { junction = true } or { dir = true })
-  local old_env = uv.os_getenv("LOOMWORKS_INSTALL_DIR")
-  uv.os_setenv("LOOMWORKS_INSTALL_DIR", home)
+  local old_env = uv.os_getenv("LOOMWORKS_DATA_DIR")
+  uv.os_setenv("LOOMWORKS_DATA_DIR", home)
   local okp, perr = pcall(function()
     local vers = {}
     for _, r in ipairs(paths.installed_releases()) do vers[#vers + 1] = r.ver end
-    eq(table.concat(vers, ","), "0.1.42,0.1.41,0.1.40,0.1.39,0.1.38",
-      "only real lua-<release> bundle directories are listed")
-    eq(paths.newest_release_root(), home .. "/lua-0.1.42", "a foreign lua-5.4.6 never ranks as newest")
+    eq(table.concat(vers, ","), "0.2.0,0.2.0-beta.1,0.1.0",
+      "only real lua-<release> bundle directories are listed, pre-release below its release")
+    eq(paths.newest_release_root(), home .. "/lua-0.2.0", "a foreign lua-5.4.6 never ranks as newest")
     ok(paths.is_release_version("0.2.0-beta.1") and paths.is_release_version("1.2.3"),
       "strict release versions accepted")
     ok(not paths.is_release_version("5.4") and not paths.is_release_version("language-server")
       and not paths.is_release_version("1.0.0+meta") and not paths.is_release_version("1.0.0-rc..1"),
       "anything else refused")
-    -- keep 1, except 0.1.41, running bundle 0.1.39: only 0.1.40 and 0.1.38 go.
-    update.gc(1, "0.1.41", home .. "/lua-0.1.39")
-    ok(uv.fs_stat(home .. "/lua-0.1.42"), "gc keeps the newest")
-    ok(uv.fs_stat(home .. "/lua-0.1.41/loomworks/cli.lua"), "gc never removes `except`")
-    ok(uv.fs_stat(home .. "/lua-0.1.39/loomworks/cli.lua"), "gc never removes the running bundle")
-    ok(not uv.fs_stat(home .. "/lua-0.1.40"), "gc removes an old bundle")
-    ok(not uv.fs_stat(home .. "/lua-0.1.38"), "gc removes another old bundle")
-    ok(uv.fs_stat(home .. "/lua-language-server/bin/lua-language-server"), "gc never touches lua-language-server")
-    ok(uv.fs_stat(home .. "/lua-5.4.6/src/lua.c"), "gc never touches a foreign lua-5.4.6")
-    ok(uv.fs_stat(home .. "/lua-1.0.0+meta/loomworks/cli.lua"), "gc never touches a non-release name")
-    if linked then
-      ok(uv.fs_stat(outside .. "/lua-7.7.7/loomworks/cli.lua") and uv.fs_stat(outside .. "/precious.txt"),
-        "a linked lua-<ver> is neither listed nor followed by gc")
-      -- Even the running-bundle guard aside, a link is never listed.
-      update.gc(0, nil, nil)
-      ok(uv.fs_stat(outside .. "/lua-7.7.7/loomworks/cli.lua"), "gc(0) still never follows the link")
-    else
-      ok(true, "(symlink/junction not creatable here; linked-bundle check skipped)")
-    end
   end)
-  if old_env then uv.os_setenv("LOOMWORKS_INSTALL_DIR", old_env) else uv.os_unsetenv("LOOMWORKS_INSTALL_DIR") end
+  if old_env then uv.os_setenv("LOOMWORKS_DATA_DIR", old_env) else uv.os_unsetenv("LOOMWORKS_DATA_DIR") end
   if linked then uv.fs_unlink(home .. "/lua-7.7.7"); pcall(uv.fs_rmdir, home .. "/lua-7.7.7") end
   if not okp then error(perr, 0) end
   paths.rm_rf(sb)
@@ -4373,19 +4243,6 @@ do
       "an unknown channel is refused and nothing is written")
     eq(paths.read_config().channel, "stable", "the saved channel is unchanged after a refusal")
   end
-  -- Switching back to stable while a newer prerelease bundle is installed: the
-  -- bundle never downgrades, so the prerelease stays until a newer stable.
-  local okn = type(update.newer_bundle_note) == "function"
-  ok(okn, "update.newer_bundle_note exists")
-  if okn then
-    local n = update.newer_bundle_note("0.1.40-beta.1", "0.1.39")
-    ok(n and n:find("0.1.40-beta.1 (prerelease)", 1, true) and n:find("stays active", 1, true)
-      and n:find("0.1.39", 1, true), "prerelease newer than stable: stays-active note  (got " .. tostring(n) .. ")")
-    ok(n and n:match("^[%w%p ]+$") ~= nil, "the note is ASCII")
-    eq(update.newer_bundle_note("0.1.40-beta.1", "0.1.40"), nil, "the release supersedes its prerelease: no note")
-    eq(update.newer_bundle_note("0.1.39", "0.1.39"), nil, "same version: no note")
-    eq(update.newer_bundle_note(nil, "0.1.39"), nil, "no installed bundle: no note")
-  end
   paths.rm_rf(sb)
 end
 
@@ -4422,20 +4279,31 @@ do
     local cfg = body and json.decode(body)
     return type(cfg) == "table" and cfg.channel or nil
   end
-  local code, out = host({ "self-update", "--channel", "unstable", "--no-host" })
+  local code, out = host({ "self-update", "--channel", "unstable" })
   ok(out:find("update channel set to unstable", 1, true) ~= nil,
     "self-update --channel says the channel was set  (exit " .. tostring(code) .. ": " .. out .. ")")
   eq(saved_channel(), "unstable", "the channel is in the settings even though the fetch failed")
   local _, vout = host({ "version" })
   ok(vout:find("channel: unstable", 1, true) ~= nil, "lw version shows the saved channel  (got " .. vout .. ")")
-  local _, again = host({ "self-update", "--channel", "unstable", "--no-host" })
+  local _, again = host({ "self-update", "--channel", "unstable" })
   ok(again:find("update channel is already unstable", 1, true) ~= nil, "re-running says it is already set")
   local bcode, bout = host({ "self-update", "--channel", "bogus" })
   ok(bcode == 2 and bout:find("unknown update channel", 1, true) ~= nil,
     "an unknown channel is a usage error (exit 2)  (got " .. tostring(bcode) .. ")")
   eq(saved_channel(), "unstable", "a refused channel leaves the setting")
-  local _, sout = host({ "self-update", "--channel=stable", "--no-host" })
+  local _, sout = host({ "self-update", "--channel=stable" })
   ok(sout:find("update channel set to stable", 1, true) ~= nil, "--channel=stable switches back")
+  -- Usage errors are exit 2 under the development facility too: the flags are
+  -- checked before "self-update does not apply to a development source" (exit 1).
+  env[#env + 1] = "LOOMWORKS_LUA=" .. root .. "/lua"
+  local ncode, nout = host({ "self-update", "--no-host" })
+  ok(ncode == 2 and nout:find("--no-host is no longer accepted", 1, true) ~= nil,
+    "dev facility: --no-host is a usage error (exit 2)  (got " .. tostring(ncode) .. ": " .. nout .. ")")
+  local vcode = host({ "self-update", "--version", "x..y" })
+  eq(vcode, 2, "dev facility: a bad --version is a usage error (exit 2)")
+  local dcode, dout = host({ "self-update" })
+  ok(dcode == 1 and dout:find("development source", 1, true) ~= nil,
+    "dev facility: a valid self-update still refuses (exit 1)  (got " .. tostring(dcode) .. ")")
   paths.rm_rf(sb)
 end
 
@@ -4508,11 +4376,18 @@ do
   local function put(p, body) local f = assert(io.open(p, "wb")); f:write(body); f:close() end
 
   local savedOrigin, savedApi = update.DEFAULT_RELEASE_URL, update.RELEASES_API_URL
-  update.DEFAULT_RELEASE_URL = (FX:gsub("/$", ""))  -- stable base = flat fixtures mirror
+  -- stable base = a flat mirror whose signed list names 0.0.0-test's descriptor
+  local flat = sb .. "/flat"; paths.mkdirp(flat)
+  do
+    local priv = require("openssl").pkey.read(readfile(FX .. "test_ec_priv.pem"), true, "pem")
+    local sums = verify.sha256_hex("d") .. "  lw-0.0.0-test-descriptor.json\n"
+    put(flat .. "/SHA256SUMS", sums); put(flat .. "/SHA256SUMS.sig", priv:sign(sums, "sha256"))
+  end
+  update.DEFAULT_RELEASE_URL = flat
 
-  -- stable: the version is whatever the base manifest.json names (no bundle fetch).
+  -- stable: the version the base's signed SHA256SUMS names (no executable fetch).
   eq(update.resolve_newest_version({}), "0.0.0-test",
-    "stable resolves the manifest version without downloading the bundle")
+    "stable resolves the signed list's version without downloading anything")
 
   -- unstable: newest release the API names (pre-releases included), API reused.
   local api = sb .. "/releases.json"
@@ -4524,87 +4399,115 @@ do
   -- a release-url override supersedes the channel: peek the mirror manifest,
   -- never the API (point the API at a missing file to prove it is untouched).
   update.RELEASES_API_URL = sb .. "/nonexistent.json"
-  eq(update.resolve_newest_version({ channel = "unstable", url = (FX:gsub("/$", "")) }),
-    "0.0.0-test", "an override peeks the mirror manifest, not the API")
+  eq(update.resolve_newest_version({ channel = "unstable", url = flat }),
+    "0.0.0-test", "an override reads the mirror's signed list, not the API")
 
   -- offline / missing manifest is a clean error (the caller degrades silently).
   update.DEFAULT_RELEASE_URL = sb .. "/no-such-mirror"
   ok(select(1, update.resolve_newest_version({})) == nil,
-    "a missing manifest is a clean error, not a crash")
+    "a missing SHA256SUMS is a clean error, not a crash")
 
   update.DEFAULT_RELEASE_URL = savedOrigin
   update.RELEASES_API_URL = savedApi
   paths.rm_rf(sb)
 end
 
-print("boot.update — unstable self_update installs the API-named release + still verifies")
+print("boot.update — resolve_target: the channel's newest release, channel_overridden (§16.29)")
 do
-  local sb = root .. "/tests/.tmp-unstable-run"; paths.rm_rf(sb); paths.mkdirp(sb)
+  local sb = root .. "/tests/.tmp-target"; paths.rm_rf(sb); paths.mkdirp(sb)
   uv.os_setenv("LOCALAPPDATA", sb); uv.os_setenv("XDG_DATA_HOME", sb)
   uv.os_setenv("APPDATA", sb); uv.os_setenv("XDG_CONFIG_HOME", sb)
   uv.os_setenv("LOOMWORKS_RELEASE_URL", "")  -- NO override, so the channel applies
   uv.os_setenv("LOOMWORKS_CHANNEL", "")
   local function put(p, body) local f = assert(io.open(p, "wb")); f:write(body); f:close() end
-
-  -- Point the "default origin" at the local fixtures (a flat mirror) and the
-  -- releases API at a local JSON naming the fixture version. versioned_base of a
-  -- local base is flat, so the whole unstable path stays hermetic (no network).
   local api = sb .. "/releases.json"
-  put(api, '[{"draft":false,"prerelease":true,"tag_name":"v0.0.0-test"}]')
+  put(api, '[{"draft":false,"prerelease":true,"tag_name":"v0.3.0-rc.1"}]')
   local savedOrigin, savedApi = update.DEFAULT_RELEASE_URL, update.RELEASES_API_URL
   update.DEFAULT_RELEASE_URL = (FX:gsub("/$", ""))
   update.RELEASES_API_URL = api
 
-  local res, err = update.self_update({ channel = "unstable" })
-  ok(res ~= nil, "unstable self_update installs" .. (err and (" — " .. err) or ""))
-  if res then eq(res.version, "0.0.0-test", "installed the pre-release the API named") end
-  -- No override here, so the channel genuinely applies — nothing to warn about.
-  if res then eq(res.channel_overridden, nil,
-    "unstable without an override does not flag an ignored channel") end
+  local t, terr = update.resolve_target({ channel = "unstable" })
+  eq(t and t.version, "0.3.0-rc.1", "unstable: the API-named pre-release" .. (terr and (" — " .. terr) or ""))
+  eq(t and t.channel_overridden, nil, "unstable without an override flags no ignored channel")
 
-  -- Verification is NOT weakened on unstable: a tampered manifest still aborts.
-  local good = readfile(FX .. "manifest.json")
-  local badmirror = sb .. "/badmirror"; paths.mkdirp(badmirror)
-  put(badmirror .. "/manifest.json", (good:gsub("0%.0%.0%-test", "6.6.6-evil")))
-  put(badmirror .. "/manifest.json.sig", readfile(FX .. "manifest.json.sig"))
-  update.DEFAULT_RELEASE_URL = badmirror
-  local bad, berr = update.self_update({ channel = "unstable", force = true })
-  ok(bad == nil and type(berr) == "string", "tampered unstable manifest rejected (signature)")
+  -- A release-url override supersedes the channel: the mirror is read, never the API.
+  local flat = sb .. "/flat"; paths.mkdirp(flat)
+  do
+    local priv = require("openssl").pkey.read(readfile(FX .. "test_ec_priv.pem"), true, "pem")
+    local sums = verify.sha256_hex("d") .. "  lw-0.0.0-test-descriptor.json\n"
+    put(flat .. "/SHA256SUMS", sums); put(flat .. "/SHA256SUMS.sig", priv:sign(sums, "sha256"))
+  end
+  uv.os_setenv("LOOMWORKS_RELEASE_URL", flat)
+  update.RELEASES_API_URL = sb .. "/nonexistent-releases.json"
+  local o, oerr = update.resolve_target({ channel = "unstable" })
+  eq(o and o.version, "0.0.0-test", "override: the version came from the mirror" .. (oerr and (" — " .. oerr) or ""))
+  eq(o and o.channel_overridden, "unstable", "override: the superseded --channel is reported")
+  local s = update.resolve_target({ channel = "stable" })
+  eq(s and s.channel_overridden, nil, "stable + override is no conflict")
 
-  update.DEFAULT_RELEASE_URL = savedOrigin
-  update.RELEASES_API_URL = savedApi
+  update.DEFAULT_RELEASE_URL, update.RELEASES_API_URL = savedOrigin, savedApi
+  uv.os_setenv("LOOMWORKS_RELEASE_URL", "")
   paths.rm_rf(sb)
 end
 
-print("boot.update — a release-url mirror override bypasses the channel (no API query)")
+print("boot.update — the newest release comes from the signed SHA256SUMS (§16.12, §16.32)")
 do
-  local sb = root .. "/tests/.tmp-override"; paths.rm_rf(sb); paths.mkdirp(sb)
-  uv.os_setenv("LOCALAPPDATA", sb); uv.os_setenv("XDG_DATA_HOME", sb)
-  uv.os_setenv("APPDATA", sb); uv.os_setenv("XDG_CONFIG_HOME", sb)
-  uv.os_setenv("LOOMWORKS_CHANNEL", "")
-  -- Override points at the fixtures mirror; the API URL is a path that does NOT
-  -- exist, so a (wrong) channel query would make the install fail loudly.
-  uv.os_setenv("LOOMWORKS_RELEASE_URL", (FX:gsub("/$", "")))
-  local savedApi = update.RELEASES_API_URL
-  update.RELEASES_API_URL = sb .. "/nonexistent-releases.json"
-
-  local res, err = update.self_update({ channel = "unstable" })
-  ok(res ~= nil, "override + unstable installs from the mirror, API untouched" ..
-    (err and (" — " .. err) or ""))
-  if res then eq(res.version, "0.0.0-test", "version came from the mirror manifest, not the API") end
-  -- The supersede is BY DESIGN (§16.29) but must be VISIBLE: the requested
-  -- non-default channel was ignored, so self_update flags it for the CLI to warn.
-  if res then eq(res.channel_overridden, "unstable",
-    "self_update reports the requested --channel was superseded by the override") end
-
-  -- Negative: stable channel + the same override is NO conflict (both resolve to
-  -- the override), so there is nothing to warn about.
-  local res2 = update.self_update({ channel = "stable", force = true })
-  if res2 then eq(res2.channel_overridden, nil,
-    "stable + override does not flag an ignored channel (no conflict)") end
-
-  update.RELEASES_API_URL = savedApi
-  uv.os_setenv("LOOMWORKS_RELEASE_URL", "")
+  local ossl = require("openssl")
+  local priv = ossl.pkey.read(readfile(FX .. "test_ec_priv.pem"), true, "pem")
+  local sb = paths.norm(root .. "/tests/.tmp-latest-sums"); paths.rm_rf(sb)
+  local function put(p, body) local f = assert(io.open(p, "wb")); f:write(body); f:close() end
+  local function line(name) return verify.sha256_hex(name) .. "  " .. name .. "\n" end
+  -- A flat mirror: a SHA256SUMS of `names` (signed unless `o.sig`), plus the
+  -- fixture's signed manifest.json (0.0.0-test) when `o.manifest`.
+  local n = 0
+  local function mirror(names, o)
+    o = o or {}
+    n = n + 1
+    local d = sb .. "/m" .. n; paths.mkdirp(d)
+    if names then
+      local sums = ""
+      for _, nm in ipairs(names) do sums = sums .. line(nm) end
+      put(d .. "/SHA256SUMS", sums)
+      put(d .. "/SHA256SUMS.sig", o.sig or priv:sign(sums, "sha256"))
+    end
+    if o.manifest then
+      put(d .. "/manifest.json", o.manifest_body or readfile(FX .. "manifest.json"))
+      put(d .. "/manifest.json.sig", readfile(FX .. "manifest.json.sig"))
+    end
+    return d
+  end
+  local A = "lw-linux-x86_64"
+  local v, e = update.resolve_newest_version({ url = mirror({ A, "lw-0.2.1-descriptor.json" }) })
+  eq(v, "0.2.1", "descriptor entry names the version; no manifest.json needed" .. (e and (" — " .. e) or ""))
+  v = update.resolve_newest_version({ url = mirror({ A, "lw-0.2.1-descriptor.json",
+    "loomworks-lua-0.2.1.zip" }, { manifest = true }) })
+  eq(v, "0.2.1", "with a manifest.json naming another version, the signed list's descriptor wins")
+  v, e = update.resolve_newest_version({ url = mirror({ A, "loomworks-lua-0.0.0-test.zip" }, { manifest = true }) })
+  eq(v, "0.0.0-test", "no descriptor (a release before self-contained executables): its signed manifest.json"
+    .. (e and (" — " .. e) or ""))
+  v, e = update.resolve_newest_version({ url = mirror({ A, "loomworks-lua-0.1.40.zip" }, { manifest = true }) })
+  ok(v == nil and tostring(e):find("loomworks-lua-0.0.0-test.zip", 1, true) ~= nil,
+    "manifest fallback: the signed list must name that version's bundle, else an error  (got "
+    .. tostring(v) .. ", " .. tostring(e) .. ")")
+  v, e = update.resolve_newest_version({ url = mirror({ A }, { manifest = true }) })
+  ok(v == nil and tostring(e):find("loomworks-lua-0.0.0-test.zip", 1, true) ~= nil,
+    "manifest fallback: a list naming no bundle at all is an error  (got " .. tostring(v) .. ")")
+  v, e = update.resolve_newest_version({ url = mirror({ A, "loomworks-lua-0.1.40.zip" }) })
+  ok(v == nil and type(e) == "string", "no descriptor and no manifest.json: an error  (got " .. tostring(e) .. ")")
+  v, e = update.resolve_newest_version({ url = mirror({ A, "lw-0.2.1-descriptor.json" },
+    { sig = readfile(FX .. "manifest.json.sig"), manifest = true }) })
+  ok(v == nil and tostring(e):find("SHA256SUMS signature", 1, true) ~= nil,
+    "a list whose signature does not verify is an error, never a manifest fallback  (got " .. tostring(e) .. ")")
+  v, e = update.resolve_newest_version({ url = mirror({ A, "lw-0.2.1-descriptor.json", "lw-0.2.2-descriptor.json" }) })
+  ok(v == nil and type(e) == "string", "two releases' descriptors: an error")
+  v, e = update.resolve_newest_version({ url = mirror({ A, "lw-0.2.1..x-descriptor.json" }) })
+  ok(v == nil and type(e) == "string", "an unsafe descriptor version: an error")
+  v, e = update.resolve_newest_version({ url = mirror({ A }, { manifest = true,
+    manifest_body = (readfile(FX .. "manifest.json"):gsub("0%.0%.0%-test", "6.6.6-evil")) }) })
+  ok(v == nil and type(e) == "string", "the manifest fallback still verifies its signature")
+  v, e = update.resolve_newest_version({ url = mirror(nil, { manifest = true }) })
+  ok(v == nil and tostring(e):find("SHA256SUMS", 1, true) ~= nil,
+    "no SHA256SUMS at all: an error  (got " .. tostring(e) .. ")")
   paths.rm_rf(sb)
 end
 
@@ -4635,7 +4538,13 @@ do
     "0.1.29 -> 0.1.29-beta.7 is a downgrade")
   eq(hu.decide(with({ running_version = "0.1.10", target_version = "0.1.9" })), "skip",
     "numeric core ordering (0.1.10 > 0.1.9)")
-  eq(hu.decide(with({ no_host = true })), "skip", "--no-host -> skip")
+  -- --force replaces with an equal or older target too, but never a host
+  -- self-update must not replace (pinned, dev build).
+  eq(hu.decide(with({ running_version = "2.0.0", force = true })), "swap", "--force: same release -> swap")
+  eq(hu.decide(with({ running_version = "2.1.0", force = true })), "swap", "--force: older target -> swap")
+  eq(hu.decide(with({ pinned = true, force = true })), "skip", "--force never overrides a pinned context")
+  eq(hu.decide(with({ fused_system_lua = true, force = true })), "skip", "--force never replaces a dev build")
+  eq(hu.decide(with({ dev = true, force = true })), "skip", "--force never applies to the development facility")
   eq(hu.decide(with({ pinned = true })), "skip", "pinned context -> skip")
   eq(hu.decide(with({ exe = "/repo/.nvim/cache/lw-1.0.0-lw-linux-x86_64" })), "skip",
     "repo-local pinned launcher cache -> skip")
@@ -4664,17 +4573,21 @@ do
 
   -- Stage a release in the (flat) mirror: the host asset + a signed hash list.
   -- `hash_body` lets a test publish a hash that does not match the asset. A
-  -- real release's list always names its own version-bearing bundle
-  -- (loomworks-lua-<ver>.zip); that line binds the list to the release.
+  -- self-contained release's list names its own version-bearing descriptor
+  -- (lw-<ver>-descriptor.json); a release before self-contained executables
+  -- its bundle (loomworks-lua-<ver>.zip). That line binds the list to the release.
   local function bundle_line(v)
     return verify.sha256_hex("bundle-" .. v) .. "  loomworks-lua-" .. v .. ".zip\n"
+  end
+  local function descriptor_line(v)
+    return verify.sha256_hex("descriptor-" .. v) .. "  lw-" .. v .. "-descriptor.json\n"
   end
   local function stage(opts)
     opts = opts or {}
     paths.rm_rf(mirror); paths.mkdirp(mirror)
     put(mirror .. "/" .. asset, opts.asset_body or NEW)
     local sums = opts.sums
-      or (verify.sha256_hex(opts.hash_body or NEW) .. "  " .. asset .. "\n" .. bundle_line(ver))
+      or (verify.sha256_hex(opts.hash_body or NEW) .. "  " .. asset .. "\n" .. descriptor_line(ver))
     put(mirror .. "/SHA256SUMS", sums)
     put(mirror .. "/SHA256SUMS.sig", opts.sig or priv:sign(sums, "sha256"))
   end
@@ -4741,6 +4654,13 @@ do
   ok(true, "cleanup_old is silent when there is no .old")
   hu.cleanup_old(exe, { unlink = function() error("locked") end })
   ok(true, "cleanup_old swallows an unlink failure")
+  -- Never beside a bare luvi runtime (a source run): that `.old` is not ours.
+  local unlinked = {}
+  hu.cleanup_old("C:/tools/luvi.exe", { unlink = function(p) unlinked[#unlinked + 1] = p end })
+  hu.cleanup_old("/usr/local/bin/luvi", { unlink = function(p) unlinked[#unlinked + 1] = p end })
+  eq(#unlinked, 0, "cleanup_old never runs beside bare luvi")
+  hu.cleanup_old("/x/lw.exe", { unlink = function(p) unlinked[#unlinked + 1] = p end })
+  eq(unlinked[1], "/x/lw.exe.old", "cleanup_old removes exactly <exe>.old")
 
   -- Windows: the second rename fails -> the first is rolled back.
   stage(); reset_exe()
@@ -4781,18 +4701,85 @@ do
 
   -- Replay: a GENUINE signed list from an older release served for a newer
   -- target (its signature verifies, its host hash matches that older host)
-  -- must be refused — the list does not name the target's own bundle.
-  stage({ sums = verify.sha256_hex(NEW) .. "  " .. asset .. "\n" .. bundle_line("1.0.0") })
+  -- must be refused — the list does not name the target's own descriptor.
+  stage({ sums = verify.sha256_hex(NEW) .. "  " .. asset .. "\n" .. descriptor_line("1.0.0") })
   reset_exe()
   local rr = run({ is_windows = false })
   eq(rr.status, "error", "replayed older signed SHA256SUMS is an integrity error")
-  ok(tostring(rr.message):find("loomworks-lua-" .. ver .. ".zip", 1, true) ~= nil,
+  ok(tostring(rr.message):find("lw-" .. ver .. "-descriptor.json", 1, true) ~= nil,
     "replay error names the missing release entry  (got " .. tostring(rr.message) .. ")")
   eq(slurp(exe), OLD, "replay: original untouched")
   ok(not exists(exe .. ".new"), "replay: nothing downloaded")
 
-  -- Obtain failures (bundle update already succeeded) are warnings.
-  stage({ sums = "abc123  some-other-asset\n" .. bundle_line(ver) }); reset_exe()
+  -- A self-contained target is bound by its descriptor only: a list naming
+  -- just its bundle (as a release before self-contained executables does) is
+  -- an integrity error.
+  stage({ sums = verify.sha256_hex(NEW) .. "  " .. asset .. "\n" .. bundle_line(ver) })
+  reset_exe()
+  local rnd = run({ is_windows = false })
+  eq(rnd.status, "error", "self-contained target: a list without its descriptor is an integrity error")
+  ok(tostring(rnd.message):find("lw-" .. ver .. "-descriptor.json", 1, true) ~= nil,
+    "the error names the missing descriptor  (got " .. tostring(rnd.message) .. ")")
+  eq(slurp(exe), OLD, "no descriptor: original untouched")
+  -- A release before self-contained executables (an explicit, forced
+  -- --version) published no descriptor: its bundle entry binds its list.
+  stage({ sums = verify.sha256_hex(NEW) .. "  " .. asset .. "\n" .. bundle_line("0.1.40") })
+  reset_exe()
+  local rpre = run({ is_windows = false, target_version = "0.1.40", running_version = "0.1.50", force = true })
+  eq(rpre.status, "replaced", "a pre-self-contained target is bound by its bundle entry"
+    .. (rpre.status ~= "replaced" and (" — " .. tostring(rpre.message)) or ""))
+  eq(slurp(exe), NEW, "forced older target: replaced")
+  ok(type(rpre.hint) == "string" and rpre.hint:find("0.1.40", 1, true) ~= nil
+    and rpre.hint:find("lw self-update", 1, true) ~= nil and rpre.hint:find("bundle", 1, true) ~= nil,
+    "a pre-self-contained target: the result hints that it fetches its code bundle on its next "
+    .. "`lw self-update`  (got " .. tostring(rpre.hint) .. ")")
+
+  -- --force: an equal or older target is replaced too.
+  stage(); reset_exe()
+  local rf = run({ is_windows = false, running_version = ver, force = true })
+  eq(rf.status, "replaced", "--force: same release reinstalled" .. (rf.status ~= "replaced" and (" — " .. tostring(rf.message)) or ""))
+  stage(); reset_exe()
+  eq(run({ is_windows = false, running_version = "9.0.0", force = true }).status, "replaced",
+    "--force: older target replaces the newer host")
+  -- A forced downgrade says so before the swap; an upgrade or a same-version
+  -- reinstall does not.
+  do
+    local notes = {}
+    local function note(s) notes[#notes + 1] = s end
+    stage(); reset_exe()
+    local rdg = run({ is_windows = false, running_version = "9.0.0", force = true, info = note })
+    eq(rdg.status, "replaced", "--force downgrade: replaced")
+    eq(notes[1], "downgrading 9.0.0 -> " .. ver, "--force downgrade: a 'downgrading' line names both versions")
+    notes = {}
+    stage(); reset_exe()
+    run({ is_windows = false, running_version = "1.0.0", info = note })
+    eq(#notes, 0, "an upgrade prints no downgrade line")
+    stage(); reset_exe()
+    run({ is_windows = false, running_version = ver, force = true, info = note })
+    eq(#notes, 0, "a forced same-version reinstall prints no downgrade line")
+    stage({ hash_body = "SOMETHING-ELSE" }); reset_exe()
+    run({ is_windows = false, running_version = "9.0.0", force = true, info = note })
+    eq(#notes, 0, "a downgrade that fails verification prints no downgrade line")
+    eq(rdg.hint, nil, "a self-contained target needs no provisioning hint")
+  end
+  -- Self-update creates no bundle anywhere: no `lua-*` entry under the sandbox.
+  do
+    local found = {}
+    local function walk(d)
+      local req = uv.fs_scandir(d)
+      while req do
+        local nm, ty = uv.fs_scandir_next(req)
+        if not nm then break end
+        if nm:match("^lua%-") then found[#found + 1] = d .. "/" .. nm end
+        if ty == "directory" then walk(d .. "/" .. nm) end
+      end
+    end
+    walk(sb)
+    eq(table.concat(found, ", "), "", "no lua-* created by any host replacement")
+  end
+
+  -- Obtain failures are warnings to update_host (the caller exits non-zero).
+  stage({ sums = "abc123  some-other-asset\n" .. descriptor_line(ver) }); reset_exe()
   eq(run({ is_windows = false }).status, "warning", "asset missing from the signed list -> warning")
   paths.rm_rf(mirror .. "/SHA256SUMS")
   eq(run({ is_windows = false }).status, "warning", "mirror without SHA256SUMS -> warning")
@@ -4824,7 +4811,6 @@ do
   eq(slurp(exe), OLD, "no downgrade: untouched")
 
   -- --no-host / pinned / dev -> skipped without touching anything.
-  eq(run({ no_host = true, url = sb .. "/nowhere" }).status, "skipped", "--no-host skips")
   eq(run({ pinned = true, url = sb .. "/nowhere" }).status, "skipped", "pinned context skips")
   eq(run({ dev = true, url = sb .. "/nowhere" }).status, "skipped", "dev source skips")
   eq(run({ fused_system_lua = true, url = sb .. "/nowhere" }).status, "skipped", "dev build skips")
@@ -5236,70 +5222,6 @@ do
   eq(table.concat(seen, "|"), "hello", "transport: sentinel / pid lines are not program output")
   local refused = t:start_exec({ argv = { "/x/prog" }, cwd = "/x", env = { ["A-B"] = "1" }, nonce = "n1" })
   eq(refused, nil, "transport: a non-portable env name is refused before any spec")
-end
-
-print("boot.whats_new — self-update's what's new lines (spec §16.32, §16.37)")
-do
-  local wn = require("boot.whats_new")
-  local tmp = (os.getenv("TEMP") or os.getenv("TMPDIR") or "/tmp"):gsub("\\", "/")
-  local dir = tmp .. "/lw-wn-" .. tostring(os.time()) .. "-" .. tostring(math.random(1000000))
-  local bdir = dir .. "/lua-0.1.40"
-  paths.mkdirp(bdir .. "/loomworks")
-  local function put(p, s) local f = assert(io.open(p, "wb")); f:write(s); f:close() end
-  local function copy(from, to) put(to, readfile(from)) end
-  -- A changelog with the two releases the report spans (the repository's own
-  -- CHANGELOG.md has no 0.1.x history).
-  put(bdir .. "/loomworks/CHANGELOG.md", table.concat({
-    "# Changelog", "", "## Unreleased", "",
-    "## 0.1.40 - 2026-09-30", "", "The second release.", "",
-    "### Upgrade notes", "- Re-run `lw bootstrap install`. (#2)", "",
-    "### Added", "- A new command. (#2)", "",
-    "## 0.1.39 - 2026-09-29", "", "The first release.", "",
-    "### Added", "- Everything. (#1)", "",
-  }, "\n"))
-  copy(root .. "/lua/loomworks/release_notes.lua", bdir .. "/loomworks/release_notes.lua")
-
-  local lines = wn.report({ bundle_dir = bdir, from = "0.1.39", to = "0.1.40", interactive = true, width = 79 })
-  eq(lines[2], "What's new since 0.1.39:", "the block starts with the range")
-  eq(lines[#lines], "Full notes: lw release-notes --since 0.1.39", "and ends with the full-notes pointer")
-  local ascii, fits = true, true
-  for _, l in ipairs(lines) do
-    if l:find("[\128-\255%c]") then ascii = false end
-    if #l > 79 then fits = false end
-  end
-  ok(ascii and fits, "every line is ASCII and fits the width")
-  local ni = wn.report({ bundle_dir = bdir, from = "0.1.39", to = "0.1.40", interactive = false })
-  ok(#ni == 1 and ni[1] == "lw: what's new since 0.1.39: lw release-notes --since 0.1.39",
-    "non-interactive: the pointer line only  (" .. tostring(ni[1]) .. ")")
-  eq(#wn.report({ bundle_dir = bdir, from = "0.1.40", to = "0.1.40", interactive = true }), 0,
-    "nothing for a reinstall of the same version")
-  eq(#wn.report({ bundle_dir = bdir, from = nil, to = "0.1.40", interactive = true }), 0,
-    "nothing for a first installation")
-  eq(#wn.report({ bundle_dir = bdir, from = "0.1.39", to = "0.1.40", interactive = true, silenced = true }), 0,
-    "nothing when silenced")
-  -- A bundle without notes (an older release): the pointer only.
-  local old = dir .. "/lua-0.1.39"
-  paths.mkdirp(old .. "/loomworks")
-  local nb = wn.report({ bundle_dir = old, from = "0.1.38", to = "0.1.39", interactive = true })
-  ok(#nb == 1 and nb[1]:find("lw release-notes --since 0.1.38", 1, true) ~= nil,
-    "a bundle without notes: the pointer only")
-  -- The renderer runs in a sandbox: no io, os or require.
-  local evil = dir .. "/lua-9.9.9"
-  paths.mkdirp(evil .. "/loomworks")
-  put(evil .. "/loomworks/CHANGELOG.md", "## 9.9.9 - 2026-01-01\n\nS.\n\n### Fixed\n- a\n")
-  put(evil .. "/loomworks/release_notes.lua",
-    "local M = {} function M.whats_new() return { tostring(io) .. tostring(os) .. tostring(require) } end return M")
-  local ev = wn.block(evil, "0.1.0", "9.9.9")
-  eq(ev and ev[1], "nilnilnil", "the renderer sees no io, os or require")
-  eq(wn.sanitize("a\27[31mb\226\128\148"), "a?[31mb???", "sanitize folds controls and non-ASCII")
-  ok(wn.silenced(function() return "off" end, {})
-    and not wn.silenced(function() return "on" end, { ["release-notes"] = "off" })
-    and wn.silenced(function() return nil end, { ["release-notes"] = "off" }),
-    "silenced: env off; env on beats the setting; setting off")
-  wn.record_seen(dir, "0.1.40")
-  wn.record_seen(dir, "0.1.39")
-  eq((readfile(dir .. "/release-notes-seen"):gsub("%s+", "")), "0.1.40", "record_seen never lowers")
-  paths.rm_rf(dir)
 end
 
 print("loomworks.housekeeping - leftovers outside the workspace under luvi (spec §16.40)")

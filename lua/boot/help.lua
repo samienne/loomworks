@@ -44,11 +44,12 @@ system Lua it describes: with none installed it fails.
 
 A host command, handled by the lw binary itself.]],
 
-  install = [[lw install [-y] [--no-modify-path] [--no-bundle] [--dry-run]
+  install = [[lw install [-y] [--no-modify-path] [--dry-run]
 
 Install the running lw binary for the current user and make it usable.
-It copies itself to a per-user location, ensures that location
-is on PATH, and fetches the first release bundle. No admin required.
+It copies itself to a per-user location and ensures that location
+is on PATH. The binary carries all of lw's code: nothing else is fetched.
+No admin required.
 
   location   Windows: %LOCALAPPDATA%\Microsoft\WindowsApps\lw.exe (on PATH)
              Unix:    ~/.local/bin/lw
@@ -56,7 +57,6 @@ is on PATH, and fetches the first release bundle. No admin required.
   -y, --yes          replace an existing lw and apply PATH changes without
                      prompting (needed with --no-input / in CI)
   --no-modify-path   install the binary but never touch PATH / shell rc
-  --no-bundle        skip fetching the release bundle (do `lw self-update` later)
   --dry-run          print what would happen, change nothing
 
 If a different lw is already installed at that location, install says what it
@@ -100,52 +100,45 @@ local directory works as an offline mirror) supersedes the channel:
 channel_ignored is then true. Any failure - offline, no release, a signature
 or hash that does not verify, a release older than the descriptor - exits
 non-zero with one line on stderr and prints nothing on stdout.]],
-  ["self-update"] = [[lw self-update [--force] [--channel <stable|unstable>] [--no-host]
+  ["self-update"] = [[lw self-update [--version <x.y.z>] [--force] [--channel <stable|unstable>]
 
-Download the current release, verify its signature and hashes, and activate
-it. Fetches manifest.json + manifest.json.sig, checks the
-signature against the key built into lw, downloads the bundle, verifies its
-SHA-256 against the (trusted) manifest, then extracts it into a new
-lua-<version>/ under the data dir - never overwriting a running copy. Integrity
-rests on the signature, not the transport, so it is safe behind a proxy;
-set LOOMWORKS_INSECURE_TLS=1 for TLS-intercepting proxies.
+Replace this lw with the newest release's executable (or the exact
+--version), verified before it is installed. The executable carries all of
+lw's code: there is no separate bundle to update, and nothing else is
+downloaded or installed.
 
-Then it replaces the lw binary itself with the same release's host,
-when that release is newer than the running host's (it never
-downgrades the binary, e.g. after a channel switch to stable): the release's
-SHA256SUMS signature is checked against the built-in key and the downloaded
-binary against its hash BEFORE the installed binary is touched (never relaxed,
-even behind a proxy); the swap is atomic and any failure leaves the old binary
-in place. If the binary's location is not writable (a system or
-package-managed install) it warns with the manual steps and still succeeds.
-A pinned (lw.pin) or development host never replaces itself.
+The target release's signed SHA256SUMS is fetched and its signature checked
+against the key built into lw; the list must name that release's own
+descriptor (lw-<version>-descriptor.json), so another release's list can never
+be replayed; the downloaded executable must match its hash. All of this
+happens BEFORE the installed lw is touched (never relaxed, even behind a
+proxy - set LOOMWORKS_INSECURE_TLS=1 for TLS-intercepting proxies; integrity
+rests on the signature, not the transport). The swap is atomic and any failure
+leaves the old executable in place; on Windows the running lw.exe is renamed
+aside to lw.exe.old, which a later run removes.
 
-If the release needs a newer lw binary than this one, the binary is updated
-first and self-update exits non-zero asking you to re-run it for the bundle.
+The executable is replaced only by a newer release: an equal one is reported
+as up to date, an older one (e.g. after switching from `unstable` to
+`stable`) is skipped with a note. If the executable's location is not
+writable (a system or package-managed install), self-update fails, naming the
+release asset and how to replace it by hand. A pinned (lw.pin) or development
+host never replaces itself.
 
-  --force              reinstall the bundle even if that version is already
-                       present (does NOT force a reinstall of the lw binary -
-                       that is replaced only by a newer release)
+  --version <x.y.z>    install exactly this release
+  --force              replace even with an equal or older release
   --channel <name>     `stable` (default) or `unstable`; SAVED as your update
                        channel for later runs too (the same setting as
                        `lw settings set channel <name>`)
-  --no-host            update only the bundle; leave the lw binary as it is
 
 Update channel: `stable` follows the newest full release;
 `unstable` includes pre-releases, for testing ahead of a stable cut. Both are
 verified identically - `unstable` never means less checking. Precedence:
 --channel > LOOMWORKS_CHANNEL > the `channel` setting > stable;
-LOOMWORKS_CHANNEL overrides the saved setting for a single run. A bundle never
-downgrades: switching back to `stable` while a newer prerelease is installed
-keeps that prerelease running until a newer stable release arrives (lw says
-so). `lw version` marks such a bundle `(prerelease)`.
+LOOMWORKS_CHANNEL overrides the saved setting for a single run.
 
-What's new: after installing a newer release, self-update lists what changed
-since the previous one - each release's summary and anything you must act on -
-from the notes the new release carries, then names `lw release-notes --since
-<old>` for the full notes. Piped or non-interactive, it prints only that
-pointer. Silence it with `lw settings set release-notes off` or
-LOOMWORKS_RELEASE_NOTES=off.
+What's new: the first interactive run of the new lw prints one line pointing
+at `lw release-notes --since <old>`. Silence it with
+`lw settings set release-notes off` or LOOMWORKS_RELEASE_NOTES=off.
 
 Source of releases: LOOMWORKS_RELEASE_URL, else the `release-url` settings key,
 else the built-in default: the latest release is looked up in
@@ -253,10 +246,10 @@ No loomworks release bundle is installed, so only the lw binary's own commands
 are available:
 
   version        this lw's version, source, bundle, and update channel
-  self-update [--force] [--channel <stable|unstable>] [--no-host]
-                 download + verify the current release (bundle + lw binary)
-  install [-y] [--no-modify-path] [--no-bundle] [--dry-run]
-                 install this lw for the current user + fetch the bundle
+  self-update [--version <x.y.z>] [--force] [--channel <stable|unstable>]
+                 replace this lw with the newest release's verified executable
+  install [-y] [--no-modify-path] [--dry-run]
+                 install this lw for the current user
   bootstrap [--json] [--check]
                  this repo's lw pin + launchers: status and what to do
   bootstrap install [--version <x.y.z> | --latest] [--pin-only] [--force]

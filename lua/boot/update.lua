@@ -1,10 +1,8 @@
--- Release acquisition / self-update for the host bootstrap.
---
--- Flow: fetch manifest.json + manifest.json.sig -> verify signature -> check
--- host compatibility -> download the bundle zip -> verify its hash against the
--- (trusted) manifest -> extract to a staging dir -> atomically rename into
--- `<data>/loomworks/lua-<version>/`. A running invocation's code is never
--- overwritten, and a failed download leaves the previous bundle intact.
+-- Release resolution and acquisition helpers for the host bootstrap: the
+-- update channel, the newest release (from its signed SHA256SUMS), the
+-- per-version asset base, and verified fetches of host executables.
+-- Self-update itself replaces only the executable (boot.host_update, spec
+-- §16.32); no release bundle is installed.
 
 local uv_ok, uv = pcall(require, "uv")
 if not uv_ok then uv = require("luv") end
@@ -103,23 +101,6 @@ function M.persist_channel(channel)
   return { changed = true, channel = channel, previous = previous, file = file }
 end
 
---- The note self-update prints when the newest installed bundle is newer than
---- the release the channel resolved to — typically a prerelease kept after
---- switching back to `stable`. Bundles never downgrade (the newest
---- installed bundle is the one that runs), so it stays active until a newer
---- release reaches the channel. nil when there is nothing to say. ASCII.
---- @param installed string|nil newest installed bundle version
---- @param target string the version the channel resolved to
---- @return string|nil
-function M.newer_bundle_note(installed, target)
-  if type(installed) ~= "string" or type(target) ~= "string" then return nil end
-  if not paths.version_gt(installed, target) then return nil end
-  return "the installed bundle " .. installed
-    .. (paths.is_prerelease(installed) and " (prerelease)" or "")
-    .. " is newer than " .. target .. " and stays active - a bundle never downgrades;"
-    .. " it is replaced once a release newer than it reaches this channel"
-end
-
 --- Resolve the newest release version for the `unstable` channel by
 --- querying the releases API. The highest-versioned NON-DRAFT entry wins (by
 --- version, never list order; a pre-release ranks below its release) —
@@ -128,8 +109,8 @@ end
 ---
 --- SECURITY: the tag is network-derived, so it is validated with
 --- pin.valid_version BEFORE it can reach any URL or path (defense in depth).
---- Transport is never trusted — the bundle it names is still
---- signature/hash-verified downstream exactly as on stable.
+--- Transport is never trusted — the release it names is still bound to its
+--- signed hash list and hash-verified downstream exactly as on stable.
 --- `fetch_limits` (optional) is passed to `download.fetch` — the health check's
 --- quick timeouts; self-update calls it without, keeping the default retries.
 --- @param fetch_limits? { connect_timeout?: integer, max_time?: integer, attempts?: integer }
@@ -165,21 +146,79 @@ function M.resolve_unstable_version(fetch_limits)
   return nil, "no releases found on the unstable channel"
 end
 
---- Resolve the newest AVAILABLE release version for the resolved channel, WITHOUT
---- downloading (or verifying) a bundle — the version-availability probe behind
---- `lw health`'s update check. It performs exactly one lightweight
---- network fetch: the releases API on `unstable` (reusing resolve_unstable_version),
---- else `manifest.json` from the `latest`/override base to read the version it
---- names. It never fetches or executes a bundle, so it applies NO integrity
---- verification — a real self-update still verifies signature + hash. All
---- failures (offline, HTTP error, malformed body) are returned as `nil, err` so the
---- caller can degrade silently.
+--- The newest release a `latest`/override base publishes, from its SIGNED
+--- hash list (spec §16.12): SHA256SUMS + SHA256SUMS.sig are fetched and the
+--- signature verified with the key built into this host, then the version is
+--- read from the list's one version-bearing descriptor entry
+--- (`lw-<version>-descriptor.json`). A release before self-contained
+--- executables names no descriptor: only then (transitional, while such a
+--- release is the newest) is the version read from its signed manifest.json,
+--- and only when the signed list names that version's bundle.
+--- A list whose signature does not verify is an error, never a fallback.
+--- `fetch` (curl limits, see `download.fetch`) bounds every fetch.
 ---
---- SECURITY: the resolved version is network-derived, so it is validated with
---- pin.valid_version before it is handed back (defense in depth). It is
---- only ever displayed/compared here — never interpolated into a URL or path.
+--- SECURITY: the version is validated with pin.valid_version before it is
+--- returned (it becomes part of URLs downstream).
+--- @param base string
+--- @param fetch? table curl limits
+--- @return string|nil version, string|nil err
+function M.latest_signed_version(base, fetch)
+  local sums, e1 = download.fetch(base .. "/SHA256SUMS", fetch)
+  if not sums then return nil, "fetch SHA256SUMS: " .. tostring(e1) end
+  local sig, e2 = download.fetch(base .. "/SHA256SUMS.sig", fetch)
+  if not sig then return nil, "fetch SHA256SUMS.sig: " .. tostring(e2) end
+  local okv, ev = verify.verify_detached(sums, sig)
+  if not okv then return nil, "SHA256SUMS signature: " .. tostring(ev) end
+  local found
+  local list = require("boot.bootstrap").parse_sums(sums)
+  for name in pairs(list) do
+    local v = name:match("^lw%-(.+)%-descriptor%.json$")
+    if v then
+      if not pin.valid_version(v) then
+        return nil, "SHA256SUMS names an unsafe release version '" .. v .. "'"
+      end
+      if found and found ~= v then
+        return nil, "SHA256SUMS names more than one release's descriptor (" .. found ..
+          ", " .. v .. ")"
+      end
+      found = v
+    end
+  end
+  if found then return found end
+  -- Transitional: the newest release predates self-contained executables.
+  local mbytes, em = download.fetch(base .. "/manifest.json", fetch)
+  if not mbytes then
+    return nil, "SHA256SUMS names no release descriptor, and manifest.json is " ..
+      "unavailable: " .. tostring(em)
+  end
+  local msig, es = download.fetch(base .. "/manifest.json.sig", fetch)
+  if not msig then return nil, "fetch manifest.json.sig: " .. tostring(es) end
+  local manifest, merr = verify.load_manifest(mbytes, msig)
+  if not manifest then return nil, merr end
+  if not pin.valid_version(manifest.version) then
+    return nil, "manifest named an unsafe version '" .. tostring(manifest.version) .. "'"
+  end
+  -- The manifest is signed on its own, so it could be another release's than
+  -- the list's: accept its version only when the signed list names that
+  -- release's bundle (the version-bearing entry of such a release, §16.12).
+  local own = pin.bundle_asset(manifest.version)
+  if not list[own] then
+    return nil, "SHA256SUMS does not match manifest.json: it has no '" .. own ..
+      "' entry for release " .. manifest.version
+  end
+  return manifest.version
+end
+
+--- Resolve the newest AVAILABLE release version for the resolved channel,
+--- without downloading any executable: the releases API on `unstable` (the
+--- default origin only; reusing resolve_unstable_version), else the signed
+--- SHA256SUMS of the `latest`/override base (`latest_signed_version`). Behind
+--- self-update's target, `lw health`'s update check, `lw release query` and
+--- `lw bootstrap install --latest`. All failures (offline, HTTP error,
+--- malformed body, a signature that does not verify) are returned as
+--- `nil, err` so a caller can degrade silently.
 ---
---- `opts.fetch` (curl limits, see `download.fetch`) bounds the one fetch; the
+--- `opts.fetch` (curl limits, see `download.fetch`) bounds the fetches; the
 --- health check passes quick timeouts so an unreachable network cannot stall
 --- `lw health`. A local/mirror base is a file read and ignores it.
 --- @return string|nil version, string|nil err
@@ -188,23 +227,32 @@ function M.resolve_newest_version(opts)
   local channel, cerr = M.resolve_channel(opts)
   if not channel then return nil, cerr end
   -- `unstable` on the default origin: newest incl. pre-releases via the API. A
-  -- mirror/override supersedes the channel and is peeked like stable.
+  -- mirror/override supersedes the channel and is read like stable.
   if channel == "unstable" and not url_override(opts) then
     return M.resolve_unstable_version(opts.fetch)
   end
-  -- `stable`, or an override mirror: the version is whatever the base's
-  -- manifest.json names — reachable without downloading the bundle.
-  local base = release_base(opts)
-  local mbytes, e = download.fetch(base .. "/manifest.json", opts.fetch)
-  if not mbytes then return nil, "fetch manifest: " .. tostring(e) end
-  local manifest, de = json.decode(mbytes)
-  if type(manifest) ~= "table" or type(manifest.version) ~= "string" then
-    return nil, "manifest: " .. (de or "no version")
-  end
-  if not pin.valid_version(manifest.version) then
-    return nil, "manifest named an unsafe version '" .. tostring(manifest.version) .. "'"
-  end
-  return manifest.version
+  return M.latest_signed_version(release_base(opts), opts.fetch)
+end
+
+--- Self-update's target when no `--version` is given: the resolved channel's
+--- newest release (spec §16.29, §16.32). `channel_overridden` is the
+--- requested channel name when a release-url override superseded a
+--- non-default channel (nil otherwise) — for the caller to warn about.
+--- @param opts? { url?: string, channel?: string, fetch?: table }
+--- @return { version: string, channel: string, channel_overridden?: string }|nil target
+--- @return string|nil err
+function M.resolve_target(opts)
+  opts = opts or {}
+  local channel, cerr = M.resolve_channel(opts)
+  if not channel then return nil, cerr end
+  -- A release-url override supersedes the channel: it is used as-is and the
+  -- channel (which governs only the default origin) is ignored. By design, but
+  -- silent it misleads, so a NON-DEFAULT channel superseded this way is
+  -- reported (`stable` is the override's own behavior: no conflict).
+  local overridden = (channel ~= M.DEFAULT_CHANNEL and url_override(opts)) and channel or nil
+  local version, err = M.resolve_newest_version(opts)
+  if not version then return nil, err end
+  return { version = version, channel = channel, channel_overridden = overridden }
 end
 
 --- Is `base` a local path / offline mirror (flat layout) rather than the
@@ -222,7 +270,7 @@ end
 --- its versioned path (…/releases/download/v<ver>/). An override is one mirror
 --- for all versions: a GitHub-shaped `…/releases/latest/download` one maps to
 --- its own versioned path, any other (or a local base) is flat — the version's
---- assets sit at the base directly, as self_update already assumes. So the
+--- assets sit at the base directly. So the
 --- pin's per-version fetches resolve on GitHub and against an offline mirror
 --- alike.
 function M.versioned_base(version, opts)
@@ -275,10 +323,9 @@ function M.ensure_host_binary(version, asset, sha256, dest, opts)
 end
 
 --- The machine-local directory for everything a pinned run provisions:
---- `<install>/pinned` — the install folder, `<data>` unless
---- LOOMWORKS_INSTALL_DIR moves it. Never inside a repository — a
---- clone can ship any file under its own tree, so nothing there is trusted.
-function M.pinned_root() return paths.install_dir() .. "/pinned" end
+--- `<data>/pinned`. Never inside a repository — a clone can ship any file
+--- under its own tree, so nothing there is trusted.
+function M.pinned_root() return paths.data_dir() .. "/pinned" end
 
 --- Where the pinned bundle for (`version`, pinned bundle `sha256`) lives:
 --- `<data>/pinned/<sha256>/lua-<version>`. Keyed by the pinned hash, so a pin
@@ -414,185 +461,6 @@ function M.rename_with_retry(src, dst, opts)
     if i < attempts then sleep(math.min(60 * i, 400)) end
   end
   return false, last
-end
-
---- Does this process run embedded code (a release executable or a
---- development fuse, spec §16.11)? main.lua publishes `__loomworks_code` as
---- soon as it has resolved the source, before any host command runs.
-local function embedded_code()
-  local code = rawget(_G, "__loomworks_code")
-  return type(code) == "table" and code.kind == "embedded"
-end
-
---- A path resolved (realpath when it exists), forward-slashed, without a
---- trailing slash, lowercased on Windows — for identity comparisons only.
-local function canon_path(p)
-  if type(p) ~= "string" or p == "" then return nil end
-  local rp = uv.fs_realpath(p) or p
-  rp = rp:gsub("\\", "/"):gsub("/+$", "")
-  if paths.is_windows then rp = rp:lower() end
-  return rp
-end
-
---- Remove installed releases beyond the `keep` newest. Best-effort, and
---- deletion-safe: only entries
---- `installed_releases` lists (a `lua-<release version>` real bundle
---- directory, never a link/junction), re-checked right before removal, whose
---- resolved path is a direct child of the resolved install folder
---- (separator-bounded); never the version named in `except`, nor the bundle
---- this process runs from (`running_root`, default the loaded system Lua root).
---- @param keep? integer how many newest releases to keep (default 3)
---- @param except? string a version never removed (the one just installed)
---- @param running_root? string the running bundle's root, never removed
-function M.gc(keep, except, running_root)
-  -- Embedded code (a release executable, spec §16.11) runs no bundle and keeps
-  -- no install folder: nothing here is its to prune, and the install folder may
-  -- be any user-chosen directory. Never delete anything then.
-  if embedded_code() then return end
-  local base = canon_path(paths.install_dir())
-  if not base then return end
-  local running = canon_path(running_root or rawget(_G, "__loomworks_luaroot"))
-  local rels = paths.installed_releases()
-  for i = (keep or 3) + 1, #rels do
-    local r = rels[i]
-    if r.ver ~= except and paths.is_release_bundle_dir(r.dir) then
-      local rp = canon_path(r.dir)
-      local parent, name = (rp or ""):match("^(.*)/([^/]+)$")
-      local want = "lua-" .. r.ver
-      if paths.is_windows then want = want:lower() end
-      if rp and rp ~= running and parent == base and name == want then
-        paths.rm_rf(r.dir)
-      end
-    end
-  end
-end
-
---- Acquire/activate the current release. opts: { url?, force?, channel? }.
---- The channel selects WHICH release an un-pinned, un-overridden fetch
---- targets; it never weakens verification. Returns
---- { version, updated, dir, channel_overridden } or nil, err[, info].
---- `channel_overridden` is the requested channel name when a release-url
---- override superseded a non-default channel (nil otherwise) — for the caller
---- to surface as a warning. `info` is set only when the (verified) release
---- needs a newer host than this one — { version, host_incompatible = true } —
---- so the caller can update the host binary first. Embedded code (or
---- `opts.embedded`) installs no bundle and prunes nothing: the result then
---- carries only the verified release (`embedded = true`, no `dir`).
---- @param opts? { url?: string, force?: boolean, channel?: string, embedded?: boolean, running_root?: string }
---- @return { version: string, updated: boolean, dir?: string, embedded?: boolean, channel_overridden?: string }|nil result
---- @return string|nil err
---- @return { version: string, host_incompatible: boolean }|nil info
-function M.self_update(opts)
-  opts = opts or {}
-  local channel, cerr = M.resolve_channel(opts)
-  if not channel then return nil, cerr end
-
-  local base = release_base(opts)
-  -- A release-url override supersedes the channel: it is used as-is and
-  -- the channel (which governs only the default origin) is ignored. That is by
-  -- design, but silent it misleads — a user who passed `--channel unstable`
-  -- believes it applied. So when a NON-DEFAULT channel intent is present AND an
-  -- override is in effect, report the superseded channel for the caller to warn.
-  -- (`stable` == the override's own behavior, so it is no conflict — no report.)
-  local channel_overridden = (channel ~= M.DEFAULT_CHANNEL and url_override(opts))
-    and channel or nil
-  -- `unstable` on the default origin resolves the newest release (pre-releases
-  -- included) via the API, then fetches that version's assets from its versioned
-  -- path. A mirror/override supersedes the channel: it is used as-is and
-  -- the API is never called. `stable` keeps the /latest/download base unchanged.
-  if channel == "unstable" and not url_override(opts) then
-    local ver, verr = M.resolve_unstable_version()
-    if not ver then return nil, verr end
-    base = M.versioned_base(ver, opts)
-  end
-
-  local mbytes, e1 = download.fetch(base .. "/manifest.json")
-  if not mbytes then return nil, "fetch manifest: " .. e1 end
-  local sig, e2 = download.fetch(base .. "/manifest.json.sig")
-  if not sig then return nil, "fetch signature: " .. e2 end
-
-  local manifest, e3 = verify.load_manifest(mbytes, sig)
-  if not manifest then return nil, e3 end
-  local okh, eh = verify.host_compatible(manifest)
-  if not okh then
-    -- Don't strand the host: the manifest is already signature-
-    -- verified, so hand its release back as a host-update target — the caller
-    -- replaces the lw binary (when allowed) and asks for a re-run.
-    return nil, eh, { version = manifest.version, host_incompatible = true }
-  end
-
-  local bundle_name = manifest.bundle
-  if type(bundle_name) ~= "string" or not (manifest.artifacts or {})[bundle_name] then
-    return nil, "manifest does not name a valid 'bundle' artifact"
-  end
-
-  local version = manifest.version
-  -- `version` names a directory that is replaced (rm_rf) below and ranked by
-  -- installed_releases: only a strict release version is accepted.
-  if not paths.is_release_version(version) then
-    return nil, "manifest names an invalid release version '" .. tostring(version) .. "'"
-  end
-  -- Embedded code runs no bundle: there is none to install and no installed
-  -- release to prune (gc). Only the verified release is resolved, for the
-  -- caller's host-binary step.
-  if opts.embedded or embedded_code() then
-    return { version = version, updated = false, embedded = true,
-      channel_overridden = channel_overridden }
-  end
-  local install = paths.install_dir()
-  local dest_dir = install .. "/lua-" .. version
-  -- The install folder may be any user-chosen directory: a `lua-<version>`
-  -- entry there that is not a real bundle directory (a link, a junction, a
-  -- foreign folder) is never replaced or removed.
-  if uv.fs_lstat(dest_dir) and not paths.is_release_bundle_dir(dest_dir) then
-    return nil, "the install folder already holds '" .. dest_dir ..
-      "', which is not a loomworks release bundle - move it away and re-run"
-  end
-  if uv.fs_stat(dest_dir) and not opts.force then
-    return { version = version, updated = false, dir = dest_dir,
-      channel_overridden = channel_overridden }
-  end
-  -- A forced reinstall replaces `dest_dir` (rm_rf + rename). When that is the
-  -- bundle this process runs from (`running_root`, default the loaded system
-  -- Lua root; same identity check as gc: realpath, Windows case/8.3) it is
-  -- refused, before anything is downloaded: deleting or swapping a bundle in
-  -- use is not safe (on Windows its files may be open), and the running
-  -- version is by definition installed.
-  if uv.fs_stat(dest_dir) then
-    local running = canon_path(opts.running_root or rawget(_G, "__loomworks_luaroot"))
-    if running and canon_path(dest_dir) == running then
-      return nil, "lw " .. version .. " is the version running now; its bundle at '" ..
-        dest_dir .. "' is not replaced while in use - to reinstall it, run " ..
-        "`lw self-update --force` from a different lw version"
-    end
-  end
-
-  local ok, err = paths.mkdirp(install)
-  if not ok then return nil, "prepare data dir: " .. tostring(err) end
-
-  local tmpzip = install .. "/.dl-" .. version .. ".zip"
-  local okd, ed = download.fetch_to_file(base .. "/" .. bundle_name, tmpzip)
-  if not okd then return nil, "fetch bundle: " .. ed end
-
-  local okv, ev = verify.verify_artifact_file(tmpzip, bundle_name, manifest)
-  if not okv then paths.rm_rf(tmpzip); return nil, "bundle verify: " .. ev end
-
-  local stage = install .. "/.stage-" .. version
-  paths.rm_rf(stage)
-  local okx, ex = M.extract_zip(tmpzip, stage)
-  paths.rm_rf(tmpzip)
-  if not okx then paths.rm_rf(stage); return nil, "extract: " .. ex end
-
-  -- Activate: swap staging dir into place. Remove any prior same-version dir
-  -- first (force/re-install); a different running invocation uses a different
-  -- version dir, so this never clobbers in-use code.
-  if uv.fs_stat(dest_dir) then paths.rm_rf(dest_dir) end
-  local okr, er = M.rename_with_retry(stage, dest_dir)
-  if not okr then paths.rm_rf(stage); return nil, "activate: " .. tostring(er) end
-
-  M.gc(3, version, opts.running_root)
-  return { version = version, updated = true, dir = dest_dir,
-    channel_overridden = channel_overridden }
 end
 
 --- The one-line `lw version` report. The host's release version

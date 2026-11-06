@@ -1,12 +1,15 @@
--- Host self-update: replace the running `lw` host binary with the
--- target release's, after `self-update` has handled the bundle.
+-- Host self-update: replace the running `lw` executable with the target
+-- release's (spec §16.32). There is no bundle step: the executable is the
+-- release (§16.11).
 --
--- Flow: decide (skip for --no-host / pinned / dev / source runs / a running
--- host at or newer than the target release — upgrade-only)
+-- Flow: decide (skip for pinned / dev / source runs / a running host at or
+-- newer than the target release — upgrade-only unless forced)
 -- -> probe that the install dir is writable -> fetch the release's SIGNED
 -- SHA256SUMS + .sig and verify the signature with the key embedded in THIS
--- (already-trusted) host -> require the list to name the target's own bundle
--- (anti-replay: binds the signed list to the target release) -> download this
+-- (already-trusted) host -> require the list to name the target's own
+-- version-bearing descriptor `lw-<ver>-descriptor.json` (a release before
+-- self-contained executables: its bundle; anti-replay: binds the signed list
+-- to the target release) -> download this
 -- platform's host asset next to the installed binary and verify it against its
 -- hash (boot.update ensure_host_binary — mandatory, never relaxed) -> swap it
 -- into place.
@@ -73,6 +76,10 @@ end
 function M.cleanup_old(exe, fs)
   exe = exe or M.exe_path()
   if not exe then return end
+  -- Only beside an lw host: never beside the bare luvi runtime (a source run),
+  -- whose `<exe>.old` is not ours.
+  local base = ((exe:gsub("\\", "/")):match("([^/]+)$") or ""):lower():gsub("%.exe$", "")
+  if base == "luvi" then return end
   fs = fs or default_fs()
   pcall(fs.unlink, exe .. M.OLD_SUFFIX)
 end
@@ -98,11 +105,12 @@ function M.dev_build(o)
 end
 
 --- Should the running host replace itself? Pure — all inputs explicit.
---- @param o { exe?: string, running_version?: string, target_version?: string, no_host?: boolean, pinned?: boolean, dev?: boolean, fused_system_lua?: boolean, release_version?: string }
+--- `force` replaces with an equal or older target too; it never overrides a
+--- host that self-update must not replace (pinned, dev build, dev source).
+--- @param o { exe?: string, running_version?: string, target_version?: string, force?: boolean, pinned?: boolean, dev?: boolean, fused_system_lua?: boolean, release_version?: string }
 --- @return "swap"|"current"|"skip" action
 --- @return string reason
 function M.decide(o)
-  if o.no_host then return "skip", "--no-host" end
   if o.pinned then
     return "skip", "running in pinned context (lw.pin owns this host's version)"
   end
@@ -116,18 +124,17 @@ function M.decide(o)
   local dev_reason = M.dev_build(o)
   if dev_reason then return "skip", dev_reason end
   if o.dev then return "skip", "running a development source" end
-  -- Upgrade-only: replace only an unknown host (nil — released before
-  -- version identity existed) or one strictly older than the target. The
-  -- bundle never downgrades either (the newest installed release runs), so a
-  -- channel switch that resolves an older release leaves the host alone.
+  -- Upgrade-only unless forced: replace only an unknown host (nil — released
+  -- before version identity existed) or one strictly older than the target,
+  -- so a channel switch that resolves an older release leaves the host alone.
   local running, target = o.running_version, o.target_version
-  if running and target then
+  if running and target and not o.force then
     if running == target or paths.compare_versions(running, target) == 0 then
       return "current", "host already at " .. running
     end
     if not paths.version_gt(target, running) then
       return "skip", "lw binary " .. running .. " is newer than " .. target ..
-        "; not downgrading"
+        "; not downgrading (--force replaces it anyway)"
     end
   end
   return "swap", (running or "unknown version") .. " -> " .. tostring(target)
@@ -188,17 +195,20 @@ end
 --- Result `status`:
 ---   "replaced" — swapped in; `from`/`to` set.
 ---   "current"  — running host already is the target release.
----   "skipped"  — not a self-replacing host (--no-host / pinned / dev / source),
----                or the running host is newer than the target (no downgrade).
----   "warning"  — not replaced, original intact, bundle update stands (exit 0):
----                unwritable location, host asset/hash list unobtainable.
+---   "skipped"  — not a self-replacing host (pinned / dev / source), or the
+---                running host is newer than the target (no downgrade, unforced).
+---   "warning"  — not replaced, original intact: unwritable location, host
+---                asset/hash list unobtainable. Caller exits non-zero.
 ---   "error"    — integrity failure (hash-list signature / a list that is not
 ---                the target's / binary hash), or a failed rollback. Caller
 ---                exits non-zero.
 --- `message` explains; `manual` (warning/error) says how to replace it by hand.
+--- `o.info(line)` receives "downgrading <running> -> <target>" right before a
+--- forced swap to an older release. A "replaced" result has `hint` when the
+--- target predates self-contained executables (it carries no code of its own).
 ---
---- @param o { target_version: string, url?: string, exe?: string, running_version?: string, asset?: string, no_host?: boolean, pinned?: boolean, dev?: boolean, fused_system_lua?: boolean, fs?: table, is_windows?: boolean, sleep?: fun(ms:integer), attempts?: integer }
---- @return { status: "replaced"|"current"|"skipped"|"warning"|"error", message: string, from?: string, to?: string, exe?: string, manual?: string }
+--- @param o { target_version: string, url?: string, exe?: string, running_version?: string, asset?: string, force?: boolean, pinned?: boolean, dev?: boolean, fused_system_lua?: boolean, fs?: table, is_windows?: boolean, sleep?: fun(ms:integer), attempts?: integer, info?: fun(line:string) }
+--- @return { status: "replaced"|"current"|"skipped"|"warning"|"error", message: string, from?: string, to?: string, exe?: string, manual?: string, hint?: string }
 function M.update_host(o)
   local verify = require("boot.verify")
   local update = require("boot.update")
@@ -211,7 +221,7 @@ function M.update_host(o)
 
   local action, reason = M.decide({
     exe = exe, running_version = running, target_version = target,
-    no_host = o.no_host, pinned = o.pinned, dev = o.dev,
+    force = o.force, pinned = o.pinned, dev = o.dev,
     fused_system_lua = o.fused_system_lua, release_version = verify.RELEASE_VERSION,
   })
   if action == "skip" then return { status = "skipped", message = reason } end
@@ -241,8 +251,8 @@ function M.update_host(o)
       message = "cannot write to " .. dir .. " (a system or package-managed install?)" }
   end
 
-  -- Signed hash list for exactly the release the bundle came from (same origin:
-  -- versioned_base honors the same release-url override as self_update).
+  -- Signed hash list for exactly the target release (versioned_base honors the
+  -- release-url override, as the target's resolution did).
   local sums, e1 = download.fetch(base .. "/SHA256SUMS")
   if not sums then
     return { status = "warning", manual = manual, message = "fetch SHA256SUMS: " .. tostring(e1) }
@@ -259,13 +269,17 @@ function M.update_host(o)
   -- The signature proves this is SOME release's genuine list, not the target's:
   -- a hostile origin could replay an older release's signed list (and its older
   -- host) for a newer target. Bind the list to the target by requiring the
-  -- target's own version-bearing entry — its bundle, `loomworks-lua-<ver>.zip`,
-  -- which every release's SHA256SUMS covers. Absent -> integrity error.
-  local own = pin.bundle_asset(target)
+  -- target's own version-bearing entry (spec §16.12): its descriptor
+  -- `lw-<ver>-descriptor.json`; for a release before self-contained
+  -- executables, which published none, its bundle `loomworks-lua-<ver>.zip`
+  -- (§16.14). Absent -> integrity error.
+  local self_contained = pin.is_self_contained(target)
+  local own = self_contained and pin.descriptor_asset(target) or pin.bundle_asset(target)
   if not list[own] then
     return { status = "error", manual = manual,
       message = "SHA256SUMS is not release " .. target .. "'s hash list (no '" ..
-        own .. "' entry - a replayed or mismatched list)" }
+        own .. "' entry - a replayed or mismatched list" ..
+        (self_contained and ", or a release that predates the descriptor)" or ")") }
   end
   local sha = list[asset]
   if not sha then
@@ -286,6 +300,11 @@ function M.update_host(o)
       message = tostring(ed) }
   end
 
+  -- --force may replace a newer host with an older release (spec §16.32): say
+  -- so before the swap, once the replacement is verified.
+  if o.info and running and paths.version_gt(running, target) then
+    o.info("downgrading " .. running .. " -> " .. target)
+  end
   local oks, es, fatal = M.swap(exe, new, {
     fs = fs, is_windows = o.is_windows, sleep = o.sleep, attempts = o.attempts,
   })
@@ -293,8 +312,17 @@ function M.update_host(o)
     pcall(fs.unlink, new)
     return { status = fatal and "error" or "warning", manual = manual, message = es }
   end
+  -- A release before self-contained executables is a bootstrap-only host: it
+  -- runs the newest installed code bundle (`<data>/lua-<ver>`), and its own
+  -- self-update downloads one - the channel's newest release's - first.
+  local hint
+  if not self_contained then
+    hint = "lw " .. target .. " predates self-contained executables and has no code of " ..
+      "its own: it runs the newest code bundle in its data folder, and its next " ..
+      "`lw self-update` downloads one (the channel's newest release's)"
+  end
   return { status = "replaced", message = "replaced " .. exe, exe = exe,
-    from = running, to = target }
+    from = running, to = target, hint = hint }
 end
 
 return M

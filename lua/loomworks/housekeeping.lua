@@ -685,12 +685,15 @@ local function scan_run_dir(items, ctx, dir)
 end
 
 --- The running executable when it is an `lw` host (the standalone host, not
---- a bare luvi runtime running a source tree), else nil: only then are
+--- a bare luvi runtime running a source tree, and not running the
+--- development facility, `--dev` / LOOMWORKS_LUA), else nil: only then are
 --- `<exe>.old` / `<exe>.new` self-update leftovers of ours. The
 --- editor-hosted fallback (nvim) has none.
 --- @return string|nil
 function M.lw_host_exe()
     if not vim._loomworks_shim then return nil end
+    local code = rawget(_G, "__loomworks_code")
+    if type(code) == "table" and code.kind == "dev" then return nil end
     local ok, p = pcall(uv().exepath)
     if not ok or type(p) ~= "string" or p == "" then return nil end
     local base = (norm(p):match("([^/]+)$") or ""):lower():gsub("%.exe$", "")

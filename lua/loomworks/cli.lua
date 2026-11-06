@@ -12260,10 +12260,9 @@ notes, Added, Changed, Fixed, Security and Removed. On a terminal the text is
 wrapped to its width; piped or redirected, every change is one full line.
 A prerelease shows the changes it carries that are not released yet.
 
-After `lw self-update` installs a newer release it lists what changed since
-your previous one; the first interactive run after an update that did not
-(an update made by an older lw binary) prints one line pointing here. Turn
-both off with `lw settings set release-notes off` or LOOMWORKS_RELEASE_NOTES=off;
+After an update (`lw self-update`, or installing a newer lw) the first
+interactive run of the new release prints one line pointing here. Turn it
+off with `lw settings set release-notes off` or LOOMWORKS_RELEASE_NOTES=off;
 this command always works.]],
   tools = [[lw tools [--cached]
 
@@ -13791,7 +13790,7 @@ Keys:
                   pre-releases; both are equally signature/hash-verified.
                   LOOMWORKS_CHANNEL, or `lw self-update --channel`, overrides.
   release-notes   `on` (default) or `off`. `off` silences the one-line
-                  "updated" notice and self-update's "what's new" lines;
+                  "updated" notice;
                   LOOMWORKS_RELEASE_NOTES wins.
 
 Source precedence (resolved by the host before commands run):
@@ -14072,8 +14071,8 @@ Usage: lw [command] [args]
   settings <sub>    list | get | set | unset lw's own settings (dev-lua, …)
   completion <shell> print a shell completion script (bash|zsh)
   version           host version + which system-Lua source (also -v, --version)
-  install           install the lw binary on PATH + fetch the first bundle
-  self-update       download + verify the latest release (bundle + lw binary)
+  install           install the lw binary on PATH
+  self-update       replace lw with the latest release's verified executable
   release-notes     what changed in each release (--since <version>, --all)
   release query     the newest verified release on a channel (--channel, --json)
   bootstrap [install|upgrade]  repo-local launcher + version pin: status / write / bump

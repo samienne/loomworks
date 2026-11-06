@@ -972,7 +972,7 @@ local function host_item(facts, newest)
     }
 end
 
---- Fingerprint of what the network tier's items describe: the running bundle,
+--- Fingerprint of what the network tier's items describe: the running release,
 --- the running host binary and the effective channel. Cached network items
 --- recorded under another key (e.g. before a self-update) are stale. Cheap and
 --- network-free — safe on the passive path.
@@ -1034,10 +1034,10 @@ function M.last_update_check()
 end
 
 --- Health provider: a newer release is available on the resolved update channel
---- — for the bundle ("Update available") and/or the lw binary itself (a host
---- left stale by an unwritable install dir, `--no-host`, or a host from before
---- self-update). One item when both are stale: `lw self-update` updates
---- both — except a pre-self-update host, which it cannot replace.
+--- ("Update available") and/or the lw binary itself is stale (left so by an
+--- unwritable install dir, or a host from before self-update). One item when
+--- both apply: `lw self-update` replaces the executable — except a
+--- pre-self-update host, which it cannot replace.
 --- HEALTH-ONLY — it performs a network fetch (`resolve_newest_version`) under
 --- `UPDATE_CHECK_FETCH`'s tight limits, so an unreachable network costs seconds,
 --- not curl's minutes-long default connect wait. Silent (returns `{}`) when this

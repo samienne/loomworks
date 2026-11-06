@@ -83,15 +83,15 @@ features.
 1. installs its own module searchers ahead of `package.path`, so that a file
    in the current directory or next to the executable can never shadow a
    loomworks module;
-2. handles the **host commands**, which must work with no bundle installed:
-   `version`, `install`, `self-update`, `bootstrap`, `release query`, and
-   their help ([`boot/help.lua`](lua/boot/help.lua));
+2. handles the **host commands**: `version`, `install`, `self-update`,
+   `bootstrap`, `release query`, and their help
+   ([`boot/help.lua`](lua/boot/help.lua));
 3. resolves the **source** of the rest of the code, in this order:
    `LOOMWORKS_LUA` > `--dev[=PATH]` > the `default-source=dev` setting (the
    development facility, only on that opt-in) > the code embedded in the
    executable (a release executable or a development build: it runs, and
    never an installed bundle) > for a bootstrap-only host (transitional) the
-   newest verified release bundle (`<data>/loomworks/lua-<version>/`). In
+   newest verified release bundle (`<data>/lua-<version>/`). In
    pinned context, embedded code runs only when its release version is the
    pinned one and refuses otherwise;
 4. honours a repository's **version pin** (`lw.pin`): workspace commands are
@@ -103,25 +103,27 @@ features.
    its bundle from the repository, is refused up front (`pin.reads_repo_bundle`);
 5. runs `loomworks/cli.lua` from the resolved source.
 
-The modules under `lua/boot/` load only from the fused binary, never from a
-bundle, because they verify bundles:
+The modules under `lua/boot/` always load from the executable itself, never
+from a development source, because they verify releases:
 
 | Module | Role |
 |---|---|
-| `verify.lua` | ECDSA P-256 signature check of a release manifest, SHA-256 of artifacts; carries the release public key |
-| `update.lua` | fetch, verify, extract and install a bundle; update channels (stable, unstable); pruning old bundles (`gc`) |
-| `host_update.lua` | replace the running host binary during `lw self-update` |
+| `verify.lua` | ECDSA P-256 signature check of a release's `SHA256SUMS`, SHA-256 of artifacts; carries the release public key |
+| `update.lua` | fetch and verify a release executable (into the executable cache, or for self-update); update channels (stable, unstable) |
+| `host_update.lua` | replace the installed executable during `lw self-update` |
 | `exe_cache.lua` | the content-addressed cache of release executables a redirect runs (`<data>/exe/<sha256>/`) |
-| `install.lua` | `lw install`: place the binary on `PATH`, then fetch the first bundle |
+| `install.lua` | `lw install`: place the executable on `PATH` |
 | `pin.lua`, `bootstrap.lua`, `launcher.lua`, `launcher_check.lua`, `repo_meta.lua` | the repo-local launcher (`lw.sh`, `lw.cmd`) and `lw.pin`: authoring, checks and repository metadata |
 | `release_query.lua` | `lw release query`: the newest verified release on a channel |
 | `modules.lua` | installing third-party build-system modules from a curated index |
 | `download.lua`, `json.lua`, `paths.lua`, `exe.lua`, `luapath.lua` | small dependency-free helpers: curl downloads, JSON, per-user paths, program lookup, search-path hygiene |
 
-The release trust chain: the public key embedded in the host verifies the
-signature over `manifest.json`; the manifest lists the SHA-256 of every
-artifact; each download is checked against it. The transport (TLS, or a
-mirror directory given by `LOOMWORKS_RELEASE_URL`) never decides integrity.
+The release trust chain: the public key embedded in the executable verifies
+`SHA256SUMS.sig` over `SHA256SUMS`; `SHA256SUMS` lists the SHA-256 of every
+release asset and names the release's descriptor, which binds it to that
+version; each download is checked against it, or against a pin's hash. The
+transport (TLS, or a mirror directory given by `LOOMWORKS_RELEASE_URL`) never
+decides integrity.
 
 ### 2. CLI: `lua/loomworks/cli.lua`
 
@@ -292,8 +294,8 @@ The daemon is `lw daemon run --root <workspace>`. Its main parts:
 The shapes the daemon speaks are defined by the protocol documents, not by
 the code. [`lua/loomworks/proto/`](lua/loomworks/proto/) holds the framing,
 envelope, schema validation and conformance replay, and reads the JSON
-schemas from `spec/protocol/` in a checkout, or from `loomworks/protocol/` in
-a release bundle. A handler set that does not match its interface document is
+schemas from `spec/protocol/` in a checkout, or from the copy embedded in a
+release executable. A handler set that does not match its interface document is
 refused when it is mounted, and every argument and result is validated
 against the schema.
 
@@ -367,8 +369,9 @@ signature is not used for execution until the user accepts it (`lw trust`).
 Other files under `.nvim/`: the lock files, the commit journal
 (`loomworks.txn.json`), the daemon handle, `.nvim/build/` (default build
 trees), `.nvim/cache/` and `.nvim/tmp/`. Outside the workspace, the per-user
-data directory holds the machine key, installed and pinned bundles, acquired
-modules, device locks and daemon logs.
+data directory holds the machine key, the cached release executables
+(`<data>/exe/<sha256>/`), acquired modules, device locks and daemon logs, and
+possibly code directories left by releases before self-contained executables.
 [`housekeeping.lua`](lua/loomworks/housekeeping.lua) removes leftovers of
 interrupted processes there (at most daily, and on `lw cleanup`).
 
@@ -406,11 +409,10 @@ against the rules below.
 - **Per-user state** ([`housekeeping.lua`](lua/loomworks/housekeeping.lua),
   `_rm_tree`). Only direct children of fixed directories whose whole name
   matches an exact pattern, past an age threshold, and never in use.
-- **Release bundles and launcher caches** (`gc` in
-  [`boot/update.lua`](lua/boot/update.lua), `prune_cache` in
-  [`boot/repo_meta.lua`](lua/boot/repo_meta.lua)). Only entries with exact
-  release names that pass a layout check, never the running release or the
-  pinned one.
+- **Launcher caches** (`prune_cache` in
+  [`boot/repo_meta.lua`](lua/boot/repo_meta.lua)). Only entries with
+  exact names (a release version) that pass a layout check, never the
+  running executable or a pinned one.
 
 Directories are checked with `lstat`: links and junctions are unlinked, never
 followed. Where a tree is removed, its `realpath` is checked against the
@@ -422,7 +424,7 @@ expected parent. The specs `build_dir_safety_spec.lua`,
 
 | Path | Contents |
 |---|---|
-| `lua/main.lua`, `lua/boot/` | the host bootstrap, fused into the `lw` executable with the rest of the tree |
+| `lua/main.lua`, `lua/boot/` | the executable's entry point and release machinery (verification, acquisition, pins, launchers) |
 | `lua/loomworks/cli*.lua` | the CLI |
 | `lua/loomworks/*.lua` | core, workspace, domain objects, planning, locks, trust, housekeeping |
 | `lua/loomworks/daemon/` | the workspace daemon and its client side |
@@ -437,7 +439,7 @@ expected parent. The specs `build_dir_safety_spec.lua`,
 | `docs/diagrams/` | the diagrams of this document |
 | `bin/` | development launchers (`bin/lw`, `bin/lw.cmd`) |
 | `keys/` | the release public key |
-| `scripts/release/` | release build: the staged tree (`stage_tree.sh`), fused executables and their smoke test, bundle, signed manifest, descriptor, release-notes gate |
+| `scripts/release/` | release build: the staged tree (`stage_tree.sh`), fused executables and their smoke test, signed `SHA256SUMS`, descriptor, release-notes gate (and the transitional bundle for older hosts) |
 | `scripts/ci/`, `scripts/conformance.lua` | end-to-end CI scripts, protocol conformance replay |
 | `scripts/run_specs.lua`, `scripts/dev-install.sh` | the test runner; a local install from the working tree |
 | `tests/` | spec files (`*_spec.lua`), fixtures, the standalone suite (`tests/standalone/`) |
@@ -448,7 +450,7 @@ expected parent. The specs `build_dir_safety_spec.lua`,
 **Running from a checkout.** Put `bin/` on `PATH` (it uses luvi when
 available, else headless Neovim), or point an installed `lw` at the checkout
 with `lw settings set dev-lua <checkout>/lua` and run `lw --dev <command>`.
-`make install` fuses a host binary from the working tree and installs it.
+`make install` fuses a self-contained executable from the working tree and installs it.
 
 **Tests.**
 
@@ -480,23 +482,28 @@ is checked by `tests/release_notes_spec.lua` and by the release gate.
 
 A release consists of:
 
-- the **bundle** `loomworks-lua-<version>.zip`: `lua/loomworks/**`, the
-  protocol schemas and the release notes;
-- `manifest.json` with the SHA-256 of every artifact, and
-  `manifest.json.sig`, its ECDSA P-256 signature;
-- one **host binary** per platform (`lw-linux-x86_64`, `lw-macos-arm64`,
-  `lw-windows-x86_64.exe`, ...): luvi with the whole tree fused in (the
-  same `loomworks/` the bundle carries, plus `main.lua` and `lua/boot/`), the
-  release version and the release public key embedded in `boot/verify.lua`;
-- `SHA256SUMS` and its signature `SHA256SUMS.sig`, used by first installs and
-  by `lw bootstrap` to pin hashes;
+- one **release executable** per platform (`lw-linux-x86_64`,
+  `lw-macos-arm64`, `lw-windows-x86_64.exe`, ...): luvi with all of `lua/`,
+  the protocol schemas and the release notes fused in, and the release
+  public key embedded in `boot/verify.lua`;
+- `SHA256SUMS` with the SHA-256 of every asset, and its ECDSA P-256
+  signature `SHA256SUMS.sig`: what self-update, pinned forwarding and
+  `lw bootstrap` verify against;
 - a binary descriptor (`lw-<version>-descriptor.json`) that states what the
-  release implements.
+  release implements;
+- while the transition lasts (spec §16.14), the bundle
+  `loomworks-lua-<version>.zip` and its signed `manifest.json`, used only by
+  hosts released before self-contained executables.
+
+Releases are cut in two stages ([`release.yml`](.github/workflows/release.yml)):
+a dispatched build stage stages every asset as an unpublished draft from a
+build commit; an annotated tag `v<version>` on that commit publishes the
+draft once [`verify_draft.sh`](scripts/release/verify_draft.sh) accepts it.
 
 The private signing key exists only as a CI secret. The public key is
 [`keys/loomworks-release.pub.pem`](keys/loomworks-release.pub.pem);
 `tests/standalone` checks that the key embedded in `boot/verify.lua` and the
-copies in the README are that key. `lw self-update` installs a newer bundle
-(and host binary) only after the signature and hashes verify, and a
-repository's `lw.pin` fixes the version and hashes it runs. `make dist` builds
-a local dry run signed with a test key.
+copies in the README are that key. `lw self-update` installs a newer release
+executable only after the signature and hash verify, and a repository's
+`lw.pin` fixes the version and hashes it runs. `make dist` builds a local
+dry run signed with a test key.
