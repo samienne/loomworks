@@ -70,6 +70,14 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
   code from the repository, is refused, naming the version and
   `lw bootstrap upgrade`; nothing is deleted (#133).
 
+- `lw bootstrap install` pins a self-contained release by its executables
+  alone: the bundle's hash is written only while the release still publishes
+  a bundle, and a pin without it is complete (`lw bootstrap` and `lw health`
+  note that a global `lw` older than 0.2.0-beta.3 cannot follow such a pin).
+  A release from before self-contained executables must still list its
+  bundle. The release's signed hash list must name its own descriptor, so
+  another release's list is refused (#134).
+
 - `LOOMWORKS_PINNED` and `LW_ROOT` no longer leak into what `lw` starts: a
   build, run or test step (and an `lw` it runs) no longer inherits the
   pinned context or the launcher's workspace root, so a nested `lw` resolves
