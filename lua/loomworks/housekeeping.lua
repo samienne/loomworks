@@ -248,8 +248,24 @@ local function tree_size(path, st)
     return total
 end
 
+--- The executable's name in a slot of the executable cache `<data>/exe/<sha256>/`.
+local CACHED_EXE = IS_WIN and "lw.exe" or "lw"
+
+--- Is `name` exactly a temporary file of an executable-cache acquisition:
+--- `<64 lower-case hex>.<pid digits>.<16 lower-case hex>.dl` (spec §16.40;
+--- the name boot.exe_cache writes, matched here without it, since older hosts
+--- run this code too)?
+--- @param name string
+--- @return boolean
+function M.is_exe_temp_name(name)
+    if type(name) ~= "string" then return false end
+    local sha, pid, nonce = name:match("^([0-9a-f]+)%.(%d+)%.([0-9a-f]+)%.dl$")
+    return sha ~= nil and #sha == 64 and #pid <= 10 and #nonce == 16
+end
+
 --- Is `data` lw's own data directory? Any one marker: the
---- machine key, the housekeeping stamp, `pinned/`, or an installed release
+--- machine key, the housekeeping stamp, `pinned/`, a cached executable
+--- `exe/<sha256>/lw[.exe]`, or an installed release
 --- `lua-<ver>/loomworks/cli.lua` (real entries, lstat). Without one (e.g.
 --- LOOMWORKS_DATA_DIR pointed at a home directory) nothing in it is
 --- scanned, and no stamp is written there.
@@ -264,6 +280,14 @@ function M.is_lw_data(data)
     for _, n in ipairs(names(data)) do
         local v = n:match("^lua%-(.+)$")
         if v and release_version(v) and is(data .. "/" .. n .. "/loomworks/cli.lua", "file") then return true end
+    end
+    if is(data .. "/exe", "directory") then
+        for _, n in ipairs(names(data .. "/exe")) do
+            if is_sha(n) and is(data .. "/exe/" .. n, "directory")
+                    and is(data .. "/exe/" .. n .. "/" .. CACHED_EXE, "file") then
+                return true
+            end
+        end
     end
     return false
 end
@@ -521,6 +545,18 @@ local function unlink_file(item)
 end
 M._unlink_file = unlink_file
 
+--- Leftover temp files of executable-cache acquisitions directly in
+--- `<data>/exe` (another process's, interrupted): regular files of the exact
+--- name, unlinked by name. Never a slot (`<sha256>/`): cached executables are
+--- pruned only by `lw cleanup --all`.
+local function scan_exe_cache(items, ctx, dir)
+    for _, n in ipairs(names(dir)) do
+        if M.is_exe_temp_name(n) then
+            consider(items, ctx, dir, n, "file", "download", M.AGE.transient, { remove = unlink_file })
+        end
+    end
+end
+
 --- `tools.json.<pid>.<nonce>.tmp` directly in the tool cache directory
 --- `<cache>`: a write of the tool cache interrupted
 --- before its rename. Regular files only, unlinked by name (no tree removal).
@@ -774,6 +810,8 @@ function M.collect(opts)
         if rpinned then guarded(scan_pinned, items, ctx, pinned, rpinned) end
         local mods = data .. "/modules"
         if fixed(mods, rdata .. "/modules") then guarded(scan_modules, items, ctx, mods) end
+        local exedir = data .. "/exe"
+        if fixed(exedir, rdata .. "/exe") then guarded(scan_exe_cache, items, ctx, exedir) end
         local dl_default = opts.device_lock_dir_default
         if dl_default == nil then
             local o = os.getenv("LOOMWORKS_DEVICE_LOCK_DIR")
@@ -907,6 +945,23 @@ function M.touch_running(opts)
         local re = exe and rel_of(exe)
         if re and not re:find("/", 1, true) and pinned_binary_version(re, host_assets()) then
             pcall(uv().fs_utime, exe, now, now)
+        end
+    end)
+    -- A cached release executable (`<data>/exe/<sha256>/lw[.exe]`): its
+    -- slot directory's modification time is its last use (§16.40).
+    pcall(function()
+        local data = norm(opts.data or default_data())
+        local rdata = realkey(data)
+        local rexe = rdata and fixed(data .. "/exe", rdata .. "/exe")
+        if not rexe then return end
+        local exe = opts.exe
+        if exe == nil then local ok, p = pcall(uv().exepath); exe = ok and p or nil end
+        local k = exe and realkey(exe)
+        if not k or k:sub(1, #rexe + 1) ~= rexe .. "/" then return end
+        local sha = k:sub(#rexe + 2):match("^(%x+)/" .. CACHED_EXE:gsub("%.", "%%.") .. "$")
+        if sha and is_sha(sha) and fixed(data .. "/exe/" .. sha, rexe .. "/" .. sha) then
+            local now = opts.now or os.time()
+            pcall(uv().fs_utime, data .. "/exe/" .. sha, now, now)
         end
     end)
 end
