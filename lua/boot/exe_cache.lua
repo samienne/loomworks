@@ -195,9 +195,14 @@ end
 --- @param version string
 --- @param asset string
 --- @param sha string
---- @param opts? { on_fetch?: fun(), url?: string, pid?: integer, nonce?: string }
+--- `opts._test` is a test seam only: `hook(stage)` runs just before the slot
+--- is checked ("install") and just before the executable is put in place
+--- ("link"); `link` / `unlink` replace the hard link and the removal of a
+--- mismatched slot file.
+--- @param opts? { on_fetch?: fun(), url?: string, pid?: integer, nonce?: string, _test?: table }
 function M.ensure(version, asset, sha, opts)
   opts = opts or {}
+  local t = opts._test or {}
   if not pin.valid_version(version) then
     return nil, "unsafe release version '" .. tostring(version) .. "'"
   end
@@ -210,7 +215,7 @@ function M.ensure(version, asset, sha, opts)
   if not state then return nil, why end
   if state == "ok" then return M.path(sha) end
   if state == "mismatch" then
-    local okr, er = unlink_name(M.path(sha))
+    local okr, er = (t.unlink or unlink_name)(M.path(sha))
     if not okr then
       return nil, M.path(sha) .. " does not match its hash and cannot be removed (" .. tostring(er) ..
         "; is it running?)"
@@ -233,6 +238,7 @@ function M.ensure(version, asset, sha, opts)
   if not okw then unlink_name(tmp); return nil, ew end
 
   local function install()
+    if t.hook then t.hook("install") end
     local s, w = slot_state(sha)
     if not s then return nil, w end
     -- Another process finished first: never overwrite its (matching) file.
@@ -251,13 +257,17 @@ function M.ensure(version, asset, sha, opts)
     -- another process placed meanwhile, perhaps running); a file system
     -- without hard links falls back to the rename. Windows: the rename (an
     -- executable in use there cannot be replaced anyway).
+    if t.hook then t.hook("link") end
     if not paths.is_windows then
-      local okl, el = uv.fs_link(tmp, M.path(sha))
+      local okl, el = (t.link or uv.fs_link)(tmp, M.path(sha))
       if okl then return true end
       if tostring(el):find("EEXIST", 1, true) then
         if slot_state(sha) == "ok" then return true end
         return nil, M.path(sha) .. " appeared meanwhile and does not match its hash"
       end
+      -- No hard link: a matching file another process placed since the
+      -- check above is kept, never renamed over (our temp file is removed).
+      if slot_state(sha) == "ok" then return true end
     end
     local okr, er = require("boot.update").rename_with_retry(tmp, M.path(sha))
     if okr then return true end

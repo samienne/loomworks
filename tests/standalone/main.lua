@@ -2282,6 +2282,100 @@ do
   ok(select(1, exe_cache.ensure("1.0.0", asset, sha5)) == nil and slurp(exe_cache.slot(sha5)) == "not a dir",
     "a file at the slot name is refused and kept")
 
+  -- Another process finishing first. `_test.hook(stage)` runs just before
+  -- the slot is checked ("install") and just before the executable is put in
+  -- place ("link"); a matching file another process placed by then is kept,
+  -- never replaced (same file identity), and our temp file is removed.
+  local function ino(p) return (uv.fs_stat(p) or {}).ino end
+  local function no_temp(what)
+    for name in entries(data .. "/exe"):gmatch("[^,]+") do
+      ok(not exe_cache.is_temp_name(name), what .. ": no temp file left (" .. name .. ")")
+    end
+  end
+  local function place(sha_, body_)
+    return function(stage, want)
+      if stage ~= want or uv.fs_lstat(exe_cache.path(sha_)) then return end
+      paths.mkdirp(exe_cache.slot(sha_)); put(exe_cache.path(sha_), body_)
+    end
+  end
+  do
+    local b = "FAKE-LW-EXECUTABLE 6\n"
+    local s6 = publish(b)
+    local placed
+    local p6, e6 = exe_cache.ensure("1.0.0", asset, s6, { _test = { hook = function(stage)
+      place(s6, b)(stage, "install"); placed = placed or ino(exe_cache.path(s6))
+    end } })
+    ok(p6 == exe_cache.path(s6) and slurp(p6) == b,
+      "another process finished first (before the slot check): its file is used  (" .. tostring(e6) .. ")")
+    ok(placed ~= nil and ino(p6) == placed, "and kept, never replaced")
+    no_temp("another process finished first")
+  end
+  do
+    local b = "FAKE-LW-EXECUTABLE 7\n"
+    local s7 = publish(b)
+    local placed
+    local p7, e7 = exe_cache.ensure("1.0.0", asset, s7, { _test = { hook = function(stage)
+      place(s7, b)(stage, "link"); placed = placed or ino(exe_cache.path(s7))
+    end } })
+    ok(p7 == exe_cache.path(s7) and slurp(p7) == b,
+      "another process finished first (before the link): its file is used  (" .. tostring(e7) .. ")")
+    if not win then ok(placed ~= nil and ino(p7) == placed, "and kept (the hard link meets EEXIST)") end
+    no_temp("another process finished first (link)")
+  end
+  if not win then
+    -- No hard links on this file system: the rename fallback re-checks the
+    -- slot and never renames over a matching file placed meanwhile.
+    local b = "FAKE-LW-EXECUTABLE 8\n"
+    local s8 = publish(b)
+    local placed
+    local p8, e8 = exe_cache.ensure("1.0.0", asset, s8, { _test = {
+      link = function() return nil, "ENOTSUP: operation not supported" end,
+      hook = function(stage) place(s8, b)(stage, "link"); placed = placed or ino(exe_cache.path(s8)) end,
+    } })
+    ok(p8 == exe_cache.path(s8) and slurp(p8) == b and placed ~= nil and ino(p8) == placed,
+      "no hard links: a matching file placed meanwhile is kept, not renamed over  (" .. tostring(e8) .. ")")
+    no_temp("no hard links")
+    -- And without one, the rename fallback installs it.
+    local b9 = "FAKE-LW-EXECUTABLE 9\n"
+    local s9 = publish(b9)
+    local p9, e9 = exe_cache.ensure("1.0.0", asset, s9, { _test = {
+      link = function() return nil, "ENOTSUP: operation not supported" end } })
+    ok(p9 == exe_cache.path(s9) and slurp(p9) == b9, "no hard links: installed by rename  (" .. tostring(e9) .. ")")
+  end
+
+  -- A mismatched slot file that cannot be removed (an executable running on
+  -- Windows): refused, kept, nothing downloaded.
+  do
+    local b = "FAKE-LW-EXECUTABLE 10\n"
+    local s10 = publish(b)
+    paths.mkdirp(exe_cache.slot(s10)); put(exe_cache.path(s10), "OLD RUNNING")
+    local before = fetched
+    local p10, e10 = exe_cache.ensure("1.0.0", asset, s10, { on_fetch = on_fetch, _test = {
+      unlink = function() return nil, "EBUSY: resource busy or locked" end } })
+    ok(p10 == nil and type(e10) == "string" and e10:find("cannot be removed", 1, true) ~= nil,
+      "a mismatched slot file that cannot be removed: refused  (" .. tostring(e10) .. ")")
+    eq(slurp(exe_cache.path(s10)), "OLD RUNNING", "and kept")
+    eq(fetched, before, "and nothing downloaded")
+  end
+
+  -- A junction at the executable name (Windows, where a file link needs a
+  -- privilege): refused, kept, its target untouched.
+  if win then
+    local b = "FAKE-LW-EXECUTABLE 11\n"
+    local s11 = publish(b)
+    paths.mkdirp(exe_cache.slot(s11))
+    paths.mkdirp(outside .. "/j11"); put(outside .. "/j11/keep.txt", "keep")
+    if uv.fs_symlink(outside .. "/j11", exe_cache.path(s11), { junction = true }) then
+      local p11, e11 = exe_cache.ensure("1.0.0", asset, s11)
+      ok(p11 == nil and type(e11) == "string", "a junction at the executable name is refused  (" .. tostring(e11) .. ")")
+      ok(uv.fs_lstat(exe_cache.path(s11)) ~= nil, "the junction is kept")
+      eq(slurp(outside .. "/j11/keep.txt"), "keep", "its target is untouched")
+      ok(select(1, exe_cache.verify_before_run(s11)) == nil, "verify_before_run refuses a junction")
+    else
+      ok(false, "a junction could be created at the executable name")
+    end
+  end
+
   -- Last use: the slot directory's modification time.
   local old = os.time() - 40 * 86400
   uv.fs_utime(exe_cache.slot(sha), old, old)
