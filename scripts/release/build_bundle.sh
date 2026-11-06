@@ -4,9 +4,10 @@
 #   build_bundle.sh <version> <out_dir> <signing_key.pem> [min_host_version]
 #
 # Produces in <out_dir>:
-#   loomworks-lua-<version>.zip   the system Lua (lua/loomworks/** -> loomworks/…)
-#                                 + the release notes (CHANGELOG.md ->
-#                                 loomworks/CHANGELOG.md, spec §16.37)
+#   loomworks-lua-<version>.zip   the loomworks/ part of the staged tree
+#                                 (scripts/release/stage_tree.sh): the system
+#                                 Lua, the release notes (spec §16.37) and the
+#                                 protocol's schema documents
 #   manifest.json                 version, min_host_version, bundle name, sha256s
 #   manifest.json.sig             ECDSA-P256+SHA-256 signature over manifest.json
 #
@@ -23,32 +24,24 @@ repo="$(cd "$(dirname "$0")/../.." && pwd)"
 mkdir -p "$out"
 bundle="loomworks-lua-${version}.zip"
 
-# The release notes ride inside the signed archive (spec §16.37).
-[ -f "$repo/CHANGELOG.md" ] || { echo "build_bundle.sh: $repo/CHANGELOG.md is missing" >&2; exit 1; }
+# The bundle's loomworks/ part is exactly the staged tree's (stage_tree.sh, the
+# one source of truth shared with the fused executables): the system Lua, the
+# release notes (loomworks/CHANGELOG.md, spec §16.37) and the protocol's schema
+# documents (loomworks/protocol/, spec 19.20), served by the daemon's
+# Root.schema.
+stage="$(bash "$repo/scripts/release/stage_tree.sh")"
+trap 'rm -rf "$stage"' EXIT
 
-# Deterministic zip of lua/loomworks -> loomworks/… (fixed order + timestamps),
-# so identical input yields an identical hash. Python's zipfile is miniz-readable.
-# The protocol's schema documents (spec 19.20) ride along as loomworks/protocol/
-# (transport.json, meta/, interfaces/; not the frozen snapshots), served by
-# the daemon's Root.schema.
-python3 - "$repo/lua/loomworks" "$out/$bundle" "$repo/CHANGELOG.md" "$repo/spec/protocol" <<'PY'
+# Deterministic zip of the staged loomworks/ (fixed order + timestamps), so
+# identical input yields an identical hash. Python's zipfile is miniz-readable.
+python3 - "$stage" "$out/$bundle" <<'PY'
 import sys, os, zipfile
-src, outzip, notes, proto = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
-base = os.path.dirname(src)  # .../lua
+stage, outzip = sys.argv[1], sys.argv[2]
 files = []
-for r, _, fs in os.walk(src):
+for r, _, fs in os.walk(os.path.join(stage, "loomworks")):
     for f in fs:
         p = os.path.join(r, f)
-        arc = os.path.relpath(p, base).replace(os.sep, "/")
-        files.append((arc, p))
-files.append(("loomworks/CHANGELOG.md", notes))
-files.append(("loomworks/protocol/transport.json", os.path.join(proto, "transport.json")))
-for sub in ("meta", "interfaces"):
-    for r, _, fs in os.walk(os.path.join(proto, sub)):
-        for f in fs:
-            if f.endswith(".json"):
-                p = os.path.join(r, f)
-                files.append(("loomworks/protocol/" + os.path.relpath(p, proto).replace(os.sep, "/"), p))
+        files.append((os.path.relpath(p, stage).replace(os.sep, "/"), p))
 files.sort()
 with zipfile.ZipFile(outzip, "w", zipfile.ZIP_DEFLATED) as z:
     for arc, p in files:
