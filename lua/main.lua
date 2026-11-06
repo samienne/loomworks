@@ -387,11 +387,6 @@ if host_command == "version" and not version_json then
 elseif host_command == "self-update" then
   -- Self-update replaces only the executable (spec §16.32): the release
   -- executable carries all its code, so there is no bundle step.
-  if source_kind == "dev" then
-    io.stderr:write("lw: self-update does not apply to a development source " ..
-      "(--dev / default-source=dev).\n")
-    exit(1)
-  end
   local force, channel, version, no_host = false, nil, nil, false
   local pending  -- the valued flag whose value is the next token
   for _, v in ipairs(forwarded) do
@@ -420,6 +415,12 @@ elseif host_command == "self-update" then
   if version and not pin.valid_version(version) then
     io.stderr:write("lw: --version '" .. version .. "' is not a release version\n")
     exit(2)
+  end
+  -- After the usage checks, so a usage error is exit 2 here too (spec §16.32).
+  if source_kind == "dev" then
+    io.stderr:write("lw: self-update does not apply to a development source " ..
+      "(--dev / default-source=dev).\n")
+    exit(1)
   end
   local upd = require("boot.update")
   -- `--channel <c>` is persisted: it becomes the update channel

@@ -4293,6 +4293,17 @@ do
   eq(saved_channel(), "unstable", "a refused channel leaves the setting")
   local _, sout = host({ "self-update", "--channel=stable" })
   ok(sout:find("update channel set to stable", 1, true) ~= nil, "--channel=stable switches back")
+  -- Usage errors are exit 2 under the development facility too: the flags are
+  -- checked before "self-update does not apply to a development source" (exit 1).
+  env[#env + 1] = "LOOMWORKS_LUA=" .. root .. "/lua"
+  local ncode, nout = host({ "self-update", "--no-host" })
+  ok(ncode == 2 and nout:find("--no-host is no longer accepted", 1, true) ~= nil,
+    "dev facility: --no-host is a usage error (exit 2)  (got " .. tostring(ncode) .. ": " .. nout .. ")")
+  local vcode = host({ "self-update", "--version", "x..y" })
+  eq(vcode, 2, "dev facility: a bad --version is a usage error (exit 2)")
+  local dcode, dout = host({ "self-update" })
+  ok(dcode == 1 and dout:find("development source", 1, true) ~= nil,
+    "dev facility: a valid self-update still refuses (exit 1)  (got " .. tostring(dcode) .. ")")
   paths.rm_rf(sb)
 end
 
