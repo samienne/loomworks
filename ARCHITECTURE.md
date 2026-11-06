@@ -91,7 +91,7 @@ features.
    development facility, only on that opt-in) > the code embedded in the
    executable (a release executable or a development build: it runs, and
    never an installed bundle) > for a bootstrap-only host (transitional) the
-   newest verified release bundle (`<data>/loomworks/lua-<version>/`). In
+   newest verified release bundle (`<data>/lua-<version>/`). In
    pinned context, embedded code runs only when its release version is the
    pinned one and refuses otherwise;
 4. honours a repository's **version pin** (`lw.pin`): workspace commands are
