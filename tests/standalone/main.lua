@@ -1878,7 +1878,7 @@ os.exit(0)
 
   -- The redirect (§16.23) runs the pinned release executable from the
   -- content-addressed cache `<data>/exe/<sha256>/` (here the stand-in). A pin
-  -- to a release before self-contained executables (0.0.0-test) still names
+  -- to a release before self-contained executables (0.1.40) still names
   -- its bundle, but the redirect fetches the executable only: the mirror has
   -- no bundle at all.
   local fwd, mirror2 = sb .. "/repo-fwd", sb .. "/mirror-fwd"
@@ -1886,14 +1886,14 @@ os.exit(0)
   local dump_bytes = readfile(dump_exe)
   local dump_sha = verify.sha256_hex(dump_bytes)
   writef(mirror2 .. "/" .. asset, dump_bytes)
-  local zip = pinmod.bundle_asset("0.0.0-test")
-  writef(fwd .. "/lw.pin", pinmod.serialize("0.0.0-test", {
-    [asset] = dump_sha, [zip] = verify.sha256_hex(readfile(FX .. zip)) }))
+  local pre = "0.1.40"
+  writef(fwd .. "/lw.pin", pinmod.serialize(pre, {
+    [asset] = dump_sha, [pinmod.bundle_asset(pre)] = string.rep("b", 64) }))
   local fwd_env = { LOOMWORKS_RELEASE_URL = mirror2, DUMP_OUT = dump_out, LOOMWORKS_INSTALL_DIR = false }
   code, out, err = lw({ "build" }, fwd_env, fwd)
   local recs, raw = dumped()
   local r = recs[1] or {}
-  ok(code == 0 and r.PINNED == "0.0.0-test" and (paths.norm(r.ROOT or "") or ""):lower() == paths.norm(fwd):lower(),
+  ok(code == 0 and r.PINNED == pre and (paths.norm(r.ROOT or "") or ""):lower() == paths.norm(fwd):lower(),
     "the redirect passes the pinned marker and LW_ROOT to the pinned lw  (exit " .. tostring(code) .. ": "
       .. raw .. out .. err .. ")")
   local slot = home .. "/exe/" .. dump_sha
@@ -1917,7 +1917,7 @@ os.exit(0)
   ok(select(2, err:gsub("fetching", "")) == 1, "cold cache: one fetching notice  (" .. err .. ")")
   ok(uv.fs_stat(home .. "/pinned") == nil and uv.fs_stat(inst .. "/pinned") == nil,
     "a pre-cutover pin: no bundle provisioned, nothing under pinned/")
-  ok(uv.fs_stat(home .. "/lua-0.0.0-test") == nil, "a pre-cutover pin: no bundle installed")
+  ok(uv.fs_stat(home .. "/lua-" .. pre) == nil, "a pre-cutover pin: no bundle installed")
   -- Warm cache: no download (the mirror is gone), the slot's last use updated.
   local older = os.time() - 40 * 86400
   uv.fs_utime(slot, older, older)
@@ -1936,23 +1936,49 @@ os.exit(0)
   -- A hash mismatch at the origin: refused, nothing run, nothing left.
   local bad_repo = sb .. "/repo-bad"
   paths.mkdirp(bad_repo)
-  writef(bad_repo .. "/lw.pin", pinmod.serialize("0.0.0-test", { [asset] = string.rep("e", 64) }))
+  writef(bad_repo .. "/lw.pin", pinmod.serialize(pre, { [asset] = string.rep("e", 64) }))
   code, out, err = lw({ "build" }, fwd_env, bad_repo)
   recs = dumped()
-  ok(code == 1 and #recs == 0 and err:find("could not fetch pinned lw 0.0.0-test", 1, true)
+  ok(code == 1 and #recs == 0 and err:find("could not fetch pinned lw " .. pre, 1, true)
     and uv.fs_lstat(home .. "/exe/" .. string.rep("e", 64)) == nil,
     "a hash mismatch: refused, nothing run, no slot  (exit " .. tostring(code) .. ": " .. err .. ")")
   -- A pin to a release that still reads the repository-local bundle
-  -- location: refused while it exists, which is never deleted.
-  local legacy = fwd .. "/.nvim/cache/lua-0.0.0-test"
-  paths.mkdirp(legacy .. "/loomworks")
-  writef(legacy .. "/loomworks/cli.lua", "return 'planted'")
+  -- location (before 0.1.32): refused up front, whether or not that
+  -- location exists, before any fetch, naming the version and the command
+  -- that moves the pin; repository content is never deleted.
+  local old_repo = sb .. "/repo-old"
+  local old_sha = string.rep("d", 64)
+  paths.mkdirp(old_repo)
+  writef(old_repo .. "/lw.pin", pinmod.serialize("0.1.31", { [asset] = old_sha }))
+  for _, with_dir in ipairs({ false, true }) do
+    local how = with_dir and "with" or "without"
+    local legacy = old_repo .. "/.nvim/cache/lua-0.1.31"
+    if with_dir then
+      paths.mkdirp(legacy .. "/loomworks")
+      writef(legacy .. "/loomworks/cli.lua", "return 'planted'")
+    end
+    code, out, err = lw({ "build" }, fwd_env, old_repo)
+    recs = dumped()
+    ok(code == 1 and #recs == 0 and err:find("pinned lw 0.1.31", 1, true)
+      and err:find("lw bootstrap upgrade", 1, true) and not err:find("fetching", 1, true),
+      "a pin before 0.1.32 " .. how .. " a repository bundle dir: refused, naming the version and the upgrade  (exit "
+        .. tostring(code) .. ": " .. err .. ")")
+    ok(uv.fs_lstat(home .. "/exe/" .. old_sha) == nil, "a pin before 0.1.32 " .. how .. " the dir: nothing fetched")
+    if with_dir then
+      eq(slurp(legacy .. "/loomworks/cli.lua"), "return 'planted'", "a repository bundle dir is never deleted")
+    end
+  end
+  -- A pin from 0.1.32 on never reads that location: a stray lua-<ver> dir
+  -- there does not stop the redirect, and is kept.
+  local stray = fwd .. "/.nvim/cache/lua-" .. pre
+  paths.mkdirp(stray .. "/loomworks")
+  writef(stray .. "/loomworks/cli.lua", "return 'planted'")
   code, out, err = lw({ "build" }, fwd_env, fwd)
-  recs = dumped()
-  ok(code == 1 and #recs == 0 and err:find("refusing to run pinned lw 0.0.0-test", 1, true)
-    and err:find(".nvim/cache/lua-0.0.0-test", 1, true),
-    "a legacy repository bundle dir: the redirect is refused, naming it  (exit " .. tostring(code) .. ": " .. err .. ")")
-  eq(slurp(legacy .. "/loomworks/cli.lua"), "return 'planted'", "a legacy repository bundle dir is never deleted")
+  recs, raw = dumped()
+  ok(code == 0 and (recs[1] or {}).PINNED == pre,
+    "a pin from 0.1.32 on: redirected despite a lua-<ver> dir in the repository  (exit " .. tostring(code) .. ": "
+      .. raw .. err .. ")")
+  eq(slurp(stray .. "/loomworks/cli.lua"), "return 'planted'", "and that directory is kept")
   -- A self-contained pinned release never reads that location: not refused.
   local sc = sb .. "/repo-sc"
   paths.mkdirp(sc .. "/.nvim/cache/lua-9.9.9/loomworks")
@@ -2109,6 +2135,12 @@ do
     eq(pinmod.is_self_contained(v), want, "is_self_contained(" .. v .. ")")
   end
   eq(pinmod.is_self_contained("../x"), false, "is_self_contained refuses an unsafe version")
+  eq(pinmod.REPO_BUNDLE_BEFORE, "0.1.32", "REPO_BUNDLE_BEFORE")
+  for v, want in pairs({ ["0.0.0-test"] = true, ["0.1.6"] = true, ["0.1.31"] = true,
+      ["0.1.32-beta.1"] = true, ["0.1.32"] = false, ["0.1.40"] = false, ["0.2.0-beta.3"] = false }) do
+    eq(pinmod.reads_repo_bundle(v), want, "reads_repo_bundle(" .. v .. ")")
+  end
+  eq(pinmod.reads_repo_bundle("../x"), true, "reads_repo_bundle treats an unsafe version as refused")
 end
 
 print("boot.exe_cache — content-addressed executable cache (§16.13, §16.22, §16.40)")

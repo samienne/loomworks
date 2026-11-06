@@ -66,9 +66,9 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
   (`exe/<sha256>/`), verified against the pin before every run, and no
   longer downloads or unpacks a release bundle for it. A pin to a release
   from before self-contained executables is still honoured: that release
-  provisions its own bundle. While such a repository holds a
-  `.nvim/cache/lua-<version>` directory for that release, the redirect is
-  refused, naming it, and nothing is deleted (#133).
+  provisions its own bundle. A pin to a release before 0.1.32, which loads
+  code from the repository, is refused, naming the version and
+  `lw bootstrap upgrade`; nothing is deleted (#133).
 
 - `LOOMWORKS_PINNED` and `LW_ROOT` no longer leak into what `lw` starts: a
   build, run or test step (and an `lw` it runs) no longer inherits the

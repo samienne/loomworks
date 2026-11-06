@@ -634,18 +634,17 @@ do
       io.stderr:write("lw: cannot honor lw.pin: " .. tostring(aerr) .. "\n")
       exit(1)
     end
-    -- A pinned release from before self-contained executables that still
-    -- reads the repository-local bundle location would load code from the
-    -- repository: refuse while it exists, naming it. Nothing is deleted.
-    local exe_cache = require("boot.exe_cache")
-    if not pin.is_self_contained(p.version) then
-      local legacy = pin_root .. "/.nvim/cache/lua-" .. p.version
-      if uv.fs_lstat(legacy) then
-        io.stderr:write("lw: refusing to run pinned lw " .. p.version .. ": " .. legacy ..
-          " exists, and that release would load code from it; it is a cache - delete it and re-run\n")
-        exit(1)
-      end
+    -- A pinned release that reads its bundle from the repository-local
+    -- `.nvim/cache/lua-<ver>/` would load code from the repository: refuse it
+    -- up front (spec §16.22), before any fetch, naming the version and the
+    -- command that moves the pin. Nothing is deleted.
+    if pin.reads_repo_bundle(p.version) then
+      io.stderr:write("lw: refusing to run pinned lw " .. p.version .. ": releases before " ..
+        pin.REPO_BUNDLE_BEFORE .. " load code from the repository; to move lw.pin to a supported release " ..
+        require("boot.launcher_check").run(invoked_form, "bootstrap upgrade") .. "\n")
+      exit(1)
     end
+    local exe_cache = require("boot.exe_cache")
     -- The pinned release executable, from the machine-local executable cache
     -- <data>/exe/<sha256>/ (never the repository: a clone could ship a binary
     -- there with a pin naming its hash), verified against the pin. Only the

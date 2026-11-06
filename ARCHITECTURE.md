@@ -99,7 +99,8 @@ features.
    content-addressed executable cache `<data>/exe/<sha256>/` and verified
    against the pin before every run (`boot/exe_cache.lua`). The redirect
    never provisions a bundle: a pinned release from before self-contained
-   executables provisions its own;
+   executables provisions its own. A pin before 0.1.32, whose release loads
+   its bundle from the repository, is refused up front (`pin.reads_repo_bundle`);
 5. runs `loomworks/cli.lua` from the resolved source.
 
 The modules under `lua/boot/` load only from the fused binary, never from a
