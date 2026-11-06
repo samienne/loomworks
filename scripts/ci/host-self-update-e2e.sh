@@ -7,7 +7,8 @@
 # running-.exe rename-aside dance, which no unit test can. Also: a development
 # build (no release version) never replaces itself, and a bootstrap-only host
 # (transitional, releases before self-contained executables) updates to the
-# self-contained executable.
+# self-contained executable, and before that, with no bundle, still answers
+# version and help (naming self-update, or the launcher in a pinned repo).
 #
 #   bash scripts/ci/host-self-update-e2e.sh <luvi_binary>
 #
@@ -142,18 +143,58 @@ cmp -s "$T/devbuild/$exe_name" "$T/devbuild/copy" && ok "dev build left unchange
 
 # Transitional: a bootstrap-only host (main.lua + boot/ only, as releases
 # before self-contained executables) updates to the self-contained executable.
-echo "=== a bootstrap-only host updates to the self-contained executable ==="
-mkdir -p "$T/bootstage" "$T/bootonly"
+# Without system Lua (no bundle installed) it is also the only host that still
+# takes the host's no-bundle paths: version, help, the pinned-repo hint.
+echo "=== a bootstrap-only host with no bundle: version and help ==="
+mkdir -p "$T/bootstage" "$T/bootonly" "$T/unversioned"
 cp "$repo/lua/main.lua" "$T/bootstage/main.lua"; cp -R "$repo/lua/boot" "$T/bootstage/boot"
+fuse_dir() {  # <dir> <out>: fuse a directory as-is (not the full tree)
+  if [ "$os" = windows ]; then
+    "$luvi" "$(cygpath -w "$1")" --output "$(cygpath -w "$2")" >/dev/null
+  else
+    "$luvi" "$1" --output "$2" >/dev/null
+  fi
+}
+# With the checkout's boot/verify.lua (no release version): a release host from
+# before version identity, which never guesses one.
+fuse_dir "$T/bootstage" "$T/unversioned/$exe_name"
+out="$("$T/unversioned/$exe_name" version 2>&1)"; echo "$out"
+case "$out" in *"host: unknown release"*) ok "unversioned bootstrap-only host reports an unknown release" ;; *) bad "unexpected version: $out" ;; esac
 # Its boot/verify.lua from the old executable: the TEST key, release $oldver.
 python3 -c 'import sys, zipfile; open(sys.argv[2], "wb").write(zipfile.ZipFile(sys.argv[1]).read("boot/verify.lua"))' \
   "$T/old-copy" "$T/bootstage/boot/verify.lua"
-if [ "$os" = windows ]; then
-  "$luvi" "$(cygpath -w "$T/bootstage")" --output "$(cygpath -w "$T/bootonly/$exe_name")" >/dev/null
-else
-  "$luvi" "$T/bootstage" --output "$T/bootonly/$exe_name" >/dev/null
-fi
-out="$("$T/bootonly/$exe_name" self-update 2>&1)"; code=$?; echo "$out"
+fuse_dir "$T/bootstage" "$T/bootonly/$exe_name"
+bl="$T/bootonly/$exe_name"
+# The version line must not claim a bundle (every other command says "no
+# loomworks release is installed").
+out="$("$bl" version 2>&1)"; echo "$out"
+case "$out" in *"host: $oldver (v"*) ok "bootstrap-only host reports release $oldver" ;; *) bad "unexpected version: $out" ;; esac
+case "$out" in *"bundle: none installed (run \`lw self-update\`)"*) ok "no bundle: version says none installed" ;; *) bad "no-bundle version line: $out" ;; esac
+# Help must work before any bundle exists — it is how a user learns what
+# install / self-update do (spec §16.7).
+for h in "help" "--help" "-h" "install --help" "help self-update" "build --help"; do
+  # shellcheck disable=SC2086
+  out="$("$bl" $h 2>&1)"; code=$?
+  [ $code -eq 0 ] && ok "bootstrap-only lw $h exits 0" || bad "bootstrap-only lw $h exit $code: $out"
+  case "$out" in *"no loomworks release is installed"*) bad "bootstrap-only lw $h: bundle error instead of help" ;; esac
+  # A host command's help is its complete help (no "needs the bundle" note);
+  # the usage and a bundle command's help name self-update.
+  case "$h" in
+    "install --help"|"help self-update")
+      case "$out" in *"Full help needs"*) bad "bootstrap-only lw $h: host-command help carries the bundle note: $out" ;; *) ok "bootstrap-only lw $h: complete, no bundle note" ;; esac ;;
+    *)
+      case "$out" in *"run \`lw self-update\`"*) ok "bootstrap-only lw $h: names self-update" ;; *) bad "bootstrap-only lw $h: no self-update hint: $out" ;; esac ;;
+  esac
+done
+# Inside a pinned repository the note names the launcher, not self-update.
+mkdir -p "$T/pinned-repo"; printf 'version = 0.0.0-test\n' > "$T/pinned-repo/lw.pin"
+out="$(cd "$T/pinned-repo" && LW_ROOT= "$bl" help build 2>&1)"
+case "$out" in *"./lw.sh help <command>"*) ok "pinned repo: bootstrap-only help names the launcher" ;; *) bad "pinned repo help: $out" ;; esac
+[ ! -e "$T/home/loomworks/pinned" ] && [ -z "$(ls -d "$T/home/loomworks/lua-"* 2>/dev/null)" ] \
+  && ok "version and help installed nothing" || bad "version or help installed something"
+
+echo "=== a bootstrap-only host updates to the self-contained executable ==="
+out="$("$bl" self-update 2>&1)"; code=$?; echo "$out"
 [ $code -eq 0 ] && ok "exits 0" || bad "exit $code"
 cmp -s "$T/bootonly/$exe_name" "$T/mirror/$asset" && ok "replaced by the verified self-contained executable" || bad "bootstrap-only host not replaced"
 out="$("$T/bootonly/$exe_name" version 2>&1)"; echo "$out"
