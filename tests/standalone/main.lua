@@ -2421,7 +2421,9 @@ do
   local function stage(version, tag)
     local exp, lines = {}, {}
     local list = { "lw-linux-x86_64", "lw-macos-arm64", "lw-windows-x86_64.exe",
-      pin.bundle_asset(version), "lw-" .. version .. "-descriptor.json" }
+      pin.bundle_asset(version) }
+    -- a release lists its descriptor from self-contained executables on (§16.41)
+    if pin.is_self_contained(version) then list[#list + 1] = pin.descriptor_asset(version) end
     for _, a in ipairs(list) do
       local bodyv = tag .. ":" .. a .. "\n"
       local f = assert(io.open(mirror .. "/" .. a, "wb")); f:write(bodyv); f:close()
@@ -2589,13 +2591,31 @@ do
   -- a release before self-contained executables still needs its bundle
   local PRE = "0.1.60"
   ok(not pin.is_self_contained(PRE), "fixture release predates self-contained executables")
-  stage(PRE, { descriptor = true })
+  stage(PRE, {})
   local r3, e3 = bootstrap.install(repo, { version = PRE })
   ok(r3 == nil and tostring(e3):find(pin.bundle_asset(PRE), 1, true),
     "a pre-self-contained release without a bundle is refused  (" .. tostring(e3) .. ")")
-  local expp = stage(PRE, { bundle = true, descriptor = true })
-  ok(bootstrap.install(repo, { version = PRE }) ~= nil, "a pre-self-contained release with its bundle is pinned")
-  eq(pin.read(repo).hashes[pin.bundle_asset(PRE)], expp[pin.bundle_asset(PRE)], "its pin carries the bundle")
+  -- such a release's signed sums never list a descriptor (it predates §16.41):
+  -- its bundle entry, which names the version, binds the list to it (§16.14)
+  local expp = stage(PRE, { bundle = true })
+  local r4, e4 = bootstrap.install(repo, { version = PRE })
+  ok(r4 ~= nil, "a pre-self-contained release with its bundle and no descriptor is pinned" ..
+    (e4 and (" — " .. e4) or ""))
+  eq(pin.read(repo) and pin.read(repo).hashes[pin.bundle_asset(PRE)], expp[pin.bundle_asset(PRE)],
+    "its pin carries the bundle")
+  -- plain install in that pinned repository only repairs it (§16.24)
+  do local f = assert(io.open(repo .. "/lw.pin", "wb")); f:write(pin.serialize(PRE, {})); f:close() end
+  local r5, e5 = bootstrap.install(repo, {})
+  ok(r5 ~= nil, "plain install repairs a pin to a pre-self-contained release" .. (e5 and (" — " .. e5) or ""))
+  eq(pin.read(repo) and pin.read(repo).version, PRE, "the repair keeps the pinned version")
+  eq(pin.read(repo) and pin.read(repo).hashes[pin.bundle_asset(PRE)], expp[pin.bundle_asset(PRE)],
+    "the repaired pin carries the bundle")
+  -- another old release's genuine list (its own bundle only) is refused for PRE
+  stage("0.1.59", { bundle = true })
+  local r6, e6 = bootstrap.install(repo, { version = PRE })
+  ok(r6 == nil and tostring(e6):find(pin.bundle_asset(PRE), 1, true),
+    "another old release's list is refused  (" .. tostring(e6) .. ")")
+  eq(pin.read(repo).version, PRE, "the refused install leaves the pin intact")
   -- a pre-self-contained pin without the bundle: actionable (that release needs it)
   local hp = {}
   for _, a in ipairs(HOSTS) do hp[a] = string.rep("a", 64) end
@@ -2633,8 +2653,11 @@ do
   -- One flat mirror serving every staged version's hashes.
   local lines = {}
   local function stage(version)
-    for _, a in ipairs({ "lw-linux-x86_64", "lw-macos-arm64", "lw-windows-x86_64.exe",
-        pin.bundle_asset(version), "lw-" .. version .. "-descriptor.json" }) do
+    local assets = { "lw-linux-x86_64", "lw-macos-arm64", "lw-windows-x86_64.exe",
+      pin.bundle_asset(version) }
+    -- a release lists its descriptor from self-contained executables on (§16.41)
+    if pin.is_self_contained(version) then assets[#assets + 1] = pin.descriptor_asset(version) end
+    for _, a in ipairs(assets) do
       local body = version .. ":" .. a .. "\n"
       put(mirror .. "/" .. a, body)
       lines[#lines + 1] = verify.sha256_hex(body) .. "  " .. a
@@ -2922,8 +2945,11 @@ do
   local mirror = sb .. "/mirror"; paths.mkdirp(mirror)
   local lines = {}
   local function stage(version)
-    for _, a in ipairs({ "lw-linux-x86_64", "lw-macos-arm64", "lw-windows-x86_64.exe",
-        pin.bundle_asset(version), "lw-" .. version .. "-descriptor.json" }) do
+    local assets = { "lw-linux-x86_64", "lw-macos-arm64", "lw-windows-x86_64.exe",
+      pin.bundle_asset(version) }
+    -- a release lists its descriptor from self-contained executables on (§16.41)
+    if pin.is_self_contained(version) then assets[#assets + 1] = pin.descriptor_asset(version) end
+    for _, a in ipairs(assets) do
       local body = version .. ":" .. a .. "\n"
       put(mirror .. "/" .. a, body)
       lines[#lines + 1] = verify.sha256_hex(body) .. "  " .. a
@@ -3496,8 +3522,11 @@ do
   local mirror = sb .. "/mirror"; paths.mkdirp(mirror)
   local lines = {}
   local function stage(version)
-    for _, a in ipairs({ "lw-linux-x86_64", "lw-macos-arm64", "lw-windows-x86_64.exe",
-        pin.bundle_asset(version), "lw-" .. version .. "-descriptor.json" }) do
+    local assets = { "lw-linux-x86_64", "lw-macos-arm64", "lw-windows-x86_64.exe",
+      pin.bundle_asset(version) }
+    -- a release lists its descriptor from self-contained executables on (§16.41)
+    if pin.is_self_contained(version) then assets[#assets + 1] = pin.descriptor_asset(version) end
+    for _, a in ipairs(assets) do
       local body = version .. ":" .. a .. "\n"
       put(mirror .. "/" .. a, body)
       lines[#lines + 1] = verify.sha256_hex(body) .. "  " .. a

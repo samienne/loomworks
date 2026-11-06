@@ -75,17 +75,22 @@ function M.required_assets(version)
 end
 
 --- Select the pin's hashes from a release's verified sums map (spec formats §9,
---- §16.24). The list must name the release's own descriptor
---- (`lw-<version>-descriptor.json`, §16.12), which binds it to `version`: a
---- genuine list of another release is refused. Every required asset must be
---- listed. A self-contained release's bundle entry is written only while its
---- list still carries it (the transition, §16.14) — for hosts released before
---- self-contained executables; the descriptor's hash is never pinned.
+--- §16.24). The list must be bound to `version` by an entry that names it, so
+--- a genuine list of another release is refused: for a self-contained release
+--- its own descriptor (`lw-<version>-descriptor.json`, §16.12); for a release
+--- before self-contained executables, which published no descriptor, its
+--- (required) bundle `loomworks-lua-<version>.zip` (§16.14). Every required
+--- asset must be listed. A self-contained release's bundle entry is written
+--- only while its list still carries it (the transition, §16.14) — for hosts
+--- released before self-contained executables; the descriptor's hash is never
+--- pinned.
 function M.pin_hashes(version, sums)
-  local own = pin.descriptor_asset(version)
+  local own = pin.is_self_contained(version) and pin.descriptor_asset(version)
+    or pin.bundle_asset(version)
   if not sums[own] then
     return nil, "SHA256SUMS is not release " .. version .. "'s hash list (no '" .. own ..
-      "' entry - a replayed or mismatched list, or a release that predates the descriptor)"
+      "' entry - a replayed or mismatched list" ..
+      (pin.is_self_contained(version) and ", or a release that predates the descriptor)" or ")")
   end
   local hashes = {}
   for _, a in ipairs(M.required_assets(version)) do
