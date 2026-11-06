@@ -50,6 +50,30 @@ done
 rm -rf "$stage"
 [ "$(tree_state)" = "$state_before" ] && ok "nothing written into the checkout" || bad "the checkout changed"
 
+# Only tracked files are staged: a dirty checkout's stray files and symlinks
+# must never be fused (make dist / dev-install). In a throwaway clone running
+# this checkout's stage_tree.sh.
+echo "=== stage_tree.sh stages tracked files only ==="
+cl="$T/clone"
+git clone --quiet --no-hardlinks "$repo" "$cl" || { echo "clone failed" >&2; exit 1; }
+cp "$rel/stage_tree.sh" "$cl/scripts/release/stage_tree.sh"
+printf 'stray\n' > "$cl/lua/loomworks/zz_untracked_stray.lua"
+mkdir -p "$cl/lua/loomworks/zz_untracked_dir"
+printf 'stray\n' > "$cl/lua/loomworks/zz_untracked_dir/x.lua"
+printf 'target\n' > "$T/link-target.lua"
+# A real symlink where the platform allows one (Git Bash otherwise copies).
+MSYS=winsymlinks:nativestrict ln -s "$T/link-target.lua" "$cl/lua/loomworks/zz_untracked_link.lua" 2>/dev/null \
+  || ln -s "$T/link-target.lua" "$cl/lua/loomworks/zz_untracked_link.lua"
+printf '{}\n' > "$cl/spec/protocol/interfaces/zz_untracked.json"
+cstage="$(bash "$cl/scripts/release/stage_tree.sh")" || { echo "stage_tree.sh (clone) failed" >&2; exit 1; }
+for f in loomworks/zz_untracked_stray.lua loomworks/zz_untracked_dir loomworks/zz_untracked_link.lua \
+         loomworks/protocol/interfaces/zz_untracked.json; do
+  [ ! -e "$cstage/$f" ] && [ ! -L "$cstage/$f" ] && ok "untracked $f not staged" || bad "untracked $f staged"
+done
+[ -f "$cstage/loomworks/cli.lua" ] && ok "tracked files still staged" || bad "tracked cli.lua missing"
+[ -z "$(find "$cstage" -type l)" ] && ok "no symlinks staged" || bad "symlinks staged"
+[ -n "$cstage" ] && rm -rf "$cstage"
+
 echo "=== a release executable carries the full tree ==="
 D="$T/dist"; mkdir -p "$D"
 host="$D/lw-linux-x86_64"
