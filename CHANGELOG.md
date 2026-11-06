@@ -68,7 +68,7 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
   from before self-contained executables is still honoured: that release
   provisions its own bundle. While such a repository holds a
   `.nvim/cache/lua-<version>` directory for that release, the redirect is
-  refused, naming it, and nothing is deleted (#PRNUM).
+  refused, naming it, and nothing is deleted (#133).
 
 - `LOOMWORKS_PINNED` and `LW_ROOT` no longer leak into what `lw` starts: a
   build, run or test step (and an `lw` it runs) no longer inherits the
