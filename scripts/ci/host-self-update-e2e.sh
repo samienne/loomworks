@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # Host self-update end-to-end (spec §16.32): fuse real self-contained
 # executables (scripts/release/fuse_host.sh, the full tree) — an "old" one
-# (release 0.0.0-alpha) and a "new" one (release 0.0.0-test) — publish the new
-# one in a local mirror with a SHA256SUMS signed by the TEST key, then let the
-# old one `self-update` itself — on Windows this exercises the real
-# running-.exe rename-aside dance, which no unit test can. Also: a development
+# (release 0.2.0-rc.1) and a "new" one (release 0.2.0-test) — publish the new
+# one in a local mirror with a SHA256SUMS signed by the TEST key and naming the
+# release's descriptor (no manifest.json), then let the old one `self-update`
+# itself: it replaces only the executable — on Windows this exercises the real
+# running-.exe rename-aside dance, which no unit test can — and installs no
+# bundle anywhere. Also: a development
 # build (no release version) never replaces itself, and a bootstrap-only host
 # (transitional, releases before self-contained executables) updates to the
 # self-contained executable, and before that, with no bundle, still answers
@@ -19,8 +21,8 @@ set -u
 luvi="${1:?usage: host-self-update-e2e.sh <luvi>}"
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
 fx="$repo/tests/fixtures/dist"
-ver="0.0.0-test"   # the fixture bundle's version
-oldver="0.0.0-alpha"   # the "old" executable's release (older than $ver)
+ver="0.2.0-test"   # the "new" executable's release (self-contained)
+oldver="0.2.0-rc.1"   # the "old" executable's release (older than $ver)
 
 PASS=0; FAIL=0
 ok()  { printf '  ok  : %s\n' "$*"; PASS=$((PASS + 1)); }
@@ -61,16 +63,18 @@ fuse "$T/mirror/$asset" "$ver" || { echo "fuse (new) failed" >&2; exit 1; }
 cp "$T/install/$exe_name" "$T/old-copy"
 cp "$T/mirror/$asset" "$T/new-copy"
 
-# The mirror: the fixture bundle + signed manifest, and the signed hash list.
-cp "$fx/manifest.json" "$fx/manifest.json.sig" "$fx/loomworks-lua-$ver.zip" "$T/mirror/"
-# Like a real release, the list names the release's own version-bearing bundle
-# (loomworks-lua-<ver>.zip) — the host refuses a list without it (anti-replay).
-# `sign_sums <bundle-version>` forges another release's list (replay test).
+# The mirror: the new executable and the signed hash list — no manifest.json
+# and no bundle: the newest release is read from the list itself. Like a real
+# release, the list names the release's own version-bearing descriptor
+# (lw-<ver>-descriptor.json) — the host refuses a list without it (anti-replay).
+# `sign_sums <descriptor-version>` forges another release's list (replay test);
+# `sign_sums none` leaves the descriptor out.
+printf '{"descriptor":1}\n' > "$T/descriptor.json"
 sign_sums() {
-  local bver="${1:-$ver}"
+  local dver="${1:-$ver}"
   ( cd "$T/mirror" && {
       printf '%s  %s\n' "$(sha_of "$asset")" "$asset"
-      printf '%s  %s\n' "$(sha_of "loomworks-lua-$ver.zip")" "loomworks-lua-$bver.zip"
+      [ "$dver" = none ] || printf '%s  %s\n' "$(sha_of "$T/descriptor.json")" "lw-$dver-descriptor.json"
     } > SHA256SUMS )
   openssl dgst -sha256 -sign "$fx/test_ec_priv.pem" -out "$T/mirror/SHA256SUMS.sig" "$T/mirror/SHA256SUMS"
 }
@@ -81,6 +85,16 @@ export LOCALAPPDATA="$T/home" XDG_DATA_HOME="$T/home" APPDATA="$T/home" XDG_CONF
 export LOOMWORKS_RELEASE_URL="$T/mirror"
 [ "$os" = windows ] && export LOOMWORKS_RELEASE_URL="$(cygpath -m "$T/mirror")"
 unset LOOMWORKS_LUA LOOMWORKS_PINNED LOOMWORKS_LW LOOMWORKS_CHANNEL
+# The retired install folder (spec §16.22): set to a folder holding a decoy
+# bundle, it must be ignored and left exactly as it is.
+mkdir -p "$T/instdecoy/lua-9.9.9/loomworks"
+printf 'error("the decoy bundle ran")\n' > "$T/instdecoy/lua-9.9.9/loomworks/cli.lua"
+export LOOMWORKS_INSTALL_DIR="$T/instdecoy"
+[ "$os" = windows ] && export LOOMWORKS_INSTALL_DIR="$(cygpath -m "$T/instdecoy")"
+decoy_before="$(cd "$T/instdecoy" && find . | sort)"
+no_bundles() {  # nothing named lua-* in the data dir, the install dir or the mirror
+  [ -z "$(find "$T/home" "$T/install" "$T/mirror" -name 'lua-*' 2>/dev/null)" ]
+}
 cd "$T/work"
 lw="$T/install/$exe_name"
 
@@ -100,9 +114,10 @@ out="$("$lw" install --help 2>&1)"
 case "$out" in *"lw install [-y]"*"--dry-run"*) ok "install --help: install's own help" ;; *) bad "install --help: $out" ;; esac
 [ ! -e "$T/home/Microsoft" ] && [ ! -e "$T/home/.local/bin" ] && ok "install --help installed nothing" || bad "install --help installed something"
 
-echo "=== self-update --no-host leaves the host alone ==="
+echo "=== self-update --no-host is a usage error ==="
 out="$("$lw" self-update --no-host 2>&1)"; code=$?; echo "$out"
-[ $code -eq 0 ] && ok "--no-host exits 0" || bad "--no-host exit $code"
+[ $code -eq 2 ] && ok "--no-host exits 2" || bad "--no-host exit $code"
+case "$out" in *"replaces only the"*) ok "--no-host: says self-update replaces only the executable" ;; *) bad "--no-host message: $out" ;; esac
 cmp -s "$lw" "$T/old-copy" && ok "--no-host: host binary unchanged" || bad "--no-host changed the host"
 
 # `--help` on a host command is left to the CLI's help dispatcher — it must never
@@ -116,9 +131,11 @@ cmp -s "$lw" "$T/old-copy" && ok "--help: host binary unchanged" || bad "--help 
 echo "=== self-update replaces the running host ==="
 out="$("$lw" self-update 2>&1)"; code=$?; echo "$out"
 [ $code -eq 0 ] && ok "self-update exits 0" || bad "self-update exit $code"
-case "$out" in *"updated host binary"*) ok "reports the host replacement" ;; *) bad "no replacement reported" ;; esac
-case "$out" in *"self-contained: no bundle to install"*) ok "installs no bundle" ;; *) bad "no self-contained note" ;; esac
-[ -z "$(ls -d "$T/home/loomworks/lua-"* 2>/dev/null)" ] && ok "no bundle in the data dir" || bad "a bundle was installed"
+case "$out" in *"latest release: $ver"*) ok "newest release read from the signed SHA256SUMS (no manifest.json)" ;; *) bad "latest release not named" ;; esac
+case "$out" in *"updated lw $oldver -> $ver"*) ok "reports the executable replacement" ;; *) bad "no replacement reported" ;; esac
+case "$out" in *LOOMWORKS_INSTALL_DIR*) bad "mentions the retired install folder" ;; *) ok "no install-folder message" ;; esac
+no_bundles && ok "no lua-* created anywhere" || bad "a bundle was installed"
+[ "$(cd "$T/instdecoy" && find . | sort)" = "$decoy_before" ] && ok "LOOMWORKS_INSTALL_DIR ignored and untouched" || bad "the install folder changed"
 cmp -s "$lw" "$T/mirror/$asset" && ok "installed binary is the verified new host" || bad "installed binary differs from the release asset"
 if [ "$os" = windows ]; then
   [ -f "$lw.old" ] && ok "windows: running exe was renamed aside to .old" || bad "windows: no .old after swap"
@@ -132,7 +149,14 @@ case "$out" in *"host: $ver "*"(self-contained)"*) ok "new executable reports se
 echo "=== second self-update is a no-op for the host ==="
 out="$("$lw" self-update 2>&1)"; code=$?; echo "$out"
 [ $code -eq 0 ] && ok "exits 0" || bad "exit $code"
-case "$out" in *"host binary already current"*) ok "host already current" ;; *) bad "host not reported current" ;; esac
+case "$out" in *"already up to date ($ver)"*) ok "already up to date" ;; *) bad "not reported current" ;; esac
+
+echo "=== an older --version without --force is skipped ==="
+cp "$lw" "$T/cur-copy"
+out="$("$lw" self-update --version "$oldver" 2>&1)"; code=$?; echo "$out"
+[ $code -eq 0 ] && ok "exits 0" || bad "exit $code"
+case "$out" in *"not downgrading"*) ok "says it does not downgrade" ;; *) bad "no downgrade note" ;; esac
+cmp -s "$lw" "$T/cur-copy" && ok "executable unchanged" || bad "downgraded without --force"
 
 echo "=== a development build (no release version) never replaces itself ==="
 cp "$T/devbuild/$exe_name" "$T/devbuild/copy"
@@ -140,6 +164,8 @@ out="$("$T/devbuild/$exe_name" version 2>&1)"; echo "$out"
 case "$out" in *"dev build"*) ok "reports a dev build" ;; *) bad "dev build version line: $out" ;; esac
 out="$("$T/devbuild/$exe_name" self-update 2>&1)"; echo "$out"
 cmp -s "$T/devbuild/$exe_name" "$T/devbuild/copy" && ok "dev build left unchanged" || bad "self-update replaced a dev build"
+out="$("$T/devbuild/$exe_name" self-update --force 2>&1)"; echo "$out"
+cmp -s "$T/devbuild/$exe_name" "$T/devbuild/copy" && ok "dev build left unchanged by --force" || bad "self-update --force replaced a dev build"
 
 # Transitional: a bootstrap-only host (main.lua + boot/ only, as releases
 # before self-contained executables) updates to the self-contained executable.
@@ -202,10 +228,19 @@ case "$out" in *"host: $ver "*"(self-contained)"*) ok "now self-contained $ver" 
 
 echo "=== a replayed hash list (another release's, validly signed) is refused ==="
 cp "$T/old-copy" "$lw"
-sign_sums 0.0.0-older
-out="$("$lw" self-update 2>&1)"; code=$?; echo "$out"
+sign_sums 0.2.0-older
+out="$("$lw" self-update --version "$ver" 2>&1)"; code=$?; echo "$out"
 [ $code -ne 0 ] && ok "replayed list exits non-zero" || bad "replayed list accepted (exit 0)"
+case "$out" in *"lw-$ver-descriptor.json"*) ok "names the missing descriptor" ;; *) bad "replay error: $out" ;; esac
 cmp -s "$lw" "$T/old-copy" && ok "original host untouched" || bad "host changed despite a replayed list"
+
+echo "=== a signed list without the descriptor is refused ==="
+sign_sums none
+out="$("$lw" self-update --version "$ver" 2>&1)"; code=$?; echo "$out"
+[ $code -ne 0 ] && ok "integrity error exits non-zero" || bad "accepted a list without the descriptor (exit 0)"
+cmp -s "$lw" "$T/old-copy" && ok "original host untouched" || bad "host changed without a descriptor"
+out="$("$lw" self-update 2>&1)"; code=$?; echo "$out"
+[ $code -ne 0 ] && ok "no descriptor and no manifest.json: no newest release (exit $code)" || bad "resolved a release from nothing"
 sign_sums
 
 echo "=== a tampered host asset is refused; the original stays ==="
@@ -215,33 +250,6 @@ out="$("$lw" self-update 2>&1)"; code=$?; echo "$out"
 [ $code -ne 0 ] && ok "integrity failure exits non-zero" || bad "tampered asset accepted (exit 0)"
 cmp -s "$lw" "$T/old-copy" && ok "original host untouched" || bad "host changed despite a bad hash"
 [ ! -e "$lw.new" ] && ok "no staged leftover" || bad "staged .new left behind"
-
-# A release that raises min_host_version must not strand the host: the old host
-# replaces itself first, then asks for a re-run (non-zero, bundle not updated).
-echo "=== a release needing a newer host updates the binary first ==="
-nv="0.0.1-test"
-mkdir -p "$T/mirror2"
-sed -e 's/"min_host_version": [0-9]*/"min_host_version": 999/' -e "s/0\.0\.0-test/$nv/g" \
-  "$fx/manifest.json" > "$T/mirror2/manifest.json"
-openssl dgst -sha256 -sign "$fx/test_ec_priv.pem" \
-  -out "$T/mirror2/manifest.json.sig" "$T/mirror2/manifest.json"
-cp "$T/new-copy" "$T/mirror2/$asset"
-( cd "$T/mirror2" && {
-    printf '%s  %s\n' "$(sha_of "$asset")" "$asset"
-    printf '%s  %s\n' "$(sha_of manifest.json)" "loomworks-lua-$nv.zip"
-  } > SHA256SUMS )
-openssl dgst -sha256 -sign "$fx/test_ec_priv.pem" -out "$T/mirror2/SHA256SUMS.sig" "$T/mirror2/SHA256SUMS"
-export LOOMWORKS_RELEASE_URL="$T/mirror2"
-[ "$os" = windows ] && export LOOMWORKS_RELEASE_URL="$(cygpath -m "$T/mirror2")"
-cp "$T/old-copy" "$lw"
-out="$("$lw" self-update --no-host 2>&1)"; code=$?; echo "$out"
-[ $code -ne 0 ] && ok "--no-host: incompatible release exits non-zero" || bad "--no-host: exit 0"
-case "$out" in *"needs host version"*"Installing lw"*) ok "--no-host: original error + manual steps" ;; *) bad "--no-host: missing error/manual steps" ;; esac
-cmp -s "$lw" "$T/old-copy" && ok "--no-host: host binary unchanged" || bad "--no-host changed the host"
-out="$("$lw" self-update 2>&1)"; code=$?; echo "$out"
-[ $code -ne 0 ] && ok "host updated for an incompatible release still exits non-zero" || bad "exit 0 without a bundle update"
-case "$out" in *"lw binary updated to $nv; re-run"*) ok "asks for a re-run to update the bundle" ;; *) bad "no re-run prompt" ;; esac
-cmp -s "$lw" "$T/new-copy" && ok "installed binary is the release's verified host" || bad "host not replaced"
 
 # The boot modules must come from the fused host even when a `lua/` directory
 # sits next to the executable: LuaJIT's Windows default package.path searches
@@ -264,8 +272,7 @@ export LOOMWORKS_RELEASE_URL="$(mp "$T/mirror")"
 pr="$T/pinrepo"
 mkdir -p "$pr/.nvim/cache/lua-$ver/loomworks" "$T/pinhost"
 cp "$T/new-copy" "$T/pinhost/$exe_name"
-bsha="$(sha_of "$T/mirror/loomworks-lua-$ver.zip")"
-printf 'version = %s\nsha256_loomworks-lua-%s.zip = %s\n' "$ver" "$ver" "$bsha" > "$pr/lw.pin"
+printf 'version = %s\nsha256_%s = %s\n' "$ver" "$asset" "$(sha_of "$T/new-copy")" > "$pr/lw.pin"
 marker="$T/PLANTED_BUNDLE_RAN"
 for f in shim.lua cli.lua; do
   printf 'local f = io.open([[%s]], "w") f:write("x") f:close()\nreturn {}\n' "$(mp "$marker")" \
@@ -278,6 +285,9 @@ out="$(cd "$pr" && LOOMWORKS_PINNED="0.0.0-other" LW_ROOT="$(mp "$pr")" "$T/pinh
 [ $code -ne 0 ] && ok "another pinned version: refused" || bad "another pinned version ran (exit 0)"
 case "$out" in *"refusing to run in pinned context"*) ok "names the refusal" ;; *) bad "unexpected pinned refusal: $out" ;; esac
 [ ! -e "$marker" ] && [ ! -e "$T/home/loomworks/pinned" ] && ok "refusal provisioned and ran nothing" || bad "refusal ran or provisioned something"
+
+no_bundles && ok "no lua-* created by any run" || bad "a bundle appeared"
+[ "$(cd "$T/instdecoy" && find . | sort)" = "$decoy_before" ] && ok "the install folder is still untouched" || bad "the install folder changed"
 
 echo
 echo "host self-update e2e: $PASS passed, $FAIL failed"

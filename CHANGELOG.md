@@ -2,8 +2,8 @@
 
 What changed in each release of loomworks (the `lw` command-line tool, the
 workspace daemon and its protocol). `lw release-notes` shows these notes
-offline, from the release you run; `lw self-update` shows what changed since
-your previous version.
+offline, from the release you run; after an update, the new `lw` points at
+what changed since your previous version.
 
 <!--
 How to write an entry (lua/loomworks/release_notes.lua defines the grammar;
@@ -27,6 +27,12 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
 -->
 
 ## Unreleased
+
+### Breaking
+
+- `lw self-update --no-host` is a usage error (exit 2): self-update replaces
+  only the `lw` executable, so there is no separate bundle step to skip
+  (#135).
 
 ### Upgrade notes
 
@@ -69,6 +75,17 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
   provisions its own bundle. A pin to a release before 0.1.32, which loads
   code from the repository, is refused, naming the version and
   `lw bootstrap upgrade`; nothing is deleted (#133).
+
+- `lw self-update` replaces only the `lw` executable: it installs no release
+  bundle and removes no installed one. The newest release is read from the
+  `latest` signed `SHA256SUMS` (from its `lw-<version>-descriptor.json` entry;
+  `manifest.json` only while the newest release predates the descriptor), and
+  the replacement must match the target release's signed list, which must name
+  that release's descriptor. `--version <x.y.z>` installs an exact release and
+  `--force` replaces the executable with an equal or older one too. When the
+  executable cannot be replaced (an unwritable location, a missing asset) it
+  exits non-zero. `lw install` installs only the executable; `--no-bundle` is
+  accepted and ignored (#135).
 
 - `lw bootstrap install` pins a self-contained release by its executables
   alone: the bundle's hash is written only while the release still publishes
@@ -228,6 +245,12 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
   options, so a description may start with `-` (samienne/loomworks.nvim#290).
 - `lw launch show --json <project> <name>` refused `--json` before the
   address (samienne/loomworks.nvim#290).
+
+### Removed
+
+- `LOOMWORKS_INSTALL_DIR` is no longer read: `lw` keeps its pinned and
+  executable caches in the per-user data directory, never installs a bundle,
+  and leaves a folder the variable names untouched (#135).
 
 ## 0.1.49 - 2026-10-19
 

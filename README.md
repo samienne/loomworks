@@ -104,9 +104,10 @@ install it rests on the same GitHub account that serves the binary. After
 that, `lw self-update` verifies every update against the key built into your
 installed `lw`.
 
-**Updating.** `lw self-update` fetches, verifies and installs the newest
-release (bundle and binary). `--channel unstable` follows pre-releases as
-well; `lw version` shows what you run. To pin a release in CI, download a
+**Updating.** `lw self-update` replaces `lw` with the newest release's
+executable, verified against that release's signed hash list before it is
+installed; `--version <x.y.z>` installs an exact release. `--channel unstable`
+follows pre-releases as well; `lw version` shows what you run. To pin a release in CI, download a
 versioned URL instead of `latest`, or use the repo-local launcher below.
 
 ## Quick start

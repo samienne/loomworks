@@ -1,9 +1,10 @@
 --- loomworks/release_notes.lua — the release notes reader and renderer.
 ---
 --- PURE: text in, tables / lines out. No `require`, no I/O, no `vim`, no
---- globals beyond the Lua builtins below — a host loads this file from a newly
---- installed bundle into a sandbox (boot/whats_new.lua) to render self-update's
---- "what's new" lines, so it must stay free of every dependency.
+--- globals beyond the Lua builtins below — a host released before
+--- self-contained executables loads this file from a newly installed
+--- transitional bundle into a sandbox (its boot/whats_new.lua) to render its
+--- self-update's "what's new" lines, so it must stay free of every dependency.
 --- Finding the file, the running version and the last-seen record live in
 --- loomworks/release_notice.lua.
 ---
@@ -455,7 +456,8 @@ function M.to_json(res, null)
   return { schema = 1, running = res.running or null, entries = entries, more = res.more or 0 }
 end
 
---- Self-update's "what's new" block: per release after `from` up to
+--- The "what's new" block a host released before self-contained executables
+--- prints after its self-update (the interface its sandbox calls): per release after `from` up to
 --- `to` (newest first), the version, its summary and its Breaking / Upgrade
 --- notes items; at most `opts.max` releases. Empty when nothing is newer.
 --- opts: width (nil: no wrapping), max, items.

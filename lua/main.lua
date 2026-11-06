@@ -87,11 +87,6 @@ require("boot.signals").catch_sigpipe()
 local paths = require("boot.paths")
 local pin = require("boot.pin")
 
--- A Windows host self-update — or `lw install` / `make install`
--- over a running lw (boot.install.copy_binary) — renames the running exe aside
--- to `<exe>.old`; the next invocation removes it. Best-effort and silent — the
--- file may still be in use by another lw process that started before the swap.
-if paths.is_windows then require("boot.host_update").cleanup_old() end
 
 --- Exit, flushing stdout first (host-level bootstrap path; the CLI has its own).
 local function exit(code)
@@ -142,6 +137,13 @@ else
   luaroot = paths.newest_release_root()
   source_kind = luaroot and "release" or nil
 end
+
+-- A Windows host self-update — or `lw install` / `make install`
+-- over a running lw (boot.install.copy_binary) — renames the running exe aside
+-- to `<exe>.old`; the next invocation removes it. Best-effort and silent — the
+-- file may still be in use by another lw process that started before the swap.
+-- Never under the development facility (nor beside bare luvi, cleanup_old).
+if paths.is_windows and not dev_opt_in then require("boot.host_update").cleanup_old() end
 
 --- The release version of the code this invocation runs: the embedded
 --- release's, or (transitional) the installed bundle's `lua-<ver>`; nil for a
@@ -194,13 +196,6 @@ local command, command_sub = pin.command_words(forwarded)
 local pin_start = (command == "daemon") and paths.norm(pin.root_option(forwarded)) or nil
 pin_start = pin_start or paths.norm(lw_root_env)
 local pin_root = pin.find_pin_root(pin_start or uv.cwd())
-
--- The install folder: a relative LOOMWORKS_INSTALL_DIR is not
--- honoured; say so once (stderr — stdout may be a protocol stream).
-do
-  local _, ignored = paths.install_dir_override()
-  if ignored then io.stderr:write("lw: " .. ignored .. "\n") end
-end
 
 -- ---- host commands: version / self-update (work without a bundle) -----------
 -- `--version` / `-v` are the conventional spellings; accept them as aliases so
@@ -390,37 +385,46 @@ if host_command == "version" and not version_json then
   io.write(upd.version_line(info, channel, pinned) .. "\n")
   exit(0)
 elseif host_command == "self-update" then
+  -- Self-update replaces only the executable (spec §16.32): the release
+  -- executable carries all its code, so there is no bundle step.
   if source_kind == "dev" then
     io.stderr:write("lw: self-update does not apply to a development source " ..
       "(--dev / default-source=dev).\n")
     exit(1)
   end
-  local force, channel, no_host = false, nil, false
+  local force, channel, version, no_host = false, nil, nil, false
+  local pending  -- the valued flag whose value is the next token
   for _, v in ipairs(forwarded) do
-    if v == "--force" then force = true
+    if pending == "channel" then channel, pending = v, nil
+    elseif pending == "version" then version, pending = v, nil
+    elseif v == "--force" then force = true
     elseif v == "--no-host" then no_host = true
-    elseif v == "--channel" then channel = "" -- flag seen; value is the next token
+    elseif v == "--channel" then channel, pending = "", "channel"
+    elseif v == "--version" then version, pending = "", "version"
     elseif type(v) == "string" and v:sub(1, 10) == "--channel=" then channel = v:sub(11)
-    elseif channel == "" then channel = v end  -- `--channel <value>` form
+    elseif type(v) == "string" and v:sub(1, 10) == "--version=" then version = v:sub(11) end
   end
-  -- Host-step options: who may self-replace.
-  local function host_opts(target)
-    return {
-      target_version = target,
-      no_host = no_host,
-      pinned = pinned_sentinel ~= nil,
-      dev = source_kind == "dev",
-      fused_system_lua = fused_system_lua(),
-    }
+  if no_host then
+    io.stderr:write("lw: --no-host is no longer accepted: self-update replaces only the " ..
+      "lw executable (there is no separate bundle to update)\n")
+    exit(2)
   end
-  -- `--channel <c>` is persisted: it becomes the update channel
-  -- for later runs too, exactly like `lw settings set channel <c>`.
   if channel == "" then
     io.stderr:write("lw: --channel needs a value: stable or unstable\n")
     exit(2)
   end
+  if version == "" then
+    io.stderr:write("lw: --version needs a value: a release version such as 0.2.0\n")
+    exit(2)
+  end
+  if version and not pin.valid_version(version) then
+    io.stderr:write("lw: --version '" .. version .. "' is not a release version\n")
+    exit(2)
+  end
+  local upd = require("boot.update")
+  -- `--channel <c>` is persisted: it becomes the update channel
+  -- for later runs too, exactly like `lw settings set channel <c>`.
   if channel then
-    local upd = require("boot.update")
     local saved, serr = upd.persist_channel(channel)
     if not saved then
       io.stderr:write("lw: " .. tostring(serr) .. "\n")
@@ -436,126 +440,61 @@ elseif host_command == "self-update" then
     end
   end
   io.write("lw: checking for updates...\n")
-  -- The bundle that was newest before this update: "what's new" is measured
-  -- from it.
-  local prev_bundle = (paths.installed_releases()[1] or {}).ver
-  local res, err, info = require("boot.update").self_update({ force = force, channel = channel,
-    running_root = luaroot, embedded = source_kind == "embedded" })
-  if not res and info and info.host_incompatible then
-    -- The (verified) release needs a newer host than this one. Replace the
-    -- host first — otherwise the first release raising min_host_version would
-    -- strand every installed host — then ask for a re-run to fetch the bundle
-    -- with the new host. Non-zero exit either way: the bundle is NOT updated.
-    local h = require("boot.host_update").update_host(host_opts(info.version))
-    if h.status == "replaced" then
-      io.write("lw: " .. tostring(err) .. "\n")
-      io.write("lw: lw binary updated to " .. info.version ..
-        "; re-run `lw self-update` to update the bundle\n")
+  -- The target: the exact `--version`, else the channel's newest release.
+  local target = version
+  if not target then
+    local t, terr = upd.resolve_target({ channel = channel })
+    if not t then
+      io.stderr:write("lw: self-update failed: " .. tostring(terr) .. "\n")
+      -- A 404 here usually means this build points at a release feed that has
+      -- no releases yet, so say where it looked and how to redirect it rather
+      -- than leaving a bare curl error.
+      if tostring(terr):find("404", 1, true) then
+        io.stderr:write("    Releases are fetched from: " .. upd.DEFAULT_RELEASE_URL .. "\n" ..
+          "    Point it elsewhere with `lw settings set release-url <url>` or\n" ..
+          "    LOOMWORKS_RELEASE_URL (a local directory works as an offline mirror).\n")
+      end
       exit(1)
     end
-    io.stderr:write("lw: self-update failed: " .. tostring(err) .. "\n")
-    io.stderr:write("    The lw binary was not updated: " .. tostring(h.message) .. "\n")
-    if h.manual then
-      io.stderr:write("    To update it manually, " .. h.manual .. ".\n")
-    else
-      io.stderr:write("    Install the lw binary of release " .. tostring(info.version) ..
-        " or later as in the README's \"Installing lw\"" ..
-        (no_host and " (or re-run without --no-host)" or "") .. ", then re-run " ..
-        "`lw self-update`.\n")
+    if t.channel_overridden then
+      io.stderr:write("lw: --channel " .. t.channel_overridden ..
+        " is ignored - a release-url override is in effect (LOOMWORKS_RELEASE_URL / " ..
+        "the `release-url` setting). The channel governs only the default origin; " ..
+        "unset the override to use channels.\n")
     end
-    exit(1)
+    target = t.version
+    io.write("lw: latest release: " .. target .. "\n")
   end
-  if not res then
-    io.stderr:write("lw: self-update failed: " .. tostring(err) .. "\n")
-    -- A 404 here usually means this build points at a release feed that has no
-    -- releases yet, so say where it looked and how to redirect it rather than
-    -- leaving a bare curl error.
-    if tostring(err):find("404", 1, true) then
-      io.stderr:write("    Releases are fetched from: " ..
-        require("boot.update").DEFAULT_RELEASE_URL .. "\n" ..
-        "    Point it elsewhere with `lw settings set release-url <url>` or\n" ..
-        "    LOOMWORKS_RELEASE_URL (a local directory works as an offline mirror).\n")
-    end
-    exit(1)
-  end
-  if res.channel_overridden then
-    io.stderr:write("lw: --channel " .. res.channel_overridden ..
-      " is ignored - a release-url override is in effect (LOOMWORKS_RELEASE_URL / " ..
-      "the `release-url` setting). The channel governs only the default origin; " ..
-      "unset the override to use channels.\n")
-  end
-  if res.embedded then
-    -- This lw carries its code: no bundle was installed (and none pruned);
-    -- only the host binary below can update it.
-    io.write("lw: latest release: " .. res.version ..
-      " (this lw is self-contained: no bundle to install)\n")
-  else
-    io.write(res.updated
-      and ("lw: installed loomworks " .. res.version .. "\n")
-      or ("lw: already up to date (" .. res.version .. ")\n"))
-  end
-  -- Back on `stable` with a newer prerelease installed: bundles never
-  -- downgrade, so say which one keeps running, and until when.
-  if not res.embedded then
-    local newest = paths.installed_releases()[1]
-    local note = require("boot.update").newer_bundle_note(newest and newest.ver, res.version)
-    if note then io.write("lw: note: " .. note .. "\n") end
-  end
-  -- What changed since the previous bundle, from the NEW bundle's release
-  -- notes. Never affects the exit status. Printed LAST, after
-  -- the host-binary line, so it is the final thing the user sees.
-  local function print_whats_new()
-  if not res.updated then return end
-  do
-    pcall(function()
-      local wn = require("boot.whats_new")
-      local function env_truthy(name)
-        local e = getenv(name)
-        return e ~= nil and e ~= "" and e ~= "0" and e:lower() ~= "false"
-      end
-      local noninteractive = env_truthy("LW_NO_INPUT") or env_truthy("CI")
-      for _, v in ipairs(forwarded) do
-        if v == "--no-input" or v == "--non-interactive" then noninteractive = true end
-      end
-      local width = wn.stdout_width()
-      local lines = wn.report({
-        bundle_dir = res.dir, from = prev_bundle, to = res.version,
-        interactive = width ~= nil and not noninteractive,
-        width = width and (width - 1) or nil,
-        silenced = wn.silenced(getenv, cfg),
-      })
-      for _, l in ipairs(lines) do io.write(l .. "\n") end
-      if #lines > 0 then wn.record_seen(paths.install_dir(), res.version) end
-    end)
-  end
-  end
-  -- Then the host binary itself: host-side fixes never ship in the
-  -- bundle, so a bundle-only update would leave them stranded. Same release as
-  -- the bundle just resolved; verified against the signed SHA256SUMS before any
-  -- swap. Refuses for pinned / dev / source-run hosts (a note, not a failure).
-  local h = require("boot.host_update").update_host(host_opts(res.version))
+  -- Verified against the target's signed SHA256SUMS before any swap; refuses
+  -- for pinned / dev / source-run hosts (a note, not a failure).
+  local h = require("boot.host_update").update_host({
+    target_version = target,
+    force = force,
+    pinned = pinned_sentinel ~= nil,
+    dev = source_kind == "dev",
+    fused_system_lua = fused_system_lua(),
+  })
   if h.status == "replaced" then
-    io.write("lw: updated host binary " .. (h.from or "(unknown version)") .. " -> " ..
+    io.write("lw: updated lw " .. (h.from or "(unknown version)") .. " -> " ..
       h.to .. " (" .. h.exe .. ")\n")
+    exit(0)
   elseif h.status == "current" then
-    io.write("lw: host binary already current (" .. res.version .. ")\n")
+    io.write("lw: already up to date (" .. target .. ")\n")
+    exit(0)
   elseif h.status == "skipped" then
-    if not no_host then io.write("lw: host binary not replaced: " .. h.message .. "\n") end
-  else
-    local label = h.status == "error" and "error" or "warning"
-    io.stderr:write("lw: " .. label .. ": host binary not updated: " .. h.message .. "\n")
-    if h.manual then io.stderr:write("    To update it manually, " .. h.manual .. ".\n") end
-    io.stderr:write("    The bundle update above still stands.\n")
-    if h.status == "error" then print_whats_new(); exit(1) end
+    io.write("lw: not replaced: " .. h.message .. "\n")
+    exit(0)
   end
-  print_whats_new()
-  exit(0)
+  io.stderr:write("lw: self-update failed: " .. tostring(h.message) .. "\n")
+  if h.manual then io.stderr:write("    To update it manually, " .. h.manual .. ".\n") end
+  io.stderr:write("    The installed lw was not changed.\n")
+  exit(1)
 elseif host_command == "install" then
-  local opts = { dry_run = false, no_modify_path = false, no_bundle = false }
+  local opts = { dry_run = false, no_modify_path = false }
   for _, v in ipairs(forwarded) do
     if v == "-y" or v == "--yes" then opts.assume_yes = true
     elseif v == "--no-modify-path" then opts.no_modify_path = true
-    elseif v == "--no-bundle" then opts.no_bundle = true
+    elseif v == "--no-bundle" then  -- accepted and ignored: install places only the executable
     elseif v == "--dry-run" then opts.dry_run = true
     elseif v == "--no-input" or v == "--non-interactive" then opts.no_input = true end
   end
@@ -566,15 +505,8 @@ elseif host_command == "install" then
     return e ~= nil and e ~= "" and e ~= "0" and e:lower() ~= "false"
   end
   if env_truthy("LW_NO_INPUT") or env_truthy("CI") then opts.no_input = true end
-  -- A host with its system Lua fused in (a `make install` development build)
-  -- gets no "run lw self-update" advice for a skipped bundle.
-  opts.fused_system_lua = fused_system_lua()
-  -- Embedded code (a release executable) needs no bundle: none is fetched.
-  opts.embedded = source_kind == "embedded"
-  -- install may report progress AND fail: the binary can be placed while the
-  -- bundle fetch dies. Print whatever it got done, then honour the error —
-  -- exiting 0 on a partial install is what leaves a job to fail later with a
-  -- confusing "no loomworks release is installed".
+  -- install may report progress AND fail (e.g. the PATH edit after the binary
+  -- was placed): print whatever it got done, then honour the error.
   local report, err = require("boot.install").install(opts)
   if report then
     for _, line in ipairs(report) do io.write(line .. "\n") end
