@@ -23,8 +23,9 @@ of every build.
 
 `lw` installs itself: download the binary for your platform, **verify it**,
 then run its `install` command. It copies itself to a per-user location on
-`PATH` (`~/.local/bin/lw`, or `%LOCALAPPDATA%\Microsoft\WindowsApps\lw.exe`)
-and fetches the verified release bundle. No admin rights are needed.
+`PATH` (`~/.local/bin/lw`, or `%LOCALAPPDATA%\Microsoft\WindowsApps\lw.exe`).
+That one file is all of `lw`; nothing else is downloaded. No admin rights are
+needed.
 
 There are two ways to verify the binary before its first run.
 
@@ -161,9 +162,8 @@ lw bootstrap install       # write lw.pin, lw.sh and lw.cmd (pins this lw's rele
 lw bootstrap upgrade       # move the pin to the newest release
 ```
 
-`lw.pin` records a release version and the SHA-256 of every host binary
-(plus the bundle's, while the release still publishes one for older hosts),
-taken from that release's signed `SHA256SUMS`. `lw.sh` (Linux,
+`lw.pin` records a release version and the SHA-256 of every release
+executable, taken from that release's signed `SHA256SUMS`. `lw.sh` (Linux,
 macOS, Git Bash) and `lw.cmd` (Windows) download the pinned binary, check it
 against the pin, cache it under `.nvim/cache/` and run it:
 
