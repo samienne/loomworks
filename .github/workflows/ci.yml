@@ -122,13 +122,15 @@ jobs:
       - name: Fuse the lw binary
         shell: bash
         run: |
+          # Removed on exit even when luvi fails; only the dir stage_tree made.
+          stage=""
+          trap 'if [ -n "$stage" ]; then rm -rf "$stage"; fi' EXIT
           stage="$(bash scripts/release/stage_tree.sh)"
           if [ -f luvi.exe ]; then
             ./luvi.exe "$(cygpath -w "$stage")" --output lw.exe
           else
             ./luvi "$stage" --output lw && chmod +x lw
           fi
-          rm -rf "$stage"
 
       - name: Smoke test — the fused binary runs
         shell: bash

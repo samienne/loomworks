@@ -14,9 +14,12 @@ repo="$(cd "$(dirname "$0")/.." && pwd)"
 # Fuse the tree a release executable embeds (scripts/release/stage_tree.sh:
 # main.lua, boot/, the system Lua, the release notes and the protocol's schema
 # documents), so `lw release-notes` and Root.schema work in a dev build too.
+# The trap is set before either temp dir exists, so a failure after the first
+# one (e.g. the second mktemp) still removes it; each is removed only when set.
+src="" out_dir=""
+trap 'if [ -n "$src" ]; then rm -rf "$src"; fi; if [ -n "$out_dir" ]; then rm -rf "$out_dir"; fi' EXIT
 src="$(bash "$repo/scripts/release/stage_tree.sh")"
 out_dir="$(mktemp -d)"
-trap 'rm -rf "$src" "$out_dir"' EXIT
 out="$out_dir/lw"
 
 case "$(uname -s)" in
