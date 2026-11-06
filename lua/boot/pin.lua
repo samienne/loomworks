@@ -83,6 +83,10 @@ end
 --- The bundle asset name for a release version.
 function M.bundle_asset(version) return "loomworks-lua-" .. version .. ".zip" end
 
+--- The descriptor asset a release publishes (spec §16.41); its entry in the
+--- signed SHA256SUMS binds that list to the release (§16.12).
+function M.descriptor_asset(version) return "lw-" .. version .. "-descriptor.json" end
+
 --- Normalize an OS name (uname sysname / "Windows") to linux|macos|windows|nil.
 function M.normalize_os(sysname)
   if not sysname then return nil end

@@ -230,6 +230,39 @@ describe("launcher health (§16.31 provider #4)", function()
         vim.fn.delete(r, "rf")
     end)
 
+    it("a self-contained pin without the bundle entry is clean, with one informational note", function()
+        if not git_ok then pending("git not available") return end
+        local hashes = {}
+        for _, a in pairs(pin.HOST_ASSETS) do hashes[a] = string.rep("a", 64) end
+        local r = repo_with_files({ pin = pin.serialize(VERSION, hashes) })
+        write(r .. "/.gitattributes", "lw.sh text eol=lf\nlw.cmd text eol=crlf\nlw.pin text eol=lf\n")
+        write(r .. "/.gitignore", ".nvim/\n")
+        git(r, "add", "--chmod=+x", "lw.sh")
+        git(r, "add", "lw.cmd", "lw.pin", ".gitattributes", ".gitignore")
+        git(r, "commit", "-q", "-m", "x")
+        local items = lh.provider({ root = r })
+        assert.equals(2, #items, titles(items))
+        for _, i in ipairs(items) do assert.equals("info", i.kind, titles(items)) end
+        assert.is_truthy(find(items, "lw 1.2.3 pinned; lw.sh / lw.cmd current"), titles(items))
+        local note = find(items, "no bundle entry")
+        assert.is_truthy(note, titles(items))
+        assert.matches(pin.SELF_CONTAINED_SINCE, note.title, 1, true)
+        vim.fn.delete(r, "rf")
+    end)
+
+    it("a pin to a release before self-contained executables without its bundle is actionable", function()
+        local hashes = {}
+        for _, a in pairs(pin.HOST_ASSETS) do hashes[a] = string.rep("a", 64) end
+        local r = tmpdir()
+        write(r .. "/lw.pin", pin.serialize("0.1.60", hashes))
+        local items = lh.provider({ root = r })
+        local i = find(items, "lw.pin has no hash for " .. pin.bundle_asset("0.1.60"))
+        assert.is_truthy(i, titles(items))
+        assert.equals("suggestion", i.kind)
+        assert.is_nil(find(items, "no bundle entry"), titles(items))
+        vim.fn.delete(r, "rf")
+    end)
+
     it("uses the shared checks (boot.launcher_check), the same the status page runs", function()
         local check = require("boot.launcher_check")
         local saved = check.run_checks

@@ -35,7 +35,7 @@ M.CONNECT_TIMEOUT = 10
 --- @param version string a pin.valid_version release version
 --- @return string
 function M.descriptor_asset(version)
-  return "lw-" .. version .. "-descriptor.json"
+  return pin.descriptor_asset(version)
 end
 
 --- @class loomworks.boot.ReleaseQueryArgs

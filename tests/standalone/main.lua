@@ -2421,7 +2421,7 @@ do
   local function stage(version, tag)
     local exp, lines = {}, {}
     local list = { "lw-linux-x86_64", "lw-macos-arm64", "lw-windows-x86_64.exe",
-      pin.bundle_asset(version) }
+      pin.bundle_asset(version), "lw-" .. version .. "-descriptor.json" }
     for _, a in ipairs(list) do
       local bodyv = tag .. ":" .. a .. "\n"
       local f = assert(io.open(mirror .. "/" .. a, "wb")); f:write(bodyv); f:close()
@@ -2498,6 +2498,115 @@ do
   paths.rm_rf(sb)
 end
 
+print("boot.bootstrap — pins for self-contained releases need no bundle (§16.24, formats §9)")
+do
+  local bootstrap = require("boot.bootstrap")
+  local check = require("boot.launcher_check")
+  local pin = require("boot.pin")
+  local ossl = require("openssl")
+  local priv = ossl.pkey.read(readfile(FX .. "test_ec_priv.pem"), true, "pem")
+  local function sign(data) return priv:sign(data, "sha256") end
+  local HOSTS = { "lw-linux-x86_64", "lw-macos-arm64", "lw-windows-x86_64.exe" }
+
+  local sb = root .. "/tests/.tmp-bsnobundle"; paths.rm_rf(sb); paths.mkdirp(sb)
+  -- One mirror per release (a release's signed sums list only its own assets).
+  -- o.bundle / o.descriptor: whether the signed SHA256SUMS lists them.
+  local function stage(version, o)
+    local m = sb .. "/m-" .. version; paths.rm_rf(m); paths.mkdirp(m)
+    local list, exp, lines = {}, {}, {}
+    for _, a in ipairs(HOSTS) do list[#list + 1] = a end
+    if o.bundle then list[#list + 1] = pin.bundle_asset(version) end
+    if o.descriptor then list[#list + 1] = "lw-" .. version .. "-descriptor.json" end
+    for _, a in ipairs(list) do
+      local body = version .. ":" .. a .. "\n"
+      local f = assert(io.open(m .. "/" .. a, "wb")); f:write(body); f:close()
+      exp[a] = verify.sha256_hex(body); lines[#lines + 1] = exp[a] .. "  " .. a
+    end
+    local sums = table.concat(lines, "\n") .. "\n"
+    do local f = assert(io.open(m .. "/SHA256SUMS", "wb")); f:write(sums); f:close() end
+    do local f = assert(io.open(m .. "/SHA256SUMS.sig", "wb")); f:write(sign(sums)); f:close() end
+    uv.os_setenv("LOOMWORKS_RELEASE_URL", m)
+    return exp
+  end
+  local function keys(t) local n = 0; for _ in pairs(t or {}) do n = n + 1 end return n end
+
+  -- a self-contained release whose signed sums list no bundle: host hashes only
+  local SC = "4.0.0-test"
+  ok(pin.is_self_contained(SC), "fixture release is self-contained")
+  local exp = stage(SC, { descriptor = true })
+  local repo = sb .. "/repo"; git_init(repo)
+  local rep, err = bootstrap.install(repo, { version = SC })
+  ok(rep ~= nil, "a self-contained release without a bundle is pinned" .. (err and (" — " .. err) or ""))
+  local p = pin.read(repo)
+  eq(p and p.version, SC, "pin version")
+  for _, a in ipairs(HOSTS) do eq(p and p.hashes[a], exp[a], "pin carries " .. a) end
+  eq(p and keys(p.hashes), #HOSTS, "pin has the host hashes only (no bundle, no descriptor)")
+  local text = slurp(repo .. "/lw.pin") or ""
+  ok(not text:find("loomworks-lua-", 1, true), "lw.pin has no bundle line  (" .. text .. ")")
+  ok(not text:find("descriptor", 1, true), "lw.pin has no descriptor line")
+
+  -- parse/serialize round-trip without a bundle entry
+  local rt = pin.parse(pin.serialize(SC, p and p.hashes or {}))
+  eq(rt and rt.version, SC, "round-trip keeps the version")
+  eq(rt and keys(rt.hashes), #HOSTS, "round-trip keeps exactly the host hashes")
+  eq(pin.serialize(rt.version, rt.hashes), text, "serialize(parse(pin)) is the written pin")
+
+  -- the shared checks (status page + health #4): clean, one informational note
+  local res = check.run_checks(repo, { sha256 = verify.sha256_hex })
+  eq(#res.missing_hashes, 0, "no missing hash for a self-contained pin without a bundle")
+  local sugg, note, okline = 0, nil, nil
+  for _, f in ipairs(res.findings) do
+    if f.kind == "suggestion" and f.id:find("^pin") then sugg = sugg + 1 end
+    if f.id == "pin-no-bundle" then note = f end
+    if f.id == "ok" then okline = f end
+  end
+  eq(sugg, 0, "no actionable pin finding")
+  ok(note and note.kind == "info" and note.title:find(pin.SELF_CONTAINED_SINCE, 1, true),
+    "informational: hosts before self-contained releases cannot follow it  (" .. tostring(note and note.title) .. ")")
+  local st = bootstrap.status(repo, { offline = true })
+  local page = table.concat(st.lines, "\n")
+  ok(page:find("lw.pin -> lw " .. SC .. "; hashes for 3 platforms", 1, true)
+    and not page:find("+ bundle", 1, true), "status page: host hashes, no bundle claimed  (" .. page .. ")")
+  ok(page:find("cannot follow", 1, true), "status page shows the informational note")
+
+  -- with the bundle still listed (the transition), the pin keeps its entry
+  local expb = stage("4.1.0-test", { bundle = true, descriptor = true })
+  ok(bootstrap.install(repo, { version = "4.1.0-test" }) ~= nil, "a self-contained release with a bundle is pinned")
+  eq(pin.read(repo).hashes[pin.bundle_asset("4.1.0-test")], expb[pin.bundle_asset("4.1.0-test")],
+    "the transitional bundle entry is written while the release lists it")
+  local resb = check.run_checks(repo, { sha256 = verify.sha256_hex })
+  for _, f in ipairs(resb.findings) do
+    ok(f.id ~= "pin-no-bundle", "no bundle note when the pin has the entry")
+  end
+
+  -- signed sums that do not name the release's descriptor: refused, pin intact
+  stage("4.2.0-test", { bundle = true })
+  local r2, e2 = bootstrap.install(repo, { version = "4.2.0-test" })
+  ok(r2 == nil and tostring(e2):find("lw-4.2.0-test-descriptor.json", 1, true),
+    "sums without the descriptor are refused, naming it  (" .. tostring(e2) .. ")")
+  eq(pin.read(repo).version, "4.1.0-test", "a refused install leaves the pin intact")
+
+  -- a release before self-contained executables still needs its bundle
+  local PRE = "0.1.60"
+  ok(not pin.is_self_contained(PRE), "fixture release predates self-contained executables")
+  stage(PRE, { descriptor = true })
+  local r3, e3 = bootstrap.install(repo, { version = PRE })
+  ok(r3 == nil and tostring(e3):find(pin.bundle_asset(PRE), 1, true),
+    "a pre-self-contained release without a bundle is refused  (" .. tostring(e3) .. ")")
+  local expp = stage(PRE, { bundle = true, descriptor = true })
+  ok(bootstrap.install(repo, { version = PRE }) ~= nil, "a pre-self-contained release with its bundle is pinned")
+  eq(pin.read(repo).hashes[pin.bundle_asset(PRE)], expp[pin.bundle_asset(PRE)], "its pin carries the bundle")
+  -- a pre-self-contained pin without the bundle: actionable (that release needs it)
+  local hp = {}
+  for _, a in ipairs(HOSTS) do hp[a] = string.rep("a", 64) end
+  do local f = assert(io.open(repo .. "/lw.pin", "wb")); f:write(pin.serialize(PRE, hp)); f:close() end
+  local resp = check.run_checks(repo, { sha256 = verify.sha256_hex })
+  ok(resp.missing_hashes[1] == pin.bundle_asset(PRE), "the bundle is a missing hash for a pre-self-contained pin")
+
+  uv.os_setenv("LOOMWORKS_RELEASE_URL", "")
+  paths.rm_rf(sb)
+end
+
 print("boot.bootstrap — repository metadata, launcher generations, reporting, pruning (§16.24)")
 do
   local bootstrap = require("boot.bootstrap")
@@ -2525,7 +2634,7 @@ do
   local lines = {}
   local function stage(version)
     for _, a in ipairs({ "lw-linux-x86_64", "lw-macos-arm64", "lw-windows-x86_64.exe",
-        pin.bundle_asset(version) }) do
+        pin.bundle_asset(version), "lw-" .. version .. "-descriptor.json" }) do
       local body = version .. ":" .. a .. "\n"
       put(mirror .. "/" .. a, body)
       lines[#lines + 1] = verify.sha256_hex(body) .. "  " .. a
@@ -2814,7 +2923,7 @@ do
   local lines = {}
   local function stage(version)
     for _, a in ipairs({ "lw-linux-x86_64", "lw-macos-arm64", "lw-windows-x86_64.exe",
-        pin.bundle_asset(version) }) do
+        pin.bundle_asset(version), "lw-" .. version .. "-descriptor.json" }) do
       local body = version .. ":" .. a .. "\n"
       put(mirror .. "/" .. a, body)
       lines[#lines + 1] = verify.sha256_hex(body) .. "  " .. a
@@ -3388,7 +3497,7 @@ do
   local lines = {}
   local function stage(version)
     for _, a in ipairs({ "lw-linux-x86_64", "lw-macos-arm64", "lw-windows-x86_64.exe",
-        pin.bundle_asset(version) }) do
+        pin.bundle_asset(version), "lw-" .. version .. "-descriptor.json" }) do
       local body = version .. ":" .. a .. "\n"
       put(mirror .. "/" .. a, body)
       lines[#lines + 1] = verify.sha256_hex(body) .. "  " .. a
