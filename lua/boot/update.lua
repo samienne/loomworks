@@ -152,7 +152,8 @@ end
 --- read from the list's one version-bearing descriptor entry
 --- (`lw-<version>-descriptor.json`). A release before self-contained
 --- executables names no descriptor: only then (transitional, while such a
---- release is the newest) is the version read from its signed manifest.json.
+--- release is the newest) is the version read from its signed manifest.json,
+--- and only when the signed list names that version's bundle.
 --- A list whose signature does not verify is an error, never a fallback.
 --- `fetch` (curl limits, see `download.fetch`) bounds every fetch.
 ---
@@ -169,7 +170,8 @@ function M.latest_signed_version(base, fetch)
   local okv, ev = verify.verify_detached(sums, sig)
   if not okv then return nil, "SHA256SUMS signature: " .. tostring(ev) end
   local found
-  for name in pairs(require("boot.bootstrap").parse_sums(sums)) do
+  local list = require("boot.bootstrap").parse_sums(sums)
+  for name in pairs(list) do
     local v = name:match("^lw%-(.+)%-descriptor%.json$")
     if v then
       if not pin.valid_version(v) then
@@ -195,6 +197,14 @@ function M.latest_signed_version(base, fetch)
   if not manifest then return nil, merr end
   if not pin.valid_version(manifest.version) then
     return nil, "manifest named an unsafe version '" .. tostring(manifest.version) .. "'"
+  end
+  -- The manifest is signed on its own, so it could be another release's than
+  -- the list's: accept its version only when the signed list names that
+  -- release's bundle (the version-bearing entry of such a release, §16.12).
+  local own = pin.bundle_asset(manifest.version)
+  if not list[own] then
+    return nil, "SHA256SUMS does not match manifest.json: it has no '" .. own ..
+      "' entry for release " .. manifest.version
   end
   return manifest.version
 end

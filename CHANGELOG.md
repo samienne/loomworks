@@ -79,7 +79,8 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
 - `lw self-update` replaces only the `lw` executable: it installs no release
   bundle and removes no installed one. The newest release is read from the
   `latest` signed `SHA256SUMS` (from its `lw-<version>-descriptor.json` entry;
-  `manifest.json` only while the newest release predates the descriptor), and
+  `manifest.json` only while the newest release predates the descriptor, and
+  only when the signed list names that release's bundle), and
   the replacement must match the target release's signed list, which must name
   that release's descriptor. `--version <x.y.z>` installs an exact release and
   `--force` replaces the executable with an equal or older one too. When the

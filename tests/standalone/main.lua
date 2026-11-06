@@ -4474,6 +4474,13 @@ do
   v, e = update.resolve_newest_version({ url = mirror({ A, "loomworks-lua-0.0.0-test.zip" }, { manifest = true }) })
   eq(v, "0.0.0-test", "no descriptor (a release before self-contained executables): its signed manifest.json"
     .. (e and (" — " .. e) or ""))
+  v, e = update.resolve_newest_version({ url = mirror({ A, "loomworks-lua-0.1.40.zip" }, { manifest = true }) })
+  ok(v == nil and tostring(e):find("loomworks-lua-0.0.0-test.zip", 1, true) ~= nil,
+    "manifest fallback: the signed list must name that version's bundle, else an error  (got "
+    .. tostring(v) .. ", " .. tostring(e) .. ")")
+  v, e = update.resolve_newest_version({ url = mirror({ A }, { manifest = true }) })
+  ok(v == nil and tostring(e):find("loomworks-lua-0.0.0-test.zip", 1, true) ~= nil,
+    "manifest fallback: a list naming no bundle at all is an error  (got " .. tostring(v) .. ")")
   v, e = update.resolve_newest_version({ url = mirror({ A, "loomworks-lua-0.1.40.zip" }) })
   ok(v == nil and type(e) == "string", "no descriptor and no manifest.json: an error  (got " .. tostring(e) .. ")")
   v, e = update.resolve_newest_version({ url = mirror({ A, "lw-0.2.1-descriptor.json" },
