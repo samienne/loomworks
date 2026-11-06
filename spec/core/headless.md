@@ -1393,9 +1393,10 @@ management `install` or `upgrade` (§16.24), never by the launcher itself.
 In pinned context, a self-contained executable whose own release version
 equals the pinned version runs its embedded code; one whose version differs
 refuses with an error and never redirects again. A pin naming a release older
-than the first self-contained release is honored as before by that release's
-own executable (which provisions its bundle); the redirecting host provisions
-nothing for it but the executable.
+than the first self-contained release (from 0.1.32 on; an earlier one is
+refused, below) is honored as before by that release's own executable (which
+provisions its bundle); the redirecting host provisions nothing for it but the
+executable.
 The trust anchor is the **committed pin hash** checked against an artifact
 fetched from the fixed origin (§16.23). A pinned run leaves the machine-global
 installation (§16.13) untouched.
@@ -1406,10 +1407,11 @@ itself: in particular it never trusts code found **inside the repository**
 cache directory) because it exists — a cloned repository can ship arbitrary
 files there. That is why the executables the host downloads live outside the
 repository (§16.13). The repository-local bundle location used by early
-releases is never read. When a redirect (§16.23) targets a pinned release
-whose host still reads that location (transitional), the redirecting host
-MUST refuse the redirect while the location exists, naming it so the user can
-remove it; it never deletes repository content.
+releases is never read. A redirect (§16.23) never targets a pinned release
+whose host still reads that location (releases before 0.1.32): the
+redirecting host refuses it, naming the pinned version and the command that
+moves the pin to a supported release (§16.24), and it never deletes
+repository content.
 
 **Self-identification.** A launcher tells the host it runs which launcher it
 is, in an environment value set only for that process (`LOOMWORKS_LAUNCHER`,
