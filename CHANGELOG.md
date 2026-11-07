@@ -55,6 +55,11 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
 
 ### Changed
 
+- `lw module list | install | update` read the module index from
+  `modules.json` in samienne/loomworks instead of samienne/loomworks.nvim.
+  `lw settings set module-index` and `LOOMWORKS_MODULE_INDEX` still override
+  it (#144).
+
 - An `lw` executable that embeds the loomworks code runs that code and
   nothing else: it never loads a release bundle installed beside it, and
   `lw version` reports its release and "self-contained", or "dev build". In

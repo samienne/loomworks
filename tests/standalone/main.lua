@@ -664,6 +664,9 @@ do
   uv.os_setenv("APPDATA", sb)
   uv.os_setenv("XDG_CONFIG_HOME", sb)
   uv.os_setenv("LOOMWORKS_MODULE_INDEX", "")  -- start unset
+  eq(modules.DEFAULT_INDEX_URL,
+    "https://raw.githubusercontent.com/samienne/loomworks/main/modules.json",
+    "default module index is modules.json on this repo's main branch")
 
   -- Build a GitHub-style archive zip: everything under one top dir, module +
   -- an SDK provider it brings, plus a spec/ file that must be dropped on install.
