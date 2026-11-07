@@ -28,13 +28,14 @@ local update = require("boot.update")
 
 local M = {}
 
--- Where the curated index is fetched from. Raw from the repo's default branch,
--- so the available-module list is not chained to a core release (module
--- availability is decoupled from the host's own version). Overridable via
+-- Where the curated index is fetched from: `modules.json` at the root of this
+-- repository's default branch, raw, so the available-module list is not
+-- chained to a core release (module availability is decoupled from the host's
+-- own version). 0.1.x hosts keep reading the copy in loomworks.nvim. Overridable via
 -- LOOMWORKS_MODULE_INDEX or the `module-index` config key; a local path or
 -- file:// works as an offline mirror (and is what the tests use).
 M.DEFAULT_INDEX_URL =
-  "https://raw.githubusercontent.com/samienne/loomworks.nvim/master/modules.json"
+  "https://raw.githubusercontent.com/samienne/loomworks/main/modules.json"
 
 local function index_url(opts)
   local u = (opts and opts.url)
