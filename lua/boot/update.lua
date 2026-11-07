@@ -146,6 +146,12 @@ function M.resolve_unstable_version(fetch_limits)
   return nil, "no releases found on the unstable channel"
 end
 
+--- The error code `latest_signed_version` / `resolve_newest_version` return
+--- (third value) when the base publishes no release at all: its SHA256SUMS does
+--- not exist (HTTP 404/410, or a missing file in a local mirror). Any other
+--- failure has no code.
+M.NO_RELEASE = "no-release"
+
 --- The newest release a `latest`/override base publishes, from its SIGNED
 --- hash list (spec §16.12): SHA256SUMS + SHA256SUMS.sig are fetched and the
 --- signature verified with the key built into this host, then the version is
@@ -155,15 +161,17 @@ end
 --- release is the newest) is the version read from its signed manifest.json,
 --- and only when the signed list names that version's bundle.
 --- A list whose signature does not verify is an error, never a fallback.
+--- A base with no SHA256SUMS at all returns `nil, err, M.NO_RELEASE`.
 --- `fetch` (curl limits, see `download.fetch`) bounds every fetch.
 ---
 --- SECURITY: the version is validated with pin.valid_version before it is
 --- returned (it becomes part of URLs downstream).
 --- @param base string
 --- @param fetch? table curl limits
---- @return string|nil version, string|nil err
+--- @return string|nil version, string|nil err, string|nil code `M.NO_RELEASE` when there is no SHA256SUMS
 function M.latest_signed_version(base, fetch)
-  local sums, e1 = download.fetch(base .. "/SHA256SUMS", fetch)
+  local sums, e1, missing = download.fetch(base .. "/SHA256SUMS", fetch)
+  if missing then return nil, "no release found at " .. base .. " (" .. tostring(e1) .. ")", M.NO_RELEASE end
   if not sums then return nil, "fetch SHA256SUMS: " .. tostring(e1) end
   local sig, e2 = download.fetch(base .. "/SHA256SUMS.sig", fetch)
   if not sig then return nil, "fetch SHA256SUMS.sig: " .. tostring(e2) end
@@ -221,17 +229,33 @@ end
 --- `opts.fetch` (curl limits, see `download.fetch`) bounds the fetches; the
 --- health check passes quick timeouts so an unreachable network cannot stall
 --- `lw health`. A local/mirror base is a file read and ignores it.
---- @return string|nil version, string|nil err
+---
+--- A base that publishes no release returns `nil, err, M.NO_RELEASE` (spec
+--- §16.29): on the default origin that is `stable` with no stable release yet,
+--- and the error names the unstable channel's `--channel unstable` flag (every
+--- command that resolves the newest release takes it) and `channel` setting;
+--- an override is a mirror the channel does not govern, so it is pointed at.
+--- @return string|nil version, string|nil err, string|nil code
 function M.resolve_newest_version(opts)
   opts = opts or {}
   local channel, cerr = M.resolve_channel(opts)
   if not channel then return nil, cerr end
   -- `unstable` on the default origin: newest incl. pre-releases via the API. A
   -- mirror/override supersedes the channel and is read like stable.
-  if channel == "unstable" and not url_override(opts) then
+  local override = url_override(opts)
+  if channel == "unstable" and not override then
     return M.resolve_unstable_version(opts.fetch)
   end
-  return M.latest_signed_version(release_base(opts), opts.fetch)
+  local base = release_base(opts)
+  local version, err, code = M.latest_signed_version(base, opts.fetch)
+  if code ~= M.NO_RELEASE then return version, err end
+  if override then
+    return nil, "no release found at " .. base .. " (it has no SHA256SUMS) - check " ..
+      "LOOMWORKS_RELEASE_URL / the `release-url` setting", code
+  end
+  return nil, "no stable release found at " .. base .. " - only pre-releases may be " ..
+    "published yet; use the unstable channel: pass `--channel unstable`, or run " ..
+    "`lw settings set channel unstable`", code
 end
 
 --- Self-update's target when no `--version` is given: the resolved channel's
@@ -241,6 +265,7 @@ end
 --- @param opts? { url?: string, channel?: string, fetch?: table }
 --- @return { version: string, channel: string, channel_overridden?: string }|nil target
 --- @return string|nil err
+--- @return string|nil code `M.NO_RELEASE` when the base publishes no release
 function M.resolve_target(opts)
   opts = opts or {}
   local channel, cerr = M.resolve_channel(opts)
@@ -250,8 +275,8 @@ function M.resolve_target(opts)
   -- silent it misleads, so a NON-DEFAULT channel superseded this way is
   -- reported (`stable` is the override's own behavior: no conflict).
   local overridden = (channel ~= M.DEFAULT_CHANNEL and url_override(opts)) and channel or nil
-  local version, err = M.resolve_newest_version(opts)
-  if not version then return nil, err end
+  local version, err, code = M.resolve_newest_version(opts)
+  if not version then return nil, err, code end
   return { version = version, channel = channel, channel_overridden = overridden }
 end
 

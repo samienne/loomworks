@@ -87,9 +87,14 @@ local function curl_args(url, extra, limits)
   return args
 end
 
+-- ENOENT is 2 on every platform luv/Lua run on (POSIX and the Windows CRT).
+local ENOENT = 2
+
 local function read_file(path)
-  local f, e = io.open(path, "rb")
-  if not f then return nil, "cannot read '" .. path .. "': " .. tostring(e) end
+  local f, e, errno = io.open(path, "rb")
+  if not f then
+    return nil, "cannot read '" .. path .. "': " .. tostring(e), errno == ENOENT or nil
+  end
   local s = f:read("*a"); f:close()
   return s
 end
@@ -137,6 +142,17 @@ local function curl_with_retry(args, attempts)
   return code, out, err
 end
 
+--- Did curl fail because the server says the resource does not exist (HTTP
+--- 404 / 410), as opposed to any other failure?
+--- @param code integer curl exit code
+--- @param stderr string
+--- @return boolean
+function M.is_not_found(code, stderr)
+  if code ~= 22 then return false end
+  local status = tonumber((stderr or ""):match("returned error:%s*(%d%d%d)"))
+  return status == 404 or status == 410
+end
+
 --- Turn `opts.headers` (an array of "Name: value" strings) into curl `-H` args.
 --- Used for the releases API, which wants an Accept + a User-Agent header (curl
 --- already sends a default UA, but api.github.com is fussier than the CDN).
@@ -148,7 +164,9 @@ local function header_args(opts)
   return extra
 end
 
---- Fetch `url` and return its bytes, or nil, err. `opts.headers` adds request
+--- Fetch `url` and return its bytes, or nil, err, not_found — `not_found` is
+--- true when the resource does not exist (a missing local file, HTTP 404/410)
+--- and nil for every other failure. `opts.headers` adds request
 --- headers (ignored for a local-path/file:// read). `opts.connect_timeout` /
 --- `opts.max_time` (seconds) and `opts.attempts` bound a quick, best-effort
 --- fetch (the health update check); without them the transfer uses curl's
@@ -161,7 +179,7 @@ function M.fetch(url, opts)
   if code == nil then return nil, out end
   if code ~= 0 then
     return nil, "curl failed (" .. tostring(code) .. ") for " .. url ..
-      (err ~= "" and (": " .. err:gsub("%s+$", "")) or "")
+      (err ~= "" and (": " .. err:gsub("%s+$", "")) or ""), M.is_not_found(code, err) or nil
   end
   return out
 end

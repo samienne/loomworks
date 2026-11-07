@@ -444,13 +444,14 @@ elseif host_command == "self-update" then
   -- The target: the exact `--version`, else the channel's newest release.
   local target = version
   if not target then
-    local t, terr = upd.resolve_target({ channel = channel })
+    local t, terr, tcode = upd.resolve_target({ channel = channel })
     if not t then
       io.stderr:write("lw: self-update failed: " .. tostring(terr) .. "\n")
       -- A 404 here usually means this build points at a release feed that has
       -- no releases yet, so say where it looked and how to redirect it rather
-      -- than leaving a bare curl error.
-      if tostring(terr):find("404", 1, true) then
+      -- than leaving a bare curl error. A base with no release at all
+      -- (upd.NO_RELEASE) already says where it looked and what to do.
+      if (tcode == nil or tcode ~= upd.NO_RELEASE) and tostring(terr):find("404", 1, true) then
         io.stderr:write("    Releases are fetched from: " .. upd.DEFAULT_RELEASE_URL .. "\n" ..
           "    Point it elsewhere with `lw settings set release-url <url>` or\n" ..
           "    LOOMWORKS_RELEASE_URL (a local directory works as an offline mirror).\n")
