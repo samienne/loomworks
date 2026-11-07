@@ -155,7 +155,7 @@ i.e., variable values changed) suffice:
 
 A future `reconfigure_triggers` field could read globs from
 `type_config` and surface a soft hint when any matching file's mtime
-exceeds `last_configured`. Tracked in BACKLOG.md, not implemented.
+exceeds `last_configured`. Not implemented.
 
 ## 9. Targets
 

@@ -607,7 +607,7 @@ field: a module never sees it.
   its configuration set), and different args through the variable system
   (§1.3.1, including the profile fill), which args are expanded with (below).
   There are no list-typed variables in this version; they are planned as a
-  follow-up (BACKLOG), which would let a variable supply a whole list or a
+  follow-up ([#81](https://github.com/samienne/loomworks/issues/81)), which would let a variable supply a whole list or a
   run of args.
 - **Args.** An entry's args are expanded exactly like a launch
   configuration's args (§8.7): built-in variables first, then project

@@ -330,8 +330,7 @@ build → file-deploy → device-install → device-launch
    launch chain — the app is already running, we just can't follow
    its output this time.
 
-Device targets always use launch mode in v1 (no device debug — see
-BACKLOG.md "Native device debug").
+Device targets always use launch mode in v1 (no device debug).
 
 ### 11.4 LaunchTarget device support
 

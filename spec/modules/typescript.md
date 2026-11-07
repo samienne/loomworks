@@ -64,7 +64,7 @@ Typical TypeScript launch config:
 
 ## 5. LSP integration
 
-Not yet implemented — BACKLOG.md tracks a future `ts_ls` / `vtsls`
+Not yet implemented — [samienne/loomworks.nvim#409](https://github.com/samienne/loomworks.nvim/issues/409) tracks a future `ts_ls` / `vtsls`
 integration with tsconfig switching per profile.
 
 ## 6. Debug integration

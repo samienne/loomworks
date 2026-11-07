@@ -1768,8 +1768,8 @@ adapter-specific transforms in its own spec file:
 - [loomworks.nvim `spec/integrations/debug/pwa-node.md`](https://github.com/samienne/loomworks.nvim/blob/master/spec/integrations/debug/pwa-node.md)
   — Node.js / TypeScript (default for `typescript`).
 
-A pluggable backend registry mirroring the LSP design is on the
-BACKLOG; today `debug.lua` holds the dispatcher and adapter logic
+A pluggable backend registry mirroring the LSP design is
+[samienne/loomworks.nvim#405](https://github.com/samienne/loomworks.nvim/issues/405); today `debug.lua` holds the dispatcher and adapter logic
 together.
 
 **Environment inventory.** Each known adapter also contributes an inventory

@@ -22,7 +22,7 @@ roadmap of further interfaces is not part of the contract.
 
 **Section numbers.** `§n` is a section of this document.
 `PROTOCOL.md §n` is a section of the protocol and `formats.md §n` a section
-of the [file formats](../formats.md).
+of the [file formats](https://github.com/samienne/loomworks/blob/main/spec/formats.md).
 
 **The CLI's behaviour.** Many operations below are the CLI's commands run by
 a server. Where this document says an operation prints, refuses or fails *as
@@ -515,7 +515,7 @@ result lines as its error and as the task result's `not_run`. A failing step's e
 without `not_run`.
 
 A **core-performed wipe** (a module's `wipe_build_dir`) is the build-directory
-deletion ([ARCHITECTURE.md](../../ARCHITECTURE.md), "Deletion safety"): the
+deletion ([ARCHITECTURE.md](https://github.com/samienne/loomworks/blob/main/ARCHITECTURE.md), "Deletion safety"): the
 path is validated first (non-empty, within the workspace root and never the root itself, links not
 followed, no command interpreter) — a refused path ends the task with the
 `clean refused: unsafe build directory …` line; the clean's units sharing the
