@@ -2200,8 +2200,8 @@ default-channel selection under an override is no conflict and warns nothing.)
 
 When the default origin publishes **no full release** yet, stable resolution
 MUST fail with an error that says no stable release was found at the origin and
-names how to select the unstable channel (the per-invocation `--channel
-unstable` and the channel setting) — never a bare transfer error. "No release"
+names how to select the unstable channel (the `--channel unstable` option
+and the channel setting) — never a bare transfer error. "No release"
 means the origin's signed hash list does not exist (not found); any other
 failure (offline, server error, a list that does not verify) is reported as it
 occurred. A release-source override that publishes no release is reported as
