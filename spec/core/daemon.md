@@ -5,8 +5,8 @@
 > of the workspace runtime and the order in which it is reached. It does not
 > claim behaviour master has: every subsection carries a **status** line, and
 > only parts marked *master* are in effect. The rationale, the superseded
-> decisions and the step plan live in `DAEMON.md` in the history of
-> [samienne/loomworks.nvim](https://github.com/samienne/loomworks.nvim).
+> decisions and the step plan live in [`DAEMON.md`](https://github.com/samienne/loomworks.nvim/blob/7b7d1f9f07a3ec55845b65f6ded5972bbbdceba8/DAEMON.md) in the history of
+> samienne/loomworks.nvim.
 >
 > Status legend: **master** — in effect; **#88** — implemented on the
 > experimental daemon branch (draft PR samienne/loomworks.nvim#88), to be carried over; **re-cut** —
@@ -2441,7 +2441,7 @@ degraded ("End state").
   workspace daemon, none is launched (`:LoomworksDaemon connect` starts
   one); retiring — waiting for the retiring daemon to exit; skip — the
   incompatible-daemon note ("Connect" below). A progress line from the relay
-  is not part of step 5i (BACKLOG).
+  is not part of step 5i ([#37](https://github.com/samienne/loomworks/issues/37)).
 - **Exit before `welcome`.** A relay that exits before `welcome` is mapped
   from its exit status (§19.10 "Relay exit status") to a Runtime-line note,
   with the relay's `lw: ...` standard-error line as detail (never the
@@ -2791,8 +2791,7 @@ offers its targets too. A refused or uncarried call is an error
 notification and changes nothing ("Availability").
 `lw.compile_command_for_file(file)` and `:LoomworksCompileCommand` are
 **refused** in `daemon` mode — `not available with the workspace daemon` —
-and never read a compilation database or a model (BACKLOG "Per-file compile
-command over the daemon"). *(Transition, until step 6b-β: in `in-process`
+and never read a compilation database or a model ([#51](https://github.com/samienne/loomworks/issues/51)). *(Transition, until step 6b-β: in `in-process`
 mode every function keeps its model objects and behaviour.)*
 
 **LSP configuration.** *(Step 5l, done: part 0 the spec; A the
@@ -3964,7 +3963,7 @@ protocol 10 and the optional parts 5k D and 5m D; 6b-α next, then 6, 6b-β,
      and the deprecation window (§19.20) has passed since the first stable
      release containing 5g.3.
 6. **Default flips** to the binary path for the CLI (the shared daemon;
-   degraded when it cannot be started), after the criteria in DAEMON.md. The
+   degraded when it cannot be started), after the criteria in [`DAEMON.md`](https://github.com/samienne/loomworks.nvim/blob/7b7d1f9f07a3ec55845b65f6ded5972bbbdceba8/DAEMON.md). The
    editor's default flipped in 5s, after which the in-process editor stays
    one beta cycle behind `runtime.mode = "in-process"`, with a deprecation
    note.
@@ -3996,7 +3995,7 @@ protocol 10 and the optional parts 5k D and 5m D; 6b-α next, then 6, 6b-β,
      protocol schemas and transcripts become the cross-repository contract,
      in a separate protocol repository pinned by both sides (§19.20).
 
-**Later steps, in this order** (after the steps above; DAEMON.md 8a–8c):
+**Later steps, in this order** (after the steps above; [`DAEMON.md`](https://github.com/samienne/loomworks.nvim/blob/7b7d1f9f07a3ec55845b65f6ded5972bbbdceba8/DAEMON.md) 8a–8c):
 
 - **8a — Workspace data to `.lw/`**: lw's workspace data files move from
   `.nvim/` to `.lw/` with a one-time migration recorded by a marker; when
@@ -4132,8 +4131,8 @@ roadmap.
 An interface whose surface grows unwieldy is split at its next version without
 disturbing the clients of the others.
 
-Replaying a task's earlier output (`Tasks/1` has no `attach`) is BACKLOG
-("Daemon task output replay").
+Replaying a task's earlier output (`Tasks/1` has no `attach`) is
+[#50](https://github.com/samienne/loomworks/issues/50).
 
 **`DebugConfig/1`.** *(Step 5k, part B2: implemented, daemon side.)* The
 workspace's debug-adapter mapping, on `/debug`, specified in [API.md](../protocol/API.md) §12.
@@ -4159,7 +4158,7 @@ version), are specified in [API.md](../protocol/API.md) §10; the daemon side is
 editor's use §19.16 "Tests".
 
 A per-file compile-command query (§8.4 `compile_command_for`) is not part of
-`LspConfig/1` (BACKLOG "Per-file compile command over the daemon"); in
+`LspConfig/1` ([#51](https://github.com/samienne/loomworks/issues/51)); in
 `daemon` mode the editor refuses it (§19.16 "Public API").
 
 **Module interfaces.** A module's interfaces — its namespace, the mount rule
