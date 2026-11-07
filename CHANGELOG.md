@@ -154,6 +154,11 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
 
 ### Fixed
 
+- When the release origin has no stable release yet, `lw self-update`,
+  `lw bootstrap install --latest` / `upgrade` and `lw release query` say that
+  no stable release was found there and suggest `--channel unstable` (or
+  `lw settings set channel unstable`), instead of a bare "fetch SHA256SUMS"
+  error. A release mirror with no release says so too (#143).
 - On Linux the workspace daemon no longer dies, leaving its running step
   behind, when a client disconnects while the daemon is writing to it: a
   write to a closed connection is a disconnect, never a signal that ends lw.

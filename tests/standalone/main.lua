@@ -4450,6 +4450,61 @@ do
   paths.rm_rf(sb)
 end
 
+print("boot.update — no stable release at the origin names the unstable channel (§16.29)")
+do
+  local sb = root .. "/tests/.tmp-no-stable"; paths.rm_rf(sb); paths.mkdirp(sb)
+  uv.os_setenv("LOCALAPPDATA", sb); uv.os_setenv("XDG_DATA_HOME", sb)
+  uv.os_setenv("APPDATA", sb); uv.os_setenv("XDG_CONFIG_HOME", sb)
+  uv.os_setenv("LOOMWORKS_CHANNEL", "")
+  uv.os_setenv("LOOMWORKS_RELEASE_URL", "")
+  local function has(s, sub) return type(s) == "string" and s:find(sub, 1, true) ~= nil end
+  local saved_origin = update.DEFAULT_RELEASE_URL
+
+  -- The default origin publishes no stable release: `releases/latest` has no
+  -- SHA256SUMS (a local origin stands in for the 404).
+  update.DEFAULT_RELEASE_URL = sb .. "/no-stable-release"
+  local v, e = update.resolve_newest_version({ channel = "stable" })
+  ok(v == nil and has(e, "no stable release found at " .. sb .. "/no-stable-release"),
+    "stable with no stable release says so" .. (e and (" — " .. e) or ""))
+  ok(has(e, "--channel unstable") and has(e, "lw settings set channel unstable"),
+    "and names the unstable channel's flag and setting")
+  local t, te = update.resolve_target({ channel = "stable" })
+  ok(t == nil and has(te, "no stable release found") and has(te, "--channel unstable"),
+    "self-update's target resolution carries the hint")
+  local _, be = require("boot.bootstrap").install(sb .. "/repo", { latest = true })
+  ok(has(be, "no stable release found") and has(be, "--channel unstable"),
+    "bootstrap install --latest carries the hint" .. (be and (" — " .. be) or ""))
+
+  -- Over HTTP the same is a 404 on SHA256SUMS; any other failure is unchanged.
+  local saved_run, saved_delay = download._run, download.RETRY_DELAY_MS
+  download.RETRY_DELAY_MS = 0
+  local reply
+  download._run = function() return reply[1], "", reply[2] end
+  update.DEFAULT_RELEASE_URL = "https://example.invalid/releases/latest/download"
+  reply = { 22, "curl: (22) The requested URL returned error: 404" }
+  v, e = update.resolve_newest_version({ channel = "stable" })
+  ok(v == nil and has(e, "no stable release found at https://example.invalid/releases/latest/download")
+    and has(e, "--channel unstable"), "an HTTP 404 is the no-stable-release error" .. (e and (" — " .. e) or ""))
+  reply = { 28, "curl: (28) Connection timed out" }
+  v, e = update.resolve_newest_version({ channel = "stable", fetch = { attempts = 1 } })
+  ok(v == nil and has(e, "fetch SHA256SUMS: ") and not has(e, "no stable release"),
+    "a timeout keeps the plain fetch error" .. (e and (" — " .. e) or ""))
+  reply = { 22, "curl: (22) The requested URL returned error: 500" }
+  v, e = update.resolve_newest_version({ channel = "stable", fetch = { attempts = 1 } })
+  ok(v == nil and has(e, "fetch SHA256SUMS: ") and not has(e, "no stable release"),
+    "a server error keeps the plain fetch error")
+  download._run, download.RETRY_DELAY_MS = saved_run, saved_delay
+
+  -- A release-url override supersedes the channel, so it is not suggested.
+  update.DEFAULT_RELEASE_URL = saved_origin
+  v, e = update.resolve_newest_version({ url = sb .. "/empty-mirror" })
+  ok(v == nil and has(e, "no release found at " .. sb .. "/empty-mirror") and not has(e, "--channel"),
+    "an empty mirror says it has no release, without the channel hint" .. (e and (" — " .. e) or ""))
+
+  update.DEFAULT_RELEASE_URL = saved_origin
+  paths.rm_rf(sb)
+end
+
 print("boot.update — the newest release comes from the signed SHA256SUMS (§16.12, §16.32)")
 do
   local ossl = require("openssl")

@@ -2198,6 +2198,15 @@ MUST warn that the channel was ignored — the supersede is by design, but it MU
 NOT be silent, or a user who selected a channel will believe it took effect. (A
 default-channel selection under an override is no conflict and warns nothing.)
 
+When the default origin publishes **no full release** yet, stable resolution
+MUST fail with an error that says no stable release was found at the origin and
+names how to select the unstable channel (the `--channel unstable` option
+and the channel setting) — never a bare transfer error. "No release"
+means the origin's signed hash list does not exist (not found); any other
+failure (offline, server error, a list that does not verify) is reported as it
+occurred. A release-source override that publishes no release is reported as
+having none, without the channel hint, since the channel does not govern it.
+
 A pre-release version orders **below** its corresponding full release: version
 comparison used for replacement and "already newest" (§16.32) MUST treat a
 pre-release as older than the release it precedes — so following stable never
