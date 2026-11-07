@@ -118,6 +118,11 @@ installed; `--version <x.y.z>` installs an exact release. `--channel unstable`
 follows pre-releases as well; `lw version` shows what you run. To pin a release in CI, download a
 versioned URL instead of `latest`, or use the repo-local launcher below.
 
+**Coming from 0.1.x.** Releases before 0.2 were published in loomworks.nvim.
+An `lw` of 0.1.51 or later moves to 0.2 with `lw self-update`; run
+`lw self-update` on an older one to reach 0.1.51 first, or install 0.2 as
+above.
+
 ## Quick start
 
 From the root of a repository:
