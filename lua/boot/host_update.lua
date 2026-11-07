@@ -236,8 +236,7 @@ function M.update_host(o)
   local asset, aerr = o.asset, nil
   if not asset then asset, aerr = pin.detect_asset() end
   if not asset then
-    return { status = "warning", message = "no host binary is published for this platform (" ..
-      tostring(aerr) .. ")" }
+    return { status = "warning", message = tostring(aerr) }
   end
   local base = update.versioned_base(target, { url = o.url })
   local manual = "replace " .. exe .. " with the `" .. asset .. "` asset of release " ..

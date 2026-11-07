@@ -55,6 +55,11 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
 
 ### Changed
 
+- On a platform without an lw build, `lw self-update`, a pinned `lw` and the
+  `lw.sh` / `lw.cmd` launchers say `no lw build for <os>-<arch>` and name the
+  supported platforms (linux-x86_64, macos-arm64, windows-x86_64). `lw health`
+  reports older launchers as missing this (#146).
+
 - An `lw` executable that embeds the loomworks code runs that code and
   nothing else: it never loads a release bundle installed beside it, and
   `lw version` reports its release and "self-contained", or "dev build". In

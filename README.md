@@ -27,6 +27,13 @@ then run its `install` command. It copies itself to a per-user location on
 That one file is all of `lw`; nothing else is downloaded. No admin rights are
 needed.
 
+**Supported platforms.** `lw` is built for Linux x86_64 (`lw-linux-x86_64`),
+macOS arm64 (`lw-macos-arm64`, Apple silicon) and Windows x86_64
+(`lw-windows-x86_64.exe`). Other platforms, such as Linux arm64, Intel macOS
+and Windows arm64, are not supported yet: there `lw self-update`, a pinned
+`lw` and the `lw.sh` / `lw.cmd` launchers stop with "no lw build for
+<os>-<arch>" and the list of supported platforms.
+
 There are two ways to verify the binary before its first run.
 
 **Build provenance (recommended).** Every release binary is attested by
