@@ -1882,9 +1882,11 @@ status line, compilers drop colour). No colour variable is added for it:
 such variables (`CLICOLOR_FORCE`, …) reach every process of the build,
 including ones whose output a build script captures, so they would change
 what a build does; a user who wants colour sets them in the environment of
-`lw build`, which the step receives. The daemon sends the `model_change` of
-the task's cache write-back (§19.12) before its `done`, so the editor has
-already reloaded the outcome when the running state clears.
+`lw build`, which the step receives.
+
+The daemon sends the `model_change` of the task's cache write-back (§19.12)
+before its `done`, so the editor has already reloaded the outcome when the
+running state clears.
 
 For a test run it is the test plan of §16.16 ([API.md](../protocol/API.md) §10.1), the in-process
 host's own code (`test_plan.lua`) run with the task as its host.
