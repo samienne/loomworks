@@ -1,4 +1,4 @@
--- The editor's relay client and the relay process rules (spec §19.16 "The
+-- The editor's relay client and the relay process rules (spec loomworks.nvim spec/plugin.md §19.16 "The
 -- relay process"), against fake relay processes
 -- (tests/fixtures/fake_relay_proc.lua): a relay that ignores EOF on its
 -- standard input is ended by a plain kill of its own pid after KILL_MS, and
@@ -21,7 +21,7 @@ local function alive(pid)
     return ok and r == 0
 end
 
-describe("the editor's relay client: the relay process (§19.16)", function()
+describe("the editor's relay client: the relay process (loomworks.nvim spec/plugin.md §19.16)", function()
     local root, relays, extra_pids
     before_each(function()
         root = H.workspace()

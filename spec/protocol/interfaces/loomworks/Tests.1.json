@@ -242,7 +242,7 @@
       "mutates": true
     },
     "prepare_debug": {
-      "description": "Prepare debugging one test node (API.md §10.2; spec 19.16 Tests): the locks and build of a run_cases of that node (released when the task ends), then the debug spec of the test step run_cases would have run (its program, arguments, filter and results option, working directory and environment) with the debug languages and adapters resolved, and a prepared token for collect. The client runs the program under its debugger.",
+      "description": "Prepare debugging one test node (API.md §10.2; loomworks.nvim spec/plugin.md 19.16 Tests): the locks and build of a run_cases of that node (released when the task ends), then the debug spec of the test step run_cases would have run (its program, arguments, filter and results option, working directory and environment) with the debug languages and adapters resolved, and a prepared token for collect. The client runs the program under its debugger.",
       "params": {
         "type": "object",
         "required": [

@@ -1224,7 +1224,7 @@ workspace daemon runs a task (§19.6 "Running tasks"), the profiles and units
 that task resolves to show it running (`building`, `configuring`, `cleaning`,
 and `deleting` for a reset, §16.30),
 exactly as the interactive host shows a task it observes in the daemon
-(§19.16). An operation another process runs **in-process** (no daemon) is not
+([loomworks.nvim `spec/plugin.md` §19.16](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#1916-the-editor-as-a-client)). An operation another process runs **in-process** (no daemon) is not
 visible to the overview; its result shows once it persists.
 
 The overview shows the workspace runtime's `Runtime` line and, when the
@@ -1445,7 +1445,7 @@ resolves its own workspace and pin.
 **No install folder.** A host keeps no code outside its executable, so there
 is nothing to install beside it: the executables it downloads live in the
 machine-local executable cache (§16.13, §16.40), and `LOOMWORKS_INSTALL_DIR`
-is not read. A program that runs its own lw (the editor plugin, §19.16) keeps
+is not read. A program that runs its own lw (the editor plugin, [loomworks.nvim `spec/plugin.md` §19.16](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#1916-the-editor-as-a-client)) keeps
 that executable where it chooses; what that lw downloads, the record of which
 release's notes were last shown (§16.37), and the **shared runtime state** —
 the trust store (§17), the daemons' runtime directory, sockets, identity and
@@ -1505,11 +1505,11 @@ workspace daemon to the pinned release (as for a command it runs itself,
 below): a `daemon run` or `daemon restart` refuses with one line on standard
 error naming the pinned version and the release that introduced the command,
 and exits 1 without starting anything (the editor then works without a daemon,
-§19.16); `reset` runs as the invoked host, without the workspace daemon, after
+[loomworks.nvim `spec/plugin.md` §19.16](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#1916-the-editor-as-a-client)); `reset` runs as the invoked host, without the workspace daemon, after
 one such line.
 
 **One daemon per pinned workspace.** Whoever starts it — the editor, which
-launches `lw daemon run` with the binary it selected (§19.16), a CLI command, a
+launches `lw daemon run` with the binary it selected ([loomworks.nvim `spec/plugin.md` §19.16](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#1916-the-editor-as-a-client)), a CLI command, a
 `daemon restart` — the daemon of a pinned workspace is the pinned release. For
 `daemon run` the workspace is the one its `--root` names (the daemon runs from
 the per-user state directory, §19.10) — for a `daemon` command its `--root`
@@ -2264,7 +2264,7 @@ listing, the client asks, and the confirmed request carries a token of the
 listed plan, so a reset whose directories changed between the listing and the
 answer refuses instead of removing directories the user was not shown. The
 editor and `lw status` show the running reset like any task the daemon runs
-(§19.16, §16.18).
+([loomworks.nvim `spec/plugin.md` §19.16](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#1916-the-editor-as-a-client), §16.18).
 
 **Concurrent editor.** Reset is designed to run while an editor host is live on
 the same workspace, and coexistence rests on the same three-file/cache
@@ -4495,7 +4495,7 @@ rules above.
 
 `lw version --json` prints the **binary descriptor**: what this lw implements,
 for a program that has to decide whether it can use a binary before starting a
-daemon with it (the editor's quick pre-check, §19.16; authoritative is
+daemon with it (the editor's quick pre-check, [loomworks.nvim `spec/plugin.md` §19.16](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#1916-the-editor-as-a-client); authoritative is
 `Root.describe` after connecting, [API.md](../protocol/API.md) §3). It is a host command (§16.23: it
 never redirects), needs no workspace and starts no daemon. It describes the
 code this invocation runs (§16.11): the executable's embedded code, or the
@@ -4507,7 +4507,7 @@ text.
 The descriptor describes the binary invoked, never what a redirect command
 (§16.23) would run in a pinned repository: a caller that launches `daemon run`
 in a repository pinned to another release learns that release's capabilities
-only from the handshake after the launch (§19.9, §19.16).
+only from the handshake after the launch (§19.9, [loomworks.nvim `spec/plugin.md` §19.16](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#1916-the-editor-as-a-client)).
 
 The descriptor is the binary half of `Root.describe`, with the same field
 shapes and without a session:
@@ -4539,7 +4539,7 @@ downloading its binary.
 `lw release query [--channel stable|unstable] [--json]` resolves an update
 channel (§16.29) to a **verified** release: its version, the SHA-256 of every
 host asset and its descriptor (§16.41). It is how a program that runs a
-verified `lw` (the editor's managed `lw`, §19.16 "Channel upgrades") learns
+verified `lw` (the editor's managed `lw`, [loomworks.nvim `spec/plugin.md` §19.16](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#1916-the-editor-as-a-client) "Channel upgrades") learns
 which release a channel offers and what that release implements before it
 downloads anything. It is a host command (§16.23): it never redirects, needs
 no workspace, starts no daemon and writes nothing to disk — it neither saves

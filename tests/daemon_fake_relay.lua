@@ -1,6 +1,6 @@
 -- A fake of the editor's relay seam (observer `opts.relay`, the shape of
 -- loomworks.daemon.client.relay.connect) for the observer specs: no process,
--- it follows what a relay does (§19.10 "Connections", §19.16 "Through the
+-- it follows what a relay does (§19.10 "Connections", loomworks.nvim spec/plugin.md §19.16 "Through the
 -- relay") over an in-process server or a fake daemon world:
 --   * every form polls the daemon state (`o.inspect`, default the real
 --     inspect.state) and connects (`o.connect`, default client.connect) to a

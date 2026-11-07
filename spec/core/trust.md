@@ -284,14 +284,14 @@ or a file was viewed — run only what trusted state names:
   configured on this machine; a build directory that merely exists on disk (it
   came with the copy) is never introspected and its binaries are never
   executed passively.
-- **The editor's host binary** (§19.16): opening a workspace in daemon mode
+- **The editor's host binary** ([loomworks.nvim `spec/plugin.md` §19.16](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#1916-the-editor-as-a-client)): opening a workspace in daemon mode
   may download and run **official releases only** (the plugin-managed `lw`,
-  verified against the hash the plugin pin carries, §19.16 "Plugin pin", or
+  verified against the hash the plugin pin carries, [loomworks.nvim `spec/plugin.md` §19.16](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#1916-the-editor-as-a-client) "Plugin pin", or
   against a hash the plugin-pinned `lw` obtained from an official release's
-  signed `SHA256SUMS`, §19.16 "Channel upgrades", §16.42); never a binary, a
+  signed `SHA256SUMS`, [loomworks.nvim `spec/plugin.md` §19.16](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#1916-the-editor-as-a-client) "Channel upgrades", §16.42); never a binary, a
   URL or a channel that a workspace file names. The channel and the release
   source come only from the editor's setup and the user's environment, and
-  the channel query and the pre-launch probe (§19.16) never run with the
+  the channel query and the pre-launch probe ([loomworks.nvim `spec/plugin.md` §19.16](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#1916-the-editor-as-a-client)) never run with the
   workspace as working directory or with workspace-sourced environment.
 - **Version-control queries** (§16.25–§16.27, status hints, the `lw health`
   submodule report §16.31) disable
@@ -346,7 +346,7 @@ comes only from the staging manifest.
 - **Editor.** The status page shows the refusal with the same actions (trust,
   discard, reset); a trust command shows the summary in a confirmation prompt.
   In `daemon` mode, with the workspace not loaded, the actions are refused
-  and name `lw trust` / `lw trust --discard` / `lw nuke` (daemon.md §19.16).
+  and name `lw trust` / `lw trust --discard` / `lw nuke` ([loomworks.nvim `spec/plugin.md` §19.16](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#1916-the-editor-as-a-client)).
 
 Example messages:
 
