@@ -1589,8 +1589,17 @@ saves the working copy or the cache, and it watches no files.
 
 **Header.** `welcome.header` and `Workspace/1.header` — the session fields
 and the model's `state` — are [API.md](../protocol/API.md) §2. Sending `welcome` never loads the
-workspace; an editor's connection starts a load right after it (§19.16
-"Loaded on attach").
+workspace; an editor's connection starts a load right after it ("Loaded on
+attach" below).
+
+**Loaded on attach.** When an editor connects (`role = "observer"`), the
+daemon, after its `welcome`, starts loading the workspace unless it is loaded
+or a load is under way — as a `snapshot` loads it, in the daemon's own
+environment and without waiting for tool detection — so an editor-only
+session does not stay `unloaded`. A connection without that role (the CLI)
+never starts a load, and `LspConfig/1.get` still never loads. Because this
+load uses the daemon's own environment, a later operation from a client whose
+environment differs reloads the workspace first (§19.15).
 
 **As interfaces.** *(`lw.internal.Snapshot/1` and
 `loomworks.Workspace/1.header`: implemented, step 5g.2 part A
@@ -1873,7 +1882,9 @@ status line, compilers drop colour). No colour variable is added for it:
 such variables (`CLICOLOR_FORCE`, …) reach every process of the build,
 including ones whose output a build script captures, so they would change
 what a build does; a user who wants colour sets them in the environment of
-`lw build`, which the step receives.
+`lw build`, which the step receives. The daemon sends the `model_change` of
+the task's cache write-back (§19.12) before its `done`, so the editor has
+already reloaded the outcome when the running state clears.
 
 For a test run it is the test plan of §16.16 ([API.md](../protocol/API.md) §10.1), the in-process
 host's own code (`test_plan.lua`) run with the task as its host.
@@ -1984,7 +1995,7 @@ build-directory deletion as in-process (§4.6, §4.7; one path for both
 hosts), under the workspace operation lock taken before the build-directory
 locks (§19.3). The removal does not block the daemon's endpoint (pings,
 status and other clients are served while it runs). Any write-back's
-`model_change` precedes `done` (§19.16, End).
+`model_change` precedes `done` ("Same behaviour" above).
 
 **Reset.** *(Step 5d.)* The protocol-10 `reset { args, interactive, env,
 command }` request — `lw reset [<profile> | --all] [-y]` (§16.30) — is the v0
@@ -2001,7 +2012,7 @@ and does not block the daemon's endpoint (pings, status and other clients
 are served while it runs). A removal still running after its task ended
 (timed out) keeps the daemon busy — it neither idles out nor retires — until
 it settles, and a daemon that stops meanwhile asks it to stop between
-entries. The write-back's `model_change` precedes `done` (§19.16, End).
+entries. The write-back's `model_change` precedes `done` ("Same behaviour" above).
 
 **Editor scopes and configure.** *(Step 5k part B1: implemented on the
 daemon side — `daemon/core_interfaces.lua`, `daemon/service.lua`
@@ -2063,7 +2074,7 @@ of the same user, is held in memory for the request only, and is never
 written to the runtime log, the handle or any workspace file.
 
 **Live workspace.** The daemon loads its workspace on its first operation,
-or when an editor attaches (§19.16 "Loaded on attach") (the same load as the in-process path) and keeps it. Besides watching (§19.13), before accepting each operation the daemon applies every pending
+or when an editor attaches (§19.13 "Loaded on attach") (the same load as the in-process path) and keeps it. Besides watching (§19.13), before accepting each operation the daemon applies every pending
 external change to its files exactly as its file watcher would — including a
 trust refusal (§17.4), which unloads the workspace and is returned as
 `refused` — completes or refuses a commit journal by reloading (§19.4), and
