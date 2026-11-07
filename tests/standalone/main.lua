@@ -4843,6 +4843,21 @@ do
   eq(run({ is_windows = false }).status, "warning", "mirror without SHA256SUMS -> warning")
   eq(slurp(exe), OLD, "…original untouched")
 
+  -- A host with no lw build: the warning names it and the supported platforms.
+  do
+    local pinm = require("boot.pin")
+    local orig = pinm.detect_asset
+    pinm.detect_asset = function() return pinm.host_asset("Linux", "aarch64") end
+    stage(); reset_exe()
+    local okc, ru = pcall(run, { is_windows = false, asset = false })
+    pinm.detect_asset = orig
+    ok(okc, "unsupported host: update_host returns" .. (okc and "" or (" - " .. tostring(ru))))
+    eq(okc and ru.status, "warning", "unsupported host -> warning")
+    eq(okc and ru.message, "no lw build for linux-arm64; supported: linux-x86_64, macos-arm64, windows-x86_64",
+      "unsupported host: names its platform and the supported ones")
+    eq(slurp(exe), OLD, "unsupported host: original untouched")
+  end
+
   -- Unwritable install location -> warning with a manual command, no download.
   stage(); reset_exe()
   local rn = run({ is_windows = false, fs = {

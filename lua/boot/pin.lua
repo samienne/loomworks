@@ -109,15 +109,25 @@ function M.normalize_arch(machine)
   return m
 end
 
+--- The platforms lw is built for, as "<os>-<arch>", sorted.
+--- @return string[]
+function M.supported_platforms()
+  local list = {}
+  for key in pairs(M.HOST_ASSETS) do list[#list + 1] = (key:gsub("/", "-")) end
+  table.sort(list)
+  return list
+end
+
 --- Select the host-binary asset for (sysname, machine). Returns the asset name,
---- or nil + a clear error for an unsupported/unpinned platform.
+--- or nil + "no lw build for <os>-<arch>; supported: ..." for a platform
+--- without a published build.
 function M.host_asset(sysname, machine)
-  local os_ = M.normalize_os(sysname)
-  if not os_ then return nil, "unsupported OS '" .. tostring(sysname) .. "'" end
-  local arch = M.normalize_arch(machine)
-  local asset = M.HOST_ASSETS[os_ .. "/" .. tostring(arch)]
+  local os_ = M.normalize_os(sysname) or tostring(sysname or "unknown"):lower()
+  local arch = M.normalize_arch(machine) or "unknown"
+  local asset = M.HOST_ASSETS[os_ .. "/" .. arch]
   if not asset then
-    return nil, "no pinned lw binary for " .. os_ .. "/" .. tostring(arch)
+    return nil, "no lw build for " .. os_ .. "-" .. arch .. "; supported: " ..
+      table.concat(M.supported_platforms(), ", ")
   end
   return asset
 end
