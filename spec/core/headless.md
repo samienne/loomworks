@@ -691,6 +691,18 @@ whether that is the production key, and suggesting the likely causes (a
 corrupt or non-official artifact; a mirror serving other files) — never only
 "does not verify".
 
+**Release cut.** A release is cut in two stages. The build stage builds every
+asset of `vX` from a build commit C into an unpublished draft release (no tag,
+C recorded as its target). Pushing an annotated tag `vX` on exactly C never
+rebuilds: it publishes the draft (the one draft named `vX`; none or several
+fail) only when `SHA256SUMS.sig` verifies with the committed release key,
+every asset `SHA256SUMS` lists is present and matches it, every asset a
+release must carry is listed, and the descriptor (§16.41) names `X` as a
+release. Any failure, or no draft, publishes nothing. `lw` is released from
+its own repository and depends on no client: a program that pins `lw` (the
+editor plugin, [loomworks.nvim `spec/plugin.md` §19.16](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#1916-the-editor-as-a-client)
+"Plugin pin") pins only a published release, so a release never waits for it.
+
 ### 16.13 Acquisition and activation
 
 Acquiring a release — an initial install, a self-update, a pinned version —
