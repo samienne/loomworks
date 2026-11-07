@@ -589,7 +589,7 @@ does not model. See the per-module specs for which modules implement it.
 
 Regenerate any loomworks-owned LSP compilation database for a build directory, if stale. Best-effort, **idempotent**, and **non-blocking** — the module must gate the work on its own freshness check (e.g. an mtime guard) so repeated calls are cheap no-ops, and it must run any actual (re)generation asynchronously so a large database never blocks the UI thread. Core calls this after a successful configure or build task for the affected ConfigUnit, and again whenever a watched path (see below) changes. `ctx` carries `build_dir`, `workspace_root`, `variant`, and `compiler` (the module uses only what it needs).
 
-`done` is an optional completion callback the module invokes once when the refresh settles: `done(changed)` with `changed = true` iff it actually (re)wrote the database. Core uses it to re-resolve LSP wiring, when the database changed, for the projects with an entry whose `db_dir` is that build directory, so a client picks up a database that first appeared after it started. A module with nothing to report may omit calling `done`; core treats a never-called `done` as "no observable change". Modules with no owned database (the common case) omit this method entirely. See [`spec/modules/cmake.md`](../modules/cmake.md) §12 for cmake's use. With `lsp_configs`, this hook and `lsp_database_watch_path` below are called only by the host that builds the LSP configuration state ([loomworks.nvim `spec/plugin.md` §9.2](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration)): the workspace daemon, or the CLI and an editor in `in-process` mode — never an editor in `daemon` mode (daemon.md §19.16 "LSP configuration").
+`done` is an optional completion callback the module invokes once when the refresh settles: `done(changed)` with `changed = true` iff it actually (re)wrote the database. Core uses it to re-resolve LSP wiring, when the database changed, for the projects with an entry whose `db_dir` is that build directory, so a client picks up a database that first appeared after it started. A module with nothing to report may omit calling `done`; core treats a never-called `done` as "no observable change". Modules with no owned database (the common case) omit this method entirely. See [`spec/modules/cmake.md`](../modules/cmake.md) §12 for cmake's use. With `lsp_configs`, this hook and `lsp_database_watch_path` below are called only by the host that builds the LSP configuration state ([loomworks.nvim `spec/plugin.md` §9.2](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration)): the workspace daemon, or the CLI and an editor in `in-process` mode — never an editor in `daemon` mode ([loomworks.nvim `spec/plugin.md` §19.16](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#1916-the-editor-as-a-client) "LSP configuration").
 
 **`lsp_database_watch_path(ctx) → string?`** *(optional)*
 
@@ -1303,7 +1303,7 @@ Loomworks provides test discovery, execution, and result reporting through
 a neotest adapter. ConfigUnit is the test interface — callers never interact
 with TestUnit or framework helpers directly.
 
-*(Step 5m, daemon.md §19.15 "Tests", §19.16 "Tests".)* In `daemon` mode the
+*(Step 5m, daemon.md §19.15 "Tests", [loomworks.nvim `spec/plugin.md` §19.16](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#1916-the-editor-as-a-client) "Tests".)* In `daemon` mode the
 ConfigUnit test interface and the TestUnits run **only in the workspace
 daemon**: discovery (`Tests/1.discover`), runs of selected tests
 (`Tests/1.run_cases`, the pre-run build in the same task), debug preparation
@@ -1543,7 +1543,7 @@ Same chain, runs all tests.
 
 *(Step 5m.)* In `daemon` mode the neotest adapter is not available: it
 discovers nothing and shows one notification per session pointing at the
-loomtest explorer (daemon.md §19.16 "Tests"). What follows is the
+loomtest explorer ([loomworks.nvim `spec/plugin.md` §19.16](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#1916-the-editor-as-a-client) "Tests"). What follows is the
 `in-process` mode's adapter. A daemon-mode adapter (positions and results
 from `view.Tests/1`, runs through a CLI relay) is a later, optional part
 (daemon.md §19.19 5m part D).

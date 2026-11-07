@@ -396,12 +396,12 @@ All tasks wait for pending deletions before starting.
 
 *(Step 5k, plan.)* In `daemon` runtime mode the editor's builds, configures,
 module cleans and launch preparations run in the workspace daemon
-(daemon.md §19.16 "Editor operations"). Each daemon task is **one** overseer
+([loomworks.nvim `spec/plugin.md` §19.16](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#1916-the-editor-as-a-client) "Editor operations"). Each daemon task is **one** overseer
 task — not one per module task as above: an editor-owned one is started by
 the call, stopped by `Tasks/1.cancel` and restarted by a new call, its
 output the task's frames in a terminal buffer (overseer's output actions,
 including the quickfix list, work on it); one another client started is
-listed read-only with an origin marker (daemon.md §19.16 "Tasks in the task
+listed read-only with an origin marker ([loomworks.nvim `spec/plugin.md` §19.16](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#1916-the-editor-as-a-client) "Tasks in the task
 runner"). Progress, cache write-back and unit state come from the daemon
 (the task stream and `model_change`), not from `task_tracker`.
 *(Step 5t: implemented, part C.)* The build of a non-device launch target is one such task

@@ -116,7 +116,7 @@ describe("daemon run preparation (§19.15 Run)", function()
         assert.are.equal(0, done.code)
         assert.are.equal("/bin/app", done.fields.launch.cmd)
     end)
-    -- A run naming no target (the editor's default target, §19.16) is
+    -- A run naming no target (the editor's default target, loomworks.nvim spec/plugin.md §19.16) is
     -- resolved by the daemon to the profile's own default target: its
     -- descriptor's `working_dir` override is where the program runs.
     it("a run naming no target runs the profile's default target in its working_dir", function()

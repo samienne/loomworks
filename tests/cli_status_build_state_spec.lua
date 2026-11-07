@@ -4,7 +4,7 @@
 -- terminal. Before, the row
 -- was `*1 Dev set=Dev` both before and after a build or clean, so a CLI user
 -- or agent could not tell whether the operation took effect. A task the
--- workspace daemon runs shows its profile running (spec §19.6, §19.16).
+-- workspace daemon runs shows its profile running (spec §19.6, loomworks.nvim spec/plugin.md §19.16).
 
 _G.LOOMWORKS_CLI_NO_AUTORUN = true
 local cli = require("loomworks.cli")

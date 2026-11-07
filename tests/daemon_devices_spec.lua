@@ -1,4 +1,4 @@
--- The workspace daemon's devices (spec §19.16 "Devices", §19.18, §19.20
+-- The workspace daemon's devices (spec loomworks.nvim spec/plugin.md §19.16 "Devices", §19.18, §19.20
 -- `Devices/1`, `Profiles/1.set_device` / `clear_device`; API.md §11, §15;
 -- step 5n part B2), over the loopback transport on the conformance runner's
 -- `devices` fixture (the harness-only devstub module): what a transcript
@@ -149,7 +149,7 @@ local function session(extra)
     return s
 end
 
-describe("Devices/1 in the workspace daemon (§19.16 Devices)", function()
+describe("Devices/1 in the workspace daemon (loomworks.nvim spec/plugin.md §19.16 Devices)", function()
     local s
     after_each(function()
         L.cleanup()

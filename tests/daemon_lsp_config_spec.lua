@@ -1,5 +1,5 @@
 -- loomworks.LspConfig/1 in the workspace daemon (spec §19.20 `LspConfig/1`,
--- §19.16 "LSP configuration", step 5l part B), beyond the golden transcripts
+-- loomworks.nvim spec/plugin.md §19.16 "LSP configuration", step 5l part B), beyond the golden transcripts
 -- (spec/protocol/transcripts/loomworks/LspConfig.1.json), which cannot
 -- activate a profile, write an owned database or refuse a load: the shell
 -- fixture with the profile `dev` active, a stubbed owned database (the test

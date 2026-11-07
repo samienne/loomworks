@@ -97,7 +97,7 @@ describe("daemon build service (§19.15)", function()
         assert.is_false(srv.busy)
     end)
 
-    it("sends the cache write-back's model_change before the task's done, to the owner and an observer (§19.16 End)", function()
+    it("sends the cache write-back's model_change before the task's done, to the owner and an observer (§19.15 Same behaviour)", function()
         local seen = {}
         local obs = assert(client.session(srv.address, { client = "editor", role = "observer", protocol = 10,
             on_message = function(m) seen[#seen + 1] = m end }))
@@ -135,7 +135,7 @@ describe("daemon build service (§19.15)", function()
         conn:close(); obs:close()
     end)
 
-    it("transport 11: Workspace/1.changed of the write-back arrives before the task's done, to the owner and an observer subscribed to /workspace (§19.16 End)", function()
+    it("transport 11: Workspace/1.changed of the write-back arrives before the task's done, to the owner and an observer subscribed to /workspace (§19.15 Same behaviour)", function()
         local function sub(c, object, iface)
             assert(client.call_sync(c, "/", "loomworks.Root", 1, "subscribe", { object = object, iface = iface, v = 1 }))
         end
