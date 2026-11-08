@@ -665,19 +665,28 @@ its release executable is named by its **asset identity**:
 | Linux x86_64 | `lw-linux-x86_64` | every release |
 | macOS arm64 | `lw-macos-arm64` | every release |
 | Windows x86_64 | `lw-windows-x86_64.exe` | every release |
-| Linux arm64 | `lw-linux-arm64` | the first release after 0.2.0-beta.4 |
-| macOS x86_64 | `lw-macos-x86_64` | the first release after 0.2.0-beta.4 |
+| Linux arm64 | `lw-linux-arm64` | 0.2.0-beta.5 |
+| macOS x86_64 | `lw-macos-x86_64` | 0.2.0-beta.5 |
+
+(If that release slips, the change that adds these platforms updates the
+version here.)
 
 Availability is **per release**: a platform's executable exists from the
-release that first published it, and each asset carries that release version
-("since"). Everything that reads a release's assets — authoring or checking a
-pin (§16.24, provider #4), a launcher's or a global host's pinned fetch
+release that first published it, and the table records, for each asset, the
+release that first published it ("since"). The host carries this table
+embedded. Everything in the host that reads a release's assets — authoring or
+checking a pin (§16.24, provider #4), a global host's pinned fetch
 (§16.22–16.23), self-update (§16.13) — considers only the assets **that
 release** publishes: an older release is complete without the newer
-platforms' assets, and a pin of it is not reported as missing them. A host
-on a platform that the selected release does not publish for reports that
-plainly ("release `<version>` has no lw build for `<os>-<arch>`"), never a
-hash or integrity failure.
+platforms' assets, and a pin of it is not reported as missing them. A pin of a
+release that does publish a platform but lacks that platform's hash is still
+an error.
+
+"Since" only selects the message: a host on a platform that the selected
+release predates reports that plainly ("release `<version>` has no lw build
+for `<os>-<arch>`") rather than as a hash or integrity failure. The run still
+stops, and nothing is installed or run without the hash for its own asset,
+taken from the signed `SHA256SUMS` or the pin.
 
 A platform with no release executable at all stops with "no lw build for
 `<os>-<arch>`" and the list of supported platforms — in the host (self-update,
@@ -728,8 +737,8 @@ C recorded as its target). Pushing an annotated tag `vX` on exactly C never
 rebuilds: it publishes the draft (the one draft named `vX`; none or several
 fail) only when `SHA256SUMS.sig` verifies with the committed release key,
 every asset `SHA256SUMS` lists is present and matches it, every asset a
-release must carry (an executable for each platform published since that
-release or earlier, §16.11) is listed, and the descriptor (§16.41) names `X` as a
+release must carry (an executable for each platform whose first release is
+that release or an earlier one, §16.11) is listed, and the descriptor (§16.41) names `X` as a
 release. Any failure, or no draft, publishes nothing. `lw` is released from
 its own repository and depends on no client: a program that pins `lw` (the
 editor plugin, [loomworks.nvim `spec/plugin.md` §19.16](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#1916-the-editor-as-a-client)
@@ -1387,10 +1396,10 @@ architecture, reads the pinned version and that asset's hash, and — unless the
 binary is already cached — downloads it from the fixed origin for the pinned
 version (§16.23), verifies its hash
 against the pin, and executes it, forwarding all arguments unchanged. A platform
-for which the pin names no binary is an error, never a fetch of a different
-platform's asset (a platform with no release executable, or one the pinned
-release predates, is reported as §16.11 "Supported platforms" says). Hash
-verification against the pinned hash is **mandatory and unconditional**. Transport (TLS) verification of the download MAY be relaxed —
+for which the pin names no binary is an error, never a fetch of another
+platform's asset. A launcher reports that the pin has no hash for `<asset>`;
+a host names the release that lacks the build (§16.11). Hash verification
+against the pinned hash is **mandatory and unconditional**. Transport (TLS) verification of the download MAY be relaxed —
 for an intercepting proxy — precisely because integrity does not rest on the
 transport (§16.12) but on the independent, mandatory hash check; relaxing the
 hash check is never permitted. A launcher MAY additionally run a stronger
@@ -1806,9 +1815,9 @@ changes nothing.
 The selected release's per-artifact hashes come from its **signed** hash list
 (§16.15). The pin carries a hash for every host asset **that release**
 publishes (§16.11 "Supported platforms"), and requires no other: pinning an
-older release never fails for want of a platform added after it, and the
-report's platform count is that release's. The list's signature is verified before any hash is trusted, so the pin's
-committed hashes are anchored to the release key at authoring time; fetching it
+older release never fails for want of a platform added after it. The list's
+signature is verified before any hash is trusted, so the pin's committed
+hashes are anchored to the release key at authoring time; fetching it
 also validates that the release is fetchable **before** anything is written, so
 a bad version fails cleanly with the repository untouched. A pinned run
 (§16.22–16.23) then trusts the committed pin hash directly, since the pin has itself
@@ -2920,9 +2929,10 @@ installed host.)
   This check is mandatory and unconditional — relaxing transport verification
   (§16.22) never relaxes it — and it completes **before** the installed binary
   is touched. A release whose hash list does not verify, is not the target's,
-  or does not name this platform's asset, is never installed; a target that
-  predates this platform's first release is reported as such (§16.11
-  "Supported platforms"), not as an integrity failure.
+  or does not name this platform's asset, is never installed. When the
+  host's embedded platform table (§16.11 "Supported platforms") says the
+  target predates this platform's first release, the message says so instead
+  of reporting an integrity failure; nothing is installed either way.
 - **Atomic, never half-written.** The verified binary is staged next to the
   installed one and moved into place in a single step. Where the platform
   forbids replacing a running executable but permits renaming it, the running
