@@ -483,7 +483,9 @@ is checked by `tests/release_notes_spec.lua` and by the release gate.
 A release consists of:
 
 - one **release executable** per platform (`lw-linux-x86_64`,
-  `lw-macos-arm64`, `lw-windows-x86_64.exe`, ...): luvi with all of `lua/`,
+  `lw-linux-arm64`, `lw-macos-arm64`, `lw-macos-x86_64`,
+  `lw-windows-x86_64.exe`; the list and each one's first release are
+  `boot.pin.HOST_ASSETS` / `HOST_ASSET_SINCE`): luvi with all of `lua/`,
   the protocol schemas and the release notes fused in, and the release
   public key embedded in `boot/verify.lua`;
 - `SHA256SUMS` with the SHA-256 of every asset, and its ECDSA P-256

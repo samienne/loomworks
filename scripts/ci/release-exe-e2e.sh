@@ -115,10 +115,18 @@ sign_draft() {  # <dir>
 }
 
 echo "=== the publish gate accepts self-contained host assets ==="
-cp "$host" "$D/lw-macos-arm64"; cp "$host" "$D/lw-windows-x86_64.exe"
+for a in lw-linux-arm64 lw-macos-arm64 lw-macos-x86_64 lw-windows-x86_64.exe; do cp "$host" "$D/$a"; done
 sign_draft "$D"
 bash "$rel/verify_draft.sh" "$ver" "$D" "$fx/test_ec_pub.pem" >/dev/null 2>&1 \
   && ok "verify_draft.sh accepts the draft" || bad "verify_draft.sh refused a good draft"
+
+echo "=== the publish gate refuses a draft missing a platform ==="
+mv "$D/lw-macos-x86_64" "$T/lw-macos-x86_64.aside"
+sign_draft "$D"
+out="$(bash "$rel/verify_draft.sh" "$ver" "$D" "$fx/test_ec_pub.pem" 2>&1)"; code=$?
+[ $code -ne 0 ] && ok "verify_draft.sh exits non-zero" || bad "verify_draft.sh accepted a draft without lw-macos-x86_64"
+case "$out" in *"does not list lw-macos-x86_64"*) ok "names the missing asset" ;; *) bad "unexpected message: $out" ;; esac
+mv "$T/lw-macos-x86_64.aside" "$D/lw-macos-x86_64"
 
 echo "=== the publish gate refuses a host asset without loomworks/cli.lua ==="
 cp "$old" "$D/lw-macos-arm64"

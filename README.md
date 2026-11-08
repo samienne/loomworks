@@ -27,12 +27,23 @@ then run its `install` command. It copies itself to a per-user location on
 That one file is all of `lw`; nothing else is downloaded. No admin rights are
 needed.
 
-**Supported platforms.** `lw` is built for Linux x86_64 (`lw-linux-x86_64`),
-macOS arm64 (`lw-macos-arm64`, Apple silicon) and Windows x86_64
-(`lw-windows-x86_64.exe`). Other platforms, such as Linux arm64, Intel macOS
-and Windows arm64, are not supported yet: there `lw self-update`, a pinned
-`lw` and the `lw.sh` / `lw.cmd` launchers stop with "no lw build for
-<os>-<arch>" and the list of supported platforms.
+**Supported platforms.**
+
+| Platform | Binary | Since |
+|---|---|---|
+| Linux x86_64 | `lw-linux-x86_64` | every release |
+| Linux arm64 | `lw-linux-arm64` | 0.2.0-beta.5 |
+| macOS arm64 (Apple silicon) | `lw-macos-arm64` | every release |
+| macOS x86_64 (Intel) | `lw-macos-x86_64` | 0.2.0-beta.5 |
+| Windows x86_64 | `lw-windows-x86_64.exe` | every release |
+
+Other platforms, such as Windows arm64, are not supported yet: there `lw
+self-update`, a pinned `lw` and the `lw.sh` / `lw.cmd` launchers stop with "no
+lw build for <os>-<arch>" and the list of supported platforms. A release older
+than a platform's first one has no binary for it: pinning such a release there
+stops with "release <version> has no lw build for <os>-<arch>". A repository
+whose `lw.sh` was written by an earlier release needs `lw bootstrap upgrade`
+before `./lw.sh` runs on Linux arm64 or Intel macOS.
 
 There are two ways to verify the binary before its first run.
 
@@ -41,9 +52,10 @@ GitHub Actions and recorded in Sigstore's public transparency log. This needs
 an authenticated `gh`:
 
 ```sh
-gh release download --repo samienne/loomworks -p lw-linux-x86_64
-gh attestation verify lw-linux-x86_64 --repo samienne/loomworks
-chmod +x lw-linux-x86_64 && ./lw-linux-x86_64 install -y
+bin=lw-linux-x86_64   # or another binary from the table above
+gh release download --repo samienne/loomworks -p "$bin"
+gh attestation verify "$bin" --repo samienne/loomworks
+chmod +x "$bin" && "./$bin" install -y
 ```
 
 **Release-key signature (no `gh` needed).** Each release publishes a
@@ -55,7 +67,7 @@ Linux / macOS:
 
 ```sh
 base=https://github.com/samienne/loomworks/releases/latest/download
-bin=lw-linux-x86_64          # or lw-macos-arm64
+bin=lw-linux-x86_64  # or lw-linux-arm64, lw-macos-arm64, lw-macos-x86_64
 d="$(mktemp -d)" && cd "$d"
 curl -fsSLO "$base/$bin" && curl -fsSLO "$base/SHA256SUMS" \
   && curl -fsSLO "$base/SHA256SUMS.sig"

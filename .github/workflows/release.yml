@@ -95,27 +95,38 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Every leg is a platform of boot.pin.HOST_ASSETS (spec §16.11
+          # "Supported platforms"); scripts/release/verify_draft.sh requires
+          # each `out`. `publish` needs every host leg, so one dead runner
+          # label blocks the entire release (the retired `macos-13` label sat
+          # queued for an hour, v0.1.0). `timeout-minutes` below bounds a leg
+          # that hangs once it runs; a label that never schedules stays queued,
+          # so cancel the run. To drop a platform whose label stops scheduling,
+          # remove its leg here, from verify_draft.sh and from HOST_ASSETS
+          # together.
           - os: ubuntu-latest
             asset: luvi-Linux-x86_64-luajit-regular
             luvi: luvi
             out: lw-linux-x86_64
-          # arm64 Linux: add an entry with `os: ubuntu-24.04-arm` and
-          # asset `luvi-Linux-aarch64-luajit-regular` once that runner is
-          # available to you (luvi ships the binary).
-          # Intel macOS: the `macos-13` label no longer schedules (v0.1.0 sat
-          # queued for an hour with no runner assigned), and `publish` needs
-          # every host leg, so one dead label blocks the entire release.
-          # Re-add an Intel entry once a label is confirmed to schedule — luvi
-          # ships the Darwin-x86_64 binary either way.
+          - os: ubuntu-24.04-arm
+            asset: luvi-Linux-aarch64-luajit-regular
+            luvi: luvi
+            out: lw-linux-arm64
           - os: macos-latest
             asset: luvi-Darwin-arm64-luajit-regular
             luvi: luvi
             out: lw-macos-arm64
+          - os: macos-15-intel
+            asset: luvi-Darwin-x86_64-luajit-regular
+            luvi: luvi
+            out: lw-macos-x86_64
           - os: windows-latest
             asset: luvi-Windows-amd64-luajit-regular.exe
             luvi: luvi.exe
             out: lw-windows-x86_64.exe
     runs-on: ${{ matrix.os }}
+    # A leg takes a few minutes; a hung one fails instead of running for hours.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
 

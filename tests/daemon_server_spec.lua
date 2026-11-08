@@ -527,6 +527,8 @@ describe("proc.is_lw (§19.5): which command lines are lw hosts", function()
             { "/r/.nvim/cache/lw-0.1.42-lw-linux-x86_64", "daemon", "run" },
             { [[C:\r\.nvim\cache\lw-0.1.42-lw-windows-x86_64.exe]], "build" },
             { "/r/.nvim/cache/lw-0.0.0-test-lw-macos-arm64", "build" },
+            { "/home/u/Downloads/lw-linux-arm64", "build" },
+            { "/r/.nvim/cache/lw-0.2.0-beta.5-lw-macos-x86_64", "build" },
             { "luvi", H.REPO .. "/lua", "--", "build" },
             { "/opt/luvi", "lua", "--", "daemon", "run" },
             { "luvi.exe", "../../../lua", "--", "help" },
@@ -551,6 +553,8 @@ describe("proc.is_lw (§19.5): which command lines are lw hosts", function()
             { "lw-local" },
             { "/r/.nvim/cache/lw-0.1.42-lw-plan9-mips", "build" },
             { "/r/.nvim/cache/lw-..-lw-linux-x86_64" },
+            { "/r/.nvim/cache/lw-0.2.0-lw-linux-arm6" },
+            { "/r/.nvim/cache/lw-0.2.0-lw-macos-x86_64x" },
             { "/usr/bin/nvim", "--headless" },
             { "/bin/sh", "-c", "lw build" },
         }) do

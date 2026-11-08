@@ -43,7 +43,9 @@ case "$(uname -m)" in
 esac
 case "$os-$arch" in
   linux-x86_64) asset=lw-linux-x86_64 ;;
+  linux-arm64) asset=lw-linux-arm64 ;;
   macos-arm64) asset=lw-macos-arm64 ;;
+  macos-x86_64) asset=lw-macos-x86_64 ;;
   windows-x86_64) asset=lw-windows-x86_64.exe ;;
   *) echo "no host asset for $os/$arch — skipping"; exit 0 ;;
 esac

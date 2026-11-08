@@ -8,7 +8,7 @@
 local pin = require("boot.pin")
 local launcher = require("boot.launcher")
 
-local SUPPORTED = "supported: linux-x86_64, macos-arm64, windows-x86_64"
+local SUPPORTED = "supported: linux-arm64, linux-x86_64, macos-arm64, macos-x86_64, windows-x86_64"
 
 local function msg(platform)
     return "no lw build for " .. platform .. "; " .. SUPPORTED
@@ -29,8 +29,6 @@ end
 describe("an unsupported host", function()
     it("gets the platform and the supported list from boot.pin", function()
         local cases = {
-            { "Linux", "aarch64", "linux-arm64" },
-            { "Darwin", "x86_64", "macos-x86_64" },
             { "Windows", "ARM64", "windows-arm64" },
             { "Linux", "riscv64", "linux-riscv64" },
             { "FreeBSD", "amd64", "freebsd-x86_64" },
@@ -43,6 +41,8 @@ describe("an unsupported host", function()
         assert.equals("lw-linux-x86_64", (pin.host_asset("Linux", "x86_64")))
         assert.equals("lw-macos-arm64", (pin.host_asset("Darwin", "arm64")))
         assert.equals("lw-windows-x86_64.exe", (pin.host_asset("Windows_NT", "AMD64")))
+        assert.equals("lw-linux-arm64", (pin.host_asset("Linux", "aarch64")))
+        assert.equals("lw-macos-x86_64", (pin.host_asset("Darwin", "x86_64")))
     end)
 
     it("gets it from lw.sh", function()
@@ -53,8 +53,7 @@ describe("an unsupported host", function()
         local sel = block(launcher.LW_SH, "os=$(uname -s", "# --- read version", "\n")
         assert.truthy(sel:find('case "$os-$arch" in', 1, true), "selection block found")
         local cases = {
-            { "Linux", "aarch64", "linux-arm64" },
-            { "Darwin", "x86_64", "macos-x86_64" },
+            { "Linux", "riscv64", "linux-riscv64" },
             { "FreeBSD", "amd64", "freebsd-x86_64" },
         }
         for _, c in ipairs(cases) do
@@ -64,10 +63,16 @@ describe("an unsupported host", function()
             assert.equals(1, r.code, c[3])
             assert.equals("lw: " .. msg(c[3]), vim.trim(r.stderr))
         end
-        local ok = vim.system({ "sh", "-c", 'uname() { case "$1" in -s) echo Linux ;; -m) echo x86_64 ;; esac; }\n'
-            .. sel .. '\nprintf %s "$asset"\n' }, { text = true }):wait()
-        assert.equals(0, ok.code, ok.stderr)
-        assert.equals("lw-linux-x86_64", ok.stdout)
+        -- Every supported platform selects the asset boot.pin selects.
+        for _, c in ipairs({
+            { "Linux", "x86_64" }, { "Linux", "aarch64" }, { "Linux", "arm64" },
+            { "Darwin", "arm64" }, { "Darwin", "x86_64" }, { "MINGW64_NT-10.0", "x86_64" },
+        }) do
+            local ok = vim.system({ "sh", "-c", 'uname() { case "$1" in -s) echo ' .. c[1] .. ' ;; -m) echo ' ..
+                c[2] .. ' ;; esac; }\n' .. sel .. '\nprintf %s "$asset"\n' }, { text = true }):wait()
+            assert.equals(0, ok.code, ok.stderr)
+            assert.equals((pin.host_asset(c[1], c[2])), ok.stdout, c[1] .. "/" .. c[2])
+        end
     end)
 
     it("gets it from lw.cmd", function()
