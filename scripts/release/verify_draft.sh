@@ -53,7 +53,9 @@ done < "$sums"
 
 bundle="loomworks-lua-$version.zip"
 descriptor="lw-$version-descriptor.json"
-for need in lw-linux-x86_64 lw-macos-arm64 lw-windows-x86_64.exe \
+# The host binaries: every platform of boot.pin.HOST_ASSETS (the release being
+# drafted is the newest, so it publishes all of them; spec §16.11).
+for need in lw-linux-x86_64 lw-linux-arm64 lw-macos-arm64 lw-macos-x86_64 lw-windows-x86_64.exe \
             "$bundle" manifest.json manifest.json.sig "$descriptor"; do
   case "$listed" in
     *" $need "*) ;;

@@ -43,8 +43,9 @@ case "$(uname -m)" in
   arm64|aarch64) arch=arm64 ;;
   *) arch="$(uname -m)" ;;
 esac
-# Release host asset per platform (the same names since v0.1.1; Intel macOS was
-# never published).
+# Release host asset per platform (the same names since v0.1.1). linux-arm64 and
+# macos-x86_64 are published only from 0.2.0-beta.5 (boot.pin.HOST_ASSET_SINCE),
+# so no older release to test against has them: those platforms skip.
 case "$os-$arch" in
   linux-x86_64) asset=lw-linux-x86_64 ;;
   macos-arm64) asset=lw-macos-arm64 ;;
