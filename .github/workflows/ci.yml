@@ -47,7 +47,7 @@ jobs:
       # on Linux also guards the byte-exact signature fixtures against EOL drift.
       - name: Fetch luvi
         run: |
-          curl -fsSL -o luvi \
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o luvi \
             https://github.com/luvit/luvi/releases/download/v2.15.0/luvi-Linux-x86_64-luajit-regular
           chmod +x luvi
 
@@ -67,7 +67,7 @@ jobs:
       - name: Fetch luvi
         shell: bash
         run: |
-          curl -fsSL -o luvi.exe \
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o luvi.exe \
             https://github.com/luvit/luvi/releases/download/v2.15.0/luvi-Windows-amd64-luajit-regular.exe
 
       - name: Run standalone suite
@@ -113,7 +113,7 @@ jobs:
         run: |
           asset="${{ matrix.luvi_asset }}"
           out="luvi"; [ "${asset##*.}" = "exe" ] && out="luvi.exe"
-          curl -fsSL -o "$out" \
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o "$out" \
             "https://github.com/luvit/luvi/releases/download/v2.15.0/${asset}"
           chmod +x "$out" || true
 
