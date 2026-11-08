@@ -211,9 +211,9 @@ function M.run_checks(root, env)
     nag("pin-unreadable", "lw.pin cannot be read (" .. tostring(perr) .. ")",
       M.run(invoked, "bootstrap install --version <x.y.z>") .. " to rewrite it - lw help launcher")
   else
-    local want = {}
-    for _, a in pairs(pin.HOST_ASSETS) do want[#want + 1] = a end
-    table.sort(want)
+    -- Only the host assets the pinned release publishes (spec §16.11): an
+    -- asset first published after it is not expected.
+    local want = pin.host_assets_for(p.version)
     local bundle = pin.bundle_asset(p.version)
     if not pin.is_self_contained(p.version) then
       want[#want + 1] = bundle   -- that release loads it
