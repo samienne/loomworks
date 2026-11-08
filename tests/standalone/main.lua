@@ -1071,6 +1071,87 @@ local function slurp(p)
   local s = f:read("*a"); f:close(); return s
 end
 
+print("boot.pin — per-release host assets (§16.11 \"Supported platforms\")")
+do
+  local pin = require("boot.pin")
+  local bootstrap = require("boot.bootstrap")
+  local check = require("boot.launcher_check")
+  local THREE = { "lw-linux-x86_64", "lw-macos-arm64", "lw-windows-x86_64.exe" }
+  local function same(a, b) return table.concat(a, ",") == table.concat(b, ",") end
+
+  for _, a in pairs(pin.HOST_ASSETS) do
+    ok(pin.HOST_ASSET_SINCE[a] ~= nil, "HOST_ASSET_SINCE records " .. a)
+  end
+  for _, v in ipairs({ "0.1.6", "0.1.43", "0.2.0-beta.4", "9.9.9" }) do
+    ok(same(pin.host_assets_for(v), THREE), "release " .. v .. " publishes today's three assets")
+    eq(pin.missing_build(v, "lw-linux-x86_64"), nil, "no predates message for " .. v)
+  end
+  ok(same(bootstrap.required_assets("0.2.0-beta.4"), THREE), "self-contained pin needs the three assets")
+  ok(same(bootstrap.required_assets("0.1.40"),
+    { "loomworks-lua-0.1.40.zip", "lw-linux-x86_64", "lw-macos-arm64", "lw-windows-x86_64.exe" }),
+    "an older pin also needs its bundle")
+  eq(pin.missing_build("0.2.0-beta.4", "lw-plan9-x86_64"), nil, "an unknown asset gets no predates message")
+
+  -- An injected table with a platform first published in 0.2.0-beta.5.
+  local NEW = "lw-linux-arm64"
+  local T = {
+    assets = { ["linux/x86_64"] = "lw-linux-x86_64", ["linux/arm64"] = NEW },
+    since = { ["lw-linux-x86_64"] = pin.EVERY_RELEASE, [NEW] = "0.2.0-beta.5" },
+  }
+  ok(same(pin.host_assets_for("0.2.0-beta.4", T), { "lw-linux-x86_64" }), "an older release lacks the new asset")
+  ok(same(pin.host_assets_for("0.1.43", T), { "lw-linux-x86_64" }), "a 0.1 release lacks the new asset")
+  ok(same(pin.host_assets_for("0.2.0-beta.5", T), { NEW, "lw-linux-x86_64" }), "its first release publishes it")
+  ok(same(pin.host_assets_for("0.2.0-beta.10", T), { NEW, "lw-linux-x86_64" }), "a later beta publishes it")
+  ok(same(pin.host_assets_for("0.2.0", T), { NEW, "lw-linux-x86_64" }), "the final release publishes it")
+  ok(pin.publishes_asset("../x", NEW, T), "an unsafe version counts as publishing a dated asset (fail closed)")
+  ok(pin.publishes_asset(nil, NEW, T), "a missing version counts as publishing a dated asset (fail closed)")
+  ok(same(pin.host_assets_for("../x", T), { NEW, "lw-linux-x86_64" }), "an unsafe version requires every asset")
+  eq(pin.missing_build("../x", NEW, T), nil, "no predates message for an unsafe version")
+  eq(pin.missing_build(nil, NEW, T), nil, "no predates message for a missing version")
+  local U = { assets = T.assets, since = { ["lw-linux-x86_64"] = pin.EVERY_RELEASE } }
+  ok(pin.publishes_asset("0.1.0", NEW, U), "an asset with no recorded first release counts as published")
+  ok(same(pin.host_assets_for("0.1.0", U), { NEW, "lw-linux-x86_64" }), "...so its hash is required")
+  eq(pin.missing_build("0.1.0", NEW, U), nil, "...and a missing hash gets no predates message")
+  local B = { assets = T.assets, since = { ["lw-linux-x86_64"] = pin.EVERY_RELEASE, [NEW] = "not-a-version" } }
+  ok(pin.publishes_asset("0.1.0", NEW, B), "an unsafe recorded first release counts as published")
+  eq(pin.missing_build("0.2.0-beta.4", NEW, T),
+    "release 0.2.0-beta.4 has no lw build for linux-arm64 (first published in 0.2.0-beta.5)",
+    "the predates message names the release and platform")
+  eq(pin.missing_build("0.2.0-beta.5", NEW, T), nil, "no predates message once published")
+  eq(pin.missing_build("0.2.0-beta.4", "lw-linux-x86_64", T), nil, "no predates message for an every-release asset")
+
+  -- The same table installed as the host's own: pins and checks follow it.
+  local saved_assets, saved_since = pin.HOST_ASSETS, pin.HOST_ASSET_SINCE
+  pin.HOST_ASSETS, pin.HOST_ASSET_SINCE = T.assets, T.since
+  local okr, rerr = pcall(function()
+    local H = string.rep("a", 64)
+    local old, new = "0.2.0-beta.4", "0.2.0-beta.5"
+    ok(same(bootstrap.required_assets(old), { "lw-linux-x86_64" }), "required_assets of an older release omits the new asset")
+    ok(same(bootstrap.required_assets(new), { NEW, "lw-linux-x86_64" }), "required_assets of a newer release includes it")
+    local sums_old = { ["lw-linux-x86_64"] = H, [pin.descriptor_asset(old)] = H }
+    local h = bootstrap.pin_hashes(old, sums_old)
+    ok(h ~= nil and h["lw-linux-x86_64"] == H and h[NEW] == nil, "an older release pins without the new asset")
+    local sums_new = { ["lw-linux-x86_64"] = H, [pin.descriptor_asset(new)] = H }
+    local h2, e2 = bootstrap.pin_hashes(new, sums_new)
+    ok(h2 == nil and tostring(e2):find("no published hash for '" .. NEW .. "'", 1, true) ~= nil,
+      "a release that publishes the platform but lacks its hash is still an error")
+
+    local function checks(version)
+      local text = pin.serialize(version, { ["lw-linux-x86_64"] = H })
+      return check.run_checks("/repo", {
+        read = function(p) return p == "/repo/lw.pin" and text or nil end,
+        exists = function(p) return p == "/repo/lw.pin" end,
+      })
+    end
+    local r1 = checks(old)
+    eq(#r1.missing_hashes, 0, "health does not expect an asset the pinned release predates")
+    local r2 = checks(new)
+    eq(table.concat(r2.missing_hashes, ","), NEW, "health reports a missing hash the pinned release publishes")
+  end)
+  pin.HOST_ASSETS, pin.HOST_ASSET_SINCE = saved_assets, saved_since
+  ok(okr, "per-release asset checks ran" .. (okr and "" or (": " .. tostring(rerr))))
+end
+
 print("boot.pin — parse / serialize / asset selection")
 do
   local pin = require("boot.pin")
@@ -4674,6 +4755,27 @@ do
   end
   eq(r.from, nil, "unknown running version reported as nil")
   eq(r.to, ver, "reports the target release")
+
+  -- A target with no hash for this host's asset: when the host's platform
+  -- table says the target predates the platform, the message says so; else
+  -- the ordinary missing hash. Nothing is installed either way.
+  do
+    local pin = require("boot.pin")
+    local sa, ss = pin.HOST_ASSETS, pin.HOST_ASSET_SINCE
+    stage({ sums = descriptor_line(ver) }); reset_exe()
+    pin.HOST_ASSETS = { ["linux/x86_64"] = asset }
+    pin.HOST_ASSET_SINCE = { [asset] = "3.0.0-test" }
+    local okp, rp = pcall(run, { is_windows = false })
+    pin.HOST_ASSET_SINCE = { [asset] = "1.0.0-test" }
+    local okh, rh = pcall(run, { is_windows = false })
+    pin.HOST_ASSETS, pin.HOST_ASSET_SINCE = sa, ss
+    eq(okp and rp.message, "release " .. ver .. " has no lw build for linux-x86_64 (first published in 3.0.0-test)",
+      "self-update: a target predating the platform says so")
+    eq(okp and rp.status, "warning", "...and installs nothing")
+    eq(okh and rh.message, "release " .. ver .. " publishes no hash for '" .. asset .. "'",
+      "self-update: a target that publishes the platform but lacks its hash")
+    eq(slurp(exe), OLD, "the host is untouched")
+  end
 
   -- Windows: the running exe cannot be overwritten, only renamed. Simulate that
   -- with a rename seam that refuses to replace an existing `exe`; the dance

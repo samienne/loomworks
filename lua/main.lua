@@ -588,6 +588,13 @@ do
     -- own bundle. "fetching" (stderr: stdout can be machine-consumed) only
     -- when a download really happens.
     local sha = type(p.hashes[asset]) == "string" and p.hashes[asset]:lower() or nil
+    -- A pinned release that predates this platform (spec §16.11) has no build
+    -- for it: say so rather than report a missing hash. Nothing runs.
+    local predates = not sha and pin.missing_build(p.version, asset)
+    if predates then
+      io.stderr:write("lw: cannot honor lw.pin: " .. predates .. "\n")
+      exit(1)
+    end
     local bin, err = exe_cache.ensure(p.version, asset, sha, {
       on_fetch = function()
         io.stderr:write("fetching loomworks " .. p.version .. " (pinned)...\n")

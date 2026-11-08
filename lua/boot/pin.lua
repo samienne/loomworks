@@ -23,6 +23,21 @@ M.HOST_ASSETS = {
   ["windows/x86_64"] = "lw-windows-x86_64.exe",
 }
 
+-- The release that first published each host asset (spec §16.11 "Supported
+-- platforms"): a version string, or EVERY_RELEASE for an asset every release
+-- carries. Every HOST_ASSETS entry has one (one without counts as published
+-- by every release: fail closed, its hash stays required). Whatever reads a release's assets
+-- (pin authoring and checking, the pinned fetch, self-update) considers only
+-- the assets that release publishes (host_assets_for); "since" otherwise only
+-- selects the message for a platform the release predates (missing_build).
+-- It never relaxes a hash check: nothing runs without its own asset's hash.
+M.EVERY_RELEASE = true
+M.HOST_ASSET_SINCE = {
+  ["lw-linux-x86_64"]       = M.EVERY_RELEASE,
+  ["lw-macos-arm64"]        = M.EVERY_RELEASE,
+  ["lw-windows-x86_64.exe"] = M.EVERY_RELEASE,
+}
+
 -- Workspace operations that honor a pin (redirect to the pinned release):
 -- every command the CLI routes to the workspace daemon (build, run, test,
 -- clean, reset) plus configure. Everything else — status, host/management
@@ -130,6 +145,63 @@ function M.host_asset(sysname, machine)
       table.concat(M.supported_platforms(), ", ")
   end
   return asset
+end
+
+--- The release version that first published `asset`, when that is a safe
+--- version and `version` is a safe version older than it; else nil.
+local function predates(version, asset, tables)
+  local since = ((tables and tables.since) or M.HOST_ASSET_SINCE)[asset]
+  if type(since) ~= "string" or not M.valid_version(since) or not M.valid_version(version) then
+    return nil
+  end
+  return require("boot.paths").compare_versions(version, since) < 0 and since or nil
+end
+
+--- Does release `version` publish host asset `asset`? Fails closed: only a
+--- safe version provably older than the asset's recorded first release (a
+--- safe version) does not; an asset with no recorded first release, or an
+--- unsafe or missing version, counts as published, so its hash is required.
+--- `tables` (test seam): { assets = <HOST_ASSETS>, since = <HOST_ASSET_SINCE> }.
+--- @param version string|nil
+--- @param asset string
+--- @param tables table|nil
+--- @return boolean
+function M.publishes_asset(version, asset, tables)
+  return predates(version, asset, tables) == nil
+end
+
+--- The host assets release `version` publishes (spec §16.11), sorted.
+--- @param version string
+--- @param tables table|nil test seam, as publishes_asset
+--- @return string[]
+function M.host_assets_for(version, tables)
+  local list = {}
+  for _, a in pairs((tables and tables.assets) or M.HOST_ASSETS) do
+    if M.publishes_asset(version, a, tables) then list[#list + 1] = a end
+  end
+  table.sort(list)
+  return list
+end
+
+--- When release `version` predates host asset `asset` (a platform it never
+--- published), the message saying so: "release <version> has no lw build for
+--- <os>-<arch> (first published in <since>)". Nil unless `asset` is a known
+--- host asset with a dated first release that the safe `version` is older
+--- than: otherwise a missing hash is the caller's ordinary error. Only the
+--- message differs; the caller still stops.
+--- @param version string|nil
+--- @param asset string
+--- @param tables table|nil test seam, as publishes_asset
+--- @return string|nil
+function M.missing_build(version, asset, tables)
+  local key
+  for k, a in pairs((tables and tables.assets) or M.HOST_ASSETS) do
+    if a == asset then key = k; break end
+  end
+  local since = key and predates(version, asset, tables)
+  if not since then return nil end
+  return "release " .. version .. " has no lw build for " .. (key:gsub("/", "-")) ..
+    " (first published in " .. since .. ")"
 end
 
 --- The host-binary asset for the running platform (via uname), or nil, err.

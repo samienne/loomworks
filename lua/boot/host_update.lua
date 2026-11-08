@@ -282,8 +282,11 @@ function M.update_host(o)
   end
   local sha = list[asset]
   if not sha then
+    -- A target that predates this platform's first release (spec §16.11)
+    -- says so; nothing is installed either way.
     return { status = "warning", manual = manual,
-      message = "release " .. target .. " publishes no hash for '" .. asset .. "'" }
+      message = pin.missing_build(target, asset) or
+        ("release " .. target .. " publishes no hash for '" .. asset .. "'") }
   end
 
   -- Stage next to the target (same filesystem, so the swap is a rename).

@@ -64,11 +64,12 @@ function M.fetch_hashes(version, opts)
   return M.parse_sums(sums)
 end
 
---- The assets a pin must cover for `version`: every host binary, plus the
---- bundle for a release before self-contained executables (which loads it).
+--- The assets a pin must cover for `version`: every host binary that release
+--- publishes (spec §16.11 "Supported platforms" - never a platform added after
+--- it), plus the bundle for a release before self-contained executables
+--- (which loads it).
 function M.required_assets(version)
-  local list = {}
-  for _, a in pairs(pin.HOST_ASSETS) do list[#list + 1] = a end
+  local list = pin.host_assets_for(version)
   if not pin.is_self_contained(version) then list[#list + 1] = pin.bundle_asset(version) end
   table.sort(list)
   return list
@@ -538,8 +539,7 @@ function M.status(start, opts)
   elseif not r.pin then
     row("pin", "lw.pin cannot be read: " .. tostring(r.pin_error))
   else
-    local n = 0
-    for _ in pairs(pin.HOST_ASSETS) do n = n + 1 end
+    local n = #pin.host_assets_for(r.version)
     local cover = #r.missing_hashes == 0
       and ("hashes for " .. n .. " platforms" ..
         (r.pin.hashes[pin.bundle_asset(r.version)] and " + bundle" or ""))
