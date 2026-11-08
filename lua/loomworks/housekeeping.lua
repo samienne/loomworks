@@ -183,7 +183,10 @@ end
 --- The published host-binary asset names (boot.pin.HOST_ASSETS, plus this
 --- copy for hosts that predate it).
 local function host_assets()
-    local set = { ["lw-linux-x86_64"] = true, ["lw-macos-arm64"] = true, ["lw-windows-x86_64.exe"] = true }
+    local set = {
+        ["lw-linux-x86_64"] = true, ["lw-linux-arm64"] = true, ["lw-macos-arm64"] = true,
+        ["lw-macos-x86_64"] = true, ["lw-windows-x86_64.exe"] = true,
+    }
     local ok, pin = pcall(require, "boot.pin")
     if ok and type(pin) == "table" and type(pin.HOST_ASSETS) == "table" then
         for _, a in pairs(pin.HOST_ASSETS) do set[a] = true end

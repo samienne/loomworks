@@ -47,9 +47,11 @@ case "$arch" in
 esac
 case "$os-$arch" in
   linux-x86_64) asset=lw-linux-x86_64 ;;
+  linux-arm64) asset=lw-linux-arm64 ;;
   macos-arm64) asset=lw-macos-arm64 ;;
+  macos-x86_64) asset=lw-macos-x86_64 ;;
   windows-x86_64) asset=lw-windows-x86_64.exe ;;
-  *) echo "lw: no lw build for $os-$arch; supported: linux-x86_64, macos-arm64, windows-x86_64" >&2; exit 1 ;;
+  *) echo "lw: no lw build for $os-$arch; supported: linux-arm64, linux-x86_64, macos-arm64, macos-x86_64, windows-x86_64" >&2; exit 1 ;;
 esac
 
 # --- read version + the asset's pinned sha256 from lw.pin ------------------
@@ -202,7 +204,7 @@ if not exist "%pin%" ( 1>&2 echo lw: no lw.pin next to this launcher& exit /b 1 
 
 set "asset=lw-windows-x86_64.exe"
 if /I "%PROCESSOR_ARCHITECTURE%"=="ARM64" (
-  1>&2 echo lw: no lw build for windows-arm64; supported: linux-x86_64, macos-arm64, windows-x86_64& exit /b 1
+  1>&2 echo lw: no lw build for windows-arm64; supported: linux-arm64, linux-x86_64, macos-arm64, macos-x86_64, windows-x86_64& exit /b 1
 )
 
 set "version="
@@ -375,12 +377,29 @@ M.LEGACY_ORIGIN_DEFECT = LEGACY_ORIGIN
 local NO_PLATFORM_LIST = { severity = "minor", text = "on a platform without an lw build, " ..
   "does not name the supported platforms" }
 
+-- Before lw.sh selected the builds first published in 0.2.0-beta.5 (spec
+-- §16.24 launcher generations: a generation that does not select a platform's
+-- asset breaks that platform, reported on every platform).
+local NO_NEW_PLATFORMS_BETA5 = { severity = "breaks", text = "does not select the lw build for " ..
+  "linux-arm64 / macos-x86_64; those platforms stop with 'no lw build'" }
+-- lw.cmd only runs on Windows, so the new platforms only change its message.
+local OLD_PLATFORM_LIST_BETA5 = { severity = "minor", text = "on a platform without an lw build, " ..
+  "names a supported-platform list without linux-arm64 and macos-x86_64" }
+
 M.GENERATIONS = {
   sh = {
+    -- v0.2.0-beta.4
+    ["c1897827fab9bfe7a3fda236241e707da4cac0aea074ebb7be7c603848346aa2"] = {
+      gen = 5, releases = "0.2.0-beta.4",
+      defects = {
+        NO_NEW_PLATFORMS_BETA5,
+      },
+    },
     -- v0.2.0-beta.1 .. v0.2.0-beta.3
     ["dca685264e2a598414011aa82d1c65fe0fa6be1ef8ff07d418e8d278efe7dd00"] = {
       gen = 4, releases = "0.2.0-beta.1-0.2.0-beta.3",
       defects = {
+        NO_NEW_PLATFORMS_BETA5,
         NO_PLATFORM_LIST,
       },
     },
@@ -388,6 +407,7 @@ M.GENERATIONS = {
     ["e320286c13d612f12424ff36e0219f18bb29b4924b997e5177b7ca23ed0c0b44"] = {
       gen = 3, releases = "0.1.37-beta.2-0.1.50-beta.1",
       defects = {
+        NO_NEW_PLATFORMS_BETA5,
         LEGACY_ORIGIN,
       },
     },
@@ -395,6 +415,7 @@ M.GENERATIONS = {
     ["1fe5b9caafc2872e26eb971b4cea89411a08b8f9a3bc0f09db3ac7292c91b696"] = {
       gen = 2, releases = "0.1.36-beta.1-0.1.37-beta.1",
       defects = {
+        NO_NEW_PLATFORMS_BETA5,
         LEGACY_ORIGIN,
         { severity = "minor", text = "does not tell lw which launcher ran it; names the removed `lw update`" },
       },
@@ -403,12 +424,20 @@ M.GENERATIONS = {
     ["c457cda8832d502450951c5f9756a05929bf01aa679426e14c9719319217e635"] = {
       gen = 1, releases = "0.1.6-0.1.35",
       defects = {
+        NO_NEW_PLATFORMS_BETA5,
         LEGACY_ORIGIN,
         { severity = "minor", text = "no download retry; shows a progress meter" },
       },
     },
   },
   cmd = {
+    -- v0.2.0-beta.4
+    ["d5a48a129933e296500b23a4fb471cc3a80115e972c9f564ba86ee5f9af535cf"] = {
+      gen = 8, releases = "0.2.0-beta.4",
+      defects = {
+        OLD_PLATFORM_LIST_BETA5,
+      },
+    },
     -- v0.2.0-beta.1 .. v0.2.0-beta.3
     ["c162e3ad5a3e982176a99b8db3fa697fae88869449d352a8be4a6fa2c9083122"] = {
       gen = 7, releases = "0.2.0-beta.1-0.2.0-beta.3",

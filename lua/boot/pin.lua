@@ -19,7 +19,9 @@ M.is_windows = package.config:sub(1, 1) == "\\"
 -- fetch a different platform's asset.
 M.HOST_ASSETS = {
   ["linux/x86_64"]   = "lw-linux-x86_64",
+  ["linux/arm64"]    = "lw-linux-arm64",
   ["macos/arm64"]    = "lw-macos-arm64",
+  ["macos/x86_64"]   = "lw-macos-x86_64",
   ["windows/x86_64"] = "lw-windows-x86_64.exe",
 }
 
@@ -36,6 +38,8 @@ M.HOST_ASSET_SINCE = {
   ["lw-linux-x86_64"]       = M.EVERY_RELEASE,
   ["lw-macos-arm64"]        = M.EVERY_RELEASE,
   ["lw-windows-x86_64.exe"] = M.EVERY_RELEASE,
+  ["lw-linux-arm64"]        = "0.2.0-beta.5",
+  ["lw-macos-x86_64"]       = "0.2.0-beta.5",
 }
 
 -- Workspace operations that honor a pin (redirect to the pinned release):

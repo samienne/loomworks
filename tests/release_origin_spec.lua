@@ -120,6 +120,40 @@ describe("launcher templates choose the origin from lw.pin's version", function(
     end)
 end)
 
+describe("the launchers before linux-arm64 / macos-x86_64 (0.2.0-beta.5)", function()
+    local function sha(text) return vim.fn.sha256(launcher.normalize(text)) end
+    it("the 0.2.0-beta.4 lw.sh is a known generation that breaks, on every pin", function()
+        local H = "c1897827fab9bfe7a3fda236241e707da4cac0aea074ebb7be7c603848346aa2"
+        local g = launcher.GENERATIONS.sh[H]
+        assert.truthy(g)
+        assert.equals(5, g.gen)
+        local c = launcher.classify("sh", "x", function() return H end, "0.2.0-beta.5")
+        assert.equals("known", c.status)
+        assert.is_true(c.breaks)
+        -- also for a legacy pin: the missing platforms are not an origin defect
+        assert.is_true(launcher.classify("sh", "x", function() return H end, "0.1.43").breaks)
+    end)
+    it("every earlier lw.sh generation breaks on the new platforms", function()
+        for hash, g in pairs(launcher.GENERATIONS.sh) do
+            local found = false
+            for _, d in ipairs(g.defects) do
+                if d.severity == "breaks" and d.text:find("linux-arm64 / macos-x86_64", 1, true) then found = true end
+            end
+            assert.is_true(found, hash)
+        end
+    end)
+    it("the current templates select both platforms; the 0.2.0-beta.4 lw.cmd is catalogued", function()
+        assert.truthy(launcher.LW_SH:find("linux-arm64) asset=lw-linux-arm64 ;;", 1, true))
+        assert.truthy(launcher.LW_SH:find("macos-x86_64) asset=lw-macos-x86_64 ;;", 1, true))
+        local g = launcher.GENERATIONS.cmd["d5a48a129933e296500b23a4fb471cc3a80115e972c9f564ba86ee5f9af535cf"]
+        assert.truthy(g)
+        assert.equals(8, g.gen)
+        for kind, text in pairs({ sh = launcher.LW_SH, cmd = launcher.LW_CMD }) do
+            assert.is_nil(launcher.GENERATIONS[kind][sha(text)], kind)
+        end
+    end)
+end)
+
 describe("the legacy-origin launcher defect depends on the pin", function()
     local uv = vim.uv or vim.loop
     local pin = require("boot.pin")

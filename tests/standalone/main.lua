@@ -1082,10 +1082,21 @@ do
   for _, a in pairs(pin.HOST_ASSETS) do
     ok(pin.HOST_ASSET_SINCE[a] ~= nil, "HOST_ASSET_SINCE records " .. a)
   end
-  for _, v in ipairs({ "0.1.6", "0.1.43", "0.2.0-beta.4", "9.9.9" }) do
-    ok(same(pin.host_assets_for(v), THREE), "release " .. v .. " publishes today's three assets")
+  local FIVE = { "lw-linux-arm64", "lw-linux-x86_64", "lw-macos-arm64", "lw-macos-x86_64", "lw-windows-x86_64.exe" }
+  for _, v in ipairs({ "0.1.6", "0.1.43", "0.2.0-beta.4" }) do
+    ok(same(pin.host_assets_for(v), THREE), "release " .. v .. " publishes the original three assets")
     eq(pin.missing_build(v, "lw-linux-x86_64"), nil, "no predates message for " .. v)
   end
+  for _, v in ipairs({ "0.2.0-beta.5", "0.2.0", "9.9.9" }) do
+    ok(same(pin.host_assets_for(v), FIVE), "release " .. v .. " publishes all five assets")
+    eq(pin.missing_build(v, "lw-linux-arm64"), nil, "no predates message for " .. v)
+  end
+  eq(pin.HOST_ASSET_SINCE["lw-linux-arm64"], "0.2.0-beta.5", "linux-arm64 first published in 0.2.0-beta.5")
+  eq(pin.HOST_ASSET_SINCE["lw-macos-x86_64"], "0.2.0-beta.5", "macos-x86_64 first published in 0.2.0-beta.5")
+  eq(pin.missing_build("0.2.0-beta.4", "lw-macos-x86_64"),
+    "release 0.2.0-beta.4 has no lw build for macos-x86_64 (first published in 0.2.0-beta.5)",
+    "the host's own table: an older release predates macos-x86_64")
+  ok(same(bootstrap.required_assets("0.2.0-beta.5"), FIVE), "a beta.5 pin needs all five assets")
   ok(same(bootstrap.required_assets("0.2.0-beta.4"), THREE), "self-contained pin needs the three assets")
   ok(same(bootstrap.required_assets("0.1.40"),
     { "loomworks-lua-0.1.40.zip", "lw-linux-x86_64", "lw-macos-arm64", "lw-windows-x86_64.exe" }),
@@ -1160,7 +1171,11 @@ do
   eq(pin.host_asset("MINGW64_NT-10.0", "x86_64"), "lw-windows-x86_64.exe", "windows/x86_64 asset")
   eq(pin.host_asset("Linux", "amd64"), "lw-linux-x86_64", "amd64 normalizes to x86_64")
   eq(pin.host_asset("Darwin", "aarch64"), "lw-macos-arm64", "aarch64 normalizes to arm64")
-  ok(select(1, pin.host_asset("Linux", "arm64")) == nil, "linux/arm64 unsupported (no wrong-asset)")
+  eq(pin.host_asset("Linux", "aarch64"), "lw-linux-arm64", "linux/aarch64 asset")
+  eq(pin.host_asset("Linux", "arm64"), "lw-linux-arm64", "linux/arm64 asset")
+  eq(pin.host_asset("Darwin", "x86_64"), "lw-macos-x86_64", "macos/x86_64 asset")
+  ok(select(1, pin.host_asset("Linux", "riscv64")) == nil, "linux/riscv64 unsupported (no wrong-asset)")
+  ok(select(1, pin.host_asset("Windows", "ARM64")) == nil, "windows/arm64 unsupported (no wrong-asset)")
   ok(select(1, pin.host_asset("Plan9", "x86_64")) == nil, "unknown OS rejected")
 
   local text = "version = 1.2.3\nsha256_lw-linux-x86_64 = ABCDEF\n" ..
@@ -2408,8 +2423,8 @@ do
 
   local function stage(version, tag)
     local exp, lines = {}, {}
-    local list = { "lw-linux-x86_64", "lw-macos-arm64", "lw-windows-x86_64.exe",
-      pin.bundle_asset(version) }
+    local list = pin.host_assets_for(version)
+    list[#list + 1] = pin.bundle_asset(version)
     -- a release lists its descriptor from self-contained executables on (§16.41)
     if pin.is_self_contained(version) then list[#list + 1] = pin.descriptor_asset(version) end
     for _, a in ipairs(list) do
@@ -2496,7 +2511,7 @@ do
   local ossl = require("openssl")
   local priv = ossl.pkey.read(readfile(FX .. "test_ec_priv.pem"), true, "pem")
   local function sign(data) return priv:sign(data, "sha256") end
-  local HOSTS = { "lw-linux-x86_64", "lw-macos-arm64", "lw-windows-x86_64.exe" }
+  local HOSTS = pin.host_assets_for("4.0.0-test") -- what the self-contained SC below publishes
 
   local sb = root .. "/tests/.tmp-bsnobundle"; paths.rm_rf(sb); paths.mkdirp(sb)
   -- One mirror per release (a release's signed sums list only its own assets).
@@ -2504,7 +2519,7 @@ do
   local function stage(version, o)
     local m = sb .. "/m-" .. version; paths.rm_rf(m); paths.mkdirp(m)
     local list, exp, lines = {}, {}, {}
-    for _, a in ipairs(HOSTS) do list[#list + 1] = a end
+    for _, a in ipairs(pin.host_assets_for(version)) do list[#list + 1] = a end
     if o.bundle then list[#list + 1] = pin.bundle_asset(version) end
     if o.descriptor then list[#list + 1] = "lw-" .. version .. "-descriptor.json" end
     for _, a in ipairs(list) do
@@ -2555,7 +2570,7 @@ do
     "informational: hosts before self-contained releases cannot follow it  (" .. tostring(note and note.title) .. ")")
   local st = bootstrap.status(repo, { offline = true })
   local page = table.concat(st.lines, "\n")
-  ok(page:find("lw.pin -> lw " .. SC .. "; hashes for 3 platforms", 1, true)
+  ok(page:find("lw.pin -> lw " .. SC .. "; hashes for " .. #pin.host_assets_for(SC) .. " platforms", 1, true)
     and not page:find("+ bundle", 1, true), "status page: host hashes, no bundle claimed  (" .. page .. ")")
   ok(page:find("cannot follow", 1, true), "status page shows the informational note")
 
@@ -2641,8 +2656,8 @@ do
   -- One flat mirror serving every staged version's hashes.
   local lines = {}
   local function stage(version)
-    local assets = { "lw-linux-x86_64", "lw-macos-arm64", "lw-windows-x86_64.exe",
-      pin.bundle_asset(version) }
+    local assets = pin.host_assets_for(version)
+    assets[#assets + 1] = pin.bundle_asset(version)
     -- a release lists its descriptor from self-contained executables on (§16.41)
     if pin.is_self_contained(version) then assets[#assets + 1] = pin.descriptor_asset(version) end
     for _, a in ipairs(assets) do
@@ -2856,7 +2871,15 @@ do
     local old_win = cache .. "/lw-0.9.0-lw-windows-x86_64.exe"
     local keep = cache .. "/lw-" .. V2 .. "-lw-linux-x86_64"
     local running = cache .. "/lw-0.8.0-lw-macos-arm64"
+    -- the platforms first published in 0.2.0-beta.5 follow the same exact-name rule
+    local old_arm = cache .. "/lw-0.9.1-lw-linux-arm64"
+    local old_mx = cache .. "/lw-0.9.2-lw-macos-x86_64"
+    local keep_arm = cache .. "/lw-" .. V2 .. "-lw-linux-arm64"
     put(old, "old"); put(old_win, "oldw"); put(keep, "keep"); put(running, "run")
+    put(old_arm, "olda"); put(old_mx, "oldm"); put(keep_arm, "keepa")
+    put(cache .. "/lw-0.7.1-lw-linux-arm64.dl.1", "p")      -- partial download
+    put(cache .. "/lw-0.7.2-lw-linux-arm6", "t")             -- truncated asset
+    put(cache .. "/lw-0.7.3-lw-macos-x86_64x", "x")          -- asset with a tail
     put(cache .. "/lw.marker", "m")
     put(cache .. "/lw-0.7.0-lw-bogus-asset", "b")           -- unknown asset
     put(cache .. "/lw-0.6.0-lw-linux-x86_64.dl.123", "p")    -- partial download
@@ -2868,6 +2891,10 @@ do
       and has(rr, "removed old pinned lw 0.9.0 (lw-0.9.0-lw-windows-x86_64.exe"),
       "prune names each binary it removed  (" .. show(rr) .. ")")
     ok(not uv.fs_stat(old) and not uv.fs_stat(old_win), "older cached binaries removed")
+    ok(not uv.fs_stat(old_arm) and not uv.fs_stat(old_mx), "older linux-arm64 / macos-x86_64 binaries removed")
+    ok(uv.fs_stat(keep_arm) ~= nil, "the pinned version's linux-arm64 binary is kept")
+    ok(uv.fs_stat(cache .. "/lw-0.7.1-lw-linux-arm64.dl.1") and uv.fs_stat(cache .. "/lw-0.7.2-lw-linux-arm6")
+      and uv.fs_stat(cache .. "/lw-0.7.3-lw-macos-x86_64x"), "near-miss new-platform names are kept")
     ok(uv.fs_stat(keep) ~= nil, "the pinned version's binary is kept")
     ok(uv.fs_stat(running) ~= nil, "the running executable is never pruned")
     ok(uv.fs_stat(cache .. "/lw.marker") and uv.fs_stat(cache .. "/lw-0.7.0-lw-bogus-asset")
@@ -2904,6 +2931,20 @@ do
     "an unsafe version in a cached name is not a candidate")
   eq(launcher.cached_binary_version("lw-1.0.0-lw-linux-x86_64.dl.9", assets, pin.valid_version), nil,
     "a partial download is not a candidate")
+  eq(launcher.cached_binary_version("lw-0.2.0-beta.5-lw-linux-arm64", assets, pin.valid_version),
+    "0.2.0-beta.5", "cached linux-arm64 name")
+  eq(launcher.cached_binary_version("lw-0.2.0-lw-macos-x86_64", assets, pin.valid_version),
+    "0.2.0", "cached macos-x86_64 name")
+  for _, n in ipairs({ "lw-0.2.0-lw-linux-arm64x", "lw-0.2.0-lw-linux-arm6", "lw-0.2.0-lw-macos-x86_64.exe",
+      "lw-0.2.0-linux-arm64", "lw-lw-linux-arm64", "lw-0.2.0-lw-linux-arm64.dl.1" }) do
+    eq(launcher.cached_binary_version(n, assets, pin.valid_version), nil, "near miss " .. n .. " is not a candidate")
+  end
+  -- no asset is the tail of another's `-<asset>`, so a cached name parses one way only
+  for _, a1 in ipairs(assets) do
+    for _, a2 in ipairs(assets) do
+      if a1 ~= a2 then ok(("-" .. a1):sub(-#a2 - 1) ~= "-" .. a2, "asset " .. a2 .. " is not a tail of " .. a1) end
+    end
+  end
 
   paths.rm_rf(sb)
 end
@@ -2933,8 +2974,8 @@ do
   local mirror = sb .. "/mirror"; paths.mkdirp(mirror)
   local lines = {}
   local function stage(version)
-    local assets = { "lw-linux-x86_64", "lw-macos-arm64", "lw-windows-x86_64.exe",
-      pin.bundle_asset(version) }
+    local assets = pin.host_assets_for(version)
+    assets[#assets + 1] = pin.bundle_asset(version)
     -- a release lists its descriptor from self-contained executables on (§16.41)
     if pin.is_self_contained(version) then assets[#assets + 1] = pin.descriptor_asset(version) end
     for _, a in ipairs(assets) do
@@ -3277,7 +3318,8 @@ do
     paths.rm_rf(mirror); paths.mkdirp(mirror)
     put(mirror .. "/manifest.json", json.encode({ version = version }))
     local exp, lines = {}, {}
-    local list = { "lw-linux-x86_64", "lw-macos-arm64", "lw-windows-x86_64.exe", pin.bundle_asset(version) }
+    local list = pin.host_assets_for(version)
+    list[#list + 1] = pin.bundle_asset(version)
     local desc = '{\n  "binary": {\n    "lw_version": "' .. version .. '"\n  },\n  "descriptor": 1,\n' ..
       '  "objects": [],\n  "transport": {\n    "max": 3,\n    "min": 1\n  }\n}\n'
     if o.desc then desc = o.desc end
@@ -3316,7 +3358,7 @@ do
     eq(res.source, "override", "source is the override")
     eq(res.assets["lw-windows-x86_64.exe"], exp["lw-windows-x86_64.exe"], "asset hash from the signed sums")
     local n = 0; for _ in pairs(res.assets) do n = n + 1 end
-    eq(n, 3, "assets are the three host binaries (no bundle, no descriptor)")
+    eq(n, #pin.host_assets_for(V), "assets are the release's host binaries (no bundle, no descriptor)")
     eq(res.descriptor.binary and res.descriptor.binary.lw_version, V, "the descriptor document is carried")
   end
   local after = 0
@@ -3517,8 +3559,8 @@ do
   local mirror = sb .. "/mirror"; paths.mkdirp(mirror)
   local lines = {}
   local function stage(version)
-    local assets = { "lw-linux-x86_64", "lw-macos-arm64", "lw-windows-x86_64.exe",
-      pin.bundle_asset(version) }
+    local assets = pin.host_assets_for(version)
+    assets[#assets + 1] = pin.bundle_asset(version)
     -- a release lists its descriptor from self-contained executables on (§16.41)
     if pin.is_self_contained(version) then assets[#assets + 1] = pin.descriptor_asset(version) end
     for _, a in ipairs(assets) do
@@ -4949,13 +4991,14 @@ do
   do
     local pinm = require("boot.pin")
     local orig = pinm.detect_asset
-    pinm.detect_asset = function() return pinm.host_asset("Linux", "aarch64") end
+    pinm.detect_asset = function() return pinm.host_asset("Linux", "riscv64") end
     stage(); reset_exe()
     local okc, ru = pcall(run, { is_windows = false, asset = false })
     pinm.detect_asset = orig
     ok(okc, "unsupported host: update_host returns" .. (okc and "" or (" - " .. tostring(ru))))
     eq(okc and ru.status, "warning", "unsupported host -> warning")
-    eq(okc and ru.message, "no lw build for linux-arm64; supported: linux-x86_64, macos-arm64, windows-x86_64",
+    eq(okc and ru.message, "no lw build for linux-riscv64; supported: linux-arm64, linux-x86_64, macos-arm64, " ..
+      "macos-x86_64, windows-x86_64",
       "unsupported host: names its platform and the supported ones")
     eq(slurp(exe), OLD, "unsupported host: original untouched")
   end

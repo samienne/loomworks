@@ -312,7 +312,12 @@ describe("housekeeping (spec §16.40)", function()
         local old_bin = write(p .. "/lw-0.1.30-lw-linux-x86_64")
         local pinned_bin = write(p .. "/lw-0.1.31-lw-linux-x86_64")
         local running_bin = write(p .. "/lw-0.1.34-lw-windows-x86_64.exe")
-        for _, x in ipairs({ old_b, pinned_b, running_b, old_bin, pinned_bin, running_bin }) do age(x) end
+        -- The platforms first published in 0.2.0-beta.5 follow the same exact-name rule.
+        local old_arm = write(p .. "/lw-0.1.30-lw-linux-arm64")
+        local pinned_mx = write(p .. "/lw-0.1.31-lw-macos-x86_64")
+        for _, x in ipairs({ old_b, pinned_b, running_b, old_bin, pinned_bin, running_bin, old_arm, pinned_mx }) do
+            age(x)
+        end
         age(recent_b, NOW - 3 * 86400)
         local o = opts(sb, { pin_version = "0.1.31", exe = running_bin, bundle = running_b })
         assert.same({}, paths_of(hk.collect(o)))
@@ -321,8 +326,9 @@ describe("housekeeping (spec §16.40)", function()
         local got = paths_of(items)
         assert.equals("pinned release", got[old_b])
         assert.equals("pinned binary", got[old_bin])
-        assert.equals(2, #items)
-        assert.equals(5, info.kept_pinned)
+        assert.equals("pinned binary", got[old_arm])
+        assert.equals(3, #items)
+        assert.equals(6, info.kept_pinned)
         -- A shorter threshold reaches the recently used one.
         o.all, o.pinned_age = false, 86400
         assert.is_truthy(paths_of(hk.collect(o))[recent_b])
@@ -330,12 +336,34 @@ describe("housekeeping (spec §16.40)", function()
         o.all = true
         for _, it in ipairs(items) do assert.is_true(hk.remove(it, NOW), it.path) end
         assert.is_false(exists(old_b)); assert.is_false(exists(p .. "/" .. SHA)) -- emptied sha dir removed
-        assert.is_false(exists(old_bin))
-        for _, x in ipairs({ pinned_b, running_b, recent_b, pinned_bin, running_bin }) do
+        assert.is_false(exists(old_bin)); assert.is_false(exists(old_arm))
+        for _, x in ipairs({ pinned_b, running_b, recent_b, pinned_bin, running_bin, pinned_mx }) do
             assert.is_true(exists(x), x)
         end
         -- No trash left behind.
         for n in vim.fs.dir(p) do assert.is_nil(n:match("^%.trash"), n) end
+    end)
+
+    it("pinned binary names: exact `lw-<ver>-<asset>` for every host asset, no cross-asset match", function()
+        local set = {}
+        for _, a in pairs(require("boot.pin").HOST_ASSETS) do set[a] = true end
+        for _, c in ipairs({
+            { "lw-0.2.0-beta.5-lw-linux-arm64", "0.2.0-beta.5" },
+            { "lw-0.2.0-lw-macos-x86_64", "0.2.0" },
+            { "lw-0.2.0-lw-linux-x86_64", "0.2.0" },
+            { "lw-0.2.0-lw-macos-arm64", "0.2.0" },
+            { "lw-0.2.0-lw-linux-arm64x" }, { "lw-0.2.0-lw-linux-arm6" }, { "lw-0.2.0-lw-linux-arm64.dl" },
+            { "lw-0.2.0-lw-macos-x86_64.exe" }, { "lw-0.2.0-linux-arm64" }, { "lw-lw-linux-arm64" },
+            { "lw-..-lw-linux-arm64" }, { "lw-next-lw-macos-x86_64" },
+        }) do
+            assert.equals(c[2], hk._pinned_binary_version(c[1], set), c[1])
+        end
+        -- No asset ends another's `-<asset>` tail, so a name parses one way only.
+        for a in pairs(set) do
+            for b in pairs(set) do
+                if a ~= b then assert.is_false(("-" .. a):sub(-#b - 1) == "-" .. b, a .. " / " .. b) end
+            end
+        end
     end)
 
     it("the startup pass runs at most once a day, logs to the workspace, never raises", function()
