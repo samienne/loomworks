@@ -28,6 +28,14 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
 
 ## Unreleased
 
+### Added
+
+- `lw` is now built for Linux arm64 (`lw-linux-arm64`) and Intel macOS
+  (`lw-macos-x86_64`), from this release on. A repository's `lw.sh` written
+  by an earlier release does not select them: run `lw bootstrap upgrade`
+  there, which `lw health` now also suggests. A pin of an earlier release
+  still has no build for these platforms (#155).
+
 ## 0.2.0 - 2026-11-08
 
 The first release of lw from samienne/loomworks, where `lw`, the workspace
