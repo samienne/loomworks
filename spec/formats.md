@@ -485,7 +485,12 @@ and a pin without it is complete.
 It is a trivially parseable key/value list (not JSON) so a launcher can read it
 with a system shell alone — one `version` entry and one hashed entry per release
 executable keyed by its asset identity (plus the transitional bundle entry
-above). The pin carries a
+above). The hashed entries are those of the executables **the pinned release
+published** ([headless §16.11](core/headless.md#1611-release-executables-and-code-resolution)
+"Supported platforms"): a pin of an older release has fewer, and is complete.
+Adding a platform changes no format — readers ignore entries they do not use,
+and a launcher on a platform the pin has no entry for stops with an error.
+The pin carries a
 version and hashes **only, never a location**: the download origin is fixed by
 the host and overridable solely by the user's environment or host configuration,
 never by repository content.
