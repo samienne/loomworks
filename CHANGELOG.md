@@ -28,6 +28,16 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
 
 ## Unreleased
 
+## 0.2.0 - 2026-11-08
+
+The first release of lw from samienne/loomworks, where `lw`, the workspace
+daemon and its protocol now live; loomworks.nvim is a client of the daemon.
+Each `lw` is one self-contained, signed executable for Linux x86_64, macOS
+arm64 and Windows x86_64: install it as the README shows, and
+`lw self-update` replaces only that file. Coming from 0.1.x, an `lw` of
+0.1.51 or later reaches 0.2 with `lw self-update`; an older one updates to
+0.1.51 first.
+
 ### Breaking
 
 - `lw self-update --no-host` is a usage error (exit 2): self-update replaces
@@ -124,9 +134,8 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
   release from the repository it was published in: 0.0.x/0.1.x from
   samienne/loomworks.nvim, 0.2 and later from samienne/loomworks, in
   `lw self-update`, `lw bootstrap install` / `upgrade`, pinned provisioning and
-  the `lw.sh` / `lw.cmd` launchers. The newest release (both channels) is still
-  looked up in samienne/loomworks.nvim, so `lw self-update` stays within 0.1.x;
-  moving to 0.2 takes an explicit version or pin. `LOOMWORKS_RELEASE_URL` /
+  the `lw.sh` / `lw.cmd` launchers. The newest release (both channels) is
+  looked up in samienne/loomworks only. `LOOMWORKS_RELEASE_URL` /
   `release-url` is still one mirror for all versions. `lw bootstrap` and
   `lw health` report earlier launchers as broken only for a pin of 0.2 or
   later (samienne/loomworks.nvim#389).
