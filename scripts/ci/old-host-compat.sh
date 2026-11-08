@@ -97,7 +97,7 @@ fetch_host() {
   local v="$1" d="$cache/v$1" base="https://github.com/$REPO_SLUG/releases/download/v$1"
   mkdir -p "$d"
   for f in "$asset" SHA256SUMS SHA256SUMS.sig; do
-    [ -s "$d/$f" ] || curl -fsSL --retry 3 -o "$d/$f" "$base/$f" || { echo "download $f failed" >&2; return 1; }
+    [ -s "$d/$f" ] || curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o "$d/$f" "$base/$f" || { echo "download $f failed" >&2; return 1; }
   done
   openssl dgst -sha256 -verify "$repo/keys/loomworks-release.pub.pem" \
     -signature "$d/SHA256SUMS.sig" "$d/SHA256SUMS" >/dev/null \
