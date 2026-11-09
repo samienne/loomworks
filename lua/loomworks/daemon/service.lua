@@ -27,8 +27,13 @@
 --- callback), with the process environment switched to the requesting
 --- client's (`envscope.with`).
 ---
---- **Request** `{ kind = "build", args, interactive, env, command }` →
---- reply `ok` with `outcome`:
+--- **Operations.** Every operation is reached through an interface method
+--- (loomworks.daemon.core_interfaces), never a request kind of its own: the
+--- method's adapter hands `_on_operation` the op, the args, `interactive`, the
+--- call's `env` and `command`, and takes the reply's fields as its result.
+---
+--- **`Build/1.build`** (op `build`: `args`, `interactive`, `env`, `command`) →
+--- `outcome`:
 ---   * "accepted" (`task_id`, `profile_key`, `pid`) — the build runs as a task
 ---     owned by this connection (loomworks.daemon.runner, .tasks);
 ---   * "refused" (`message`, `exit_code`) — before any side effect: the
@@ -39,17 +44,17 @@
 ---     environment while another build runs — a device install, launch or
 ---     stop does not count). The client runs in-process.
 ---
---- **Request** `{ kind = "test", args = { profile?, junit?, extra?, no_build?, verbose? }, … }` —
+--- **`Tests/1.run`** (op `test`: `args = { profile?, junit?, extra?, no_build?, verbose? }`) —
 --- the same outcomes (`no_build`: `lw test --no-build`, nothing built); the plan checks (test_plan.precheck) refuse as in-process; "declined" when saved test targets would run on a device.
 ---
---- **Request** `{ kind = "prepare_run", args = { profile?, target?, project?,
---- kind?, cwd?, extra?, no_build?, quiet?, verbose? }, … }` — the same
+--- **`Launch/1.prepare_run`** (op `run`: `args = { profile?, target?, project?,
+--- kind?, cwd?, extra?, no_build?, quiet?, verbose? }`) — the same
 --- outcomes; also "declined" for a profile one of whose units builds with a
 --- foreign kit (device runs stay in the client). The task builds, selects,
 --- deploys and resolves the launch; its `done` carries the resolved `launch`
 --- (or `device = true`) and the client executes the program.
 ---
---- **`Launch/1.prepare_debug`** — the args of `prepare_run` minus `quiet` /
+--- **`Launch/1.prepare_debug`** (op `debug`) — the args of `prepare_run` minus `quiet` /
 --- `prefix` / `verbose`, the same outcomes, never "declined" for a foreign kit: a device
 --- or foreign target ends its task nonzero instead. Its `done.result` carries
 --- the debug spec. Both preparations take `build_scope` ("profile", the
@@ -62,7 +67,7 @@
 --- target scope's phases up to the launch target's own unit and resolves no
 --- launch; a device target ends it nonzero before the build.
 ---
---- **Request** `{ kind = "clean", args = { profile?, verbose? }, … }`
+--- **`Build/1.clean`** (op `clean`: `args = { profile?, verbose? }`)
 --- — the same outcomes; also "refused" on stdout (`stream = "out"`) with the
 --- in-process `nothing to clean …` line when there is nothing to clean,
 --- decided after resolution and before any lock (as in-process).
@@ -78,7 +83,7 @@
 --- streams the command lines (role `command`), their env line against the
 --- client's environment (`ctx.env`, before the daemon's own adjustments).
 ---
---- **Request** `{ kind = "reset", args = { profile?, all?, yes?, plan? }, … }`
+--- **`Build/1.reset`** (op `reset`: `args = { profile?, all?, yes?, plan? }`)
 --- — the outcomes of `build`, plus "confirm" (`lines`,
 --- `plan`, `profile_key`): the reset is planned (loomworks.reset_plan, as
 --- in-process) after resolution and before any lock or side effect. Nothing
@@ -89,18 +94,19 @@
 --- exit 1). Otherwise "accepted" (`profile_key` absent for `--all`); the task
 --- prints the listing first only when no `plan` was sent (`-y`).
 ---
---- **Request** `{ kind = "snapshot", scope?, env }` → reply `ok`
---- with `outcome = "ok"`, the scope's tables, `tools`, `shared_ignored`,
---- `index`, `seq` and `session_generation` (loomworks.daemon.snapshot); or
+--- **Model requests** (`_on_model_request`) — reads without a task or a lock:
+---
+--- **`lw.internal.Snapshot/1.get`** (`scope?`) → `outcome = "ok"`, the
+--- scope's tables, `tools`, `shared_ignored`, `index`, `seq` and `session_generation` (loomworks.daemon.snapshot); or
 --- "refused" / "declined" as for `build`. No task, no lock. A loaded model is
 --- served as it is (`live` with `as_is`: no reload for another environment,
 --- no file check, no tool wait); with none loaded, it is loaded in the
 --- request's environment without waiting for tool detection.
 ---
---- **Request** `{ kind = "query", name, args?, env }` → reply `ok`
---- with `outcome = "ok"` and `result`; "refused" (`message`) for an unknown
---- query or a failed one; "declined" as for `build`. Read-only: it runs in
---- the request's environment (its model segment) against the model as it is,
+--- **Queries** (`_query`: `Toolchains/1.list`, `Profiles/1.compiler_cache`
+--- and the other registered reads) → `outcome = "ok"` and `result`; "refused"
+--- (`message`) for an unknown query or a failed one; "declined" as for
+--- `build`. Read-only: it runs in the request's environment (its model segment) against the model as it is,
 --- loaded as for `snapshot`, and never unloads it.
 
 local build_run = require("loomworks.build_run")

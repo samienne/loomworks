@@ -1507,7 +1507,7 @@ specifies (per object and connection, gapless).
 
 *Status: master for the snapshot (`lw.internal.Snapshot/1.get`), the
 projection builder and the `welcome` header (`daemon/snapshot.lua`,
-`daemon/service.lua` `on_snapshot`, `workspace.assemble_snapshot`); the
+`daemon/service.lua` `_snapshot_answer`, `daemon/core_interfaces.lua`, `workspace.assemble_snapshot`); the
 read-only CLI commands read a projection in `daemon` mode (`cli.lua`
 `read_workspace`, §19.1). Re-pulls on `Workspace/1.changed` and the
 view-scoped model future.*
