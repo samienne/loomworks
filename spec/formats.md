@@ -512,10 +512,11 @@ A host that copied a legacy working copy from `.nvim/` into `.lw/` writes
 `{ "from": ".nvim/loomworks.user.json", "source_sha256": "<64 lowercase hex>",
 "written_by": "<version>", "migrated_at": "<RFC 3339 UTC>" }`, written with the
 encoding of §1.2. `source_sha256` is the SHA-256 of the legacy working copy's
-bytes as copied, rewritten by `lw migrate --keep` and `--again`. The file is
+bytes as copied (when a run completes an interrupted migration, of
+`.lw/user.json`'s bytes); it is never rewritten afterwards. The file is
 not signed: it causes no execution and only decides whether a copy is made,
 and a forged or removed marker at worst leads to a refusal or to the
-divergence report. A reader ignores unknown members. A marker that does not
-parse, or is not a regular file, is treated as absent, and the workspace then
-refuses to load when `.lw/user.json` and the legacy working copy differ
-(headless §16.44 *Crash safety*).
+divergence report. A reader ignores unknown members. A regular-file marker
+that does not parse still marks the migration done, with no divergence
+report; a marker path that is not a regular file stops the command (headless
+§16.44 *Crash safety*).

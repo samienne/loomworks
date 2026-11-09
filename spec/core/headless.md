@@ -4769,7 +4769,11 @@ already says whose they are. The syntax of the normative files is
 | `.gitignore` | the self-ignore file (below) | — |
 
 Per-run files that a test unit writes inside a **build directory** move the
-same way: `<build dir>/.lw/` replaces `<build dir>/.nvim/`.
+same way: `<build dir>/.lw/` replaces `<build dir>/.nvim/`. These are the
+test-result files — `gtest_results.xml` and the saved-target results
+`saved_<…>_results.xml` — and any other per-run file a test unit keeps there;
+files an earlier release left in `<build dir>/.nvim/` are neither read nor
+removed.
 
 A workspace marker (§1.1) is `loomworks.json`, `.lw/user.json`, or — so that
 a workspace of an earlier release is found and migrated —
@@ -4850,29 +4854,30 @@ reconfigures into the existing directory (§17.4).
 **Crash safety.** Each step leaves a state the next run recognizes. Before
 step 4 completes, `.lw/` holds at most locks and a temporary copy, which is a
 leftover removed by its exact name. Between steps 4 and 5, `.lw/user.json`
-exists without a marker: when its bytes equal the legacy working copy the
-next run writes the marker and finishes; when they differ nothing is chosen —
-the workspace refuses to load, naming both files and the two ways out
-(`lw migrate --again` to copy the legacy one, `lw migrate --keep` to keep
-`.lw/user.json`). A copy is never made over an existing `.lw/user.json`
-except by `lw migrate --again`.
+exists without a marker: the next run, under the locks of step 2, writes the
+marker with the SHA-256 of `.lw/user.json`'s bytes as `source_sha256` and
+finishes. It never copies over an existing `.lw/user.json`; when that file's
+bytes differ from the legacy working copy (an older lw saved it in between),
+the divergence report below applies. A marker path that exists but is not a
+regular file (`lstat`) stops the command: "lw: .lw/migrated.json is not a
+regular file — remove it, then retry".
+
+There is no migration command: migration only ever runs automatically, as
+above. Where it cannot proceed, the command fails with an error that says
+what to do — normally to stop the older lw it names and retry (step 1).
 
 **After migration.** A 0.2.0+ host reads and writes only `.lw/`. The legacy
 `.nvim/` stays exactly as it was, so a repository whose pin moves back to a
 release before 0.2.0 finds its state there. When such a release has changed
 `.nvim/loomworks.user.json` since the migration (its SHA-256 no longer equals
 the marker's `source_sha256`), a 0.2.0+ host still uses `.lw/`, and health
-reports it as actionable: "`.nvim/loomworks.user.json` changed after it was
-copied to `.lw/` (an older lw ran here); to take that copy, run `lw migrate
---again`".
-
-- `lw migrate` runs a pending migration and otherwise reports the state (not
-  needed, done at `<time>`, or diverged).
-- `lw migrate --again` repeats steps 1–6 over an existing `.lw/user.json`,
-  first keeping it as a backup (`user.json.<YYYYMMDD-HHMMSS>.bak`, as an
-  import does, §16.39).
-- `lw migrate --keep` records the legacy working copy's current hash in the
-  marker and changes nothing else.
+reports it as actionable, with the manual way out as its fix:
+"`.nvim/loomworks.user.json` changed after it was copied to `.lw/` (an older
+lw ran here); lw 0.2.0 and later keep using `.lw/user.json`. To take the
+older copy instead, stop the older lw, move `.lw/user.json` and
+`.lw/migrated.json` out of `.lw/`, and run lw again: it copies
+`.nvim/loomworks.user.json` anew". lw itself never replaces or removes
+`.lw/user.json` or the marker for this.
 
 A workspace created by 0.2.0+ (`lw init`) has no `.nvim/` state and no
 marker. A working-copy pull or worktree seed (§16.25) reads the source
