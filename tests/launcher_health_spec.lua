@@ -153,9 +153,23 @@ describe("launcher health (§16.31 provider #4)", function()
         vim.fn.delete(r, "rf")
     end)
 
-    it("an ignore rule only in the personal gitignore does not count", function()
+    it("current launchers with a 0.2.0+ pin: .lw/cache ignores itself; .nvim/cache leftovers are reported", function()
         if not git_ok then pending("git not available") return end
         local r = repo_with_files()
+        write(r .. "/.nvim/cache/lw-0.1.43-lw-linux-x86_64", "old")
+        local items = lh.provider({ root = r })
+        assert.is_nil(find(items, "is not ignored"), titles(items))
+        assert.is_nil(find(items, "ignored only by"), titles(items))
+        local left = find(items, "1 pinned lw binary left in .nvim/cache by older launchers")
+        assert.is_truthy(left, titles(items))
+        assert.equals("info", left.kind)
+        vim.fn.delete(r, "rf")
+    end)
+
+    it("an ignore rule only in the personal gitignore does not count", function()
+        if not git_ok then pending("git not available") return end
+        -- launchers of an earlier generation: they cache in .nvim/cache
+        local r = repo_with_files({ sh = "#!/bin/sh\n# an lw.sh of an earlier release\n" })
         local excl = r .. "/../" .. vim.fn.fnamemodify(r, ":t") .. "-excludes"
         write(excl, ".nvim/\n")
         git(r, "config", "core.excludesFile", excl)

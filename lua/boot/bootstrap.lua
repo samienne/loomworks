@@ -183,8 +183,8 @@ end
 --- Idempotently ensure the launcher cache is ignored by the repository (see
 --- boot.repo_meta.ensure_gitignore). Returns "added" | "present" | "covered"
 --- or nil, err.
-function M.ensure_gitignore(root)
-  return repo_meta.ensure_gitignore(root, repo_meta.toplevel(root), write_file)
+function M.ensure_gitignore(root, version)
+  return repo_meta.ensure_gitignore(root, repo_meta.toplevel(root), write_file, version)
 end
 
 --- One line per launcher write outcome worth reporting.
@@ -256,9 +256,11 @@ local function apply(root, version, hashes, opts)
 
   local top = repo_meta.toplevel(root)
   if not opts.pin_only then
-    local gi, eg = repo_meta.ensure_gitignore(root, top, write_file)
+    local gi, eg = repo_meta.ensure_gitignore(root, top, write_file, version)
     if not gi then return nil, eg end
-    if gi == "added" then add("added " .. launcher.CACHE_DIR .. "/ to .gitignore"); touch(".gitignore") end
+    if gi == "added" then
+      add("added " .. repo_meta.cache_dir(root, version) .. "/ to .gitignore"); touch(".gitignore")
+    end
   end
 
   local appended, problem, ea = repo_meta.ensure_gitattributes(root, top, write_file,
@@ -281,6 +283,7 @@ local function apply(root, version, hashes, opts)
   for _, f in ipairs(pruned or {}) do
     add(string.format("removed old pinned lw %s (%s, %.1f MB) from %s", f.version, f.name,
       f.size / 1048576, launcher.CACHE_DIR))
+    -- (only `.lw/cache` is pruned; `.nvim/cache` is never touched)
   end
 
   return changes, { old = old, had_pin = have_pin ~= nil, pin_changed = pin_changed,
@@ -486,7 +489,7 @@ function M.status(start, opts)
     git = git,
     sha256 = verify.sha256_hex,
     exists = function(p) return uv.fs_stat(p) ~= nil end,
-    stale = function(rt, v) return repo_meta.stale_cache(rt, v, assets, pin.valid_version) end,
+    stale = function(rt, v, rel) return repo_meta.stale_cache(rt, v, assets, pin.valid_version, rel) end,
     invoked = invoked,
   })
   if not has_pin then r.mode = "none" end
@@ -599,10 +602,12 @@ function M.status(start, opts)
         or "ok")
     end
     if g.ignore then
-      row("ignore", g.ignore == "repo" and ".nvim/cache/ ignored by a committed .gitignore"
-        or g.ignore == "uncommitted" and (".nvim/cache/ ignored only by an uncommitted rule in " .. g.ignore_source)
-        or g.ignore == "personal" and ".nvim/cache/ ignored only by an uncommitted or personal rule"
-        or ".nvim/cache/ not ignored")
+      local cd = (r.cache_dir or launcher.CACHE_DIR) .. "/"
+      row("ignore", g.ignore == "self" and (cd .. " ignored by .lw/.gitignore (written by the launchers)")
+        or g.ignore == "repo" and (cd .. " ignored by a committed .gitignore")
+        or g.ignore == "uncommitted" and (cd .. " ignored only by an uncommitted rule in " .. g.ignore_source)
+        or g.ignore == "personal" and (cd .. " ignored only by an uncommitted or personal rule")
+        or (cd .. " not ignored"))
     end
   end
 

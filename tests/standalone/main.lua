@@ -2463,11 +2463,12 @@ do
     "pin carries the BUNDLE hash")
   ok(slurp(repo .. "/lw.sh") ~= nil and slurp(repo .. "/lw.cmd") ~= nil, "launchers written")
   local gi = slurp(repo .. "/.gitignore")
-  ok(gi ~= nil and gi:find(".nvim/cache/", 1, true) ~= nil, "gitignore has the cache entry")
+  ok(gi == nil or gi:find("cache/", 1, true) == nil, "no .gitignore line: .lw/cache ignores itself")
+  eq(bootstrap.ensure_gitignore(repo), "self", "a 0.2.0+ pin with current launchers: nothing to append")
 
-  -- idempotent gitignore append that preserves existing content
+  -- idempotent gitignore append (a pin below 0.2.0 caches in .nvim/cache)
   do local f = assert(io.open(repo .. "/.gitignore", "wb")); f:write("build/\n.nvim/cache/\n"); f:close() end
-  eq(bootstrap.ensure_gitignore(repo), "present", "gitignore append is idempotent")
+  eq(bootstrap.ensure_gitignore(repo, "0.1.43"), "present", "gitignore append is idempotent")
   local gi2 = slurp(repo .. "/.gitignore")
   ok(gi2:find("build/", 1, true) ~= nil, "existing .gitignore content preserved")
   eq(select(2, gi2:gsub("%.nvim/cache/", "")), 1, "cache entry not duplicated")
@@ -2785,6 +2786,7 @@ do
     local r = sb .. "/ign1"; git_init(r)
     put(r .. "/.gitignore", "/.nvim/**\n")
     bootstrap.install(r, { version = V2 })
+    bootstrap.ensure_gitignore(r, "0.1.43")
     eq(slurp(r .. "/.gitignore"), "/.nvim/**\n",
       "a committed rule already ignoring .nvim/ (any form git accepts) -> nothing appended")
 
@@ -2792,10 +2794,11 @@ do
     put(r2 .. "/.git/info/exclude", ".nvim/\n")
     local excl = sb .. "/personal-excludes"; put(excl, ".nvim/\n")
     git(r2, "config", "core.excludesFile", excl)
-    local rr = bootstrap.install(r2, { version = V2 })
+    bootstrap.install(r2, { version = V2 })
+    local st2 = bootstrap.ensure_gitignore(r2, "0.1.43")
     ok((slurp(r2 .. "/.gitignore") or ""):find(".nvim/cache/", 1, true) ~= nil,
       "an ignore rule only in info/exclude or core.excludesFile does not count -> appended")
-    ok(has(rr, "added .nvim/cache/ to .gitignore"), "the append is reported")
+    eq(st2, "added", "the append is reported")
 
     local r3 = sb .. "/ign3"; git_init(r3)
     put(r3 .. "/.gitattributes", "*.sh text eol=lf\n*.cmd text eol=crlf\n*.pin text eol=lf\n")
@@ -2822,6 +2825,7 @@ do
       "lw.pin text eol=lf\r\n\r\n# other\r\n*.png binary\r\n",
       "the missing rule goes right after the last launcher rule, with no second header")
     ok(has(rr, "lw.pin to .gitattributes"), "the added rule is reported  (" .. show(rr) .. ")")
+    bootstrap.ensure_gitignore(r, "0.1.43")
     local gi = slurp(r .. "/.gitignore") or ""
     ok(not bare_lf(gi) and gi:find(".nvim/cache/\r\n", 1, true) ~= nil,
       "a CRLF .gitignore gets a CRLF append  (" .. gi:gsub("\r", "\\r"):gsub("\n", "\\n") .. ")")
@@ -2833,6 +2837,7 @@ do
     ok(ga2:find("lw.sh text eol=lf\r\n", 1, true) and not bare_lf(ga2),
       "a new .gitattributes is CRLF when git checks text out as CRLF")
     ok(select(2, ga2:gsub("# loomworks:", "")) == 1, "a new file gets exactly one header")
+    bootstrap.ensure_gitignore(r2, "0.1.43")
     local gi2 = slurp(r2 .. "/.gitignore") or ""
     ok(gi2 ~= "" and not bare_lf(gi2), "a new .gitignore is CRLF too")
     -- … and LF otherwise.
@@ -2866,7 +2871,10 @@ do
 
   -- ---- pruning the launcher cache --------------------------------------------
   do
-    local cache = repo .. "/.nvim/cache"
+    local cache = repo .. "/.lw/cache"
+    -- `.nvim/cache` (older launchers) is never pruned
+    local legacy_old = repo .. "/.nvim/cache/lw-" .. V1 .. "-lw-linux-x86_64"
+    put(legacy_old, "legacy")
     local old = cache .. "/lw-" .. V1 .. "-lw-linux-x86_64"
     local old_win = cache .. "/lw-0.9.0-lw-windows-x86_64.exe"
     local keep = cache .. "/lw-" .. V2 .. "-lw-linux-x86_64"
@@ -2887,7 +2895,8 @@ do
     put(cache .. "/lw-0.5.0-lw-linux-x86_64/inner", "i")
     local outside = sb .. "/outside-lw-0.4.0-lw-linux-x86_64"; put(outside, "o")
     local rr = bootstrap.install(repo, { version = V2, running_exe = running })
-    ok(has(rr, "removed old pinned lw " .. V1 .. " (lw-" .. V1 .. "-lw-linux-x86_64, 0.0 MB) from .nvim/cache")
+    ok(uv.fs_stat(legacy_old) ~= nil, "nothing under .nvim/cache is removed")
+    ok(has(rr, "removed old pinned lw " .. V1 .. " (lw-" .. V1 .. "-lw-linux-x86_64, 0.0 MB) from .lw/cache")
       and has(rr, "removed old pinned lw 0.9.0 (lw-0.9.0-lw-windows-x86_64.exe"),
       "prune names each binary it removed  (" .. show(rr) .. ")")
     ok(not uv.fs_stat(old) and not uv.fs_stat(old_win), "older cached binaries removed")
@@ -2908,9 +2917,9 @@ do
       "a no-op update prunes too  (" .. show(rn) .. ")")
 
     -- a cache dir that is a link/junction out of the repo is never pruned
-    local r = sb .. "/linked"; paths.mkdirp(r .. "/.nvim")
+    local r = sb .. "/linked"; paths.mkdirp(r .. "/.lw")
     local target = sb .. "/elsewhere"; put(target .. "/lw-0.1.0-lw-linux-x86_64", "t")
-    local okl = uv.fs_symlink(target, r .. "/.nvim/cache", { junction = true, dir = true })
+    local okl = uv.fs_symlink(target, r .. "/.lw/cache", { junction = true, dir = true })
     if okl then
       local n = repo_meta.prune_cache(r, V2, nil)
       eq(n, 0, "prune refuses a linked cache dir")
@@ -3211,8 +3220,9 @@ do
     put(r .. "/.gitignore", "/.nvim/**\n")
     git(r, "add", ".gitignore"); git(r, "commit", "-q", "-m", "x")
     local rm = require("boot.repo_meta")
-    local writer = rm.cache_ignored_by_repo(r, rm.toplevel(r))
-    put(r .. "/lw.pin", "version = 1.0.0\n"); put(r .. "/lw.sh", launcher.render("sh"))
+    local writer = rm.cache_ignored_by_repo(r, rm.toplevel(r), ".nvim/cache")
+    -- launchers of an earlier generation cache in .nvim/cache
+    put(r .. "/lw.pin", "version = 1.0.0\n"); put(r .. "/lw.sh", "#!/bin/sh\n# an lw.sh of an earlier release\n")
     local res = check.run_checks(r, { git = function(c, a) return rm._git(c, a) end, sha256 = verify.sha256_hex })
     check.cache_ignored_by_repo = saved
     eq(writer, true, "the writer sees the committed rule")
@@ -3583,6 +3593,7 @@ do
     local excl = sb .. "/personal-excludes"; put(excl, ".nvim\n")
     git(r, "config", "core.excludesFile", excl)
     bootstrap.install(r, { version = V1 })
+    put(r .. "/lw.sh", "#!/bin/sh\n# an lw.sh of an earlier release\n")  -- an earlier generation: caches in .nvim/cache
     git(r, "reset", "-q")                       -- nothing staged: all untracked
     put(r .. "/.gitignore", ".nvim/\n")         -- the repo's own rule, not committed
     local res = checks(r)
@@ -3621,7 +3632,7 @@ do
     local res = checks(r)
     local u = finding(res, "uncommitted")
     ok(u and u.kind == "suggestion" and u.title:find("not committed yet:", 1, true)
-      and u.title:find("lw.pin", 1, true) and u.title:find(".gitignore", 1, true)
+      and u.title:find("lw.pin", 1, true)
       and u.title:find("lw.sh (staged", 1, true),
       "untracked + staged-only files are one 'not committed yet' finding  (" .. tostring(u and u.title) .. ")")
     local st = bootstrap.status(r, { resolve_newest = newest({ stable = V1 }) })
@@ -3829,8 +3840,10 @@ do
     ok(not out:find("invalid pinned version", 1, true),
       "fake findstr on PATH does not reject a valid version  (" .. out .. ")")
     eq(code, 7, "launcher fetched, verified and forwarded to the pinned binary despite fake tools on PATH")
-    ok(uv.fs_stat(sb .. "/good/.nvim/cache/lw-" .. ver .. "-" .. asset) ~= nil,
+    ok(uv.fs_stat(sb .. "/good/.lw/cache/lw-" .. ver .. "-" .. asset) ~= nil,
       "pinned binary cached from the local mirror")
+    eq(slurp(sb .. "/good/.lw/.gitignore"), "# lw workspace state, machine-local: ignore everything here\n*\n",
+      "the launcher writes .lw/.gitignore")
 
     plant_fakes(1)
     local bcode, bout = run_launcher(sb .. "/bad", "1.0/evil", { "/c", "exit", "0" })
@@ -3951,8 +3964,8 @@ do
     ok(out3:find("download failed after 3 attempts", 1, true) ~= nil,
       "lw.cmd: says the attempts were exhausted  (" .. out3 .. ")")
     ok(not out3:find(" \r?\n") and not out3:find(" $"), "lw.cmd: failure lines end without a space")
-    ok(not uv.fs_stat(repo2 .. "/.nvim/cache/lw-" .. ver .. "-" .. asset)
-      and not uv.fs_stat(repo2 .. "/.nvim/cache/lw-" .. ver .. "-" .. asset .. ".dl"),
+    ok(not uv.fs_stat(repo2 .. "/.lw/cache/lw-" .. ver .. "-" .. asset)
+      and not uv.fs_stat(repo2 .. "/.lw/cache/lw-" .. ver .. "-" .. asset .. ".dl"),
       "lw.cmd: nothing left in the cache")
   else
     local asset = assert(pin.detect_asset())
@@ -3991,7 +4004,7 @@ do
     eq(state2.hits, 3, "lw.sh: gives up after three attempts")
     ok(out3:find("download failed after 3 attempts", 1, true) ~= nil,
       "lw.sh: says the attempts were exhausted  (" .. out3 .. ")")
-    ok(not uv.fs_stat(repo2 .. "/.nvim/cache/lw-" .. ver .. "-" .. asset), "lw.sh: nothing left in the cache")
+    ok(not uv.fs_stat(repo2 .. "/.lw/cache/lw-" .. ver .. "-" .. asset), "lw.sh: nothing left in the cache")
   end
   paths.rm_rf(sb)
 end
@@ -4729,6 +4742,8 @@ do
   eq(hu.decide(with({ pinned = true })), "skip", "pinned context -> skip")
   eq(hu.decide(with({ exe = "/repo/.nvim/cache/lw-1.0.0-lw-linux-x86_64" })), "skip",
     "repo-local pinned launcher cache -> skip")
+  eq(hu.decide(with({ exe = "/repo/.lw/cache/lw-1.0.0-lw-linux-x86_64" })), "skip",
+    "the 0.2.0 launcher cache .lw/cache -> skip")
   eq(hu.decide(with({ exe = "C:\\repo\\.nvim\\cache\\lw-1.0.0-lw-windows-x86_64.exe" })), "skip",
     "pinned cache on Windows (backslashes) -> skip")
   eq(hu.decide(with({ exe = "C:/tools/luvi.exe" })), "skip", "bare luvi source run -> skip")

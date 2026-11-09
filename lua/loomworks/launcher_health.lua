@@ -71,8 +71,8 @@ function M.report(start)
         git = function(cwd, args) return M._git(cwd, args) end,
         sha256 = function(s) return vim.fn.sha256(s) end,
         exists = function(path) return uv.fs_stat(path) ~= nil end,
-        stale = function(rt, version)
-            return repo_meta.stale_cache(rt, version, assets, pin.valid_version)
+        stale = function(rt, version, rel)
+            return repo_meta.stale_cache(rt, version, assets, pin.valid_version, rel)
         end,
         invoked = check.invoked(),
     })

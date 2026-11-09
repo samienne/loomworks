@@ -135,32 +135,51 @@ function M.append_block(existing, lines, eol)
   return existing .. pre .. table.concat(lines, eol) .. eol
 end
 
+--- The launcher cache directory (relative to `root`) the launchers present
+--- use for the pin `version` (default: lw.pin's): boot.launcher.cache_dir_for.
+--- @param root string pin root
+--- @param version? string
+--- @return string
+function M.cache_dir(root, version)
+  if type(version) ~= "string" then
+    local p = pin.read(root)
+    version = p and p.version or nil
+  end
+  return launcher.cache_dir_for(version, { sh = read(root .. "/lw.sh"), cmd = read(root .. "/lw.cmd") })
+end
+
 --- Is the launcher cache ignored by one of the REPOSITORY's own ignore files?
 --- The rule lives in boot.launcher_check (one rule for writing here and for the
 --- checks that health and the status page report).
+--- @param dir? string the launcher cache (default: `M.cache_dir(root)`)
 --- @return boolean|nil covered (nil: git could not answer), string|nil uncommitted_source
-function M.cache_ignored_by_repo(root, top)
+function M.cache_ignored_by_repo(root, top, dir)
   return require("boot.launcher_check").cache_ignored_by_repo(root, top,
-    function(cwd, args) return M._git(cwd, args) end)
+    function(cwd, args) return M._git(cwd, args) end, dir or M.cache_dir(root))
 end
 
---- Ensure the launcher cache is ignored by the repository.
---- @return "present"|"covered"|"added"|nil status, string|nil err
-function M.ensure_gitignore(root, top, write_file)
+--- Ensure the launcher cache is ignored by the repository. `.lw/cache` ignores
+--- itself (`.lw/.gitignore`, written by every launcher before it downloads):
+--- nothing is appended for it ("self").
+--- @param version? string the pinned version (default: lw.pin's)
+--- @return "present"|"covered"|"added"|"self"|nil status, string|nil err
+function M.ensure_gitignore(root, top, write_file, version)
+  local dir = M.cache_dir(root, version)
+  if dir == launcher.CACHE_DIR then return "self" end
   local path = root .. "/.gitignore"
   local existing = read(path) or ""
-  local covered, uncommitted_src = M.cache_ignored_by_repo(root, top)
+  local covered, uncommitted_src = M.cache_ignored_by_repo(root, top, dir)
   if covered then
-    return launcher.ignore_text_covers(existing) and "present" or "covered"
+    return launcher.ignore_text_covers(existing, dir) and "present" or "covered"
   end
   -- Not (yet) a committed rule: when an ignore file of the repository already
   -- has a rule covering the cache — ours from an earlier run, or the user's,
   -- not committed yet — adding another would only duplicate it; committing it
   -- is what is missing (the checks report that).
-  if uncommitted_src or launcher.ignore_text_covers(existing) then return "present" end
+  if uncommitted_src or launcher.ignore_text_covers(existing, dir) then return "present" end
   local ok, e = write_file(path, M.append_block(existing, {
     "# loomworks: pinned lw binaries (machine-local)",
-    launcher.CACHE_DIR .. "/",
+    dir .. "/",
   }, M.eol_for(existing, root, top)))
   if not ok then return nil, e end
   return "added"
@@ -246,7 +265,9 @@ function M.ensure_exec_bit(root, top)
 end
 
 --- Remove cached host binaries of versions other than `keep` from
---- `<root>/.nvim/cache`. Confined: the cache dir and its `.nvim`
+--- `<root>/.lw/cache` — only when that is the launcher cache in use
+--- (`M.cache_dir`); `.nvim/cache` is never pruned (§16.44: nothing under
+--- `.nvim/` is removed). Confined: the cache dir and its `.lw`
 --- parent must be real directories (not links/junctions) under the root; only
 --- regular files directly in it, named exactly `lw-<valid version>-<known
 --- asset>`, never the pinned version's, never the running executable. A
@@ -258,7 +279,8 @@ end
 function M.prune_cache(root, keep, running)
   if type(root) ~= "string" or root == "" or type(keep) ~= "string" then return 0, 0, {} end
   root = root:gsub("\\", "/"):gsub("/+$", "")
-  local nvim, dir = root .. "/.nvim", root .. "/" .. launcher.CACHE_DIR
+  if M.cache_dir(root, keep) ~= launcher.CACHE_DIR then return 0, 0, {} end
+  local nvim, dir = root .. "/.lw", root .. "/" .. launcher.CACHE_DIR
   for _, d in ipairs({ nvim, dir }) do
     local st = uv.fs_lstat(d)
     if not st or st.type ~= "directory" then return 0, 0, {} end
@@ -298,8 +320,8 @@ function M.prune_cache(root, keep, running)
 end
 
 --- Old cached binaries a prune would remove (for health): count + bytes.
-function M.stale_cache(root, keep, assets, valid_version)
-  local dir = root .. "/" .. launcher.CACHE_DIR
+function M.stale_cache(root, keep, assets, valid_version, rel)
+  local dir = root .. "/" .. (rel or M.cache_dir(root, keep))
   local handle = uv.fs_scandir(dir)
   if not handle then return 0, 0 end
   local n, bytes = 0, 0

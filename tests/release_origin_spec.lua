@@ -135,7 +135,8 @@ describe("the launchers before linux-arm64 / macos-x86_64 (0.2.0-beta.5)", funct
     end)
     it("every earlier lw.sh generation breaks on the new platforms", function()
         for hash, g in pairs(launcher.GENERATIONS.sh) do
-            local found = false
+            -- (0.2.0-beta.5 and later select them)
+            local found = g.gen >= 6
             for _, d in ipairs(g.defects) do
                 if d.severity == "breaks" and d.text:find("linux-arm64 / macos-x86_64", 1, true) then found = true end
             end

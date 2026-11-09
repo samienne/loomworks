@@ -115,7 +115,7 @@ function M.decide(o)
     return "skip", "running in pinned context (lw.pin owns this host's version)"
   end
   local exe = (o.exe or ""):gsub("\\", "/"):lower()
-  if exe:find("/.nvim/cache/", 1, true) then
+  if exe:find("/.nvim/cache/", 1, true) or exe:find("/.lw/cache/", 1, true) then
     return "skip", "running from a repo-local pinned launcher cache (lw.pin owns this host)"
   end
   if exe:find("/loomworks/pinned/", 1, true) then
