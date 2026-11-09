@@ -258,12 +258,16 @@ if "!ok!"=="1" goto forward
 
 del /f /q "%bin%" 2>nul
 if not exist "%cache%" mkdir "%cache%"
-rem .lw\ ignores itself (created once, never rewritten)
+rem .lw\ ignores itself (created once, never rewritten), with LF line ends as
+rem lw.sh and lw write it (`echo` ends lines with CRLF): `set /p` prints its
+rem text without a line end, LF is a bare line feed (the two empty lines after
+rem `set LF=^` are part of the idiom), `ver` resets the errorlevel `set /p` sets.
+set LF=^
+
+
 if /I "!cache!"=="%here%.lw\cache" if not exist "%here%.lw\.gitignore" (
-  > "%here%.lw\.gitignore" (
-    echo # lw workspace state, machine-local: ignore everything here
-    echo *
-  )
+  > "%here%.lw\.gitignore" <nul set /p "=# lw workspace state, machine-local: ignore everything here!LF!*!LF!"
+  ver >nul
 )
 if defined LOOMWORKS_RELEASE_URL (
   set "url=%LOOMWORKS_RELEASE_URL%/%asset%"
