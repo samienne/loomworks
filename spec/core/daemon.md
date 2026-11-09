@@ -863,22 +863,12 @@ one user share the machine key.
 
 ### 19.8 Wire protocol and authentication
 
-*Status: master for framing, authentication and the frozen control subset
-(`daemon/protocol.lua`, `daemon/auth.lua`, `daemon/server.lua`,
-`daemon/client.lua`; protocol version 3: 2 plus the routed `build` request
-and its task stream, §19.15; protocol version 4: 3 plus the observer role,
-`model_change` and `retiring` broadcasts, §19.11, §19.12, [loomworks.nvim `spec/plugin.md` §19.16](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#1916-the-editor-as-a-client); protocol
-version 5: 4 plus the routed `test` request, §19.15; protocol version 6: 5
-plus the `prepare_run` request, §19.15; protocol version 7: 6 plus
-`origin` in the task `start` meta and `tasks` in the `status` reply, §19.11,
-§19.15, [loomworks.nvim `spec/plugin.md` §19.16](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#1916-the-editor-as-a-client); protocol version 8: 7 plus the routed `clean` request,
-§19.15; protocol version 9: 8 plus the routed `reset`
-request and its `confirm` outcome, §19.15; protocol version 10: 9 plus
-the `snapshot` and `query` requests and the model fields of the `welcome`
-header, §19.13, §19.14; protocol version 11, step 5g.1: the transport-only
-version — the envelope, the root object, `protocol_min`, `welcome.objects`
-(below and §19.20; `daemon/interfaces.lua`, `proto/envelope.lua`) — accepting
-clients of 10 and 11); the rest of the broadcasts #88.*
+*Status: master for framing, authentication, the frozen control subset, the
+envelope and the root object (`daemon/protocol.lua`, `daemon/auth.lua`,
+`daemon/server.lua`, `daemon/client.lua`, `daemon/interfaces.lua`,
+`proto/envelope.lua`); transport 1. Pre-0.2.0 pre-releases used transport
+numbers up to 11 and are incompatible; versions share no range, so the client
+treats them as incompatible daemons.*
 
 **Wire protocol.** Framing, the mutual authentication handshake
 (`hello` / `challenge` / `auth` / `welcome`), the pre-authentication limits
@@ -962,13 +952,14 @@ relay runs the socket handshake on its behalf:
    successor (§19.10 "No launch").
 
 **Frozen control subset and the protocol number.** Which messages never
-change shape, and what the `protocol` number versions from protocol 11 — the
-transport only, with each side stating a range `[protocol_min, protocol]` —
-are specified in [PROTOCOL.md](../protocol/PROTOCOL.md) §6–§7. *(Planned, step 5i.)* The relay's
+change shape, and what the `protocol` number versions — the transport only,
+with each side stating a range `[protocol_min, protocol]` — and the
+versioning policy are specified in [PROTOCOL.md](../protocol/PROTOCOL.md) §6–§7. *(Planned, step 5i.)* The relay's
 `welcome.daemon`, `welcome.via` and `welcome.relay` (above) are such additions: optional,
-they change no existing field and do not move `protocol`. A daemon of
-protocol 11 accepts clients of 10 through the v0 aliases ([PROTOCOL.md](../protocol/PROTOCOL.md) Annex A) until
-`protocol_min` is raised to 11 (§19.19, retirement of protocol 10).
+they change no existing field and do not move `protocol`. The transport is
+1 with `protocol_min` 1; the pre-0.2.0 pre-releases used transport numbers up
+to 11 and are incompatible: versions share no range, so a client treats such
+a daemon as an incompatible daemon.
 
 ### 19.9 Version handshake
 
@@ -1020,16 +1011,12 @@ A client never stops a busy daemon, and never drives a daemon it does not
 match. A daemon whose schemas are newer than the client's is never stopped by
 it; the client refuses with the update message of §2.7 "Reading a newer file".
 
-**From protocol 11.** *(Transport: step 5g.1; the CLI policy and the busy rule: step 5g.3; the
+**Transport and policy.** *(Transport: step 5g.1; the CLI policy and the busy rule: step 5g.3; the
 editor retirement: step 5h.5.)* The rules above split
 into a protocol rule and a client policy:
 
 - **Transport.** Client and daemon agree on a transport version as
   [PROTOCOL.md](../protocol/PROTOCOL.md) §6 specifies; interfaces are chosen per call (PROTOCOL.md §9.4).
-  Shipped editors of protocol 10 observe only a daemon whose
-  protocol equals their own ([loomworks.nvim `spec/plugin.md` §19.16](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#1916-the-editor-as-a-client)), so in practice "11 accepts 10" serves
-  clients of the 11 era that still send the v0 request kinds, until step
-  5g.3.
 - **`lw_version` equality is the CLI's policy** for routed operations — pin
   semantics and behavioural parity, which no interface version expresses. Before
   routing, the CLI compares `describe().binary.lw_version` ([API.md](../protocol/API.md) §3) with its own
@@ -1478,20 +1465,12 @@ workspace to load. `lw daemon list` and `lw daemon stop --all` /
 
 ### 19.12 Wire identity and change broadcasts
 
-*Status: master for the coarse `model_change` broadcast (`daemon/server.lua`
-`model_changed`, sent after each committed write of a state file by the
-daemon — the working copy or the cache, `Workspace:_record_written`), whose
-client re-reads the files ([loomworks.nvim `spec/plugin.md` §19.16](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#1916-the-editor-as-a-client)), and for the opaque-id registry and the
+*Status: master for the coarse change signal, `Workspace/1.changed`
+(`daemon/server.lua` `model_changed`, sent after each committed write of a
+state file by the daemon — the working copy or the cache,
+`Workspace:_record_written`), and for the opaque-id registry and the
 current-key → id index (`daemon/snapshot.lua` `registry`, `index`; carried in
-a snapshot, §19.13); the id-keyed broadcasts and the re-pull protocol #88.*
-
-**Step 4 form.** `model_change { seq, session_generation }`: `seq` advances by
-one per broadcast within a session. The editor, which still loads the
-workspace from disk itself, answers it by applying the change to its files at
-once — its file tracker's pending-change delivery (§2, the same reload the
-poll would make a moment later) — rather than re-pulling a snapshot. A
-broadcast at or below the last `seq` of the same session generation is
-ignored; a new generation is always applied.
+a snapshot, §19.13); the id-keyed signals and the re-pull protocol #88.*
 
 The daemon keeps a session-local **opaque-id registry** keyed by object
 identity, which provides the ids of [PROTOCOL.md](../protocol/PROTOCOL.md) §12.1: an id survives renames (it
@@ -1501,13 +1480,12 @@ takes over the id of the one it replaces), and is discarded on restart (a new se
 Snapshots carry
 a current-key → id index from which a client builds its id↔key map, a
 transport-layer router that domain logic never consults. *(Step 5g.2 part B
-changed the index's ids from integers to these strings, in the protocol-10
-`snapshot` reply too — deliberately: nothing reads them yet, and they share
-the registry with the interfaces' ids.)*
+changed the index's ids from integers to these strings, which they share
+with the interfaces' ids.)*
 
-Every model change advances a per-workspace sequence number and broadcasts a
-typed `model_change` stamped with seq and session generation to every
-authenticated client. A client re-pulls the affected scope snapshot (coarse
+Every model change advances a per-workspace revision and sends the
+`changed` signal of `loomworks.Workspace/1`, stamped with that revision, to
+its subscribers. A client re-pulls the affected scope snapshot (coarse
 invalidation); a broadcast at or below its seq is ignored, a newer one
 arriving mid-refresh schedules exactly one more re-pull, and a new session
 generation forces a full re-hydrate. Per-object deltas are a future
@@ -1519,22 +1497,20 @@ references in requests (part B: the operations' interfaces and
 generation) are implemented; records
 of further interfaces land with the steps that land them, §19.19.)* Ids are
 the only entity handles on the wire; the ids of this registry are those of
-the interface records and references ([API.md](../protocol/API.md) §1). `model_change` becomes the
+the interface records and references ([API.md](../protocol/API.md) §1). A model change is the
 `changed { revision, scopes? }` signal of
-`loomworks.Workspace/1` ([API.md](../protocol/API.md) §6), delivered to its subscribers under the same
-generation rule. An interface signal's `seq` is counted as [PROTOCOL.md](../protocol/PROTOCOL.md) §12.3
-specifies (per object and connection, gapless); the `model_change`
-broadcast's per-workspace `seq` above is the protocol-10 form ([PROTOCOL.md](../protocol/PROTOCOL.md) Annex A).
-A connection of protocol 10 (v0, §19.8) keeps receiving the `model_change`
-broadcast unconditionally.
+`loomworks.Workspace/1` ([API.md](../protocol/API.md) §6), delivered to its subscribers under the
+generation rule above. An interface signal's `seq` is counted as [PROTOCOL.md](../protocol/PROTOCOL.md) §12.3
+specifies (per object and connection, gapless).
 
 ### 19.13 Snapshot and projection
 
-*Status: master for the `snapshot` request, the projection builder and the
-`welcome` header (`daemon/snapshot.lua`, `daemon/service.lua`
-`on_snapshot`, `workspace.assemble_snapshot`; protocol 10); the read-only CLI
-commands read a projection in `daemon` mode (`cli.lua` `read_workspace`,
-§19.1). Re-pulls on `model_change` and the view-scoped model future.*
+*Status: master for the snapshot (`lw.internal.Snapshot/1.get`), the
+projection builder and the `welcome` header (`daemon/snapshot.lua`,
+`daemon/service.lua` `on_snapshot`, `workspace.assemble_snapshot`); the
+read-only CLI commands read a projection in `daemon` mode (`cli.lua`
+`read_workspace`, §19.1). Re-pulls on `Workspace/1.changed` and the
+view-scoped model future.*
 
 The daemon is model-authoritative; a client keeps a **projection** for
 rendering and integration. The client builds it with the **same deserializer**
@@ -1604,11 +1580,11 @@ environment differs reloads the workspace first (§19.15).
 **As interfaces.** *(`lw.internal.Snapshot/1` and
 `loomworks.Workspace/1.header`: implemented, step 5g.2 part A
 (`daemon/core_interfaces.lua`); the CLI's read commands call
-`Snapshot/1.get` over transport 11 since part B (`daemon/calls.lua`); the
+`Snapshot/1.get` since part B (`daemon/calls.lua`); the
 editor views steps 5j–5n, §19.19: `view.Header/1` and `view.ProjectsIndex/1`
 specified ("Views" below, step 5j part 0) and served (part B), the editor's use done, part C.)* The `snapshot` request becomes `lw.internal.Snapshot/1.get { scope }`
 ([API.md](../protocol/API.md) §16), flagged `same_build`: the CLI's read commands and the parity tests
-use it, the editor never does, and `snapshot` stays as its v0 alias. The
+use it, the editor never does. The
 always-warm header is the `loomworks.view.Header/1` interface (and
 `loomworks.Workspace/1.header`); `welcome.header` stays as it is, frozen.
 View-scoped models are `loomworks.view.*` interfaces, one per view, each
@@ -1760,11 +1736,10 @@ layer in every mode (`lw.lsp_buf_state`).
 
 ### 19.14 Commands
 
-*Status: master for the `query` request with the `tools` and
-`profile_cache` queries (`daemon/snapshot.lua` `QUERIES`,
-`daemon/service.lua` `on_query`; protocol 10); `lw health` still probes
-in-process. Commands are interface methods only ("As interfaces" below,
-step 5o); protocol 10 gets none.*
+*Status: master for the host-probing queries `tools` and `profile_cache`
+(`daemon/snapshot.lua` `QUERIES`, served as `Toolchains/1.list` and
+`Profiles/1.compiler_cache`); `lw health` still probes in-process. Commands
+are interface methods ("As interfaces" below, step 5o).*
 
 A mutation is a **command** the daemon applies to its model with the
 operation's locks (§19.3) and persists. Commands are FIFO-serialized: a
@@ -1774,22 +1749,15 @@ serialization boundary, and the objects are passed down; domain logic stays
 reference-based and never turns an object back into a key to find it again.
 
 Read-only queries run on the client's projection, except queries that probe
-the host (health, tools, sdk detect, profile query), which are `query {name,
-args, env}` requests run in the client's environment. `name` names a query of
-the daemon's registry, `args` (an object, default empty) its arguments, and
-`env` the requesting client's environment, which the query runs in (a model
-segment, §19.15). The reply is `ok` with `outcome = "ok"` and `result` (the
-query's JSON object); `outcome = "refused"` (`message`) for an unknown name, a
-failed query or a workspace the daemon cannot load; `outcome = "declined"`
-(`reason`) as for `snapshot`. The registry holds `tools` and `profile_cache`, the v0 aliases of
-`Toolchains/1.list` and `Profiles/1.compiler_cache`, whose semantics are
-[API.md](../protocol/API.md) §11: `tools` answers that method's `tools` as `result.tools`, and
-`profile_cache` (`args.profile` and `args.project`, keys) its `cache` as
-`result.cache`.
+the host (health, tools, sdk detect, profile query), which are interface
+methods run in the calling client's environment (the call's `env`, a model
+segment, §19.15). The daemon's query registry holds `tools` and
+`profile_cache`, served as `Toolchains/1.list` and
+`Profiles/1.compiler_cache`, whose semantics are [API.md](../protocol/API.md) §11.
 
 **As interfaces.** *(The query registry: implemented, step 5g.2 part B
-(`Toolchains/1.list`, `Profiles/1.compiler_cache`; the CLI calls them over
-transport 11); command methods: step 5o, §19.19 — `Workspace/1`
+(`Toolchains/1.list`, `Profiles/1.compiler_cache`; the CLI calls them);
+command methods: step 5o, §19.19 — `Workspace/1`
 (part B1), `Profiles/1` and `ConfigSets/1` (part B2), `Projects/1` (part B3),
 `Sdks/1` and `Toolchains/1.rescan` (part B4) implemented, the others planned.)* Commands are the
 **mutating methods** of the model interfaces (`loomworks.Workspace/1`,
@@ -1810,8 +1778,7 @@ profiles' toolchain, creating a profile from an automatic configuration
 set, removing a project with its build state) does them in the daemon,
 never as a client's sequence of calls. The query registry becomes interface
 methods — `tools` is `loomworks.Toolchains/1.list`, `profile_cache` is
-`loomworks.Profiles/1.compiler_cache` — and `query { name }` stays as their v0
-alias. Wire arguments that name entities are references (`{ id }` or
+`loomworks.Profiles/1.compiler_cache`. Wire arguments that name entities are references (`{ id }` or
 `{ key }`, [API.md](../protocol/API.md) §1.2): the editor sends ids, the CLI the keys the user typed,
 resolved with the same messages and exit codes as in-process (§16.9).
 
@@ -1835,7 +1802,7 @@ Roles and verbose); observed by the editor ([loomworks.nvim `spec/plugin.md` §1
 Reset, step 5d); other operations future. The task-streamed interface
 methods ("Tasks of interface methods" below: `Build/1`, `Tests/1.run`,
 `Launch/1.prepare_run`) are implemented, step 5g.2 part B, and the CLI calls
-them over transport 11; `loomworks.Tasks/1` observation signals, `list` and
+them; `loomworks.Tasks/1` observation signals, `list` and
 `cancel` are implemented, step 5g.2 part A. The editor's operations as calls
 ("Editor scopes and configure", "Debug", the editor in "Task ownership" and
 "Not routed" below; [loomworks.nvim `spec/plugin.md` §19.16](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#1916-the-editor-as-a-client) "Editor operations"): step 5k, specified (part 0);
@@ -1850,17 +1817,15 @@ and the lines are [API.md](../protocol/API.md) §4.2. Ownership, flow control an
 stream is its terminal: a client that stopped reading (`lw build | less`
 paused) pauses the running step's output, so the build tool then blocks on
 its full pipe as it blocks on a paused terminal in-process. The durable
-outcome arrives as a `model_change` (§19.12).
+outcome arrives as a `Workspace/1.changed` (§19.12).
 
-**Request.** The protocol-10 `build { args, interactive, env, command }`
-request is the v0 alias of `Build/1.build` ([API.md](../protocol/API.md) §8): `args` carries the
+**Request.** `lw build` calls `Build/1.build` ([API.md](../protocol/API.md) §8): `args` carries the
 parsed command line (`profile`, `targets`, `extra`, `force`, `reconfigure`,
 `verbose`), and its outcomes are [API.md](../protocol/API.md) §8.1 — on `refused` the client prints
 the message as the in-process host does and exits with that code; on
 `declined` it runs the command on the in-process path.
 
-`test { args, interactive, env, command }` — the plan form of `lw test`
-(§16.16) — is the v0 alias of `Tests/1.run` ([API.md](../protocol/API.md) §10.1); `args` carries
+`lw test` — its plan form (§16.16) — calls `Tests/1.run` ([API.md](../protocol/API.md) §10.1); `args` carries
 `profile`, `junit`, `extra` and `no_build`. Its plan's pre-build checks are
 the in-process ones; a saved test target on a unit a foreign kit builds runs
 on a device, which stays with the client as a device run does (`declined`).
@@ -1884,7 +1849,7 @@ including ones whose output a build script captures, so they would change
 what a build does; a user who wants colour sets them in the environment of
 `lw build`, which the step receives.
 
-The daemon sends the `model_change` of the task's cache write-back (§19.12)
+The daemon sends the `Workspace/1.changed` of the task's cache write-back (§19.12)
 before its `done`, so the editor has already reloaded the outcome when the
 running state clears.
 
@@ -1918,9 +1883,8 @@ explicitly.
 **Run.** `lw run` (§16.17) is split: the daemon **prepares** the launch, the
 client **executes** it. The program is the user's own — interactive,
 possibly long-running, attached to a terminal — so it never runs in the
-daemon. The preparation is `Launch/1.prepare_run` ([API.md](../protocol/API.md) §9.1); the
-protocol-10 `prepare_run { args, interactive, env, command }` request is its
-v0 alias, `args` carrying the parsed command line.
+daemon. The preparation is `Launch/1.prepare_run` ([API.md](../protocol/API.md) §9.1), `args`
+carrying the parsed command line.
 
 The client then closes its daemon connection and finishes the run as the
 in-process host does after resolving: `--print` / `--dry-run` print the
@@ -1988,8 +1952,7 @@ another process fails fast (§19.3); discovery is the in-process
 by them. The CLI sends no `Tests/1.discover`, `run_cases` or
 `prepare_debug` in this step (`lw test --list` stays in-process, Routing).
 
-**Clean.** *(Step 5c.)* The protocol-10 `clean { args, interactive, env,
-command }` request — `lw clean [<profile>]` (§16.1) — is the v0 alias of
+**Clean.** *(Step 5c.)* `lw clean [<profile>]` (§16.1) calls
 `Build/1.clean` ([API.md](../protocol/API.md) §8.4); `args` carries `profile`. In the daemon the
 build-directory locks carry the §19.5 record (holder kind `daemon`, operation
 `clean`), and a core-performed wipe runs in the daemon process as the SAME
@@ -1997,11 +1960,10 @@ build-directory deletion as in-process (§4.6, §4.7; one path for both
 hosts), under the workspace operation lock taken before the build-directory
 locks (§19.3). The removal does not block the daemon's endpoint (pings,
 status and other clients are served while it runs). Any write-back's
-`model_change` precedes `done` ("Same behaviour" above).
+`Workspace/1.changed` precedes `done` ("Same behaviour" above).
 
-**Reset.** *(Step 5d.)* The protocol-10 `reset { args, interactive, env,
-command }` request — `lw reset [<profile> | --all] [-y]` (§16.30) — is the v0
-alias of `Build/1.reset` ([API.md](../protocol/API.md) §8.5); `args` carries `profile`, `all`, `yes`
+**Reset.** *(Step 5d.)* `lw reset [<profile> | --all] [-y]` (§16.30) calls
+`Build/1.reset` ([API.md](../protocol/API.md) §8.5); `args` carries `profile`, `all`, `yes`
 (`-y` / `--yes`) and `plan`. The CLI prints a `confirm`'s lines on standard
 output and asks the user as in-process: a non-interactive client prints the
 in-process refusal naming `-y` and exits 1; a declined prompt prints
@@ -2014,7 +1976,7 @@ and does not block the daemon's endpoint (pings, status and other clients
 are served while it runs). A removal still running after its task ended
 (timed out) keeps the daemon busy — it neither idles out nor retires — until
 it settles, and a daemon that stops meanwhile asks it to stop between
-entries. The write-back's `model_change` precedes `done` ("Same behaviour" above).
+entries. The write-back's `Workspace/1.changed` precedes `done` ("Same behaviour" above).
 
 **Editor scopes and configure.** *(Step 5k part B1: implemented on the
 daemon side — `daemon/core_interfaces.lua`, `daemon/service.lua`
@@ -2028,9 +1990,7 @@ in-process, also a unit already configured, its locks carrying the §19.5
 record (holder kind `daemon`, operation `configure`); a `units` scope runs as
 the editor's unit actions run in-process, and an observer resolves its
 `meta.units` as for `reset --all` ([loomworks.nvim `spec/plugin.md` §19.16](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#1916-the-editor-as-a-client) "Running state"); `jobs` is the
-editor's serial `-j1` build. The CLI's requests are unchanged: a protocol-10
-(v0) request carrying `units`, `jobs` or a `{ project, target }` item is
-`declined` (`malformed request`).
+editor's serial `-j1` build.
 
 **Confirmation.** A daemon never prompts ([API.md](../protocol/API.md) §8.6).
 
@@ -2148,8 +2108,7 @@ also when the task ended before the cancel landed (the daemon then answers
 that there is no running task) and when the connection is lost meanwhile —
 and a run's program is never started. A Ctrl-C before the daemon has accepted
 the task closes the connection and exits 130 (there is nothing to cancel
-yet). A daemon of protocol 10 has no `Tasks/1`: against it the first Ctrl-C
-closes the connection, as before. Only Ctrl-C is two-stage: Ctrl-Break, a
+yet). Only Ctrl-C is two-stage: Ctrl-Break, a
 closed console, a hangup and a termination request end `lw` at once
 (closing the connection). An attached run (§19.1 "Loopback": the runtime is
 the `lw` process itself) is unchanged — a Ctrl-C ends it. *(Future, not
@@ -2165,8 +2124,7 @@ step 5g.3 (`tasks.lua` `Task:_observes`).)* The task stream is a
 task-streamed methods, their task results and `loomworks.Tasks/1` are
 [API.md](../protocol/API.md) §7: `Build/1.build`, `Tests/1.run` and `Launch/1.prepare_run` from step
 5g.2, `Build/1.configure` and `Launch/1.prepare_debug` from step 5k,
-`Launch/1.build` from step 5t, and a module's log stream. A connection of
-protocol 10 keeps receiving every task's frames as today. `status.tasks`
+`Launch/1.build` from step 5t, and a module's log stream. `status.tasks`
 (§19.11) stays as it is, frozen.
 
 **Observation, late joining and cancel** are [PROTOCOL.md](../protocol/PROTOCOL.md) §14.6 and
@@ -2330,7 +2288,7 @@ Its sub-headings, which references to it quote, are:
   "UI"), "Teardown", "Quiet degradation"
 
 The daemon's side of "Loaded on attach" is §19.13 "Loaded on attach"; the
-order of a task's write-back `model_change` before its `done` ("Tasks",
+order of a task's write-back `Workspace/1.changed` before its `done` ("Tasks",
 "End" there) is §19.15 "Same behaviour"; the relay's own behavior is §19.10
 "Connections".
 
@@ -2399,8 +2357,8 @@ as that interface's `log` signal.
 
 ### 19.19 Transition order
 
-*Status: steps 1–5 done on `staging/daemon` except 5q, the retirement of
-protocol 10 and the optional parts 5k D and 5m D; 6b-α next, then 6, 6b-β,
+*Status: steps 1–5 done on `staging/daemon` except 5q and the optional
+parts 5k D and 5m D; 6b-α next, then 6, 6b-β,
 6c and 8a–8c. Each step is shippable on its own and keeps master green.*
 
 1. **Operation locks** — §19.3, §19.4 and §19.5 on the in-process path: the
@@ -2756,10 +2714,11 @@ protocol 10 and the optional parts 5k D and 5m D; 6b-α next, then 6, 6b-β,
      `/modules/<id>` objects mounted and unmounted with the root's
      `objects_changed` (§19.20 "Object set"), a first module interface with its schemas and
      transcripts in the module's repository. Any time after 5g.2.
-   - **Retirement of protocol 10**: `protocol_min` is raised to 11 and the v0
-     aliases are deleted once no client in this repository sends a v0 kind
-     and the deprecation window (§19.20) has passed since the first stable
-     release containing 5g.3.
+   - **Retirement of protocol 10** *(done, for the 0.2.0 release)*: the
+     transport restarts at 1 with `protocol_min` 1 (PROTOCOL.md §6), and the
+     v0 aliases, the transport-10 broadcasts and integer task ids are
+     deleted. No stable release ever shipped them, so no deprecation window
+     applies.
 6. **Default flips** to the binary path for the CLI (the shared daemon;
    degraded when it cannot be started), after the criteria in [`DAEMON.md`](https://github.com/samienne/loomworks.nvim/blob/7b7d1f9f07a3ec55845b65f6ded5972bbbdceba8/DAEMON.md). The
    editor's default flipped in 5s, after which the in-process editor stays
@@ -2837,10 +2796,10 @@ part B is implemented: `loomworks.Build/1` (`build`, `clean`, `reset`),
 `loomworks.Tests/1.run`, `loomworks.Launch/1.prepare_run` (task-streamed),
 `loomworks.Toolchains/1.list`, `loomworks.Profiles/1.compiler_cache`,
 `loomworks.Workspace/1.header_changed`, references by `{ id }` or `{ key }`
-and the CLI's calls over transport 11 (`daemon/calls.lua`); each of these
+and the CLI's calls (`daemon/calls.lua`); each of these
 interfaces serves only the methods the catalogue's 5g.2 entries name, the rest
 being added with their steps. Step 5g.3 is implemented: the CLI policy, the
-busy rule, delivery to a transport-11 connection by subscription only and
+busy rule, delivery to a connection by subscription only and
 the guard's interface ratchet. The editor's interfaces of steps 5j–5o are
 implemented, and the additions of step 6b-α are plan. The rest is plan: module
 interfaces step 5q; out-of-process providers are reserved and built later
@@ -2874,13 +2833,11 @@ later on `objects_changed` ([loomworks.nvim `spec/plugin.md` §19.16](https://gi
 
 **Signals and subscriptions** are [PROTOCOL.md](../protocol/PROTOCOL.md) §12–§13.
 
-**The CLI's calls.** Over transport 11 the CLI sends its operations and
-reads as interface calls (`daemon/calls.lua`) and acts on a transport error
-by its code: `unknown_object`, `unknown_interface`, `unknown_method`,
-`unsupported_version` — nothing ran, so the protocol-10 request is sent
-instead (a daemon of step 5g.1 speaks transport 11 without these
-interfaces); `invalid_args`, `same_build_required`, `stopping`, `retiring` —
-nothing ran, the command runs in-process (`declined`); `internal` or an
+**The CLI's calls.** The CLI sends its operations and reads as interface
+calls (`daemon/calls.lua`) and acts on a transport error by its code:
+`unknown_object`, `unknown_interface`, `unknown_method`,
+`unsupported_version`, `invalid_args`, `same_build_required`, `stopping`,
+`retiring` — nothing ran, the command runs in-process (`declined`); `internal` or an
 unknown code — for a mutating method, which may have started, the command
 fails with exit 1 and is never run a second time in-process; for any other
 method it runs in-process.
@@ -2935,7 +2892,7 @@ Replaying a task's earlier output (`Tasks/1` has no `attach`) is
 **`DebugConfig/1`.** *(Step 5k, part B2: implemented, daemon side.)* The
 workspace's debug-adapter mapping, on `/debug`, specified in [API.md](../protocol/API.md) §12.
 `set_adapter` writes as the in-process `Workspace:set_debug_adapter` writes,
-under the model lock, with a `model_change` (§19.12), and stores the adapter
+under the model lock, with a `Workspace/1.changed` (§19.12), and stores the adapter
 name as given, as in-process.
 
 **`LspConfig/1`.** *(Step 5l part B, done.)* What the workspace's language
@@ -2943,7 +2900,7 @@ servers are configured with (the editor's use: [loomworks.nvim `spec/plugin.md` 
 on `/lsp`, specified in [API.md](../protocol/API.md) §13. Project ids in `get` come only from the
 daemon, as in the views (§19.13). `set_option` writes as the in-process
 `Workspace:set_lsp_option` writes, under the model lock, with a
-`model_change` (§19.12); the in-process `Workspace:set_lsp_option` refuses
+`Workspace/1.changed` (§19.12); the in-process `Workspace:set_lsp_option` refuses
 the calls `set_option` answers with `invalid_args` the same way, writing
 nothing.
 
@@ -2969,7 +2926,7 @@ interface version is reported by `lw health`. Handlers receive a context
 never the connection.
 
 **Providers (reserved).** A daemon not written in Lua hosts modules out of
-process through providers ([PROTOCOL.md](../protocol/PROTOCOL.md) Annex B), which own `/modules/<id>`.
+process through providers ([PROTOCOL.md](../protocol/PROTOCOL.md) Annex A), which own `/modules/<id>`.
 
 **Schemas and conformance.** The schema documents, their restricted keyword
 set, the additive ratchet and the conformance checks are [PROTOCOL.md](../protocol/PROTOCOL.md) §16–§17. Core's
@@ -2997,8 +2954,7 @@ checks are [PROTOCOL.md](../protocol/PROTOCOL.md) §18; the fixtures the runner 
 **Versions and deprecation.** Tolerance of unknown values, new interface
 versions and the support window are [PROTOCOL.md](../protocol/PROTOCOL.md) §17. The daemon serves a
 deprecated version `N` through an adapter over `N+1` — never a second
-implementation — and the transport-10 v0 aliases (PROTOCOL.md Annex A) the
-same way: the same handlers, with an argument and result adapter. The support
+implementation: the same handlers, with an argument and result adapter. The support
 window of PROTOCOL.md §17.3 is **two stable releases and at least 60 days**
 after the first stable release that deprecated the version; a transport
 version below a raised `protocol_min` is dropped under the same window. A

@@ -200,9 +200,8 @@ not know. The `text` never contains
 terminal escape sequences: whether and how a role is shown (colour, `--color`,
 `NO_COLOR`) is up to the client.
 
-From transport 11 a `task_id` and a `sub_id` are opaque strings
-(`TaskId`); a connection of protocol 10 keeps its integer task ids
-(PROTOCOL.md Annex A).
+A `task_id` and a `sub_id` are opaque strings
+(`TaskId`).
 
 ### 4.3 Steps of a task
 
