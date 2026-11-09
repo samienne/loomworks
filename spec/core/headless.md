@@ -4820,8 +4820,10 @@ migrates nothing.
    [formats.md](../formats.md)), nothing is migrated and the command fails,
    naming the holder: "lw: lw `<version>` (pid N on HOST) is using this
    workspace's .nvim/ state — stop it or let it finish, then retry". A live
-   legacy daemon is not stopped automatically; `lw daemon stop` stops it as it
-   stops a daemon of an earlier lw (§19.6 *Legacy files*).
+   legacy daemon is not stopped automatically; `lw daemon stop` stops one of
+   this slot (the pre-slot lock or `.nvim/loomworks.daemon-<S>.lock`) as it
+   stops a daemon of an earlier lw (§19.6 *Legacy files*); another slot's is
+   stopped by its own user.
 2. **Exclusion.** The host takes `.lw/op.lock` and then the legacy
    `.nvim/loomworks.op.lock` (an older lw honours the legacy one for every
    multi-file operation), and re-checks the condition under them. A second

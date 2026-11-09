@@ -579,7 +579,10 @@ still refreshes the published file's time meanwhile. A record identical to the
 one last written is not rewritten.
 
 **Legacy files.** `.nvim/loomworks.daemon.json`, `.lock` and `.log` (lw before
-slots) are never read to connect to a daemon. A legacy runtime lock
+slots), and this slot's `.nvim/loomworks.daemon-<S>.json`, `.lock` and
+`.log` (lw 0.1.x, before the move to `.lw/`), are never read to connect to a
+daemon. A legacy runtime lock — the unslotted one, or this slot's
+`.nvim/loomworks.daemon-<S>.lock` —
 whose holder is a live daemon of this slot (§19.5 identity rules) is a
 daemon of another version (§19.9). It is stopped before this slot's daemon
 starts, and by `lw daemon stop` (with or without `--force`), `kill` and
@@ -587,13 +590,16 @@ starts, and by `lw daemon stop` (with or without `--force`), `kill` and
 These commands report it ("stopped the workspace daemon of an earlier lw
 (pid N)"), and stopping it alone counts as stopping a daemon. `lw daemon
 status` reports it on its own line, `daemon of an earlier lw (pid N,
-legacy runtime lock) — stop it with: lw daemon stop`, and never connects to
+.nvim/<lock name>) — stop it with: lw daemon stop`, and never connects to
 it. A holder of another slot, an attached run, or a hung, dead or foreign
-holder is not stopped by these commands. Housekeeping, `lw daemon stop` and `lw cleanup` remove the legacy
-lock and handle only as a reclaimer would (§19.5: holder dead, these exact
-regular files) and the legacy log only as a leftover (these exact regular
-files, `.log` and `.log.1`). A process removes only its own slot's files
-and the legacy names; another slot's files are never touched.
+holder is not stopped by these commands. Housekeeping, `lw daemon stop` and `lw cleanup` remove the
+unslotted lock and handle only as a reclaimer would (§19.5: holder dead, these exact
+regular files) and the unslotted log only as a leftover (these exact regular
+files, `.log` and `.log.1`). This slot's `.nvim/loomworks.daemon-<S>.*` files
+are never removed, whatever their holder's state: stopping their daemon
+needs no removal (the older lw's own exit or reclaim handles them, and the
+move to `.lw/` copies none of them). A process removes only its own slot's files
+and the unslotted legacy names; another slot's files are never touched.
 
 **Runtime row.** `lw status` shows one `Runtime` line computed **only** from the
 handle and the runtime lock — it never launches or connects (the running-task

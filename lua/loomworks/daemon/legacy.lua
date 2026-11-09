@@ -7,6 +7,9 @@
 ---     (a daemon of another version) before this slot's daemon starts
 ---     (`stop_live`, from loomworks.daemon.server) and from `lw daemon stop`
 ---     / `kill` / `restart`; `lw daemon status` reports it (`live_daemon`);
+---     the same for a live daemon of this slot holding this slot's lock of
+---     lw 0.1.x, `.nvim/loomworks.daemon-<S>.lock` (whose files are only
+---     read, never removed);
 ---   * removes the legacy lock and handle as a reclaimer would (holder
 ---     dead) — `lw daemon stop`, housekeeping and `lw cleanup`;
 ---   * lists the legacy logs as leftovers for housekeeping / `lw cleanup`.
@@ -21,7 +24,8 @@
 --- still carries the observed record); the handle only when it names a
 --- process of this host that is gone (or is malformed and its heartbeat
 --- stale) and no live or hung holder has the legacy lock. Another slot's
---- files (`loomworks.daemon-<S'>.*`) are never named here.
+--- files (`loomworks.daemon-<S'>.*`) are never named here; this slot's
+--- (`loomworks.daemon-<S>.*`) are only read.
 
 local paths = require("loomworks.daemon.paths")
 
@@ -195,17 +199,60 @@ function M.logs(root)
     return out
 end
 
---- The legacy runtime lock's record when its holder is a live daemon of
+--- The name in `.nvim/` of this slot's runtime lock as lw 0.1.x wrote it
+--- (`loomworks.daemon-<S>.lock`, before the move to `.lw/`). Its holder is
+--- only stopped (`stop_live`) and reported (`live_daemon`): neither this lock
+--- nor the handle and log beside it is ever removed, nor read to connect.
+--- @return string
+function M.slot_lock_name()
+    return "loomworks." .. paths.slot_base() .. ".lock"
+end
+
+--- The runtime locks a daemon of this slot of an earlier lw may hold in
+--- `.nvim/`: the pre-slot lock, then this slot's lock of lw 0.1.x.
+local function lock_names()
+    return { paths.LEGACY.lock, M.slot_lock_name() }
+end
+
+--- The classified record of the earlier lw's runtime lock `name`, a regular
+--- file (lstat) directly in a verified `.nvim`; nil when there is none.
+local function read_named(root, name)
+    if name == paths.LEGACY.lock then
+        local _, info = M.read_lock(root)
+        return info
+    end
+    local d = M.nvim_dir(root)
+    if not d then return nil end
+    local p = d .. "/" .. name
+    local st = uv().fs_lstat(p)
+    if not st or st.type ~= "file" then return nil end
+    local info = require("loomworks.build_lock").read_path(p)
+    if not info then return nil end
+    info.state = require("loomworks.lock_record").classify(info)
+    return info
+end
+
+--- The record of an earlier lw's runtime lock in `.nvim/` — `name`, or else
+--- the pre-slot lock, then this slot's lock of lw 0.1.x — when its holder is
+--- a live daemon of
 --- this slot (a process of this host alive with the record's start time, its
 --- slot read from the process itself) — a
 --- daemon of an earlier lw; nil otherwise (none, dead, hung, another host's,
---- no or uncheckable start time, an attached run, another slot's). Never
---- raises.
+--- no or uncheckable start time, an attached run, another slot's). The
+--- record carries the lock's name as `lock_name`. Never raises.
 --- @param root string
+--- @param name? string
 --- @return table|nil info
-function M.live_daemon(root)
+function M.live_daemon(root, name)
+    if not name then
+        for _, n in ipairs(lock_names()) do
+            local info = M.live_daemon(root, n)
+            if info then return info end
+        end
+        return nil
+    end
     local ok, info = pcall(function()
-        local _, info = M.read_lock(root)
+        local info = read_named(root, name)
         if not info or info.state ~= "live" then return nil end
         if not (info.kind == "daemon" or info.mode == "daemon") then return nil end
         -- classify also calls a record of another host, or one whose start
@@ -217,13 +264,15 @@ function M.live_daemon(root)
         if not require("loomworks.daemon.identity").same_slot(info.pid) then
             return nil
         end
+        info.lock_name = name
         return info
     end)
     return ok and info or nil
 end
 
 --- Before this slot's daemon starts, and from `lw daemon stop` / `kill` /
---- `restart`: a live daemon of this slot holding the legacy runtime lock is a
+--- `restart`: a live daemon of this slot holding an earlier lw's runtime lock
+--- in `.nvim/` (the pre-slot lock, or this slot's lock of lw 0.1.x) is a
 --- daemon of another version — stop it (asked first, then its tree killed and
 --- verified gone, loomworks.lock_break; only a process whose command line is
 --- `lw … daemon run --root <root>`, with a known start time, that is not an
@@ -236,17 +285,23 @@ end
 function M.stop_live(root, log)
     local info
     local ok, outcome, detail = pcall(function()
-        info = M.live_daemon(root)
-        if not info then return "none" end
-        local lines = {}
-        local bok, berr = require("loomworks.lock_break").break_holder(info, {
-            what = "the runtime lock of an earlier lw (" .. paths.LEGACY.lock .. ")",
-            root = paths.norm_root(root),
-            remedy = "lw daemon stop with that lw",
-        }, { mode = "ask", report = function(line) lines[#lines + 1] = line end, log = function() end })
-        if log then for _, l in ipairs(lines) do pcall(log, l) end end
-        if not bok then return "failed", berr end
-        return "stopped"
+        local result, stopped = "none", nil
+        for _, name in ipairs(lock_names()) do
+            info = M.live_daemon(root, name)
+            if info then
+                local lines = {}
+                local bok, berr = require("loomworks.lock_break").break_holder(info, {
+                    what = "the runtime lock of an earlier lw (.nvim/" .. name .. ")",
+                    root = paths.norm_root(root),
+                    remedy = "lw daemon stop with that lw",
+                }, { mode = "ask", report = function(line) lines[#lines + 1] = line end, log = function() end })
+                if log then for _, l in ipairs(lines) do pcall(log, l) end end
+                if not bok then return "failed", berr end
+                result, stopped = "stopped", info
+            end
+        end
+        info = stopped
+        return result
     end)
     if not ok then return "failed", tostring(outcome), info end
     if outcome == "failed" and log then pcall(log, "could not stop the daemon of an earlier lw: " .. tostring(detail)) end
