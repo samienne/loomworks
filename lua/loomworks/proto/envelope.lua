@@ -27,6 +27,7 @@ M.ERR = {
     stopping = "stopping",
     retiring = "retiring",
     forbidden = "forbidden",
+    no_transport = "no_transport",
     internal = "internal",
 }
 

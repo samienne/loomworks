@@ -468,11 +468,27 @@ describe("root object over the socket (§19.20)", function()
         pipe:write(protocol.encode({ kind = "ping", req_id = 1 }))
         assert(srv.interfaces:mount("/echo", "core", "lwtest.Echo", 1, echo_impl()))
         pipe:write(protocol.encode({ kind = "build", req_id = 2 }))
-        assert.is_true(vim.wait(5000, function() return #got >= 4 end, 10))
+        -- A call — and so a subscription — is refused without a transport.
+        pipe:write(protocol.encode({ kind = "call", req_id = 3, object = "/echo", iface = "lwtest.Echo", v = 1,
+            method = "echo", args = { x = 1 } }))
+        pipe:write(protocol.encode({ kind = "call", req_id = 4, object = "/", iface = "loomworks.Root", v = 1,
+            method = "subscribe", args = { object = "/echo", iface = "lwtest.Echo", v = 1 } }))
+        assert.is_true(vim.wait(5000, function() return #got >= 6 end, 10))
         assert.equals("ok", got[3].kind)
         assert.equals(1, got[3].req_id)
         assert.equals("error", got[4].kind)
+        assert.equals("table", type(got[4].error))
         assert.equals("unknown request kind: build", got[4].error.message)
+        for i, req_id in ipairs({ 3, 4 }) do
+            local m = got[4 + i]
+            assert.equals("error", m.kind)
+            assert.equals(req_id, m.req_id)
+            assert.equals("no_transport", m.error.code)
+            assert.equals("no protocol version agreed: the daemon speaks transport 1-1, this client 10-11",
+                m.error.message)
+            assert.same({ protocol = 1, protocol_min = 1 }, m.error.data)
+        end
+        assert.is_nil(next(srv.interfaces.subs or {}))
         for _, m in ipairs(got) do assert.not_equals("signal", m.kind) end
         pipe:close()
     end)

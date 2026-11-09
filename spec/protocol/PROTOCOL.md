@@ -189,7 +189,9 @@ breaking transport change.
 `hello` and `challenge` each state a range `[protocol_min, protocol]`
 (`protocol_min` absent: equal to `protocol`). Client and server agree on the
 highest transport version in the overlap of the two ranges; with no overlap
-the server is incompatible with that client. Interfaces are not negotiated in
+the server is incompatible with that client: it still serves that client the
+frozen control subset (§7), and refuses every `call` with `no_transport`
+(§11.2), so it also serves no subscription. Interfaces are not negotiated in
 the handshake: the client chooses a version per interface and stamps it on
 each call (§9.4). There are no capability flags.
 
@@ -234,7 +236,10 @@ new operations, finish the running ones and exit once idle. The meaning of
 `status` fields, and of "busy" and "idle", is defined by the server's
 specification, not by the transport. Each control request is `{ kind, req_id }`;
 `transport.json` gives their frames and, under `control.replies`, their
-replies.
+replies. A request the server cannot serve (an unknown `kind`, a failure
+inside the server) is answered with the envelope's `error` frame
+`{ kind, req_id, error }` (§8), whose `error` is the object
+`{ code, message, data? }` of §11, never a bare string.
 
 **`welcome`.** `welcome { header, seq, clients, busy, retiring, objects? }`:
 
@@ -391,6 +396,7 @@ not-found or refused result, never a transport error.
 | `stopping` | The server is stopping. |
 | `retiring` | The server is retiring and accepts no new operation from this client. |
 | `forbidden` | Not allowed for this connection (e.g. cancelling another connection's task, §14.6). |
+| `no_transport` | The connection agreed on no transport (§6): a `call` (and so a subscription) is refused; `data.protocol` and `data.protocol_min` give the server's range. |
 | `internal` | The call failed inside the server. |
 
 New codes may be added (§7); a client treats an unknown code as `internal`.

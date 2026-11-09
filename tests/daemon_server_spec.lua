@@ -812,6 +812,19 @@ describe("version handshake (§19.9)", function()
         -- No transport overlap: a mismatch.
         match = ensure.policy({ challenge = { protocol = 12, protocol_min = 12, lw_version = srv.identity } })
         assert.is_false(match)
+        -- A pre-0.2.0 daemon (transport 10-11): no transport is agreed with
+        -- its challenge, a mismatch naming its version, and a request other
+        -- than the control subset is refused before it is sent.
+        local old = { protocol = 11, protocol_min = 10, lw_version = "0.1.43" }
+        local old_conn = { challenge = old, transport = client._agreed(old, {}) }
+        assert.is_nil(old_conn.transport)
+        match, v = ensure.policy(old_conn)
+        assert.is_false(match)
+        assert.equals("0.1.43", v)
+        local r = require("loomworks.daemon.calls").request_sync(old_conn, { kind = "query", name = "tools" })
+        assert.equals("refused", r.outcome)
+        assert.equals("no protocol version was agreed with the daemon (the daemon speaks transport 10-11); "
+            .. "it serves this lw only ping, status, stop and retire", r.message)
     end)
 
     it("a busy mismatched daemon is retired, never stopped; the command bypasses it", function()

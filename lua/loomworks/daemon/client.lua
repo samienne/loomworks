@@ -77,8 +77,12 @@ function Conn:call(object, iface, v, method, args, cb, env)
     -- Without an agreed transport the daemon serves only the frozen control
     -- subset.
     if type(self.transport) ~= "number" then
+        local ch = type(self.challenge) == "table" and self.challenge or {}
+        local hi = tonumber(ch.protocol)
+        local range = hi and string.format(" (the daemon speaks transport %d-%d)",
+            tonumber(ch.protocol_min) or hi, hi) or ""
         return cb(nil, { code = M.ERR_TRANSPORT,
-            message = "no transport agreed with the daemon; interface calls need one" })
+            message = "no protocol version was agreed with the daemon" .. range .. "; interface calls need one" })
     end
     local frame = require("loomworks.proto.envelope").call(object, iface, v, method, args, env)
     self:request(frame, function(reply, err)

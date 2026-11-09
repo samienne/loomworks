@@ -325,6 +325,18 @@ function Registry:call(conn, msg)
     local req_id = msg.req_id
     local function send(frame) server:_send(conn, frame) end
     local function fail(e) send(envelope.error(req_id, e)) end
+    -- No agreed transport (§6): only the frozen control subset is served,
+    -- never a call — nor, through it, a subscription.
+    if not M.speaks_envelope(conn) then
+        local peer = conn.peer or {}
+        local theirs = tonumber(peer.protocol)
+        local their_min = tonumber(peer.protocol_min) or theirs
+        return fail(envelope.err(ERR.no_transport, string.format(
+            "no protocol version agreed: the daemon speaks transport %d-%d, this client %s",
+            version.PROTOCOL_MIN, version.PROTOCOL,
+            theirs and string.format("%d-%d", their_min, theirs) or "none"),
+            { protocol = version.PROTOCOL, protocol_min = version.PROTOCOL_MIN }))
+    end
     local bad = envelope.check_call(msg)
     if bad then return fail(bad) end
     local e, rerr = self:resolve(msg.object, msg.iface, msg.v)

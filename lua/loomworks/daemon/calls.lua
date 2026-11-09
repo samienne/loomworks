@@ -29,8 +29,10 @@
 ---
 --- A query the registry does not name is answered here (`declined` for a
 --- malformed one, `refused` for an unknown name), as the daemon answers an
---- unknown query; any other request with no interface form (`ping`) is sent
---- as it is.
+--- unknown query; a control request (`ping`, `status`, `stop`, `retire`) is
+--- sent as it is. On a connection that agreed on no transport every other
+--- request is `refused` here, before anything is sent, with a message naming
+--- the daemon's transport range (M.no_transport).
 
 local M = {}
 
@@ -80,6 +82,23 @@ M.QUERIES = {
 --- @return boolean
 function M.speaks_calls(conn)
     return type(conn) == "table" and type(conn.transport) == "number"
+end
+
+--- The frozen control requests: sent as they are, also without a transport.
+M.CONTROL = { ping = true, status = true, stop = true, retire = true }
+
+--- The refusal of a request on `conn` when it agreed on no transport: the
+--- daemon serves such a client only the frozen control subset.
+--- @param conn table
+--- @return table reply
+function M.no_transport(conn)
+    local ch = type(conn) == "table" and type(conn.challenge) == "table" and conn.challenge or {}
+    local hi = tonumber(ch.protocol)
+    local lo = tonumber(ch.protocol_min) or hi
+    local range = hi and string.format(" (the daemon speaks transport %d-%d)", lo, hi) or ""
+    return { kind = "ok", outcome = "refused", exit_code = 1,
+        message = "no protocol version was agreed with the daemon" .. range
+            .. "; it serves this lw only ping, status, stop and retire" }
 end
 
 --- The call frame of operation message `msg`, or nil when it has no
@@ -148,6 +167,9 @@ end
 --- @param cb fun(reply: table|nil, err: any)
 function M.request(conn, msg, cb)
     local frame, to_reply, mutates
+    if not M.speaks_calls(conn) and not M.CONTROL[msg.kind] then
+        return cb(M.no_transport(conn), nil)
+    end
     if M.speaks_calls(conn) then frame, to_reply, mutates = M.frame(msg) end
     if not frame and msg.kind == "query" then
         if type(msg.name) ~= "string" then

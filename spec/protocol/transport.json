@@ -13,6 +13,7 @@
     "stopping": { "description": "The daemon is stopping." },
     "retiring": { "description": "The daemon is retiring and accepts no new operation from this client." },
     "forbidden": { "description": "Not allowed for this connection (e.g. cancelling another connection's task)." },
+    "no_transport": { "description": "The connection agreed on no transport version (no overlap of the two ranges); only the frozen control subset is served. data.protocol and data.protocol_min give the daemon's range." },
     "internal": { "description": "The call failed inside the daemon. A client treats an unknown code as internal." }
   },
   "frames": {
