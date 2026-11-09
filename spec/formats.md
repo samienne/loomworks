@@ -22,8 +22,8 @@ section below does state meaning, that text is normative as written.
 
 **Not covered.** The following are private to the implementation that writes
 them, and a reader may discard them: the launcher scripts (`lw.sh`,
-`lw.cmd`), the health cache (`.nvim/loomworks.health.json`), the runtime
-logs, `.nvim/tmp`, `.nvim/cache/**`, the layout of `.nvim/build`, a build
+`lw.cmd`), the health cache (`.lw/health.json`), the self-ignore file
+`.lw/.gitignore`, the runtime logs, `.lw/tmp`, `.lw/cache/**`, the layout of `.lw/build`, a build
 directory's `.device-runs`, the per-user data directory apart from the
 machine key (§2.1), and the device-side staging manifest. The output of
 `lw export` is a `loomworks.json` (§3). The build cache is described in §5
@@ -36,15 +36,21 @@ for information only.
 | File | Path | Status | Section |
 |--|--|--|--|
 | Workspace configuration (published snapshot) | `<root>/loomworks.json` | normative | §3 |
-| Working copy | `<root>/.nvim/loomworks.user.json` | normative | §4 |
-| Build cache | `<root>/.nvim/loomworks.cache.json` | informative | §5 |
+| Working copy | `<root>/.lw/user.json` | normative | §4 |
+| Build cache | `<root>/.lw/cache.json` | informative | §5 |
 | Machine key | `trust.key` in the per-user data directory | normative | §2.1 |
 | Lock files | see §6.2 | normative | §6 |
-| Commit journal | `<root>/.nvim/loomworks.txn.json` | normative | §7 |
-| Daemon handle | `<root>/.nvim/loomworks.daemon-<S>.json` | normative | §8 |
+| Commit journal | `<root>/.lw/txn.json` | normative | §7 |
+| Daemon handle | `<root>/.lw/daemon-<S>.json` | normative | §8 |
 | Version pin | `lw.pin` at the repository root | normative | §9 |
+| Migration marker | `<root>/.lw/migrated.json` | normative | §10 |
 
-`<root>` is the workspace root.
+`<root>` is the workspace root. Every per-workspace file lives in the
+workspace state directory `<root>/.lw/`, whose full layout, self-ignore file
+and reserved names are [headless §16.44](core/headless.md#1644-workspace-state-directory-lw).
+Releases before 0.2.0 keep the same files in `<root>/.nvim/` under
+`loomworks.`-prefixed names (`.nvim/loomworks.user.json` for `.lw/user.json`,
+and so on); a 0.2.0+ reader reads the legacy names only to migrate (§10).
 
 ### 1.2 JSON encoding
 
@@ -99,7 +105,7 @@ workspace's signed files then read as `invalid`).
 
 (The health cache is not otherwise covered here.)
 
-Every file loomworks writes under a workspace's `.nvim/` whose content can
+Every file loomworks writes under a workspace's `.lw/` whose content can
 cause execution — the working copy, the build cache and the health cache —
 carries a signature. The signature is the **first member** of the file's
 top-level object, alone on the file's second line, in exactly this form:
@@ -282,7 +288,7 @@ The same members appear in the working copy (§4).
 | `profiles.<key>.default_target` (`{ project, target, working_dir? }`) and the working copy's `default_target` map keyed by profile key (§4) | `lua/loomworks/profile.lua` |
 | The rest of `projects.<key>.<type>` (the module's `type_config`) | the module's source under `lua/loomworks/modules/` |
 
-## 4. `.nvim/loomworks.user.json`
+## 4. `.lw/user.json`
 
 The working copy. It is the workspace's live state, rewritten after every
 change, and using or changing an item that exists only in `loomworks.json`
@@ -354,7 +360,7 @@ All fields within a server table are optional — omitted fields fall
 back to the integration's hardcoded defaults. It is a top-level
 field of the working copy, not a project member.
 
-## 5. `.nvim/loomworks.cache.json` (informative)
+## 5. `.lw/cache.json` (informative)
 
 The build cache is private to the implementation that writes it. Its shape
 and field meanings are defined by `lua/loomworks/cache.lua`, and an
@@ -411,8 +417,8 @@ host's live holder; one still empty then is judged as a record without fields.
 
 | Lock | File | Record |
 |--|--|--|
-| Runtime (R) | `<root>/.nvim/loomworks.daemon-<S>.lock` | the common record (§6.1) plus the runtime's fields below |
-| Workspace operation (O) | `<root>/.nvim/loomworks.op.lock` | the common record |
+| Runtime (R) | `<root>/.lw/daemon-<S>.lock` | the common record (§6.1) plus the runtime's fields below |
+| Workspace operation (O) | `<root>/.lw/op.lock` | the common record |
 | Build directory (B) | `<build dir>.loomworks-lock` | the common record |
 | Device (D) | `<data>/device-locks/<serial>.lock`, with `<data>/device-locks/<serial>.leftover` for a program left running; `LOOMWORKS_DEVICE_LOCK_DIR` relocates the directory | the common record plus the device fields of `lua/loomworks/remote/device_lock.lua` |
 | File save (F) | `<file>.lock` beside the guarded file | the common record |
@@ -431,7 +437,7 @@ as spelled. With an aliased workspace root (a symlink or junction, or macOS
 `/tmp` → `/private/tmp`), such an older pinned `lw` and a current one take
 different lockfiles and do not exclude each other.
 
-## 7. Commit journal `.nvim/loomworks.txn.json`
+## 7. Commit journal `.lw/txn.json`
 
 The commit and recovery procedure, and what happens to a journal that cannot
 be completed, are implemented in `lua/loomworks/txn.lua`.
@@ -442,7 +448,9 @@ its entries in the file order `loomworks.json`, the working copy, the build
 cache.
 
 **Validation.** A journal is data from disk: it is honoured only when every
-entry names one of the three workspace files in `.nvim/` and the staged files
+entry names one of the three workspace files (`loomworks.json`,
+`.lw/user.json`, `.lw/cache.json`; in a legacy journal `.nvim/loomworks.txn.json`,
+the legacy names) and the staged files
 match `<file>.txn-<hex id>` beside them; anything else refuses the workspace.
 A `replace` entry is completed only when its staged file hashes to
 `sha256_new` and the target holds `sha256_old` or is absent, and a `remove`
@@ -450,12 +458,12 @@ only when the target holds `sha256_old`; an entry already in its new state is
 done. If any entry fits none of these, nothing is changed and the journal is
 refused.
 
-## 8. Daemon handle `.nvim/loomworks.daemon-<S>.json`
+## 8. Daemon handle `.lw/daemon-<S>.json`
 
 When the handle is written, refreshed and rewritten, and how it is used for
 discovery, are implemented in `lua/loomworks/daemon/handle.lua`.
 
-A daemon publishes `<root>/.nvim/loomworks.daemon-<S>.json` after binding its
+A daemon publishes `<root>/.lw/daemon-<S>.json` after binding its
 endpoint: `{ pid, host, os, start_time, endpoint, protocol, lw_version,
 schemas = { user, cache }, session_generation, started_at, clients, busy,
 idle_since, lock_nonce, key_id, exe }` (`start_time` is the daemon's process start time of
@@ -494,3 +502,20 @@ The pin carries a
 version and hashes **only, never a location**: the download origin is fixed by
 the host and overridable solely by the user's environment or host configuration,
 never by repository content.
+
+## 10. Migration marker `.lw/migrated.json`
+
+What migration does and when is [headless §16.44](core/headless.md#1644-workspace-state-directory-lw).
+
+A host that copied a legacy working copy from `.nvim/` into `.lw/` writes
+`<root>/.lw/migrated.json` atomically, as the last step of the migration:
+`{ "from": ".nvim/loomworks.user.json", "source_sha256": "<64 lowercase hex>",
+"written_by": "<version>", "migrated_at": "<RFC 3339 UTC>" }`, written with the
+encoding of §1.2. `source_sha256` is the SHA-256 of the legacy working copy's
+bytes as copied, rewritten by `lw migrate --keep` and `--again`. The file is
+not signed: it causes no execution and only decides whether a copy is made,
+and a forged or removed marker at worst leads to a refusal or to the
+divergence report. A reader ignores unknown members. A marker that does not
+parse, or is not a regular file, is treated as absent, and the workspace then
+refuses to load when `.lw/user.json` and the legacy working copy differ
+(headless §16.44 *Crash safety*).

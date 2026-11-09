@@ -418,10 +418,10 @@ spawns directly. A caller that must not block (the workspace daemon's
 
 Return the absolute path of the build directory for a given project
 configuration. Modules that use external build systems return paths
-outside `.nvim/build/` managed by the external tool. The path must be
+outside `.lw/build/` managed by the external tool. The path must be
 under `workspace_root` for deletion safety. If not implemented, the
 core uses the default formula:
-`{workspace_root}/.nvim/build/{project}/{config}`.
+`{workspace_root}/.lw/build/{project}/{config}`.
 
 `project_name` is the project key. The call has no profile: the directory
 belongs to the configuration, whatever profile maps it.
@@ -605,7 +605,7 @@ inputs regenerated outside loomworks (e.g. a manual `cmake` reconfigure).
 Where a module's owned database lives, so core can remove it with the
 build directory it was generated from. `lsp_database_root` is a single
 plain path segment (no separators, not `.` or `..`) naming the module's
-owned-database area `<root>/.nvim/cache/<lsp_database_root>/`.
+owned-database area `<root>/.lw/cache/<lsp_database_root>/`.
 `lsp_database_dir(ctx)` returns the absolute owned-database directory for
 one build directory (`ctx` carries `build_dir` and `workspace_root`), or
 `nil` when the module owns none for it. A module that implements
@@ -852,7 +852,7 @@ Each profile can have a **default target** — a single executable target
 that `build_target()` builds instead of the full project.
 
 **Default target storage**:
-- `loomworks.user.json`: `default_target = { "<profile_key>": { "project": "<key>", "target": "<id>", "working_dir"?: "<dir>" } }`
+- `.lw/user.json`: `default_target = { "<profile_key>": { "project": "<key>", "target": "<id>", "working_dir"?: "<dir>" } }`
 - Published profile definitions: `default_target = { "project": "<key>", "target": "<id>", "working_dir"?: "<dir>" }`
 - User.json overrides published config.
 - `working_dir` is optional; absent means the default (the project directory,
@@ -1375,7 +1375,7 @@ cancel.
 Construct the command to run a specific test. Returns
 `{ cmd, env, cwd, output_path }` or nil. *(Step 5m.)* `opts.output_path`, when
 given, is where the run writes its results file; the daemon passes a per-run
-path (`<root>/.nvim/tmp/lw-test-<hex>.xml`, §16.40) so concurrent runs never
+path (`<root>/.lw/tmp/lw-test-<hex>.xml`, §16.40) so concurrent runs never
 share one. Without it a TestUnit uses its own location (the `in-process`
 editor's path, unchanged until step 6b-β).
 

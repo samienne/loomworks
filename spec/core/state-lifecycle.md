@@ -185,7 +185,7 @@ Activation makes a profile the "active" profile. The active profile determines:
 1. For new profiles: `ConfigurationSet:activate(tool_entry)` finds or
    materializes the profile, then activates it via the Profile object
 2. For existing profiles: `Profile:activate()` writes `active_profile` to
-   `loomworks.user.json` and triggers remerge (fires `active_set_changed`)
+   `.lw/user.json` and triggers remerge (fires `active_set_changed`)
 
 ### 4.3 Set Name Migration
 
@@ -289,7 +289,7 @@ removed as a link and its target is left untouched — and read-only files
 (e.g. version-control objects of a fetched dependency) are removed too.
 
 **Build directory safety**: Build directories stored in the cache may reside
-anywhere under the workspace root (e.g., `<root>/build/`, `<root>/.nvim/build/`,
+anywhere under the workspace root (e.g., `<root>/build/`, `<root>/.lw/build/`,
 a preset's `binaryDir`). Before deleting a build directory, the system
 normalizes the path and verifies it is under the workspace root. Paths that
 resolve outside the workspace (e.g., via `../` traversal, absolute paths
@@ -342,7 +342,7 @@ remaining cache entries reference it after the current deletion batch.
 
 **Owned LSP database cleanup**: a module that owns an LSP database (§8.4
 `refresh_lsp_database`) keeps it outside the build directory, under
-`<root>/.nvim/cache/<lsp_database_root>/` (§8.4). That mirror is derived
+`<root>/.lw/cache/<lsp_database_root>/` (§8.4). That mirror is derived
 from the build directory and must not outlive it — a stale mirror is
 exactly the kind of foreign database [loomworks.nvim `spec/plugin.md` §9.1](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#9-lsp-integration) forbids handing to a server. So
 whenever a build directory is **actually removed** from disk — profile or
@@ -367,18 +367,18 @@ directory. The rules, all mandatory:
    remove" — never a fallback path.
 4. **Location check (separator-bounded).** After normalization, the
    mirror path must lie **strictly inside**
-   `<root>/.nvim/cache/<lsp_database_root>/` — compared as
+   `<root>/.lw/cache/<lsp_database_root>/` — compared as
    `path:sub(1, #prefix + 1) == prefix .. "/"` with `prefix` the
    normalized area directory — contain no `.` / `..` segment, and never
-   equal the area directory, `<root>/.nvim/cache` or `<root>/.nvim`. A
+   equal the area directory, `<root>/.lw/cache` or `<root>/.lw`. A
    path failing the check is refused (logged), not removed. This is the
-   `<root>/.nvim/` safety scope (the nuke scope, §15 invariant 3), narrowed
+   `<root>/.lw/` safety scope (the nuke scope, §15 invariant 3), narrowed
    to the module's area.
-5. **No links.** `<root>/.nvim`, `<root>/.nvim/cache`, the area directory
+5. **No links.** `<root>/.lw`, `<root>/.lw/cache`, the area directory
    and the mirror itself must be real directories (checked without
    following links — a symbolic link or junction at any of them refuses
    the removal), and the realpath of the mirror must lie strictly under
-   the realpath of the area directory `<root>/.nvim/cache/<lsp_database_root>/`
+   the realpath of the area directory `<root>/.lw/cache/<lsp_database_root>/`
    (normalized, separator-bounded). On Windows a path segment ending in
    `.` or a space is refused (Win32 trims them, so `App/.. ` would name the
    area itself), and so is such an area name. The removal itself
@@ -393,12 +393,12 @@ directory. The rules, all mandatory:
 
 A module's whole owned-database area is also removed by nuke ([loomworks.nvim `spec/ui.md` §1.11](https://github.com/samienne/loomworks.nvim/blob/master/spec/ui.md)
 (the UI spec), `lw nuke`): for every registered module that declares
-`lsp_database_root`, `<root>/.nvim/cache/<lsp_database_root>/` is added to
+`lsp_database_root`, `<root>/.lw/cache/<lsp_database_root>/` is added to
 the nuke's path list and subjected to the nuke's own checks (absolute root,
-workspace marker present, every path under `root/.nvim/`) plus rules 3 and
+workspace marker present, every path under `root/.lw/`) plus rules 3 and
 5 above; in place of rule 4 the target must be exactly the direct child
-`<root>/.nvim/cache/<lsp_database_root>` (a valid single segment). Nothing else under
-`<root>/.nvim/cache/` (e.g. pinned launcher binaries, §16.24) is touched.
+`<root>/.lw/cache/<lsp_database_root>` (a valid single segment). Nothing else under
+`<root>/.lw/cache/` (e.g. pinned launcher binaries, §16.24) is touched.
 The area check runs before any lock is taken (a failed check aborts the
 nuke with nothing deleted); the area itself is removed together with the
 build caches, under the nuke's operation and build locks (§19.3) and before
