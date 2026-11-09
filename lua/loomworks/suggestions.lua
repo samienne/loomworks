@@ -949,7 +949,9 @@ local function host_item(facts, newest)
     if not facts or facts.dev_build or facts.pinned then return nil end
     if not facts.self_update then
         local exe = (facts.exe or ""):gsub("\\", "/"):lower()
-        if exe:find("/.nvim/cache/", 1, true) then return nil end -- pinned launcher cache
+        if exe:find("/.nvim/cache/", 1, true) or exe:find("/.lw/cache/", 1, true) then
+            return nil -- pinned launcher cache (§16.44: both generations)
+        end
         return {
             title = "lw binary predates self-update — reinstall once (see README)",
             remedy = "install the current lw binary as in the README's \"Installing lw\"; "
@@ -1217,5 +1219,41 @@ function M.daemon_count_provider()
 end
 
 M.register_health(M.daemon_count_provider, { persist = false, area = "lw" })
+
+-- ---------------------------------------------------------------------------
+-- Provider #6 — the `.nvim/` state of releases before 0.2.0 (HEALTH-ONLY,
+-- REPORT-ONLY, §16.44): a legacy working copy changed after it was copied to
+-- `.lw/` (actionable), and legacy build trees lw no longer uses
+-- (informational). Reads only; never removes anything.
+-- ---------------------------------------------------------------------------
+
+--- Health provider: the legacy `.nvim/` state.
+--- @param workspace loomworks.Workspace|nil
+--- @return loomworks.Suggestion[]
+function M.legacy_state_provider(workspace)
+    local root = type(workspace) == "table" and type(workspace.root) == "string" and workspace.root or nil
+    if not root then return {} end
+    local out = {}
+    local ok, msg = pcall(function() return require("loomworks.state_migration").divergence(root) end)
+    if ok and msg then
+        out[#out + 1] = {
+            kind = "suggestion",
+            title = "state: " .. msg,
+            remedy = "to keep .lw/user.json, nothing to do; to take the older copy, stop the older lw, "
+                .. "move .lw/user.json and .lw/migrated.json out of .lw/, and run lw again",
+        }
+    end
+    local st = (vim.uv or vim.loop).fs_lstat(root .. "/.nvim/build")
+    if st and st.type == "directory" then
+        out[#out + 1] = {
+            kind = "info",
+            title = "state: .nvim/build/ holds build trees lw 0.2.0 and later no longer use — "
+                .. "remove it by hand once no older lw is pinned here",
+        }
+    end
+    return out
+end
+
+M.register_health(M.legacy_state_provider, { persist = false, area = "lw" })
 
 return M

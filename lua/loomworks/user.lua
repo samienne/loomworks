@@ -11,7 +11,24 @@ M.CURRENT_VERSION = CURRENT_VERSION
 --- @param root string
 --- @return string
 function M.filepath(root)
-    return root .. "/.nvim/loomworks.user.json"
+    return root .. "/.lw/user.json"
+end
+
+--- The working copy to READ from a source checkout that is not loaded (a pull
+--- or worktree seed, §16.25): `.lw/user.json`, or, while the source is not
+--- migrated (neither that file nor the marker exists), the legacy
+--- `.nvim/loomworks.user.json` of a release before 0.2.0. The source is
+--- never migrated by this (§16.44).
+--- @param root string
+--- @return string
+function M.source_filepath(root)
+    local uv = vim.uv or vim.loop
+    local p = M.filepath(root)
+    if uv.fs_stat(p) or uv.fs_lstat(root .. "/.lw/migrated.json") then return p end
+    local legacy = root .. "/.nvim/loomworks.user.json"
+    local st = uv.fs_lstat(legacy)
+    if st and st.type == "file" then return legacy end
+    return p
 end
 
 --- Return a default (empty) UserData structure.
@@ -76,10 +93,13 @@ end
 --- verification status (`"unsigned"` / `"invalid"`). One written with a newer
 --- schema than this version understands returns nil, `"newer"` and the
 --- message — never defaults, which a caller could write back.
+--- `opts.source`: read a source checkout's working copy (`source_filepath`).
 --- @param root string
+--- @param opts? { source?: boolean }
 --- @return loomworks.UserData|nil data, string|nil trust_status, string|nil message
-function M.load(root)
-    local text = io_mod.read_file(M.filepath(root))
+function M.load(root, opts)
+    local path = (opts and opts.source) and M.source_filepath(root) or M.filepath(root)
+    local text = io_mod.read_file(path)
     if not text then
         return M.default()
     end
@@ -99,7 +119,7 @@ function M.load(root)
 
     local sg = require("loomworks.save_guard")
     if sg.schema_newer(data._meta, CURRENT_VERSION) then
-        return nil, "newer", sg.newer_schema_message(M.filepath(root), data._meta, CURRENT_VERSION)
+        return nil, "newer", sg.newer_schema_message(path, data._meta, CURRENT_VERSION)
     end
 
     if data._meta.version == 1 then
@@ -122,9 +142,10 @@ end
 function M.save(root, data)
     data._meta = { version = CURRENT_VERSION, written_by = require("loomworks.save_guard").version() }
 
-    local dir = root .. "/.nvim"
+    local dir = root .. "/.lw"
     local ok, dir_err = io_mod.ensure_dir(dir)
     if not ok then return false, "mkdir: " .. (dir_err or "unknown") end
+    require("loomworks.state_dir").ensure_ignore(root)
 
     -- Signed with the machine key: only a signed working copy is
     -- ever used, so every loomworks write signs it.
