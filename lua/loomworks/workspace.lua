@@ -145,9 +145,22 @@ function M.init_workspace(root, name, write_json)
     local user_path = user_mod.filepath(root)
     local config_path = root .. "/loomworks.json"
 
+    -- A working copy of a release before 0.2.0 (`.nvim/`) makes this a
+    -- workspace already: it is copied into `.lw/` first (§16.44), or init
+    -- refuses with the migration's reason — never a fresh working copy
+    -- beside it.
+    local sm = require("loomworks.state_migration")
+    local migrated
+    if sm.pending(root) then
+        local status, msg = sm.run(root)
+        if status == "refused" then return false, (tostring(msg):gsub("^lw: ", "")) end
+        migrated = status ~= nil
+    end
+
     -- Already initialized if either file exists
     if uv.fs_stat(config_path) or uv.fs_stat(user_path) then
         return false, "workspace already exists in " .. root
+            .. (migrated and " (its working copy was copied from .nvim/ into .lw/)" or "")
     end
 
     -- Ensure .lw directory exists

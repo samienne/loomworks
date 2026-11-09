@@ -4810,8 +4810,10 @@ removed by hand.
 **Migration from `.nvim/`.** The first 0.2.0+ host that loads a workspace
 whose `.lw/` holds neither a working copy nor a marker, and whose `.nvim/`
 holds a working copy (a regular file, `lstat`), migrates it before reading
-any state. A command that loads no workspace (`lw bootstrap`, `lw help`)
-migrates nothing.
+any state. `lw init` in such a workspace migrates (or refuses) the same way
+first and then reports the workspace as existing — it never creates a fresh
+working copy beside the legacy one. A command that loads no workspace
+(`lw bootstrap`, `lw help`) migrates nothing.
 
 1. **Older lw at work.** If a legacy runtime lock
    (`.nvim/loomworks.daemon-<S>.lock` of any slot, or the pre-slot
