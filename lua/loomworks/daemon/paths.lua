@@ -82,8 +82,8 @@ function M.handle_path(root)
     return M.norm_root(root) .. "/.lw/" .. M.slot_base() .. ".json"
 end
 
---- The legacy (unslotted) file names in `<root>/.lw/`: never read to
---- connect to a daemon.
+--- The legacy (unslotted) file names in `<root>/.nvim/` (lw before slots;
+--- see loomworks.daemon.legacy): never read to connect to a daemon.
 M.LEGACY = {
     lock = "loomworks.daemon.lock",
     handle = "loomworks.daemon.json",

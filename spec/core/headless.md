@@ -4797,7 +4797,12 @@ repositories and keep working unchanged: they cache in `.nvim/cache/`, and a
 never self-updates, or suggests as an installation, a binary in either). The
 **launcher cache** that pin management and health check (§16.24, §16.31
 provider #4) is the one the launchers present use for the pin: `.lw/cache/`
-for the current generation with a 0.2.0+ pin, `.nvim/cache/` otherwise. Only
+for the current generation with a 0.2.0+ pin, `.nvim/cache/` otherwise.
+With mixed generations (one launcher regenerated, the other not) each
+launcher caches where its own generation does, so the binary may be in both;
+the launcher cache checked is then `.nvim/cache/` (its ignore rule must be
+committed, and it is not pruned), until `lw bootstrap install` makes both
+current. Only
 `.lw/cache/` is pruned; old binaries in `.nvim/cache/` are reported as
 informational, to be removed by hand (*Deletion*, below). For `.lw/cache/` the ignore check is satisfied by the self-ignore
 file as well as by a committed rule, since every checkout's launcher writes

@@ -588,7 +588,11 @@ M.LEGACY_CACHE_DIR = ".nvim/cache"
 --- pin is 0.2.0 or later, LEGACY_CACHE_DIR otherwise (a pin below 0.2.0, or a
 --- launcher of an earlier generation, which caches in `.nvim/cache`). No
 --- launcher present (a pin only, or none yet): CACHE_DIR unless the pin is
---- below 0.2.0.
+--- below 0.2.0. Mixed generations (one launcher current, the other not):
+--- each caches where its own generation does; LEGACY_CACHE_DIR is checked
+--- (an ignore rule must be committed for it, and it is never pruned) until
+--- `lw bootstrap install` makes both current — so `.lw/cache` of the current
+--- one is not pruned meanwhile (spec headless §16.44 *Launchers*).
 --- @param version string|nil the pinned version
 --- @param texts { sh?: string, cmd?: string } the launchers' content (nil: absent)
 --- @return string
