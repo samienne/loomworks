@@ -338,7 +338,7 @@ describe("root object over the socket (§19.20)", function()
         conn.transport = nil -- as against a daemon whose range shares no version
         local _, e = client.call_sync(conn, ROOT, RIF, 1, "describe", {})
         assert.equals(client.ERR_TRANSPORT, e.code)
-        assert.truthy(e.message:find("no transport agreed", 1, true), e.message)
+        assert.truthy(e.message:find("no protocol version was agreed", 1, true), e.message)
         conn:close()
     end)
 
