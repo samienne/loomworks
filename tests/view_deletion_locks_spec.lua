@@ -24,7 +24,7 @@ end
 
 --- Add a cached build directory no profile references (an orphan).
 local function add_orphan(ws, root)
-    local dir = root .. "/.nvim/build/App/Release"
+    local dir = root .. "/.lw/build/App/Release"
     vim.fn.mkdir(dir, "p")
     local cache = ws:_serialize_cache()
     cache.build_dirs = cache.build_dirs or {}
@@ -70,7 +70,7 @@ local cases = {
     {
         name = "orphan cleanup (stray directory)",
         setup = function(_, root)
-            local dir = root .. "/.nvim/build/App/Stray"
+            local dir = root .. "/.lw/build/App/Stray"
             vim.fn.mkdir(dir, "p")
             return dir
         end,
@@ -81,7 +81,7 @@ local cases = {
     {
         name = "stray directory deletion",
         setup = function(_, root)
-            local dir = root .. "/.nvim/build/App/Stray"
+            local dir = root .. "/.lw/build/App/Stray"
             vim.fn.mkdir(dir, "p")
             return dir
         end,

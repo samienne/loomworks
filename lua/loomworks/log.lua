@@ -1,13 +1,13 @@
 --- loomworks/log.lua — Structured logger with file output.
 ---
---- Writes to {workspace_root}/.nvim/loomworks.log by default.
+--- Writes to {workspace_root}/.lw/workspace.log by default.
 --- Injectable via core deps for testing. Levels: ERROR, WARN, INFO, DEBUG.
 ---
 --- The file is shared by every host — the editor and each `lw` invocation,
 --- possibly at the same time — so it is only ever opened in append mode
 --- (never truncated): earlier invocations' lines survive, and concurrent
 --- writers each append whole lines. Its size is bounded by rotation: once it
---- exceeds `M.MAX_BYTES` it is renamed to `loomworks.log.1` (replacing the
+--- exceeds `M.MAX_BYTES` it is renamed to `workspace.log.1` (replacing the
 --- previous one — one old file is kept) and a new file starts. Rotation is
 --- best-effort: a failed rename (e.g. the file is momentarily open elsewhere
 --- on Windows) just means a later write tries again.
@@ -77,7 +77,7 @@ end
 --- an oversized file first.
 --- @param root string workspace root path
 function Logger:set_root(root)
-    self._path = root .. "/.nvim/loomworks.log"
+    self._path = root .. "/.lw/workspace.log"
     maybe_rotate(self._path)
     append(self._path, "-- loomworks log started " .. os.date("!%Y-%m-%dT%H:%M:%SZ") .. "\n")
 end

@@ -372,7 +372,7 @@ end
 --- socket candidates, or this root's socket in a private directory of this
 --- user (M._posix_owned: a daemon launched from another environment)? A
 --- client connects to nothing else: the handle lives in a
---- `.nvim/` other local users may be able to write, and a forged one naming
+--- `.lw/` other local users may be able to write, and a forged one naming
 --- `\host\pipe\x` would make a client open a remote pipe (an SMB connection
 --- that leaks the user's NTLM hash) or another user's socket.
 --- Returns true, or false + the refusal.

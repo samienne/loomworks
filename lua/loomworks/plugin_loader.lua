@@ -1,7 +1,7 @@
 --- loomworks/plugin_loader.lua — load a plugin file named by configuration.
 ---
 --- Module / SDK provider / progress-parser ids come from workspace files
---- (`loomworks.json`, `.nvim/loomworks.user.json`, cache) — i.e. from a clone
+--- (`loomworks.json`, `.lw/user.json`, cache) — i.e. from a clone
 --- that may be untrusted. A bare `require("loomworks.modules." .. id)` would
 --- resolve the name through `package.path`, whose default (LuaJIT and Neovim)
 --- begins with `./?.lua`: an id that no installed plugin ships then falls

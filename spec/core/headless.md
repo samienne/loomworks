@@ -4736,7 +4736,7 @@ interface version.
 
 ### 16.44 Workspace state directory `.lw/`
 
-*Status: specified for 0.2.0, not implemented. Releases before 0.2.0 keep the
+*Status: implemented in 0.2.0. Releases before 0.2.0 keep the
 same state in `<root>/.nvim/` under the names of the **Legacy name** column
 below.*
 
@@ -4795,10 +4795,11 @@ Launchers written by earlier releases are committed files in users'
 repositories and keep working unchanged: they cache in `.nvim/cache/`, and a
 0.2.0+ host they run treats that location as a launcher cache as well (it
 never self-updates, or suggests as an installation, a binary in either). The
-**launcher cache** that pin management and health check and prune (§16.24,
-§16.31 provider #4) is the one the launchers present use for the pin:
-`.lw/cache/` for the current generation with a 0.2.0+ pin, `.nvim/cache/`
-otherwise. For `.lw/cache/` the ignore check is satisfied by the self-ignore
+**launcher cache** that pin management and health check (§16.24, §16.31
+provider #4) is the one the launchers present use for the pin: `.lw/cache/`
+for the current generation with a 0.2.0+ pin, `.nvim/cache/` otherwise. Only
+`.lw/cache/` is pruned; old binaries in `.nvim/cache/` are reported as
+informational, to be removed by hand (*Deletion*, below). For `.lw/cache/` the ignore check is satisfied by the self-ignore
 file as well as by a committed rule, since every checkout's launcher writes
 that file before it downloads anything. `lw bootstrap install` replaces
 launchers of a known earlier generation as before (§16.24); after that
@@ -4827,9 +4828,10 @@ migrates nothing.
    0.2.0+ process finds `.lw/op.lock` held, waits as for any operation, and
    then finds the migration done.
 3. **Interrupted legacy commit.** A legacy journal `.nvim/loomworks.txn.json`
-   is completed or refused in place by the rules of
-   [formats.md](../formats.md) §7 applied to the legacy names, before anything
-   is copied.
+   is left to the older lw that wrote it: nothing is copied and the command
+   fails — "lw: an older lw left an unfinished commit in .nvim/
+   (.nvim/loomworks.txn.json) — run that older lw once in this workspace so it
+   completes it, then retry".
 4. **Copy.** The legacy working copy is copied **byte for byte** to a
    temporary name in `.lw/` (`user.json.migrate-<hex>`), flushed, its SHA-256
    compared with that of the bytes read, and given the name `user.json` only

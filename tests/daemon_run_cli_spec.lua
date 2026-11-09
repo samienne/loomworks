@@ -99,7 +99,7 @@ end
 
 --- The persisted build and deploy state, comparable across two roots.
 local function cache_of(root, key_path)
-    local text = read(root .. "/.nvim/loomworks.cache.json")
+    local text = read(root .. "/.lw/cache.json")
     if not text then return nil end
     trust._set_key_path(key_path)
     local status, body = trust.verify("cache", text)
@@ -133,7 +133,7 @@ describe("lw run through the workspace daemon (real processes)", function()
         roots[#roots + 1] = root
         vim.fn.mkdir(root .. "/app", "p")
         vim.fn.mkdir(root .. "/sub", "p")
-        vim.fn.mkdir(root .. "/.nvim", "p")
+        vim.fn.mkdir(root .. "/.lw", "p")
         write(root .. "/step.lua", H.STEP)
         write(root .. "/prog.lua", PROG)
         write(root .. "/wrap.lua", WRAP)
@@ -164,7 +164,7 @@ describe("lw run through the workspace daemon (real processes)", function()
         }))
         local r = H.lw({ "--no-input", "--no-daemon", "profile", "create", "dev" }, { env = env, cwd = root })
         assert.equals(0, r.code, r.stderr)
-        local upath = root .. "/.nvim/loomworks.user.json"
+        local upath = root .. "/.lw/user.json"
         trust._set_key_path(env.data .. "/trust.key")
         local status, body = trust.verify("user", read(upath))
         assert.equals("valid", status)
@@ -382,7 +382,7 @@ describe("lw run through the workspace daemon (real processes)", function()
         H.track_root(root)
         for _, s in ipairs(starts) do assert.truthy(s.stderr():find(NOTICE, 1, true), s.stderr()) end
         -- No lock is held while the programs run: a build goes through.
-        local bd = root .. "/.nvim/build/app/Debug"
+        local bd = root .. "/.lw/build/app/Debug"
         assert.is_nil(build_lock.read(bd))
         local b = lw(root, { "--no-input", "build", "dev" })
         assert.equals(0, b.code, b.stderr)

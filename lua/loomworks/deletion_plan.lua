@@ -307,7 +307,7 @@ end
 
 --- Plan the deletion of `target`. Pure with respect to the workspace
 --- (nothing is changed, nothing locked); it stats the build directories to
---- tell which exist and scans `.nvim/build` for stray directories.
+--- tell which exist and scans `.lw/build` for stray directories.
 --- @param ws loomworks.Workspace
 --- @param target table exactly one of the targets of the module header
 --- @return loomworks.DeletionTargetPlan

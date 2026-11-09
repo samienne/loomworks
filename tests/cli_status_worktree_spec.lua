@@ -486,7 +486,7 @@ describe("lw status overview worktrees section", function()
 
     -- Only the main worktree and /wt/l1 carry a workspace.
     local function stat_some(p)
-        if p == root .. "/loomworks.json" or p == "/wt/l1/.nvim/loomworks.user.json" then
+        if p == root .. "/loomworks.json" or p == "/wt/l1/.lw/user.json" then
             return { type = "file" }
         end
         return nil

@@ -757,7 +757,7 @@ function M.exec_step(ws, lt, opts, host, cb)
             local xml
             if framework == "gtest" then
                 results_requested = true
-                -- In the workspace's .nvim/tmp, not the system temp dir.
+                -- In the workspace's .lw/tmp, not the system temp dir.
                 xml = require("loomworks.housekeeping").tmp_path(ws.root, "lw-test-", ".xml")
                 -- argv: program, results option, the launch's own args, then the tail.
                 table.insert(spec.args, 1, "--gtest_output=xml:" .. xml)

@@ -30,10 +30,10 @@ end
 local function make_core(config_overrides, user_overrides, cache_overrides, tools_by_type)
     local files = { ["loomworks.json"] = h.make_config_json(config_overrides) }
     if user_overrides then
-        files["loomworks.user.json"] = h.make_user_json(user_overrides)
+        files["user.json"] = h.make_user_json(user_overrides)
     end
     if cache_overrides then
-        files["loomworks.cache.json"] = h.make_cache_json(cache_overrides)
+        files["cache.json"] = h.make_cache_json(cache_overrides)
     end
     local deps = h.make_test_deps(files, {
         modules = { get = modules_get },
@@ -223,7 +223,7 @@ local function make_fake_module()
         tool_label = function(td) return td and (td.compiler_id or td.id) or "fake" end,
         resolve_build_dir = function(project_name, config_name, _config_info, root, tool_data)
             local seg = tool_data and (tool_data.compiler_id or tool_data.id) or nil
-            local base = root .. "/.nvim/build/" .. project_name
+            local base = root .. "/.lw/build/" .. project_name
             if seg then return base .. "/" .. seg .. "/" .. (config_name or "default") end
             return base .. "/" .. (config_name or "default")
         end,
@@ -289,9 +289,9 @@ describe("plan_profile_build after reload (real planner)", function()
         local function build_core(config_o, user_o, cache_o, tools_o)
             local files = {
                 ["loomworks.json"] = h.make_config_json(config_o),
-                ["loomworks.user.json"] = h.make_user_json(user_o),
+                ["user.json"] = h.make_user_json(user_o),
             }
-            if cache_o then files["loomworks.cache.json"] = h.make_cache_json(cache_o) end
+            if cache_o then files["cache.json"] = h.make_cache_json(cache_o) end
             local deps = h.make_test_deps(files, {
                 modules = { get = fake_get }, cache = { save = function() return true end },
             })

@@ -4,7 +4,7 @@
 --- the profile has any project whose module needs a tool but
 --- doesn't have one resolved. Without it, the build chain runs
 --- with nil tool_data and produces malformed on-disk artefacts
---- (`.nvim/build/<project>/<bare-name>` shape, observed in the
+--- (`.lw/build/<project>/<bare-name>` shape, observed in the
 --- field on harmony NativeDemo when DevEco wasn't yet detected).
 ---
 --- Module-agnostic — Profile:is_complete iterates each project's

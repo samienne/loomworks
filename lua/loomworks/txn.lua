@@ -8,7 +8,7 @@
 --- (taken at `begin`, in lock order):
 ---
 ---   1–2. check + stage   (done by the saves themselves, under the F locks)
----   3.   commit point    atomic write of `.nvim/loomworks.txn.json`
+---   3.   commit point    atomic write of `.lw/txn.json`
 ---   4.   apply           per entry in file order: target → `.bak` (as an
 ---                        ordinary save does), staged → target; flush the dir
 ---   5.   finish          remove the journal, release the locks
@@ -29,8 +29,8 @@ local M = {}
 local function uv() return vim.uv or vim.loop end
 
 --- The workspace files in commit order, relative to the root.
-M.FILES = { "loomworks.json", ".nvim/loomworks.user.json", ".nvim/loomworks.cache.json" }
-M.JOURNAL = ".nvim/loomworks.txn.json"
+M.FILES = { "loomworks.json", ".lw/user.json", ".lw/cache.json" }
+M.JOURNAL = ".lw/txn.json"
 
 --- Test seam: the commit step at which to simulate a crash (`os.exit`), one
 --- of "staged", "journal", "apply1", "apply2", "apply3", "finish".
@@ -253,7 +253,7 @@ function M.finish(t)
             release(t)
             return false, "could not write the commit journal: " .. tostring(jerr)
         end
-        flush_dir(abs(t.root, ".nvim"))
+        flush_dir(abs(t.root, ".lw"))
         crash_point("journal")
         for n, e in ipairs(staged) do
             local aok, aerr = apply(e, t.id)
@@ -261,7 +261,7 @@ function M.finish(t)
             crash_point("apply" .. n)
         end
         flush_dir(t.root)
-        flush_dir(abs(t.root, ".nvim"))
+        flush_dir(abs(t.root, ".lw"))
         crash_point("finish")
         if ok then
             pcall(uv().fs_unlink, jpath)
@@ -414,7 +414,7 @@ function M.recover_locked(root)
         end
     end
     flush_dir(root_of(root))
-    flush_dir(abs(root, ".nvim"))
+    flush_dir(abs(root, ".lw"))
     pcall(uv().fs_unlink, abs(root, M.JOURNAL))
     for _, p in ipairs(M.strays(root)) do pcall(uv().fs_unlink, p) end
     local files = {}

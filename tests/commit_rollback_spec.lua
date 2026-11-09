@@ -143,7 +143,7 @@ local function make_shell_root()
   vim.fn.mkdir(root .. "/App", "p")
   local f = assert(io.open(root .. "/loomworks.json", "w"))
   f:write(vim.json.encode({ projects = { App = { shell = {
-    build_dir = "${workspace_root}/.nvim/build/${project_path}/${variant}",
+    build_dir = "${workspace_root}/.lw/build/${project_path}/${variant}",
     configure_cmd = { "true" },
     build_cmd = { "true" },
     configurations = { Debug = vim.empty_dict() },
@@ -235,7 +235,7 @@ describe("failed commit keeps config unit and profile identity", function()
     end
     assert.is_true(#bds > 0, "fixture has no build dirs")
     assert.is_true(ws:_save_cache())
-    local cache_path = root .. "/.nvim/loomworks.cache.json"
+    local cache_path = root .. "/.lw/cache.json"
     local _, content = require("loomworks.trust").split(io_mod.read_file(cache_path))
     local f = assert(io.open(cache_path, "wb")); f:write(content); f:close()
     ws:_adopt_disk("cache", content)
@@ -293,12 +293,12 @@ describe("failed apply after the commit point", function()
       return real_rename(from, to, ...)
     end
   end
-  local function journal() return io_mod.read_file(root .. "/.nvim/loomworks.txn.json") end
+  local function journal() return io_mod.read_file(root .. "/.lw/txn.json") end
 
   before_each(function()
     root = make_root()
     ws = assert(cli._load_workspace(root, false))
-    cache_path = root .. "/.nvim/loomworks.cache.json"
+    cache_path = root .. "/.lw/cache.json"
     real_rename = vim.uv.fs_rename
   end)
   after_each(function() vim.uv.fs_rename = real_rename end)

@@ -137,7 +137,7 @@ end
 --- Resolve the build_dir for `tasks()` / `clean_tasks()`.
 --- Prefers core's cached value (which came from resolve_build_dir).
 --- Falls back to expanding the user-declared build_dir template, then to
---- the standard .nvim/build path. A template that names anything else
+--- the standard .lw/build path. A template that names anything else
 --- is never expanded: core refuses every operation on such
 --- a configuration, so reaching here with one is an error.
 --- @param project loomworks.ModuleContext
@@ -151,7 +151,7 @@ local function resolve_build_dir_for_tasks(project, active_config)
         if err then error(project.name .. "/" .. tostring(active_config) .. ": " .. err, 0) end
         return expand_build_dir(tc.build_dir, project.workspace_root, project.name, active_config)
     end
-    return project.workspace_root .. "/.nvim/build/" .. project.name .. "/" .. active_config
+    return project.workspace_root .. "/.lw/build/" .. project.name .. "/" .. active_config
 end
 
 -- ---------------------------------------------------------------------------
@@ -315,7 +315,7 @@ function M.resolve_build_dir(project_name, config_name, config_info, workspace_r
     if type(template) == "string" and template ~= "" then
         return expand_build_dir(template, workspace_root, project_name, config_name or "default")
     end
-    return workspace_root .. "/.nvim/build/" .. project_name
+    return workspace_root .. "/.lw/build/" .. project_name
         .. "/" .. (config_name or "default")
 end
 

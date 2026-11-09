@@ -131,7 +131,7 @@ describe("shell module", function()
 
         -- Regression: the template reached the Configuration nested as
         -- module_config.module_config.build_dir, so the build dir fell back
-        -- to <root>/.nvim/build/<project>/<variant>.
+        -- to <root>/.lw/build/<project>/<variant>.
         it("the build_dir template reaches resolve_build_dir through a Configuration", function()
             local Configuration = require("loomworks.configuration")
             local info = shell.info("/x", {
@@ -232,9 +232,9 @@ describe("shell module", function()
             assert.is_nil(out:find("leaked", 1, true))
         end)
 
-        it("falls back to .nvim/build when no template provided", function()
+        it("falls back to .lw/build when no template provided", function()
             local out = shell.resolve_build_dir("myproj", "Debug", {}, "/ws", nil)
-            assert.equals("/ws/.nvim/build/myproj/Debug", out)
+            assert.equals("/ws/.lw/build/myproj/Debug", out)
         end)
     end)
 

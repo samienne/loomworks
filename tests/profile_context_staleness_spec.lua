@@ -49,7 +49,7 @@ local function make_core(fills, active)
             projects = { App = app },
             configuration_sets = { debug = { App = "Debug" } },
         }),
-        ["loomworks.user.json"] = h.make_user_json(user),
+        ["user.json"] = h.make_user_json(user),
     }
     local deps = h.make_test_deps(files, {
         modules = { get = function(id) return id and real_modules.get(id) or nil end },

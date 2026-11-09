@@ -21,12 +21,12 @@ describe("CTestUnit results file (spec §19.15 Tests)", function()
                 executable = "/b/t" },
         }
         tu._exec_specs = { ["/b/t"] = { cmd = { "/b/t" }, env = {} } }
-        local c = tu:test_command("test:A.B", { output_path = "/w/.nvim/tmp/lw-test-ab12.xml" })
-        assert.equals("/w/.nvim/tmp/lw-test-ab12.xml", c.output_path)
-        assert.equals("--gtest_output=xml:/w/.nvim/tmp/lw-test-ab12.xml", c.cmd[#c.cmd])
+        local c = tu:test_command("test:A.B", { output_path = "/w/.lw/tmp/lw-test-ab12.xml" })
+        assert.equals("/w/.lw/tmp/lw-test-ab12.xml", c.output_path)
+        assert.equals("--gtest_output=xml:/w/.lw/tmp/lw-test-ab12.xml", c.cmd[#c.cmd])
         assert.equals("A.B", c.env.GTEST_FILTER)
-        local all = tu:test_command_all({ output_path = "/w/.nvim/tmp/lw-test-cd34.xml" })
-        assert.equals("/w/.nvim/tmp/lw-test-cd34.xml", all.output_path)
+        local all = tu:test_command_all({ output_path = "/w/.lw/tmp/lw-test-cd34.xml" })
+        assert.equals("/w/.lw/tmp/lw-test-cd34.xml", all.output_path)
     end)
 end)
 

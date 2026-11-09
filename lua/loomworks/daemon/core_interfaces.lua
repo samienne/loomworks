@@ -236,7 +236,7 @@ local function command(service, ctx, fn)
         if tr and tr.sync then tr:sync() end
         if service.host.current() ~= ws then
             return { outcome = "refused", exit_code = 1,
-                message = "the workspace was reloaded (refused or changed .nvim files); try again" }
+                message = "the workspace was reloaded (refused or changed .lw files); try again" }
         end
         local out = reply_of(fn(ws), seg)
         -- The outcome's own notes follow the segment's (the request
@@ -736,7 +736,7 @@ local function write_segment(service, ctx, kind, write)
         if tr and tr.sync then tr:sync() end
         if service.host.current() ~= ws then
             return { outcome = "refused", exit_code = 1,
-                message = "the workspace was reloaded (refused or changed .nvim files); try again" }
+                message = "the workspace was reloaded (refused or changed .lw files); try again" }
         end
         return write(ws)
     end, nil, function(fields) ctx.reply(fields) end)
@@ -1531,7 +1531,7 @@ function M.debug_impl(service)
             if tr and tr.sync then tr:sync() end
             if service.host.current() ~= ws then
                 return { outcome = "refused", exit_code = 1,
-                    message = "the workspace was reloaded (refused or changed .nvim files); try again" }
+                    message = "the workspace was reloaded (refused or changed .lw files); try again" }
             end
             local ok, err = ws:set_debug_adapter(args.language, args.adapter)
             if not ok then
@@ -1596,7 +1596,7 @@ function M.lsp_impl(service)
             if tr and tr.sync then tr:sync() end
             if service.host.current() ~= ws then
                 return { outcome = "refused", exit_code = 1,
-                    message = "the workspace was reloaded (refused or changed .nvim files); try again" }
+                    message = "the workspace was reloaded (refused or changed .lw files); try again" }
             end
             local ok, err = ws:set_lsp_option(args.server, args.key, value)
             if not ok then

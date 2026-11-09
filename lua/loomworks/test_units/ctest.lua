@@ -389,14 +389,14 @@ function CTestUnit:_find_exec_spec(test_id)
 end
 
 --- The results file of a structured run: `opts.output_path` (a per-run
---- path, the daemon's `<root>/.nvim/tmp/lw-test-<hex>.xml`), else the build
---- directory's fixed `.nvim/gtest_results.xml`.
+--- path, the daemon's `<root>/.lw/tmp/lw-test-<hex>.xml`), else the build
+--- directory's fixed `.lw/gtest_results.xml`.
 --- @param build_dir string
 --- @param opts table
 --- @return string
 local function results_path(build_dir, opts)
     if type(opts.output_path) == "string" and opts.output_path ~= "" then return opts.output_path end
-    local nvim_dir = build_dir .. "/.nvim"
+    local nvim_dir = build_dir .. "/.lw"
     if not uv.fs_stat(nvim_dir) then
         uv.fs_mkdir(nvim_dir, 493) -- 0755
     end

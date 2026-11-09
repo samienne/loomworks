@@ -129,7 +129,7 @@ describe("the CLI's requests (§19.20)", function()
         root = H.shell_workspace({ profile = true })
         local signed = assert(trust.sign("user", trust.encode({ _meta = { version = 2 }, active_profile = "dev",
             profiles = { dev = { configuration_set = "dev" } } })))
-        write(root .. "/.nvim/loomworks.user.json", signed)
+        write(root .. "/.lw/user.json", signed)
         srv = server_mod.new(root, { exit = function() end, tick_ms = 100 })
         service.attach(srv, cli._daemon_build_host())
         assert(srv:start_attached({ command = "build" }))

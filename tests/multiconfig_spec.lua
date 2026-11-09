@@ -116,7 +116,7 @@ local function make_multiconfig_core(opts)
                     release = { App = "Release" },
                 },
             }),
-            ["loomworks.user.json"] = h.make_user_json({ active_profile = "debug:ninja-clang" }),
+            ["user.json"] = h.make_user_json({ active_profile = "debug:ninja-clang" }),
         },
         {
             modules = { get = function(t) if t == "cmake" then return mock_cmake end return nil end },
@@ -253,7 +253,7 @@ describe("multi-config cmake", function()
                             debug = { App = "Debug", Frontend = "default" },
                         },
                     }),
-                    ["loomworks.user.json"] = h.make_user_json({
+                    ["user.json"] = h.make_user_json({
                         active_profile = "debug",
                         profiles = {
                             debug = { configuration_set = "debug" },
@@ -332,7 +332,7 @@ describe("multi-config cmake", function()
                         projects = { App = { cmake = {} } },
                         configuration_sets = { debug = { App = "Debug" } },
                     }),
-                    ["loomworks.user.json"] = h.make_user_json({ active_profile = "debug" }),
+                    ["user.json"] = h.make_user_json({ active_profile = "debug" }),
                 },
                 {
                     cache = {
@@ -349,7 +349,7 @@ describe("multi-config cmake", function()
                 configuration_key = "Debug",
                 variant = "Debug",
                 success = true,
-                build_dir = "/root/.nvim/build/App/Debug",
+                build_dir = "/root/.lw/build/App/Debug",
             })
             core:record_task_result({
                 project_key = "App",
@@ -371,7 +371,7 @@ describe("multi-config cmake", function()
                 configuration_key = "Debug",
                 variant = "Debug",
                 success = true,
-                build_dir = "/root/.nvim/build/App/Debug",
+                build_dir = "/root/.lw/build/App/Debug",
             })
             core:record_task_result({
                 project_key = "App",
@@ -403,7 +403,7 @@ describe("multi-config cmake", function()
                             release = { App = "Release" },
                         },
                     }),
-                    ["loomworks.user.json"] = h.make_user_json({ active_profile = "debug" }),
+                    ["user.json"] = h.make_user_json({ active_profile = "debug" }),
                 },
                 {
                     cache = {

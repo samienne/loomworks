@@ -1,4 +1,4 @@
---- loomworks/save_guard.lua — concurrent-writer guard for the `.nvim/` state
+--- loomworks/save_guard.lua — concurrent-writer guard for the `.lw/` state
 --- files.
 ---
 --- Several processes write the same working copy and build cache: the editor,

@@ -176,7 +176,7 @@ describe("tests field: shape and resolution (§1.3.4)", function()
         local ws = load(root)
         local p = project(ws, "App")
         assert.is_true(p:get_configuration("Other"):set_test_targets({ { name = "Z" }, { name = "Z", args = { "--z" } } }))
-        local user = read_json(root .. "/.nvim/loomworks.user.json")
+        local user = read_json(root .. "/.lw/user.json")
         local cfgs = user.projects.App.typescript.configurations
         assert.same({ "Z", { "Z", "--z" } }, cfgs.Other.tests)
         assert.is_nil(cfgs.Child.tests)           -- derived: never a copy

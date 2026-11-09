@@ -56,7 +56,7 @@ end
 --- The persisted build state, comparable across two roots.
 local function cache_of(root, key_path)
     local tags = { ["<ROOT>"] = root }
-    local text = read(root .. "/.nvim/loomworks.cache.json")
+    local text = read(root .. "/.lw/cache.json")
     if not text then return nil end
     trust._set_key_path(key_path)
     local status, body = trust.verify("cache", text)
@@ -107,7 +107,7 @@ describe("lw reset through the workspace daemon (real processes)", function()
     local function workspace()
         local root = H.tmp()
         roots[#roots + 1] = root
-        for _, d in ipairs({ "app", "lib", ".nvim" }) do vim.fn.mkdir(root .. "/" .. d, "p") end
+        for _, d in ipairs({ "app", "lib", ".lw" }) do vim.fn.mkdir(root .. "/" .. d, "p") end
         local step = root .. "/step.lua"
         write(step, H.STEP)
         local nv = (vim.v.progpath:gsub("\\", "/"))

@@ -60,11 +60,11 @@ sha_of() {
 # Native path for env vars read by a Windows exe.
 native() { if [ "$os" = windows ]; then cygpath -m "$1"; else printf '%s' "$1"; fi; }
 # The runtime lock of a workspace's daemon: per slot (spec 19.7.1),
-# `.nvim/loomworks.daemon-<S>.lock`, S 16 hex digits of the OS user. The runner
+# `.lw/daemon-<S>.lock` (`.nvim/loomworks.daemon-<S>.lock` before 0.2.0), S 16 hex digits of the OS user. The runner
 # has one user, so the one such file (empty when there is none or several).
 slot_lock() {
-  local m; m=$(ls -1 "$1/.nvim" 2>/dev/null | grep -E '^loomworks\.daemon-[0-9a-f]{16}\.lock$')
-  [ "$(printf '%s\n' "$m" | grep -c .)" = 1 ] && printf '%s/.nvim/%s' "$1" "$m"
+  local m; m=$(ls -1 "$1/.lw" 2>/dev/null | grep -E '^daemon-[0-9a-f]{16}\.lock$')
+  [ "$(printf '%s\n' "$m" | grep -c .)" = 1 ] && printf '%s/.lw/%s' "$1" "$m"
 }
 
 T="$(mktemp -d)"

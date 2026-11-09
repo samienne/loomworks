@@ -37,7 +37,7 @@ local function exists(path) return uv.fs_lstat(path) ~= nil end
 --- A project's Debug persisted cache state (nil when it has no entry or no
 --- state).
 local function cached_state(root, project)
-    local t = read(root .. "/.nvim/loomworks.cache.json")
+    local t = read(root .. "/.lw/cache.json")
     if not t then return nil end
     local data = vim.json.decode(t)
     for _, c in pairs(data.build_dirs or {}) do
@@ -61,7 +61,7 @@ local function workspace(lib_dir, shared)
     -- another spelling (CI's TEMP is an 8.3 short name, `RUNNER~1`), and the
     -- paths this spec compares or plants must be the product's spelling.
     local root = vim.fs.normalize(assert(uv.fs_realpath(H.tmp())))
-    for _, d in ipairs({ "app", "lib", ".nvim" }) do vim.fn.mkdir(root .. "/" .. d, "p") end
+    for _, d in ipairs({ "app", "lib", ".lw" }) do vim.fn.mkdir(root .. "/" .. d, "p") end
     local step = root .. "/step.lua"
     write(step, H.STEP)
     local nv = (vim.v.progpath:gsub("\\", "/"))
@@ -81,7 +81,7 @@ local function workspace(lib_dir, shared)
     local profiles = { dev = { configuration_set = "dev" } }
     if shared then profiles.rel = { configuration_set = "rel" } end
     local signed = trust.sign("user", trust.encode({ _meta = { version = 2 }, profiles = profiles }))
-    write(root .. "/.nvim/loomworks.user.json", signed)
+    write(root .. "/.lw/user.json", signed)
     return root
 end
 

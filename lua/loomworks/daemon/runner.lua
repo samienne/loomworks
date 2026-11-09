@@ -361,7 +361,7 @@ function M.run(svc, ctx)
 
     -- The current workspace/profile still the ones this run runs in?
     local function current()
-        if svc.ws ~= ws then return false, "the workspace was unloaded (refused or reloaded .nvim files)" end
+        if svc.ws ~= ws then return false, "the workspace was unloaded (refused or reloaded .lw files)" end
         if profile and profile._removed then return false, "profile '" .. profile.key .. "' was removed" end
         for _, u in ipairs(units_scope or {}) do
             if u._removed then return false, "configuration unit " .. build_run.units_label({ u }) .. " was removed" end

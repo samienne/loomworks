@@ -46,7 +46,7 @@ local function make_root()
 end
 
 local function load(root) return assert(cli._load_workspace(root, false)) end
-local function user_json(root) return read_json(root .. "/.nvim/loomworks.user.json") end
+local function user_json(root) return read_json(root .. "/.lw/user.json") end
 
 local function read_signed(path, kind)
   local text = assert(io_mod.read_file(path))
@@ -458,7 +458,7 @@ describe("model_commands", function()
     it("add / update refuse a removed project or configuration in the mappings, writing nothing", function()
       local dev = find(ws._config_sets, "name", "Dev")
       local cfg = app:get_configuration("Debug")
-      local path = root .. "/.nvim/loomworks.user.json"
+      local path = root .. "/.lw/user.json"
       local function text() local f = assert(io.open(path, "r")); local c = f:read("*a"); f:close(); return c end
       local before = text()
       -- An external change removed App's configuration while the editor
@@ -601,9 +601,9 @@ describe("model_commands.nuke", function()
       self.checked[#self.checked + 1] = { root, opts }
       return check()
     end
-    function core:_nuke_lock_dirs() return { { key = "/w/.nvim/build/a" } } end
+    function core:_nuke_lock_dirs() return { { key = "/w/.lw/build/a" } } end
     function core:nuke_targets(root, areas)
-      local t = { root .. "/.nvim/build/" }
+      local t = { root .. "/.lw/build/" }
       for _, a in ipairs(areas or {}) do t[#t + 1] = a .. "/" end
       return t
     end
@@ -616,11 +616,11 @@ describe("model_commands.nuke", function()
     local r = mc.nuke(core, "/w", nil, false)
     assert.same({ "refused", "cannot nuke: held by lw build (pid 7)" }, { r.outcome, r.message })
     assert.same({ { "/w", { skip_own = true } } }, core.checked)
-    core = fake_core(function() return true, nil, { "/w/.nvim/cache/cc" } end)
+    core = fake_core(function() return true, nil, { "/w/.lw/cache/cc" } end)
     local c = mc.nuke(core, "/w", nil, false)
     assert.equals("confirm", c.outcome)
-    assert.same({ mc.NUKE_HEADER, "  /w/.nvim/build/", "  /w/.nvim/cache/cc/" }, c.lines)
-    assert.equals(mc.nuke_plan(core, "/w", { "/w/.nvim/cache/cc" }).token, c.plan)
+    assert.same({ mc.NUKE_HEADER, "  /w/.lw/build/", "  /w/.lw/cache/cc/" }, c.lines)
+    assert.equals(mc.nuke_plan(core, "/w", { "/w/.lw/cache/cc" }).token, c.plan)
     r = mc.nuke(core, "/w", "stale", true)
     assert.same({ "refused", require("loomworks.deletion_plan").CHANGED }, { r.outcome, r.message })
     assert.same({}, core.nuked)
@@ -657,27 +657,27 @@ describe("model_commands.nuke", function()
   end
   local function exists(p) return (vim.uv or vim.loop).fs_lstat(p) ~= nil end
 
-  it("runs a confirmed plan when the live workspace has a unit under .nvim/build", function()
+  it("runs a confirmed plan when the live workspace has a unit under .lw/build", function()
     local root = tmp_root()
     touch(root .. "/loomworks.json", "{}")
-    touch(root .. "/.nvim/build/App/Debug/CMakeCache.txt")
+    touch(root .. "/.lw/build/App/Debug/CMakeCache.txt")
     local core = real_core()
-    core._workspace = { _config_units = { { build_dir_value = root .. "/.nvim/build/App/Debug" } } }
+    core._workspace = { _config_units = { { build_dir_value = root .. "/.lw/build/App/Debug" } } }
     local c = mc.nuke(core, root, nil, false)
     assert.equals("confirm", c.outcome)
     local r = mc.nuke(core, root, c.plan, true)
     assert.equals("ok", r.outcome, tostring(r.message))
-    assert.is_false(exists(root .. "/.nvim/build/App/Debug/CMakeCache.txt"))
+    assert.is_false(exists(root .. "/.lw/build/App/Debug/CMakeCache.txt"))
     vim.fn.delete(root, "rf")
   end)
 
   it("refuses a confirmed plan when a build dir appears while the workspace is retired", function()
     local root = tmp_root()
     touch(root .. "/loomworks.json", "{}")
-    touch(root .. "/.nvim/build/App/Debug/CMakeCache.txt")
+    touch(root .. "/.lw/build/App/Debug/CMakeCache.txt")
     local core = real_core()
     core._workspace = {
-      _config_units = { { build_dir_value = root .. "/.nvim/build/App/Debug" } },
+      _config_units = { { build_dir_value = root .. "/.lw/build/App/Debug" } },
       -- Retirement pumps the event loop: a lockfile appears meanwhile.
       -- (A dead holder's record on this host: reclaimed, so the nuke would
       -- otherwise run and remove a directory that was never listed.)
@@ -685,27 +685,27 @@ describe("model_commands.nuke", function()
         local lr = require("loomworks.lock_record")
         local rec = lr.new("build")
         rec.pid, rec.start_time = 2147483000, "1"
-        vim.fn.mkdir(root .. "/.nvim/build/New", "p")
-        assert(lr.create(root .. "/.nvim/build/New/Rel.loomworks-lock", rec))
+        vim.fn.mkdir(root .. "/.lw/build/New", "p")
+        assert(lr.create(root .. "/.lw/build/New/Rel.loomworks-lock", rec))
       end,
     }
     local c = mc.nuke(core, root, nil, false)
     assert.equals("confirm", c.outcome)
     local r = mc.nuke(core, root, c.plan, true)
     assert.same({ "refused", require("loomworks.deletion_plan").CHANGED }, { r.outcome, r.message })
-    assert.is_true(exists(root .. "/.nvim/build/App/Debug/CMakeCache.txt"))
+    assert.is_true(exists(root .. "/.lw/build/App/Debug/CMakeCache.txt"))
     vim.fn.delete(root, "rf")
   end)
 
   it("releases the locks and refuses when the under-lock check throws", function()
     local root = tmp_root()
     touch(root .. "/loomworks.json", "{}")
-    touch(root .. "/.nvim/build/App/Debug/CMakeCache.txt")
+    touch(root .. "/.lw/build/App/Debug/CMakeCache.txt")
     local core = real_core()
     local ran, msg = core:nuke_cache(root, { quiet = true, check = function() error("boom") end })
     assert.is_false(ran)
     assert.matches("boom", tostring(msg))
-    assert.is_true(exists(root .. "/.nvim/build/App/Debug/CMakeCache.txt"))
+    assert.is_true(exists(root .. "/.lw/build/App/Debug/CMakeCache.txt"))
     -- The locks were released: a check takes them again.
     assert.is_true(core:nuke_check(root))
     vim.fn.delete(root, "rf")

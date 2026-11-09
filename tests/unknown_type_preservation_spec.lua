@@ -161,8 +161,8 @@ for _, v in ipairs(variants()) do
     it("the user.json working copy round-trips it on an unrelated save", function()
       local root = make_ws(type_id)
       -- The project lives in user.json too (its working copy).
-      vim.fn.mkdir(root .. "/.nvim", "p")
-      local f = assert(io.open(root .. "/.nvim/loomworks.user.json", "wb"))
+      vim.fn.mkdir(root .. "/.lw", "p")
+      local f = assert(io.open(root .. "/.lw/user.json", "wb"))
       local trust = require("loomworks.trust")
       local text, err = trust.sign("user", trust.encode({
         _meta = { version = 2 },
@@ -174,7 +174,7 @@ for _, v in ipairs(variants()) do
       f:close()
       -- An unrelated mutation rewrites user.json.
       ok(run_main(root, "project", "describe", "App", "the app"), "project describe")
-      local u = read_json(root .. "/.nvim/loomworks.user.json")
+      local u = read_json(root .. "/.lw/user.json")
       assert_odd_preserved(u.projects and u.projects.odd, type_id, "user.json")
       assert.same({ odd = "Fast" }, u.configuration_sets and u.configuration_sets.S,
         "user.json configuration set S")

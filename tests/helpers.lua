@@ -333,9 +333,9 @@ function M.make_mock_workspace(overrides)
         local tool_id = tool_data and (tool_data.id or tool_data.compiler_id) or nil
         local abs_path
         if tool_id then
-            abs_path = self_ws.root .. "/.nvim/build/" .. project.key .. "/" .. tool_id .. "/" .. variant
+            abs_path = self_ws.root .. "/.lw/build/" .. project.key .. "/" .. tool_id .. "/" .. variant
         else
-            abs_path = self_ws.root .. "/.nvim/build/" .. project.key .. "/" .. variant
+            abs_path = self_ws.root .. "/.lw/build/" .. project.key .. "/" .. variant
         end
         local rel_key = cache_mod_h.relative_build_dir(abs_path, self_ws.root)
         return rel_key, abs_path
@@ -731,7 +731,7 @@ function M.make_mock_core(overrides)
     return M.make_mock_workspace(ws_overrides)
 end
 
---- A `trust` dependency that treats every `.nvim` file as signed by this
+--- A `trust` dependency that treats every `.lw` file as signed by this
 --- machine (for unit tests whose fixtures are unsigned JSON strings).
 M.trust_all = {
     verify = function(_, text) return "valid", text end,

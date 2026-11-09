@@ -61,10 +61,10 @@ local function make_core(config_overrides, user_overrides, cache_overrides, dep_
         ["loomworks.json"] = h.make_config_json(config_overrides),
     }
     if user_overrides then
-        files["loomworks.user.json"] = h.make_user_json(user_overrides)
+        files["user.json"] = h.make_user_json(user_overrides)
     end
     if cache_overrides then
-        files["loomworks.cache.json"] = h.make_cache_json(cache_overrides)
+        files["cache.json"] = h.make_cache_json(cache_overrides)
     end
 
     -- Auto-derive detect_tools_async from merge.detect_tools if available
@@ -311,7 +311,7 @@ describe("Core", function()
                 unit = unit,
                 action = "configure",
                 success = true,
-                build_dir = "/root/.nvim/build/App/Debug",
+                build_dir = "/root/.lw/build/App/Debug",
             })
             assert.is_not_nil(saved_cache)
             local cached = saved_cache.build_dirs["build/App/Debug"]
@@ -769,7 +769,7 @@ describe("Core", function()
             core:setup({ root = "/root" })
 
             local new_user = h.make_user_json({ active_profile = "debug" })
-            core._workspace:_on_file_changed("/root/.nvim/loomworks.user.json", new_user)
+            core._workspace:_on_file_changed("/root/.lw/user.json", new_user)
             assert.equals("debug", core._workspace._active_profile_key)
         end)
 
@@ -790,7 +790,7 @@ describe("Core", function()
                     },
                 },
             })
-            core._workspace:_on_file_changed("/root/.nvim/loomworks.cache.json", new_cache)
+            core._workspace:_on_file_changed("/root/.lw/cache.json", new_cache)
             assert.is_not_nil(core._workspace:_serialize_cache().build_dirs["build/App/development"])
         end)
 
@@ -940,7 +940,7 @@ describe("Core", function()
             end
 
             local new_user = h.make_user_json({ active_profile = "debug" })
-            core._workspace:_on_file_changed("/root/.nvim/loomworks.user.json", new_user)
+            core._workspace:_on_file_changed("/root/.lw/user.json", new_user)
 
             local found = false
             for _, e in ipairs(deps._events_log) do
@@ -969,7 +969,7 @@ describe("Core", function()
                     },
                 },
             })
-            core._workspace:_on_file_changed("/root/.nvim/loomworks.cache.json", new_cache)
+            core._workspace:_on_file_changed("/root/.lw/cache.json", new_cache)
 
             local found = false
             for _, e in ipairs(deps._events_log) do
@@ -987,7 +987,7 @@ describe("Core", function()
             assert.equals("debug", core._workspace._active_profile_key)
 
             -- Simulate user file being deleted (nil content)
-            core._workspace:_on_file_changed("/root/.nvim/loomworks.user.json", nil)
+            core._workspace:_on_file_changed("/root/.lw/user.json", nil)
 
             assert.is_nil(core._workspace._active_profile_key)
         end)
@@ -1014,7 +1014,7 @@ describe("Core", function()
             assert.is_not_nil(core._workspace:_serialize_cache().build_dirs["build/App/development"])
 
             -- Simulate cache file being deleted (nil content)
-            core._workspace:_on_file_changed("/root/.nvim/loomworks.cache.json", nil)
+            core._workspace:_on_file_changed("/root/.lw/cache.json", nil)
 
             -- Cache should be reset to default (empty build_dirs)
             assert.same({}, core._workspace:_serialize_cache().build_dirs)
@@ -1513,7 +1513,7 @@ describe("Core", function()
                             variant = "development",
                             type = "typescript",
                             state = "configured",
-                            build_dir = "/root/.nvim/build/App/development",
+                            build_dir = "/root/.lw/build/App/development",
                         },
                     },
                 }
@@ -1523,7 +1523,7 @@ describe("Core", function()
             assert.equals(1, #plan.items)
             assert.is_not_nil(plan.items[1].unit)
             assert.equals("App", plan.items[1].unit._project.key)
-            assert.equals("/root/.nvim/build/App/development", plan.items[1].build_dir)
+            assert.equals("/root/.lw/build/App/development", plan.items[1].build_dir)
             -- Profile still references it, so disposition is "reset"
             assert.equals("reset", plan.items[1].disposition)
             assert.is_true(plan.defined_in_config)
@@ -1558,7 +1558,7 @@ describe("Core", function()
                             config_key = "Debug:ninja-gcc", variant = "Debug",
                             type = "cmake",
                             state = "built",
-                            build_dir = "/root/.nvim/build/App/Debug",
+                            build_dir = "/root/.lw/build/App/Debug",
                             tool_key = "ninja-gcc",
                         },
                     },
@@ -1598,7 +1598,7 @@ describe("Core", function()
                             variant = "development",
                             type = "typescript",
                             state = "built",
-                            build_dir = "/root/.nvim/build/App/development",
+                            build_dir = "/root/.lw/build/App/development",
                         },
                     },
                 }
@@ -1662,7 +1662,7 @@ describe("Core", function()
                 { notify = function() end }
             )
             core:setup({ root = "/root" })
-            assert.is_true(core:_validate_build_dir("/root/.nvim/build/App", "/root"))
+            assert.is_true(core:_validate_build_dir("/root/.lw/build/App", "/root"))
             assert.is_true(core:_validate_build_dir("/root/build/Debug", "/root"))
         end)
     end)
@@ -2097,7 +2097,7 @@ describe("Core", function()
                             variant = "production",
                             type = "typescript",
                             state = "built",
-                            build_dir = "/root/.nvim/build/App/production",
+                            build_dir = "/root/.lw/build/App/production",
                         },
                     },
                 },
@@ -2197,7 +2197,7 @@ describe("Core", function()
                             variant = "feature-config",
                             type = "typescript",
                             state = "built",
-                            build_dir = "/root/.nvim/build/App/feature-config",
+                            build_dir = "/root/.lw/build/App/feature-config",
                         },
                     },
                 }
@@ -2238,7 +2238,7 @@ describe("Core", function()
                             variant = "feature-config",
                             type = "typescript",
                             state = "built",
-                            build_dir = "/root/.nvim/build/App/feature-config",
+                            build_dir = "/root/.lw/build/App/feature-config",
                         },
                     },
                 },
@@ -2645,12 +2645,12 @@ describe("Core", function()
                 unit = unit,
                 action = "configure",
                 success = true,
-                build_dir = "/root/.nvim/build/App/development",
+                build_dir = "/root/.lw/build/App/development",
             })
             -- In v7, build_dir is the cache key, not a stored field
             assert.is_not_nil(get_cache().build_dirs["build/App/development"])
             -- ConfigUnit still tracks the absolute build_dir
-            assert.equals("/root/.nvim/build/App/development", unit:build_dir())
+            assert.equals("/root/.lw/build/App/development", unit:build_dir())
         end)
 
         it("records module_info data from result", function()
@@ -2660,9 +2660,9 @@ describe("Core", function()
                 unit = unit,
                 action = "configure",
                 success = true,
-                module_info = { compile_commands_dir = "/root/.nvim/build/App/development" },
+                module_info = { compile_commands_dir = "/root/.lw/build/App/development" },
             })
-            assert.equals("/root/.nvim/build/App/development",
+            assert.equals("/root/.lw/build/App/development",
                 get_cache().build_dirs["build/App/development"].module_info.compile_commands_dir)
         end)
 
@@ -2747,12 +2747,12 @@ describe("Core", function()
                 action = "configure",
                 variant = "Debug",
                 success = true,
-                build_dir = "/root/.nvim/build/App/Debug",
+                build_dir = "/root/.lw/build/App/Debug",
                 cmake = { generator = "Ninja" },
             })
 
             assert.is_true(parse_called, "parse_targets should be called")
-            assert.equals("/root/.nvim/build/App/Debug", parse_args.build_dir)
+            assert.equals("/root/.lw/build/App/Debug", parse_args.build_dir)
             assert.equals("Debug", parse_args.config_name)
 
             -- Targets should be stored on ConfigUnit (not in cache)
@@ -2792,7 +2792,7 @@ describe("Core", function()
                 unit = unit,
                 action = "configure",
                 success = false,
-                build_dir = "/root/.nvim/build/App/Debug",
+                build_dir = "/root/.lw/build/App/Debug",
             })
 
             assert.is_false(parse_called, "parse_targets should not be called on failure")
@@ -2828,7 +2828,7 @@ describe("Core", function()
                 unit = unit,
                 action = "build",
                 success = true,
-                build_dir = "/root/.nvim/build/App/Debug",
+                build_dir = "/root/.lw/build/App/Debug",
             })
 
             assert.is_false(parse_called, "parse_targets should not be called for build")
@@ -2970,7 +2970,7 @@ describe("Core", function()
                             variant = "Debug",
                             type = "cmake",
                             state = "configured",
-                            build_dir = "/root/.nvim/build/App/Debug",
+                            build_dir = "/root/.lw/build/App/Debug",
                         },
                     },
                 },
@@ -3002,7 +3002,7 @@ describe("Core", function()
             assert.equals(1, #options)
             assert.equals("Project Options", options[1].label)
             assert.equals("BUILD_TESTING", options[1].children[1].key)
-            assert.equals("/root/.nvim/build/App/Debug", options_args.build_dir)
+            assert.equals("/root/.lw/build/App/Debug", options_args.build_dir)
         end)
 
         it("returns options even for unconfigured unit (build_dir is deterministic)", function()
@@ -3045,7 +3045,7 @@ describe("Core", function()
                             variant = "Debug",
                             type = "cmake",
                             state = "configured",
-                            build_dir = "/root/.nvim/build/App/Debug",
+                            build_dir = "/root/.lw/build/App/Debug",
                         },
                     },
                 },
@@ -3074,7 +3074,7 @@ describe("Core", function()
             -- Provide a cache file with wrong version
             local files = {
                 ["loomworks.json"] = h.make_config_json(),
-                ["loomworks.cache.json"] = vim.json.encode({
+                ["cache.json"] = vim.json.encode({
                     _meta = { version = 1, loomworks_hash = "", cached_at = "" },
                     configurations = {},
                 }),
@@ -3137,7 +3137,7 @@ describe("Core", function()
             -- Build dir entry missing project_key
             local files = {
                 ["loomworks.json"] = h.make_config_json(),
-                ["loomworks.cache.json"] = vim.json.encode({
+                ["cache.json"] = vim.json.encode({
                     _meta = { version = 8, loomworks_hash = "", cached_at = "" },
                     build_dirs = {
                         ["build/App/Debug"] = { variant = "Debug" },  -- missing project_key
@@ -3183,7 +3183,7 @@ describe("Core", function()
         local function make_invalid_projects_core(dep_overrides)
             local files = {
                 ["loomworks.json"] = h.make_config_json(),
-                ["loomworks.user.json"] = vim.json.encode({
+                ["user.json"] = vim.json.encode({
                     _meta = { version = 2 },
                     projects = { app = { cmake = vim.empty_dict(), intent = "shared" } },
                 }),
@@ -3213,7 +3213,7 @@ describe("Core", function()
         local function make_user_mismatch_core(dep_overrides)
             local files = {
                 ["loomworks.json"] = h.make_config_json(),
-                ["loomworks.user.json"] = vim.json.encode({
+                ["user.json"] = vim.json.encode({
                     _meta = { version = 0 }, -- an OLDER unsupported schema (newer: spec §2.7)
                     active_profile = "debug",
                 }),
@@ -3254,7 +3254,7 @@ describe("Core", function()
             local deleted = {}
             local files = {
                 ["loomworks.json"] = h.make_config_json(),
-                ["loomworks.user.json"] = vim.json.encode({
+                ["user.json"] = vim.json.encode({
                     _meta = { version = 999 },
                     active_profile = "debug",
                 }),
@@ -3264,7 +3264,7 @@ describe("Core", function()
                     rm_rf = function(path)
                         deleted[#deleted + 1] = path
                         -- Remove from mock filesystem so reload doesn't find it
-                        files["loomworks.user.json"] = nil
+                        files["user.json"] = nil
                         return true
                     end,
                 },
@@ -3303,11 +3303,11 @@ describe("Core", function()
             local found_cache = false
             local found_bak = false
             for _, p in ipairs(deleted) do
-                if p:match("/%.nvim/build$") then found_build = true end
-                if p:match("loomworks%.cache%.json$") then found_cache = true end
-                if p:match("loomworks%.cache%.json%.bak$") then found_bak = true end
+                if p:match("/%.lw/build$") then found_build = true end
+                if p:match("/%.lw/cache%.json$") then found_cache = true end
+                if p:match("/%.lw/cache%.json%.bak$") then found_bak = true end
             end
-            assert.is_true(found_build, "should delete .nvim/build")
+            assert.is_true(found_build, "should delete .lw/build")
             assert.is_true(found_cache, "should delete cache file")
             assert.is_true(found_bak, "should delete cache backup")
         end)
@@ -3320,7 +3320,7 @@ describe("Core", function()
             assert.is_not_nil(core:get_workspace())
         end)
 
-        it("refuses to delete paths outside .nvim/", function()
+        it("refuses to delete paths outside .lw/", function()
             local notifications = {}
             local deleted = {}
             local core = make_core(nil, nil, nil, {
@@ -3329,7 +3329,7 @@ describe("Core", function()
                     rm_rf = function(path) deleted[#deleted + 1] = path; return true end,
                 },
                 cache = {
-                    -- Return a path outside .nvim/ to test safety check
+                    -- Return a path outside .lw/ to test safety check
                     filepath = function() return "/somewhere/else/cache.json" end,
                 },
             })
@@ -3392,29 +3392,29 @@ describe("Core", function()
     end)
 
     describe("_safe_nvim_path", function()
-        it("accepts paths under root/.nvim/", function()
+        it("accepts paths under root/.lw/", function()
             local core = make_core()
             core:setup({ root = "/test" })
-            assert.is_true(core:_safe_nvim_path("/test/.nvim/build", "/test"))
-            assert.is_true(core:_safe_nvim_path("/test/.nvim/loomworks.cache.json", "/test"))
-            assert.is_true(core:_safe_nvim_path("/test/.nvim/loomworks.cache.json.bak", "/test"))
+            assert.is_true(core:_safe_nvim_path("/test/.lw/build", "/test"))
+            assert.is_true(core:_safe_nvim_path("/test/.lw/cache.json", "/test"))
+            assert.is_true(core:_safe_nvim_path("/test/.lw/cache.json.bak", "/test"))
         end)
 
-        it("accepts the .nvim directory itself", function()
+        it("accepts the .lw directory itself", function()
             local core = make_core()
             core:setup({ root = "/test" })
-            assert.is_true(core:_safe_nvim_path("/test/.nvim", "/test"))
+            assert.is_true(core:_safe_nvim_path("/test/.lw", "/test"))
         end)
 
-        it("rejects paths outside .nvim/", function()
+        it("rejects paths outside .lw/", function()
             local core = make_core()
             core:setup({ root = "/test" })
             assert.is_false(core:_safe_nvim_path("/test/src/main.cpp", "/test"))
-            assert.is_false(core:_safe_nvim_path("/other/project/.nvim/build", "/test"))
+            assert.is_false(core:_safe_nvim_path("/other/project/.lw/build", "/test"))
             assert.is_false(core:_safe_nvim_path("/test/.nvim-fake/build", "/test"))
         end)
 
-        -- Directory traversal (e.g. /test/.nvim/../secret) is handled by
+        -- Directory traversal (e.g. /test/.lw/../secret) is handled by
         -- vim.fs.normalize which resolves ".." before the prefix check runs.
         -- Not tested here because the test mock doesn't resolve "..".
     end)

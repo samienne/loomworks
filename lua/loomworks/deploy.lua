@@ -572,7 +572,7 @@ end
 ---   "invalid" — not an absolute, traversal-free path to a regular file
 ---               (relative, `.`/`..`, a directory, a link, missing): dropped
 ---               without touching disk.
---- @param dest any record key (from loomworks.cache.json — untrusted)
+--- @param dest any record key (from cache.json — untrusted)
 --- @param root string|nil absolute workspace root
 --- @param normalize fun(p: string): string comparison normalizer
 --- @return "remove"|"outside"|"invalid"

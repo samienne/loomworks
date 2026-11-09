@@ -27,7 +27,7 @@ local function read_json(path)
   return vim.json.decode(c)
 end
 
-local function user_json(root) return read_json(root .. "/.nvim/loomworks.user.json") end
+local function user_json(root) return read_json(root .. "/.lw/user.json") end
 
 --- Workspace: typescript App with a user Debug config, a Dev set and two
 --- profiles (Dev + Dev2 over the same set via --shared/--local variants are

@@ -2,7 +2,7 @@
 --- `lsp_database_root` / `lsp_database_dir`).
 ---
 --- A module that owns an LSP database (e.g. cmake's generated
---- compile_commands.json) keeps it under `<root>/.nvim/cache/<area>/…`, a
+--- compile_commands.json) keeps it under `<root>/.lw/cache/<area>/…`, a
 --- mirror derived from a build directory. This file holds the pure-ish path
 --- checks (no deletion itself): callers delete only what these functions
 --- approve, with the link-safe `io.rm_rf` / `io.rm_rf_async`.
@@ -11,12 +11,12 @@
 ---   * nil / empty root, area segment or mirror → nothing to remove;
 ---   * the area segment is one plain path segment (no separators, not `.`
 ---     or `..`, no drive colon);
----   * the mirror lies STRICTLY inside `<root>/.nvim/cache/<area>/`
+---   * the mirror lies STRICTLY inside `<root>/.lw/cache/<area>/`
 ---     (normalized, separator-bounded) and has no `.` / `..` segment;
----   * `.nvim`, `.nvim/cache`, the area dir, every directory between the area
+---   * `.lw`, `.lw/cache`, the area dir, every directory between the area
 ---     and the mirror, and the mirror itself are real directories (lstat: a
 ---     symlink or junction refuses), and the mirror's realpath lies strictly
----     under the realpath of the area `<root>/.nvim/cache/<area>`
+---     under the realpath of the area `<root>/.lw/cache/<area>`
 ---     (separator-bounded, normalized);
 ---   * on Windows, no segment ends in "." or " " (Win32 trims them, so
 ---     `App/.. ` would name the area itself).
@@ -109,10 +109,10 @@ local function real(p, normalize)
     return normalize(slash(rp))
 end
 
---- Check `.nvim` and `.nvim/cache` (and the area dir) are real directories.
+--- Check `.lw` and `.lw/cache` (and the area dir) are real directories.
 --- @return "ok"|"absent"|nil status, string|nil reason
 local function check_parents(root, seg)
-    for _, p in ipairs({ root .. "/.nvim", root .. "/.nvim/cache", root .. "/.nvim/cache/" .. seg }) do
+    for _, p in ipairs({ root .. "/.lw", root .. "/.lw/cache", root .. "/.lw/cache/" .. seg }) do
         local k = kind(p)
         if k == "absent" then return "absent" end
         if k ~= "dir" then return nil, p .. " is a link or not a directory" end
@@ -122,8 +122,8 @@ end
 
 --- Check a module's whole owned-database area for the nuke: the target must
 --- be exactly the direct child
---- `<root>/.nvim/cache/<seg>` and neither it, `.nvim/cache` nor `.nvim` may be
---- a link or junction; its realpath must lie under `.nvim`'s.
+--- `<root>/.lw/cache/<seg>` and neither it, `.lw/cache` nor `.lw` may be
+--- a link or junction; its realpath must lie under `.lw`'s.
 --- @param root string|nil absolute workspace root
 --- @param seg string|nil the module's `lsp_database_root`
 --- @param normalize? fun(p: string): string
@@ -138,12 +138,12 @@ function M.check_area(root, seg, normalize)
     if not is_absolute(root) or has_dot_segment(root) then
         return nil, "workspace root is not a plain absolute path: " .. root
     end
-    local area = root .. "/.nvim/cache/" .. seg
+    local area = root .. "/.lw/cache/" .. seg
     local st, why = check_parents(root, seg)
     if st ~= "ok" then return st, why end
-    local rnvim, rarea = real(root .. "/.nvim", normalize), real(area, normalize)
+    local rnvim, rarea = real(root .. "/.lw", normalize), real(area, normalize)
     if not rnvim or not rarea or not strictly_under(rarea, rnvim) then
-        return nil, area .. " does not resolve inside " .. root .. "/.nvim"
+        return nil, area .. " does not resolve inside " .. root .. "/.lw"
     end
     return "ok", area
 end
@@ -178,12 +178,12 @@ function M.check_mirror(root, seg, mirror, normalize)
         return nil, "refusing owned LSP database path with a relative, '.'/'..' or"
             .. " trailing-dot/space segment: " .. mirror
     end
-    local area = root .. "/.nvim/cache/" .. seg
+    local area = root .. "/.lw/cache/" .. seg
     local n_area, n_mirror = normalize(area), normalize(raw)
     if has_dot_segment(n_mirror) or not strictly_under(n_mirror, n_area) then
         return nil, "refusing owned LSP database path outside " .. area .. "/: " .. mirror
     end
-    -- Rule 5: no links anywhere from .nvim down to the mirror.
+    -- Rule 5: no links anywhere from .lw down to the mirror.
     local st, why = check_parents(root, seg)
     if st ~= "ok" then return st, why end
     -- Walk area → mirror one segment at a time (lstat each). The tail comes
@@ -199,8 +199,8 @@ function M.check_mirror(root, seg, mirror, normalize)
         if k ~= "dir" then return nil, cur .. " is a link or not a directory" end
     end
     -- The mirror must resolve strictly inside the area's own realpath (not
-    -- merely inside .nvim): removing it may never take the area, a sibling
-    -- area, or anything else under .nvim with it.
+    -- merely inside .lw): removing it may never take the area, a sibling
+    -- area, or anything else under .lw with it.
     local rarea, rmirror = real(area, normalize), real(cur, normalize)
     if not rarea or not rmirror or not strictly_under(rmirror, rarea) then
         return nil, cur .. " does not resolve inside " .. area

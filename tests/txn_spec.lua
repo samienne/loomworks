@@ -25,8 +25,8 @@ local function crash(root, step)
 end
 
 local function snapshot(root)
-    return { user = L.read(root .. "/.nvim/loomworks.user.json"),
-        cache = L.read(root .. "/.nvim/loomworks.cache.json") }
+    return { user = L.read(root .. "/.lw/user.json"),
+        cache = L.read(root .. "/.lw/cache.json") }
 end
 
 --- Which state the two files are in relative to `before` (the rename rewrites
@@ -52,7 +52,7 @@ local function recover(root)
     return line
 end
 
-local function journal(root) return root .. "/.nvim/loomworks.txn.json" end
+local function journal(root) return root .. "/.lw/txn.json" end
 
 describe("multi-file commit (§19.4)", function()
     after_each(function() L.cleanup(); op_lock.release_all() end)
@@ -105,7 +105,7 @@ describe("multi-file commit (§19.4)", function()
         local r = L.capture(function() cli._load_workspace(root, false) end)
         assert.is_nil(r.exit_code, r.stderr)
         assert.is_truthy(r.stderr:find("completed an interrupted rename (pid ", 1, true), r.stderr)
-        assert.is_truthy(r.stderr:find(".nvim/loomworks.user.json, .nvim/loomworks.cache.json", 1, true),
+        assert.is_truthy(r.stderr:find(".lw/user.json, .lw/cache.json", 1, true),
             r.stderr)
         assert.is_nil(uv.fs_stat(journal(root)))
         local ws = cli._load_workspace(root, false)
@@ -117,11 +117,11 @@ describe("multi-file commit (§19.4)", function()
     it("a target changed by a writer that ignores the journal refuses the workspace; unlock --journal clears it", function()
         local root = L.make_ws()
         assert.equals(77, crash(root, "journal"))
-        local p = root .. "/.nvim/loomworks.user.json"
+        local p = root .. "/.lw/user.json"
         local f = assert(io.open(p, "ab")); f:write("\n"); f:close() -- an older version rewrote it
         local r = L.capture(function() cli._load_workspace(root, false) end)
         assert.equals(1, r.exit_code)
-        assert.is_truthy(r.stderr:find("loomworks.txn.json", 1, true), r.stderr)
+        assert.is_truthy(r.stderr:find("txn.json", 1, true), r.stderr)
         assert.is_truthy(r.stderr:find("lw unlock --journal", 1, true), r.stderr)
         assert.is_not_nil(uv.fs_stat(journal(root)), "nothing is touched on refusal")
         r = L.capture(function() cli.cmd_unlock(nil, { "unlock", "--journal" }, root) end)
@@ -144,18 +144,18 @@ describe("multi-file commit (§19.4)", function()
 
     it("stray staged files are only ever exact `<workspace file>.txn-<hex>` names", function()
         local root = L.make_ws()
-        local nvim = root .. "/.nvim/"
-        for _, n in ipairs({ "loomworks.user.json.txn-1a2b", "loomworks.cache.json.txn-ff",
-                "other.json.txn-12", "loomworks.user.json.txn-xyz", "loomworks.user.json.txn-12.keep" }) do
+        local nvim = root .. "/.lw/"
+        for _, n in ipairs({ "user.json.txn-1a2b", "cache.json.txn-ff",
+                "other.json.txn-12", "user.json.txn-xyz", "user.json.txn-12.keep" }) do
             local f = assert(io.open(nvim .. n, "wb")); f:write("x"); f:close()
         end
         local tok = assert(op_lock.acquire(root, "test"))
         op_lock.release(tok)
-        assert.is_nil(uv.fs_stat(nvim .. "loomworks.user.json.txn-1a2b"))
-        assert.is_nil(uv.fs_stat(nvim .. "loomworks.cache.json.txn-ff"))
+        assert.is_nil(uv.fs_stat(nvim .. "user.json.txn-1a2b"))
+        assert.is_nil(uv.fs_stat(nvim .. "cache.json.txn-ff"))
         assert.is_not_nil(uv.fs_stat(nvim .. "other.json.txn-12"))
-        assert.is_not_nil(uv.fs_stat(nvim .. "loomworks.user.json.txn-xyz"))
-        assert.is_not_nil(uv.fs_stat(nvim .. "loomworks.user.json.txn-12.keep"))
+        assert.is_not_nil(uv.fs_stat(nvim .. "user.json.txn-xyz"))
+        assert.is_not_nil(uv.fs_stat(nvim .. "user.json.txn-12.keep"))
     end)
 
     it("a journal whose writer still holds the operation lock is a commit in progress: busy", function()
@@ -184,7 +184,7 @@ describe("review fixes (§19.4)", function()
     it("a refused journal names `lw unlock --journal` as its remedy, never nuke (which cannot run)", function()
         local root = L.make_ws()
         assert.equals(77, crash(root, "journal"))
-        local f = assert(io.open(root .. "/.nvim/loomworks.user.json", "ab")); f:write("\n"); f:close()
+        local f = assert(io.open(root .. "/.lw/user.json", "ab")); f:write("\n"); f:close()
         local r = L.capture(function() cli._load_workspace(root, false) end)
         assert.equals(1, r.exit_code)
         assert.is_truthy(r.stderr:find("lw unlock --journal", 1, true), r.stderr)
@@ -196,34 +196,34 @@ describe("review fixes (§19.4)", function()
     it("a guarded operation that reports failure commits none of its writes", function()
         local root = L.make_ws()
         local ws = cli._load_workspace(root, false)
-        local before = L.read(root .. "/.nvim/loomworks.user.json")
+        local before = L.read(root .. "/.lw/user.json")
         local cls = {}
         function cls.go(w)
             -- a write the operation made before it failed
-            assert(require("loomworks.io").write_file_atomic(w.root .. "/.nvim/loomworks.user.json", "{}\n"))
+            assert(require("loomworks.io").write_file_atomic(w.root .. "/.lw/user.json", "{}\n"))
             return false, "refused after writing"
         end
         op_lock.guard(cls, "go", "test", function(w) return w end)
         local ok = cls.go(ws)
         assert.equals(false, ok)
-        assert.equals(before, L.read(root .. "/.nvim/loomworks.user.json"), "a failed operation committed")
+        assert.equals(before, L.read(root .. "/.lw/user.json"), "a failed operation committed")
         assert.same({}, txn.strays(root))
     end)
 
     it("a guarded operation that returns nil plus an error commits none of its writes", function()
         local root = L.make_ws()
         local ws = cli._load_workspace(root, false)
-        local before = L.read(root .. "/.nvim/loomworks.user.json")
+        local before = L.read(root .. "/.lw/user.json")
         local cls = {}
         function cls.go(w)
-            assert(require("loomworks.io").write_file_atomic(w.root .. "/.nvim/loomworks.user.json", "{}\n"))
+            assert(require("loomworks.io").write_file_atomic(w.root .. "/.lw/user.json", "{}\n"))
             return nil, "failed after writing" -- the commit_import convention
         end
         op_lock.guard(cls, "go", "test", function(w) return w end)
         local res, err = cls.go(ws)
         assert.is_nil(res)
         assert.equals("failed after writing", err)
-        assert.equals(before, L.read(root .. "/.nvim/loomworks.user.json"), "a failed operation committed")
+        assert.equals(before, L.read(root .. "/.lw/user.json"), "a failed operation committed")
         assert.same({}, txn.strays(root))
     end)
 
@@ -267,11 +267,11 @@ describe("review fixes (§19.4)", function()
 
     it("a commit after the operation lock was lost writes nothing (fencing)", function()
         local root = L.make_ws()
-        local before = L.read(root .. "/.nvim/loomworks.user.json")
+        local before = L.read(root .. "/.lw/user.json")
         local tok = assert(op_lock.acquire(root, "test"))
         local t = txn.begin(root, "test")
         local io_mod = require("loomworks.io")
-        assert(io_mod.write_file_atomic(root .. "/.nvim/loomworks.user.json", "{}\n"))
+        assert(io_mod.write_file_atomic(root .. "/.lw/user.json", "{}\n"))
         -- the lock is reclaimed while this process is (say) suspended
         local path = op_lock.path(root)
         require("loomworks.build_lock").force_path(path)
@@ -279,7 +279,7 @@ describe("review fixes (§19.4)", function()
         local ok, err = txn.finish(t)
         assert.is_false(ok)
         assert.is_truthy(tostring(err):find("lost the workspace operation lock", 1, true), tostring(err))
-        assert.equals(before, L.read(root .. "/.nvim/loomworks.user.json"))
+        assert.equals(before, L.read(root .. "/.lw/user.json"))
         assert.same({}, txn.strays(root))
         require("loomworks.build_lock").force_path(path)
         op_lock.release(tok)

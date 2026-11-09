@@ -1,6 +1,6 @@
 --- loomworks/op_lock.lua — the workspace operation lock O.
 ---
---- `<root>/.nvim/loomworks.op.lock`, the build-directory lock primitive (O_EXCL
+--- `<root>/.lw/op.lock`, the build-directory lock primitive (O_EXCL
 --- create + heartbeat, the common lock record) taken by every operation that
 --- writes more than one of the three workspace files, or removes a workspace
 --- file or a build tree as part of a larger change: publish (incl. per item),
@@ -64,7 +64,7 @@ M.INERT = {
 --- @param root string
 --- @return string
 function M.path(root)
-    return (tostring(root):gsub("\\", "/"):gsub("/+$", "")) .. "/.nvim/loomworks.op.lock"
+    return (tostring(root):gsub("\\", "/"):gsub("/+$", "")) .. "/.lw/op.lock"
 end
 
 --- The busy-message context of the operation lock.

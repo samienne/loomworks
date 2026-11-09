@@ -202,7 +202,7 @@ function M.accept(svc, ctx)
     -- A change another process wrote is taken in first.
     if ws._tracker and ws._tracker.sync then ws._tracker:sync() end
     if svc.host.current() ~= ws then
-        return refuse("the workspace was reloaded (refused or changed .nvim files); try again")
+        return refuse("the workspace was reloaded (refused or changed .lw files); try again")
     end
     local a = ctx.args
     local target, terr = M.resolve_target(svc, ws, a.target or {})
@@ -486,7 +486,7 @@ function M.nuke_accept(svc, ctx)
         if ctx.refused then return refuse(ctx.refused) end
         if ws._tracker and ws._tracker.sync then ws._tracker:sync() end
         if svc.host.current() ~= ws then
-            return refuse("the workspace was reloaded (refused or changed .nvim files); try again")
+            return refuse("the workspace was reloaded (refused or changed .lw files); try again")
         end
     end
     -- No model (the load refused or failed): the core alone (as trust_accept).

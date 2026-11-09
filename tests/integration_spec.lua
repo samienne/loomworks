@@ -812,13 +812,13 @@ describe("orphan lifecycle", function()
                     ["Frontend/debug"] = {
                         project_key = "Frontend", config_key = "debug",
                         type = "harmony", variant = "debug", state = "built",
-                        build_dir = "/root/.nvim/build/Frontend/debug",
+                        build_dir = "/root/.lw/build/Frontend/debug",
                     },
                     -- Orphan: cache entry from a branch switch, no profile references it
                     ["Frontend/release"] = {
                         project_key = "Frontend", config_key = "release",
                         type = "harmony", variant = "release", state = "built",
-                        build_dir = "/root/.nvim/build/Frontend/release",
+                        build_dir = "/root/.lw/build/Frontend/release",
                     },
                 },
             }
@@ -995,7 +995,7 @@ describe("opaque keys", function()
         local unit = pp_alpha._config_unit
         assert.is_not_nil(unit)
         assert.equals("built", unit.state_value)
-        assert.equals("/root/.nvim/build/proj-alpha/tool-7/variant:Debug", unit.build_dir_value)
+        assert.equals("/root/.lw/build/proj-alpha/tool-7/variant:Debug", unit.build_dir_value)
     end)
 
     it("ConfigUnit state resolves through arbitrary cache keys", function()
@@ -1021,7 +1021,7 @@ describe("opaque keys", function()
 
     it("build_dir_refs track arbitrary cache entries", function()
         local ws = make_opaque_ws()
-        local refs = ws:get_build_dir_refs("/root/.nvim/build/proj-alpha/tool-7/variant:Debug")
+        local refs = ws:get_build_dir_refs("/root/.lw/build/proj-alpha/tool-7/variant:Debug")
         assert.equals(1, #refs)
         assert.equals("variant:Debug:tool-7", refs[1]:config_key())
     end)
@@ -2757,7 +2757,7 @@ describe("configuration rename propagation", function()
                     project_key = "App", config_key = "Debug-asan:ninja-gcc",
                     type = "cmake", variant = "Debug-asan", tool_key = "ninja-gcc",
                     tool_data = { id = "ninja-gcc" },
-                    state = "built", build_dir = "/root/.nvim/build/App/ninja-gcc/Debug-asan",
+                    state = "built", build_dir = "/root/.lw/build/App/ninja-gcc/Debug-asan",
                 },
             },
         }, {
@@ -2865,7 +2865,7 @@ describe("configuration rename propagation", function()
                 ["build/App/ninja-gcc/Debug"] = {
                     project_key = "App", type = "cmake", variant = "Debug",
                     tool_key = "ninja-gcc", tool_data = { id = "ninja-gcc" },
-                    state = "built", build_dir = "/root/.nvim/build/App/ninja-gcc/Debug",
+                    state = "built", build_dir = "/root/.lw/build/App/ninja-gcc/Debug",
                 },
             },
         }, {
@@ -2936,7 +2936,7 @@ describe("configuration rename propagation", function()
             build_dirs = {
                 ["build/App/Debug"] = {
                     project_key = "App", type = "cmake", variant = "Debug",
-                    state = "built", build_dir = "/root/.nvim/build/App/Debug",
+                    state = "built", build_dir = "/root/.lw/build/App/Debug",
                 },
             },
         })
@@ -2995,13 +2995,13 @@ describe("configuration rename propagation", function()
                     project_key = "App", config_key = "Debug-asan:ninja-gcc",
                     type = "cmake", variant = "Debug-asan", tool_key = "ninja-gcc",
                     tool_data = { id = "ninja-gcc" },
-                    state = "built", build_dir = "/root/.nvim/build/App/ninja-gcc/Debug-asan",
+                    state = "built", build_dir = "/root/.lw/build/App/ninja-gcc/Debug-asan",
                 },
                 ["build/App/ninja-clang/Debug-asan"] = {
                     project_key = "App", config_key = "Debug-asan:ninja-clang",
                     type = "cmake", variant = "Debug-asan", tool_key = "ninja-clang",
                     tool_data = { id = "ninja-clang" },
-                    state = "configured", build_dir = "/root/.nvim/build/App/ninja-clang/Debug-asan",
+                    state = "configured", build_dir = "/root/.lw/build/App/ninja-clang/Debug-asan",
                 },
             },
             profiles = {
@@ -3065,7 +3065,7 @@ describe("configuration rename propagation", function()
                     project_key = "App", config_key = "Debug-asan:ninja-gcc",
                     type = "cmake", variant = "Debug-asan", tool_key = "ninja-gcc",
                     tool_data = { id = "ninja-gcc" },
-                    state = "configured", build_dir = "/root/.nvim/build/App/ninja-gcc/Debug-asan",
+                    state = "configured", build_dir = "/root/.lw/build/App/ninja-gcc/Debug-asan",
                 },
             },
         })
@@ -3116,7 +3116,7 @@ describe("configuration rename propagation", function()
                     project_key = "App", config_key = "Debug-asan:ninja-gcc",
                     type = "cmake", variant = "Debug-asan", tool_key = "ninja-gcc",
                     tool_data = { id = "ninja-gcc" },
-                    state = "configured", build_dir = "/root/.nvim/build/App/ninja-gcc/Debug-asan",
+                    state = "configured", build_dir = "/root/.lw/build/App/ninja-gcc/Debug-asan",
                 },
             },
         })
@@ -3162,7 +3162,7 @@ describe("configuration rename propagation", function()
                 ["App/Debug-asan:ninja-gcc"] = {
                     project_key = "App", config_key = "Debug-asan:ninja-gcc",
                     type = "cmake", variant = "Debug-asan", tool_key = "ninja-gcc",
-                    state = "configured", build_dir = "/root/.nvim/build/App/ninja-gcc/Debug-asan",
+                    state = "configured", build_dir = "/root/.lw/build/App/ninja-gcc/Debug-asan",
                 },
             },
         }, {
@@ -3225,7 +3225,7 @@ describe("configuration rename propagation", function()
                     project_key = "App", config_key = "Debug-asan:ninja-gcc",
                     type = "cmake", variant = "Debug-asan", tool_key = "ninja-gcc",
                     tool_data = { id = "ninja-gcc", display = "GCC" },
-                    state = "built", build_dir = "/root/.nvim/build/App/ninja-gcc/Debug-asan",
+                    state = "built", build_dir = "/root/.lw/build/App/ninja-gcc/Debug-asan",
                 },
             },
         })
@@ -3274,7 +3274,7 @@ describe("configuration rename propagation", function()
                     project_key = "App", config_key = "Debug-asan:ninja-gcc",
                     type = "cmake", variant = "Debug-asan", tool_key = "ninja-gcc",
                     tool_data = { id = "ninja-gcc" },
-                    state = "configured", build_dir = "/root/.nvim/build/App/ninja-gcc/Debug-asan",
+                    state = "configured", build_dir = "/root/.lw/build/App/ninja-gcc/Debug-asan",
                 },
             },
         }, {
@@ -3327,7 +3327,7 @@ describe("configuration rename propagation", function()
                 ["App/CustomBuild:ninja-gcc"] = {
                     project_key = "App", config_key = "CustomBuild:ninja-gcc",
                     type = "cmake", variant = "CustomBuild", tool_key = "ninja-gcc",
-                    state = "built", build_dir = "/root/.nvim/build/App/ninja-gcc/CustomBuild",
+                    state = "built", build_dir = "/root/.lw/build/App/ninja-gcc/CustomBuild",
                 },
             },
         }, {
@@ -3417,7 +3417,7 @@ describe("configuration rename propagation", function()
                 ["build/App/Debug-asan"] = {
                     project_key = "App", config_key = "Debug-asan",
                     type = "cmake", variant = "Debug-asan",
-                    state = "built", build_dir = "/root/.nvim/build/App/Debug-asan",
+                    state = "built", build_dir = "/root/.lw/build/App/Debug-asan",
                 },
             },
         })
@@ -3503,7 +3503,7 @@ describe("configuration rename propagation", function()
                 ["build/App/Debug-asan"] = {
                     project_key = "App", config_key = "Debug-asan",
                     type = "cmake", variant = "Debug-asan",
-                    state = "built", build_dir = "/root/.nvim/build/App/Debug-asan",
+                    state = "built", build_dir = "/root/.lw/build/App/Debug-asan",
                 },
             },
         })
@@ -3571,7 +3571,7 @@ describe("configuration rename propagation", function()
                     project_key = "App", config_key = "Debug-asan:ninja-gcc",
                     type = "cmake", variant = "Debug-asan", tool_key = "ninja-gcc",
                     tool_data = { id = "ninja-gcc" },
-                    state = "built", build_dir = "/root/.nvim/build/App/ninja-gcc/Debug-asan",
+                    state = "built", build_dir = "/root/.lw/build/App/ninja-gcc/Debug-asan",
                 },
             },
         }, {

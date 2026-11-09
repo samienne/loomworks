@@ -11,7 +11,7 @@ M.CURRENT_VERSION = CURRENT_VERSION
 --- @param root string
 --- @return string
 function M.filepath(root)
-    return root .. "/.nvim/loomworks.cache.json"
+    return root .. "/.lw/cache.json"
 end
 
 --- Compute a hash of loomworks.json content for fast change detection.
@@ -47,12 +47,12 @@ function M.next_available_key(base_key, existing)
 end
 
 --- Compute relative build_dir key from absolute path.
---- Strips {root}/.nvim/ prefix. Returns path relative to .nvim/.
+--- Strips {root}/.lw/ prefix. Returns path relative to .lw/.
 --- @param abs_path string absolute build dir path
 --- @param root string workspace root path
 --- @return string relative key (e.g., "build/App/Debug")
 function M.relative_build_dir(abs_path, root)
-    local prefix = root .. "/.nvim/"
+    local prefix = root .. "/.lw/"
     if abs_path:sub(1, #prefix) == prefix then
         return abs_path:sub(#prefix + 1)
     end
@@ -60,7 +60,7 @@ function M.relative_build_dir(abs_path, root)
 end
 
 --- Compute absolute build_dir from relative key.
---- Prepends {root}/.nvim/ prefix.
+--- Prepends {root}/.lw/ prefix.
 --- @param rel_key string relative build dir key (e.g., "build/App/Debug")
 --- @param root string workspace root path
 --- @return string absolute path
@@ -68,7 +68,7 @@ function M.absolute_build_dir(rel_key, root)
     if rel_key:sub(1, 1) == "/" or rel_key:match("^%a:") then
         return rel_key
     end
-    return root .. "/.nvim/" .. rel_key
+    return root .. "/.lw/" .. rel_key
 end
 
 --- The id of a ConfigUnit in a build directory,
@@ -209,9 +209,10 @@ function M.save(root, data)
     data._meta.cached_at = os.date("!%Y-%m-%dT%H:%M:%SZ")
     data._meta.written_by = require("loomworks.save_guard").version()
 
-    local dir = root .. "/.nvim"
+    local dir = root .. "/.lw"
     local ok, dir_err = io_mod.ensure_dir(dir)
     if not ok then return false, "mkdir: " .. (dir_err or "unknown") end
+    require("loomworks.state_dir").ensure_ignore(root)
 
     -- Signed with the machine key.
     return io_mod.write_json_signed(M.filepath(root), "cache", data)

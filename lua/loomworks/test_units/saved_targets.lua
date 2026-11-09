@@ -323,7 +323,7 @@ function SavedTargetsTestUnit:test_command(test_id, opts)
         output_path = opts.output_path
         if type(output_path) ~= "string" or output_path == "" then
             local build_dir = self._config_unit:build_dir()
-            local dir = (build_dir or uv.os_tmpdir():gsub("\\", "/")) .. "/.nvim"
+            local dir = (build_dir or uv.os_tmpdir():gsub("\\", "/")) .. "/.lw"
             if not uv.fs_stat(dir) then uv.fs_mkdir(dir, 493) end
             output_path = dir .. "/saved_" .. (top_e.id:gsub("[^%w%._%-]", "_")) .. "_results.xml"
         end

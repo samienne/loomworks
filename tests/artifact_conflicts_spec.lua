@@ -328,7 +328,7 @@ describe("resolved artifact set + overwritten marker persistence", function()
         u._config_key = "Debug:ninja-gcc-12"
         u._variant = "Debug"
         u.state_value = "built"
-        u.build_dir_value = "/ws/.nvim/build/App/Debug"
+        u.build_dir_value = "/ws/.lw/build/App/Debug"
         u._artifacts = { "/ws/bin/app.exe", "/ws/bin/app.pdb" }
         u._overwritten_by = "build/App/Release"
 
@@ -353,7 +353,7 @@ describe("resolved artifact set + overwritten marker persistence", function()
     end)
 
     it("round-trips artifacts + overwritten_by through BuildDir serialize/new", function()
-        local bd = BuildDir.new("build/App/Debug", "/ws/.nvim/build/App/Debug", {
+        local bd = BuildDir.new("build/App/Debug", "/ws/.lw/build/App/Debug", {
             state = "built",
             project_key = "App",
             variant = "Debug",

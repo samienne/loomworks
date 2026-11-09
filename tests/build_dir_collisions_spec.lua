@@ -50,9 +50,9 @@ local function make_core(opts)
     for _, name in ipairs(opts.profiles or vim.tbl_keys(sets)) do profiles[name] = { configuration_set = name } end
     local files = {
         ["loomworks.json"] = h.make_config_json({ projects = projects, configuration_sets = sets }),
-        ["loomworks.user.json"] = h.make_user_json({ profiles = profiles }),
+        ["user.json"] = h.make_user_json({ profiles = profiles }),
     }
-    if opts.cache then files["loomworks.cache.json"] = opts.cache end
+    if opts.cache then files["cache.json"] = opts.cache end
     local user_saves = {}
     local deps = h.make_test_deps(files, {
         modules = { get = function(id) if id == "shell" then return mod end end },
@@ -602,7 +602,7 @@ describe("build directory collisions on disk (core §1.7)", function()
     end
 
     local function user_json(root)
-        local f = io.open(root .. "/.nvim/loomworks.user.json", "rb")
+        local f = io.open(root .. "/.lw/user.json", "rb")
         if not f then return nil end
         local s = f:read("*a"); f:close()
         return s

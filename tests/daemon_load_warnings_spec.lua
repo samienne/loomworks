@@ -37,10 +37,10 @@ local function edit_config(root, fn)
     f = assert(io.open(root .. "/loomworks.json", "wb")); f:write(vim.json.encode(cfg)); f:close()
 end
 
---- Rewrite the working copy (`.nvim/loomworks.user.json`) through `fn(user)`,
+--- Rewrite the working copy (`.lw/user.json`) through `fn(user)`,
 --- signed by this machine.
 local function edit_user(root, fn)
-    local path = root .. "/.nvim/loomworks.user.json"
+    local path = root .. "/.lw/user.json"
     local f = assert(io.open(path, "rb"))
     local status, body = trust.verify("user", f:read("*a")); f:close()
     assert.equals("valid", status)

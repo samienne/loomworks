@@ -17,10 +17,10 @@ local function make_core()
             projects = { App = { typescript = {} } },
             configuration_sets = { debug = { App = "dev" } },
         }),
-        ["loomworks.user.json"] = h.make_user_json({
+        ["user.json"] = h.make_user_json({
             profiles = { debug = { configuration_set = "debug" } },
         }),
-        ["loomworks.cache.json"] = h.make_cache_json({
+        ["cache.json"] = h.make_cache_json({
             configurations = {
                 ["App/dev"] = {
                     project_key = "App", config_key = "dev", variant = "dev",
@@ -74,7 +74,7 @@ describe("clean/deletion runtime mark", function()
             ws._core._deps.io.rm_rf_async = function(_, cb) rm_done = cb end
             local f = ws:execute_deletion({ items = { { unit = unit, project_key = "App",
                 config_key = "dev", disposition = "clean",
-                build_dir = "/root/.nvim/build/App-dev" } } })
+                build_dir = "/root/.lw/build/App-dev" } } })
             f:catch(function() end)
             assert.is_function(rm_done, "the removal started")
             f:cancel()
@@ -93,7 +93,7 @@ describe("clean/deletion runtime mark", function()
             ws.stop_tasks_then = function() return future_mod.create(function() end) end
             local f = ws:execute_deletion({ items = { { unit = unit, project_key = "App",
                 config_key = "dev", disposition = "clean",
-                build_dir = "/root/.nvim/build/App-dev" } } })
+                build_dir = "/root/.lw/build/App-dev" } } })
             f:catch(function() end)
             f:cancel()
             assert.is_false(started)
@@ -122,7 +122,7 @@ describe("clean/deletion runtime mark", function()
             unit:mark_deleting(true, "cleaning") -- the outer clean
             assert.is_true(unit:is_deleting())
             local done
-            ws:clean_wipe_build_dir({ unit }, "/root/.nvim/build/App-dev"):next(function(ok) done = ok end)
+            ws:clean_wipe_build_dir({ unit }, "/root/.lw/build/App-dev"):next(function(ok) done = ok end)
             assert.is_true(done)
             assert.is_true(unit:is_deleting(), "the clean still runs")
             assert.equals("cleaning", unit:deleting_reason())

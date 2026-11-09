@@ -28,7 +28,7 @@ local function find_app(ws)
 end
 
 local function mkstray(root, name)
-    local dir = root .. "/.nvim/build/" .. name
+    local dir = root .. "/.lw/build/" .. name
     vim.fn.mkdir(dir, "p")
     return dir
 end
@@ -124,7 +124,7 @@ describe("deletion_plan.plan: a stray directory", function()
         local ws = load(root)
         local live = dp.plan(ws, { stray_dir = built })
         assert.is_truthy(live.refusal and live.refusal:find("not a stray build directory", 1, true))
-        local missing = dp.plan(ws, { stray_dir = root .. "/.nvim/build/Nope" })
+        local missing = dp.plan(ws, { stray_dir = root .. "/.lw/build/Nope" })
         assert.is_truthy(missing.refusal and missing.refusal:find("not a stray build directory", 1, true))
     end)
 
@@ -371,7 +371,7 @@ describe("model_commands.execute_deletion", function()
     it("deletes an orphaned build directory given as its object", function()
         local root = L.make_ws()
         local ws = load(root)
-        local dir = root .. "/.nvim/build/App/Release"
+        local dir = root .. "/.lw/build/App/Release"
         vim.fn.mkdir(dir, "p")
         local cache = ws:_serialize_cache()
         cache.build_dirs = cache.build_dirs or {}

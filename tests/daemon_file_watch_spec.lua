@@ -18,7 +18,7 @@ local H = require("tests.daemon_helpers")
 
 client.TIMEOUT_MS = 30000
 
-local USER = "/.nvim/loomworks.user.json"
+local USER = "/.lw/user.json"
 
 local function read(path)
     local f = io.open(path, "rb")
@@ -120,18 +120,18 @@ describe("the workspace daemon watches its files (§19.13 Freshness of views)", 
         assert.equals(ws, svc.host.current(), "the model was unloaded")
         assert.equals(ws, svc.ws)
         assert.is_not_nil(profile(ws, "dev"))
-        local d = load_diags(ws, "loomworks.user.json")
+        local d = load_diags(ws, "user.json")
         assert.equals(1, #d, vim.inspect(view_state.workspace(ws).diagnostics))
         assert.equals("warn", d[1].severity)
         -- Once, however often it is seen.
         ws._tracker:sync()
-        assert.equals(1, #load_diags(ws, "loomworks.user.json"))
+        assert.equals(1, #load_diags(ws, "user.json"))
         -- The save completes: applied, the warning goes.
         write(root .. USER, full)
         ws._tracker:sync()
         assert.equals(ws, svc.host.current())
         assert.is_not_nil(config_set(ws, "extra"))
-        assert.equals(0, #load_diags(ws, "loomworks.user.json"))
+        assert.equals(0, #load_diags(ws, "user.json"))
     end)
 
     it("a well-formed working copy that fails its signature is still refused (§17.4)", function()

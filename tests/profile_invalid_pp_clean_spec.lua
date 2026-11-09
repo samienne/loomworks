@@ -54,7 +54,7 @@ local function make_ws(opts)
             projects = { app = proj("app"), lib = proj("lib") },
             configuration_sets = { dev = { app = "Debug", lib = "Debug" } },
         }),
-        ["loomworks.user.json"] = h.make_user_json({
+        ["user.json"] = h.make_user_json({
             profiles = { dev = { configuration_set = "dev" } },
             active_profile = "dev",
         }),

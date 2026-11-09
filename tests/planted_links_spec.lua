@@ -1,5 +1,5 @@
 -- Temporary files are never written through a file or link planted at their
--- name (a repository's `.nvim/` can be writable by other local users): the
+-- name (a repository's `.lw/` can be writable by other local users): the
 -- daemon handle's staged copy (spec §19.6), io.write_file_atomic's `.tmp`
 -- and the commit journal's `.tmp` (§19.4, tests/txn_spec.lua). Hard links
 -- stand in for symbolic links on Windows (no privilege needed); POSIX also
@@ -38,7 +38,7 @@ describe("planted links at a temporary file's name", function()
     for _, kind in ipairs(kinds) do
         it("the daemon handle's staged copy never writes through one (" .. kind .. " link)", function()
             local root = tmpdir()
-            vim.fn.mkdir(root .. "/.nvim", "p")
+            vim.fn.mkdir(root .. "/.lw", "p")
             local saved = handle._suffix
             handle._suffix = function() return "fixed" end
             local victim = plant(root, dpaths.handle_path(root) .. ".tmp-fixed", kind)
@@ -54,7 +54,7 @@ describe("planted links at a temporary file's name", function()
 
         it("io.write_file_atomic's .tmp never writes through one (" .. kind .. " link)", function()
             local dir = tmpdir()
-            local target = dir .. "/loomworks.user.json"
+            local target = dir .. "/user.json"
             write(target, "old")
             local victim = plant(dir, target .. ".tmp", kind)
             assert.is_true((io_mod.write_file_atomic(target, "new")))

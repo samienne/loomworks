@@ -417,7 +417,7 @@ end
 --- @return boolean, string|nil
 local function current(service, ctx, profile_only)
     if not profile_only and service.ws ~= ctx.ws then
-        return false, "the workspace was unloaded (refused or reloaded .nvim files)"
+        return false, "the workspace was unloaded (refused or reloaded .lw files)"
     end
     if ctx.profile and ctx.profile._removed then return false, "profile '" .. ctx.profile.key .. "' was removed" end
     return true

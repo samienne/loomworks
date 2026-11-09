@@ -179,7 +179,7 @@ describe("device block location through a workspace load + save", function()
             ["loomworks.json"] = h.make_config_json({
                 projects = { App = { cmake = { device = { archive = { "assets/**" } } } } },
             }),
-            ["loomworks.user.json"] = h.make_user_json({
+            ["user.json"] = h.make_user_json({
                 projects = { Lib = { cmake = {}, device = { stage = { "bin/*.so" } } } },
             }),
         }

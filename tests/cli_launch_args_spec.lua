@@ -51,7 +51,7 @@ end
 
 --- The App project's launch table as stored in the working copy.
 local function launches(root)
-  local u = read_json(root .. "/.nvim/loomworks.user.json") or {}
+  local u = read_json(root .. "/.lw/user.json") or {}
   local p = u.projects and u.projects.App
   return (p and p.launch) or {}
 end

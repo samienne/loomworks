@@ -65,10 +65,10 @@ local function step_pid(pidfile, kind, r)
     return pid, proc.start_time(pid)
 end
 
---- The `lw-test-*.xml` results files left in the workspace's .nvim/tmp.
+--- The `lw-test-*.xml` results files left in the workspace's .lw/tmp.
 local function results_files(root)
     local out = {}
-    local h = uv.fs_scandir(root .. "/.nvim/tmp")
+    local h = uv.fs_scandir(root .. "/.lw/tmp")
     while h do
         local name = uv.fs_scandir_next(h)
         if not name then break end

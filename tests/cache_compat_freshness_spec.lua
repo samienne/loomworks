@@ -119,7 +119,7 @@ describe("cache_compat follows the build's current compile data", function()
                 projects = { App = { cmake = {} } },
                 configuration_sets = { debug = { App = "Debug" } },
             }),
-            ["loomworks.user.json"] = h.make_user_json({ profiles = {
+            ["user.json"] = h.make_user_json({ profiles = {
                 debug = {
                     configuration_set = "debug",
                     tools = { cmake = { key = "ninja-msvc", data = MSVC } },
@@ -220,7 +220,7 @@ describe("cache_compat follows the build's current compile data", function()
         -- the cached tier, which is then reused (no re-scan per status run).
         unit.module_info.cache_compat = persisted
         assert.equals(suggestions._local_key(ws),
-            health_store["/root/.nvim/loomworks.health.json"].local_tier.key)
+            health_store["/root/.lw/health.json"].local_tier.key)
         assert.equals(1, #compat_items(suggestions.collect(ws)))
     end)
 

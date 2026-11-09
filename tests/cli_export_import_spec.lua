@@ -160,7 +160,7 @@ describe("lw export", function()
     assert.equals(io_mod.encode_json(plain), transfer.export_text(plain))
   end)
 
-  it("-o writes a file; refuses loomworks.json and .nvim/", function()
+  it("-o writes a file; refuses loomworks.json and .lw/", function()
     local root = make_source()
     local dest = vim.fn.tempname():gsub("\\", "/") .. ".json"
     local r = ok_run(root, "export", "-o", dest)
@@ -178,9 +178,9 @@ describe("lw export", function()
     assert.equals(1, r.exit_code)
     assert.truthy(r.stderr:find("lw publish", 1, true))
     assert.equals(before, read(root .. "/loomworks.json"))
-    r = run(root, "export", "--output", root .. "/.nvim/x.json")
+    r = run(root, "export", "--output", root .. "/.lw/x.json")
     assert.equals(1, r.exit_code)
-    assert.is_nil(uv.fs_stat(root .. "/.nvim/x.json"))
+    assert.is_nil(uv.fs_stat(root .. "/.lw/x.json"))
     r = run(root, "export", "-o", root .. "/missing/x.json")
     assert.equals(1, r.exit_code)
     assert.truthy(r.stderr:find("does not exist", 1, true))
@@ -326,7 +326,7 @@ describe("lw import", function()
     cli._test_interactive = nil
     assert.equals(1, r.exit_code) -- stdin input needs --yes
     assert.equals(before, read(user.filepath(root)))
-    for name in vim.fs.dir(root .. "/.nvim") do
+    for name in vim.fs.dir(root .. "/.lw") do
       assert.is_nil(name:match("%d%d%d%d%d%d%d%d%-%d%d%d%d%d%d%.bak$"), "backup written: " .. name)
     end
   end)
@@ -375,7 +375,7 @@ describe("lw import", function()
     assert.is_nil(backup)
     -- Nothing written: the other writer's file stands, no backup was taken.
     assert.equals(theirs, read(user.filepath(root)))
-    for name in vim.fs.dir(root .. "/.nvim") do
+    for name in vim.fs.dir(root .. "/.lw") do
       assert.is_nil(name:match("%d%d%d%d%d%d%d%d%-%d%d%d%d%d%d%.bak$"), "backup written: " .. name)
     end
     -- Reloaded: the model holds the other writer's working copy, not the import.
@@ -497,7 +497,7 @@ describe("lw import over a working copy not signed by this machine", function()
     write(file, ok_run(src, "export").json)
     local root = tmp_root()
     write(root .. "/loomworks.json", read(src .. "/loomworks.json"))
-    vim.fn.mkdir(root .. "/.nvim", "p")
+    vim.fn.mkdir(root .. "/.lw", "p")
     write(user.filepath(root), UNSIGNED)
     local r = ok_run(root, "import", file, "--dry-run")
     assert.truthy(r.stdout:find("not signed by this machine", 1, true), r.stdout)
@@ -513,7 +513,7 @@ describe("lw import over a working copy not signed by this machine", function()
     write(file, ok_run(src, "export").json)
     local root = tmp_root()
     write(root .. "/loomworks.json", read(src .. "/loomworks.json"))
-    vim.fn.mkdir(root .. "/.nvim", "p")
+    vim.fn.mkdir(root .. "/.lw", "p")
     write(user.filepath(root), UNSIGNED)
     local r = run(root, "--no-input", "import", file)
     assert.equals(1, r.exit_code) -- still needs --yes
@@ -539,7 +539,7 @@ describe("lw import over a working copy not signed by this machine", function()
     write(file, ok_run(src, "export").json)
     local root = tmp_root()
     write(root .. "/loomworks.json", read(src .. "/loomworks.json"))
-    vim.fn.mkdir(root .. "/.nvim", "p")
+    vim.fn.mkdir(root .. "/.lw", "p")
     write(user.filepath(root), UNSIGNED)
     local ws = cli._load_workspace(root, false, { replace_untrusted_user = true })
     assert.equals("unsigned", ws._user_unread)
@@ -570,17 +570,17 @@ describe("lw import over a working copy not signed by this machine", function()
     write(file, ok_run(src, "export").json)
     local root = tmp_root()
     write(root .. "/loomworks.json", read(src .. "/loomworks.json"))
-    vim.fn.mkdir(root .. "/.nvim", "p")
+    vim.fn.mkdir(root .. "/.lw", "p")
     write(user.filepath(root), UNSIGNED)
     -- Signed with another machine's key: invalid here.
     local key = trust.key_path()
     trust._set_key_path(vim.fn.tempname() .. "/other/trust.key")
     local foreign = assert(trust.sign("cache", trust.encode({ _meta = { version = 8 }, build_dirs = vim.empty_dict() })))
     trust._set_key_path(key)
-    write(root .. "/.nvim/loomworks.cache.json", foreign)
+    write(root .. "/.lw/cache.json", foreign)
     local r = run(root, "import", file, "--dry-run")
     assert.equals(1, r.exit_code)
-    assert.truthy(r.stderr:find("loomworks.cache.json", 1, true), r.stderr)
+    assert.truthy(r.stderr:find("cache.json", 1, true), r.stderr)
     assert.equals(UNSIGNED, read(user.filepath(root)))
   end)
 end)
@@ -592,7 +592,7 @@ describe("an unsigned build cache (spec §17.4)", function()
     .. '{ "project_key": "app", "config_key": "Debug", "variant": "default", "type": "typescript",'
     .. ' "state": "built", "build_dir": "/nowhere/build/app/x" } } }'
 
-  local function cache_path(root) return root .. "/.nvim/loomworks.cache.json" end
+  local function cache_path(root) return root .. "/.lw/cache.json" end
 
   local function target_with_unsigned_cache()
     local src = make_source()

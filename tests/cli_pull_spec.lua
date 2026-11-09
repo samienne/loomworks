@@ -255,7 +255,7 @@ describe("cli._plan_pull", function()
     end)
 
     it("errors when the source has no working copy", function()
-        -- source dir exists but has no .nvim/loomworks.user.json
+        -- source dir exists but has no .lw/user.json
         local plan, err = cli._plan_pull({ cwd = target, git = fake_git(target, source) })
         assert.is_nil(plan)
         assert.is_truthy(err:find("nothing to pull", 1, true))
@@ -407,7 +407,7 @@ describe("cli.cmd_pull (real git worktree)", function()
         git(main, "config", "user.email", "t@example.com")
         git(main, "config", "user.name", "t")
         -- A committed file so `git worktree add` has a HEAD to check out. The
-        -- working copy stays untracked (.nvim), like the real setup.
+        -- working copy stays untracked (.lw), like the real setup.
         local f = assert(io.open(main .. "/README.md", "wb"))
         f:write("demo\n"); f:close()
         git(main, "add", "README.md")

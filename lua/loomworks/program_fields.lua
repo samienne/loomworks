@@ -3,7 +3,7 @@
 --- A program-bearing field names a program to run, adds arguments to one, sets
 --- a spawned environment or working directory, or places a deploy outside the
 --- workspace. Such fields are honored only from the signed working copy
---- (`.nvim/loomworks.user.json`); in the shared snapshot (`loomworks.json`)
+--- (`.lw/user.json`); in the shared snapshot (`loomworks.json`)
 --- they are ignored. This module:
 ---
 ---   * `strip(config, modules)` removes them from a parsed shared config (the

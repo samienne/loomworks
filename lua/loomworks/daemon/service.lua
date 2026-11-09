@@ -469,7 +469,7 @@ function Service:live(ctx, as_is)
     if self.ws and self.host.current() ~= self.ws then
         -- Unloaded under us (a refusal during an earlier sync).
         self.ws, self.env_sig = nil, nil
-        self:_stop_stale_runs("the workspace was unloaded (refused or reloaded .nvim files)")
+        self:_stop_stale_runs("the workspace was unloaded (refused or reloaded .lw files)")
     end
     if as_is then
         if self.ws then
@@ -504,7 +504,7 @@ function Service:live(ctx, as_is)
             -- it, then use what it produced — or report its refusal.
             self.host.settle(M.LOAD_WAIT_MS)
             self.ws, self.env_sig = nil, nil
-            self:_stop_stale_runs("the workspace was unloaded (refused or reloaded .nvim files)")
+            self:_stop_stale_runs("the workspace was unloaded (refused or reloaded .lw files)")
             local now = self.host.current()
             if not now then
                 return nil, self.host.setup_error()

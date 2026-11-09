@@ -83,7 +83,7 @@ describe("Launch/1.build in the daemon (§19.15 Build of a launch target)", func
         assert.are.equal("artifact", copied:read("*a"))
         copied:close()
         -- Its freshness is recorded in the workspace cache, as in-process.
-        local cache = table.concat(vim.fn.readfile(root .. "/.nvim/loomworks.cache.json"), "\n")
+        local cache = table.concat(vim.fn.readfile(root .. "/.lw/cache.json"), "\n")
         assert.truthy(cache:find("deploy_state", 1, true), cache)
         assert.truthy(cache:lower():find("staged/missing.txt", 1, true), cache)
         -- Built again: the same steps succeed, the fresh copy left alone.

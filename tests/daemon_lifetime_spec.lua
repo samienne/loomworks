@@ -479,7 +479,7 @@ describe("lifetime rules (§19.11, in-process server)", function()
         rlog.MAX_BYTES = 100
         for i = 1, 5 do rlog.write(root, "line " .. i .. string.rep("x", 40)) end
         local p = rlog.path(root)
-        assert.equals(dpaths.norm_root(root) .. "/.nvim/loomworks.daemon-"
+        assert.equals(dpaths.norm_root(root) .. "/.lw/daemon-"
             .. require("loomworks.daemon.identity").slot() .. ".log", p)
         assert.truthy(uv.fs_stat(p .. ".1"))
         assert.truthy(uv.fs_stat(p).size <= 200)
@@ -493,13 +493,13 @@ describe("lifetime rules (§19.11, in-process server)", function()
         -- A removed root: no write, nothing created.
         rlog.write(base .. "/gone", "x")
         assert.is_nil(uv.fs_stat(base .. "/gone"))
-        -- An existing root without .nvim: .nvim is created (one level).
+        -- An existing root without .lw: .lw is created (one level).
         vim.fn.mkdir(base .. "/ws", "p")
         rlog.write(base .. "/ws", "first")
         local body = assert(io.open(require("loomworks.daemon.paths").log_path(base .. "/ws"))):read("*a")
         assert.truthy(body:find("first", 1, true))
         -- A link planted at the log's name is never written through.
-        vim.fn.mkdir(base .. "/ws2/.nvim", "p")
+        vim.fn.mkdir(base .. "/ws2/.lw", "p")
         local target = base .. "/victim.txt"
         local f = assert(io.open(target, "wb")); f:write("keep"); f:close()
         local linked = uv.fs_symlink(target, require("loomworks.daemon.paths").log_path(base .. "/ws2"))
@@ -854,7 +854,7 @@ describe("runtime-mode daemon with real processes", function()
     it("lw unlock --force records the forced unlock in the runtime log", function()
         local rec = require("loomworks.lock_record").new("publish")
         rec.pid, rec.host = 4242, "OTHERHOST"
-        local f = assert(io.open(root .. "/.nvim/loomworks.op.lock", "w")); f:write(vim.json.encode(rec)); f:close()
+        local f = assert(io.open(root .. "/.lw/op.lock", "w")); f:write(vim.json.encode(rec)); f:close()
         local r = lw({ "--no-daemon", "unlock", "--workspace", "--force" })
         assert.equals(0, r.code, r.stderr)
         local log = assert(io.open(require("loomworks.daemon.paths").log_path(root))):read("*a")

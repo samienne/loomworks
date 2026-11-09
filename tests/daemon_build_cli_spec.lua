@@ -42,7 +42,7 @@ end
 --- The workspace's persisted build state, comparable across two roots:
 --- verified, decoded, the root replaced, timestamps and the config hash masked.
 local function cache_of(root, key_path)
-    local text = read(root .. "/.nvim/loomworks.cache.json")
+    local text = read(root .. "/.lw/cache.json")
     if not text then return nil end
     trust._set_key_path(key_path)
     local status, body = trust.verify("cache", text)
@@ -59,7 +59,7 @@ local function cache_of(root, key_path)
         end
         if type(v) ~= "table" then return v end
         local out = {}
-        -- Keys too: a build dir outside `.nvim/build` is keyed by its path.
+        -- Keys too: a build dir outside `.lw/build` is keyed by its path.
         for kk, vv in pairs(v) do
             out[type(kk) == "string" and unroot(kk, root) or kk] = walk(vv, kk)
         end
@@ -330,7 +330,7 @@ describe("lw build through the workspace daemon (real processes)", function()
         assert.is_true(c.wait(30000))
         assert.is_true(c.code ~= 0)
         assert.is_true(vim.wait(15000, function() return proc.alive(spid, sst) ~= true end, 20))
-        local bd = root .. "/.nvim/build/app/Debug"
+        local bd = root .. "/.lw/build/app/Debug"
         assert.is_true(vim.wait(10000, function() return build_lock.read(bd) == nil end, 20))
         local r = lw(root, { "--no-input", "build", "dev" })
         assert.equals(0, r.code, r.stderr)
@@ -389,7 +389,7 @@ ffi.C.GenerateConsoleCtrlEvent(0, 0)
         -- The step is ended by the cancellation, long before its 60 s.
         assert.is_true(vim.wait(30000, function() return proc.alive(spid, sst) ~= true end, 20))
         assert.is_true(uv.now() - t0 < 45000)
-        local bd = root .. "/.nvim/build/app/Debug"
+        local bd = root .. "/.lw/build/app/Debug"
         assert.is_true(vim.wait(10000, function() return build_lock.read(bd) == nil end, 20))
         vim.wait(30000, function() return code ~= nil end, 20)
         pcall(function() h:close() end)
@@ -419,7 +419,7 @@ ffi.C.GenerateConsoleCtrlEvent(0, 0)
             or c.stderr():find("lost the connection to the workspace daemon", 1, true), c.stderr())
         assert.is_nil(c.stdout():find("BUILD OK", 1, true))
         assert.is_true(vim.wait(15000, function() return proc.alive(spid, sst) ~= true end, 20))
-        assert.is_nil(build_lock.read(root .. "/.nvim/build/app/Debug"))
+        assert.is_nil(build_lock.read(root .. "/.lw/build/app/Debug"))
     end)
 
     it("a daemon build and an in-process build of one directory: the second refuses naming the holder", function()
@@ -446,8 +446,8 @@ ffi.C.GenerateConsoleCtrlEvent(0, 0)
         local sst = proc.start_time(spid)
         if sst then H.track(spid, sst); proc.kill_tree(spid, sst) end
         os.remove(pidfile .. ".configure")
-        vim.wait(10000, function() return build_lock.read(root .. "/.nvim/build/app/Debug") == nil
-            or (build_lock.read(root .. "/.nvim/build/app/Debug") or {}).state == "dead" end, 20)
+        vim.wait(10000, function() return build_lock.read(root .. "/.lw/build/app/Debug") == nil
+            or (build_lock.read(root .. "/.lw/build/app/Debug") or {}).state == "dead" end, 20)
         -- The daemon first: the in-process build is refused.
         c = H.lw_start({ "--no-input", "build", "dev" }, { env = e, cwd = root })
         ok = vim.wait(60000, function() return read(pidfile .. ".configure") ~= nil end, 20)
@@ -464,7 +464,7 @@ ffi.C.GenerateConsoleCtrlEvent(0, 0)
         local root = workspace()
         local r = lw(root, { "--no-input", "build", "dev" })
         assert.equals(0, r.code, r.stderr)
-        local path = root .. "/.nvim/loomworks.user.json"
+        local path = root .. "/.lw/user.json"
         local text = read(path)
         local f = io.open(path, "wb"); f:write((text:gsub('"dev"', '"dev" ', 1))); f:close()
         local routed = lw(root, { "--no-input", "build", "dev" })
@@ -484,7 +484,7 @@ ffi.C.GenerateConsoleCtrlEvent(0, 0)
         local user = { _meta = { version = 2 }, profiles = { dev = { configuration_set = "dev" } } }
         local signed = trust.sign("user", trust.encode(user))
         trust._set_key_path(nil)
-        local f = io.open(root .. "/.nvim/loomworks.user.json", "wb"); f:write(signed); f:close()
+        local f = io.open(root .. "/.lw/user.json", "wb"); f:write(signed); f:close()
         local routed = lw(root, { "--no-input", "build", "dev" })
         local inproc = lw(root, { "--no-input", "--no-daemon", "build", "dev" })
         assert.equals(1, routed.code, routed.stderr)
@@ -500,9 +500,9 @@ ffi.C.GenerateConsoleCtrlEvent(0, 0)
         local a = workspace()
         local b, c = H.shell_workspace(), H.shell_workspace()
         roots[#roots + 1] = b; roots[#roots + 1] = c
-        local text = read(a .. "/.nvim/loomworks.user.json")
+        local text = read(a .. "/.lw/user.json")
         for _, r in ipairs({ b, c }) do
-            local f = io.open(r .. "/.nvim/loomworks.user.json", "wb"); f:write(text); f:close()
+            local f = io.open(r .. "/.lw/user.json", "wb"); f:write(text); f:close()
         end
         local rb = lw(b, { "--no-input", "--no-daemon", "build", "dev" })
         local rc = lw(c, { "--no-input", "build", "dev" })

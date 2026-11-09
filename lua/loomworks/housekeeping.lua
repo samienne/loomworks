@@ -2,7 +2,7 @@
 ---
 --- * Temporary files of a workspace operation (the results file of a named
 ---   test executable, the editor buffer of a description) live in the
----   workspace's `.nvim/tmp/`, not the system temp directory (`tmp_path`).
+---   workspace's `.lw/tmp/`, not the system temp directory (`tmp_path`).
 --- * Leftovers of interrupted `lw` processes outside the workspace are found
 ---   by `collect` and removed by `remove`: once a day at the start of a CLI
 ---   command (`startup`, silent) and on request by `lw cleanup` (`cmd`).
@@ -24,7 +24,7 @@
 ---     before the tree is removed).
 ---   * in the workspace, the legacy (unslotted) daemon files of lw before
 ---     slots, through loomworks.daemon.legacy:
----     exact names in a verified `<root>/.nvim`, regular files, the lock and
+---     exact names in a verified `<root>/.lw`, regular files, the lock and
 ---     handle only of a dead holder (nonce-checked reclaim / re-checked
 ---     unlink), the logs past the legacy-log age; never another slot's files.
 --- Bundle-side on purpose: every host (old ones included) runs it; it needs
@@ -108,8 +108,8 @@ local function real_dir(dir)
     return st ~= nil and st.type == "directory"
 end
 
---- The workspace's temporary directory `<root>/.nvim/tmp`, created when
---- missing: `.nvim/` only when the root exists (the root is never created),
+--- The workspace's temporary directory `<root>/.lw/tmp`, created when
+--- missing: `.lw/` only when the root exists (the root is never created),
 --- each level a real directory, not a link. nil when it cannot be had.
 --- @param root string|nil
 --- @return string|nil
@@ -118,15 +118,16 @@ function M.workspace_tmp_dir(root)
     root = norm(root)
     local rst = uv().fs_stat(root)
     if not rst or rst.type ~= "directory" then return nil end
-    local nvim = root .. "/.nvim"
+    local nvim = root .. "/.lw"
     if not real_dir(nvim) then return nil end
+    pcall(require("loomworks.state_dir").ensure_ignore, root)
     local dir = nvim .. "/tmp"
     if not real_dir(dir) then return nil end
     return dir
 end
 
 --- A fresh path for a temporary file of a workspace operation:
---- `<root>/.nvim/tmp/<prefix><nonce><ext>`, or the same name in the system
+--- `<root>/.lw/tmp/<prefix><nonce><ext>`, or the same name in the system
 --- temp directory when the workspace's cannot be had.
 --- @param root string|nil
 --- @param prefix string e.g. "lw-test-"
@@ -363,7 +364,7 @@ end
 --- @field _st table the lstat that qualified it
 
 --- @class loomworks.HousekeepingOpts
---- @field root? string the workspace root (its `.nvim/tmp`)
+--- @field root? string the workspace root (its `.lw/tmp`)
 --- @field all? boolean add the pinned releases unused for the threshold
 --- @field legacy_logs_any_age? boolean legacy runtime logs of any age (`lw cleanup`)
 --- @field pinned_age? integer pinned threshold (seconds); implies the pinned part
@@ -715,14 +716,14 @@ local function scan_exe(items, ctx, exe)
     consider(items, ctx, dir, base .. ".new", "file", "self-update", M.AGE.transient)
 end
 
---- The workspace's `.nvim/tmp` leftovers.
+--- The workspace's `.lw/tmp` leftovers.
 local function scan_workspace_tmp(items, ctx, root)
     root = norm(root)
     local rroot = realkey(root)
     if not rroot then return end
-    if not fixed(root .. "/.nvim", rroot .. "/.nvim") then return end
-    local dir = root .. "/.nvim/tmp"
-    if not fixed(dir, rroot .. "/.nvim/tmp") then return end
+    if not fixed(root .. "/.lw", rroot .. "/.lw") then return end
+    local dir = root .. "/.lw/tmp"
+    if not fixed(dir, rroot .. "/.lw/tmp") then return end
     for _, n in ipairs(names(dir)) do
         local h = n:match("^lw%-test%-(%x+)%.xml$")
         if h and is_hex(h, 16, 64) then consider(items, ctx, dir, n, "file", "test results", M.AGE.results) end
@@ -735,7 +736,7 @@ end
 --- (loomworks.daemon.legacy): the runtime lock and handle only as a
 --- reclaimer would remove them (holder dead), the runtime log (`.log`,
 --- `.log.1`) as a leftover of the legacy-log age. Exact names, regular files
---- in a verified `<root>/.nvim`; each removal re-checks through the module.
+--- in a verified `<root>/.lw`; each removal re-checks through the module.
 local function scan_workspace_legacy(items, ctx, root)
     local legacy = require("loomworks.daemon.legacy")
     root = norm(root)
@@ -1119,7 +1120,7 @@ function M.parse_args(args)
 end
 
 --- `lw cleanup [--dry-run | --yes] [--all] [--pinned-older-than <dur>]`.
---- @param root string|nil the workspace root (its `.nvim/tmp`)
+--- @param root string|nil the workspace root (its `.lw/tmp`)
 --- @param args string[] argv (args[1] = "cleanup")
 --- @param host { out: fun(s: string), die: fun(msg: string, code?: integer) }
 --- @param opts? loomworks.HousekeepingOpts test seams

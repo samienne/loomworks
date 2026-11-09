@@ -148,10 +148,10 @@ local function statuses(frames)
     return by
 end
 
---- The `lw-test-*.xml` files in the workspace's .nvim/tmp.
+--- The `lw-test-*.xml` files in the workspace's .lw/tmp.
 local function results_files(root)
     local out = {}
-    local h = uv.fs_scandir(root .. "/.nvim/tmp")
+    local h = uv.fs_scandir(root .. "/.lw/tmp")
     while h do
         local name = uv.fs_scandir_next(h)
         if not name then break end
@@ -362,7 +362,7 @@ describe("Tests/1 runs in the daemon (§19.15 Tests, §19.20 Tests/1)", function
         local debug = done.result.debug
         local out
         for _, a in ipairs(debug.args) do out = a:match("^%-%-gtest_output=xml:(.+)$") or out end
-        assert.truthy(out and out:find("/.nvim/tmp/lw-test-", 1, true), vim.inspect(debug.args))
+        assert.truthy(out and out:find("/.lw/tmp/lw-test-", 1, true), vim.inspect(debug.args))
         -- The client's debugger runs the program (here: the test runs it).
         local r = vim.system({ debug.program, unpack(debug.args) },
             { cwd = debug.cwd, env = debug.env }):wait()
@@ -626,11 +626,11 @@ describe("Tests/1 run internals", function()
         assert.equals("abc", (test_runs._tail("abc", 3)))
     end)
 
-    it("removes only a per-run results file directly in <root>/.nvim/tmp (deletion safety)", function()
+    it("removes only a per-run results file directly in <root>/.lw/tmp (deletion safety)", function()
         local root = H.tmp() .. "/ws"
-        local tmp = root .. "/.nvim/tmp"
+        local tmp = root .. "/.lw/tmp"
         vim.fn.mkdir(tmp, "p")
-        vim.fn.mkdir(root .. "/.nvim/tmpx", "p")
+        vim.fn.mkdir(root .. "/.lw/tmpx", "p")
         vim.fn.mkdir(tmp .. "/sub", "p")
         local function touch(p)
             local f = assert(io.open(p, "w"))
@@ -639,8 +639,8 @@ describe("Tests/1 run internals", function()
             return p
         end
         local refused = {
-            touch(root .. "/lw-test-ab12.xml"),            -- outside .nvim/tmp
-            touch(root .. "/.nvim/tmpx/lw-test-ab12.xml"), -- a prefix collision
+            touch(root .. "/lw-test-ab12.xml"),            -- outside .lw/tmp
+            touch(root .. "/.lw/tmpx/lw-test-ab12.xml"), -- a prefix collision
             touch(tmp .. "/sub/lw-test-ab12.xml"),         -- not a direct child
             touch(tmp .. "/lw-test-xyz.xml"),              -- not hex
             touch(tmp .. "/lw-test-ab12.json"),            -- another name
@@ -664,23 +664,23 @@ describe("Tests/1 run internals", function()
         vim.fn.mkdir(tmp .. "/lw-test-aa.xml", "p")
         assert.is_false(test_store.unlink(root, tmp .. "/lw-test-aa.xml"))
         assert.is_not_nil(uv.fs_stat(tmp .. "/lw-test-aa.xml"))
-        -- A `.nvim/tmp` (or `.nvim`) that is a link or junction is refused:
+        -- A `.lw/tmp` (or `.lw`) that is a link or junction is refused:
         -- the file lies wherever it points.
         local root2 = H.tmp() .. "/ws2"
         local away = H.tmp() .. "/away"
-        vim.fn.mkdir(root2 .. "/.nvim", "p")
+        vim.fn.mkdir(root2 .. "/.lw", "p")
         vim.fn.mkdir(away, "p")
-        local linked = uv.fs_symlink(away, root2 .. "/.nvim/tmp", { junction = true })
+        local linked = uv.fs_symlink(away, root2 .. "/.lw/tmp", { junction = true })
         if linked then
             local f = touch(away .. "/lw-test-abc.xml")
-            assert.is_false(test_store.unlink(root2, root2 .. "/.nvim/tmp/lw-test-abc.xml"))
+            assert.is_false(test_store.unlink(root2, root2 .. "/.lw/tmp/lw-test-abc.xml"))
             assert.is_not_nil(uv.fs_stat(f))
             local root3 = H.tmp() .. "/ws3"
             vim.fn.mkdir(root3, "p")
             vim.fn.mkdir(away .. "/tmp", "p")
-            if uv.fs_symlink(away, root3 .. "/.nvim", { junction = true }) then
+            if uv.fs_symlink(away, root3 .. "/.lw", { junction = true }) then
                 local g = touch(away .. "/tmp/lw-test-abc.xml")
-                assert.is_false(test_store.unlink(root3, root3 .. "/.nvim/tmp/lw-test-abc.xml"))
+                assert.is_false(test_store.unlink(root3, root3 .. "/.lw/tmp/lw-test-abc.xml"))
                 assert.is_not_nil(uv.fs_stat(g))
             end
         else

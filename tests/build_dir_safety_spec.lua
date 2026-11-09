@@ -83,21 +83,21 @@ describe("build dir refs", function()
                 ["App/Debug:ninja-gcc"] = {
                     project_key = "App", config_key = "Debug:ninja-gcc",
                     type = "cmake", variant = "Debug", tool_key = "ninja-gcc",
-                    state = "configured", build_dir = "/root/.nvim/build/App/ninja-gcc",
+                    state = "configured", build_dir = "/root/.lw/build/App/ninja-gcc",
                 },
                 ["App/Release:ninja-gcc"] = {
                     project_key = "App", config_key = "Release:ninja-gcc",
                     type = "cmake", variant = "Release", tool_key = "ninja-gcc",
-                    state = "configured", build_dir = "/root/.nvim/build/App/ninja-gcc/Release",
+                    state = "configured", build_dir = "/root/.lw/build/App/ninja-gcc/Release",
                 },
             },
         })
 
-        local refs1 = ws:get_build_dir_refs("/root/.nvim/build/App/ninja-gcc")
+        local refs1 = ws:get_build_dir_refs("/root/.lw/build/App/ninja-gcc")
         assert.equals(1, #refs1)
         assert.equals("Debug:ninja-gcc", refs1[1]:config_key())
 
-        local refs2 = ws:get_build_dir_refs("/root/.nvim/build/App/ninja-gcc/Release")
+        local refs2 = ws:get_build_dir_refs("/root/.lw/build/App/ninja-gcc/Release")
         assert.equals(1, #refs2)
         assert.equals("Release:ninja-gcc", refs2[1]:config_key())
     end)
@@ -109,7 +109,7 @@ describe("build dir refs", function()
     end)
 
     pending("multi-config shared build dir has multiple refs", function()
-        local shared_dir = "/root/.nvim/build/App/ninja-gcc"
+        local shared_dir = "/root/.lw/build/App/ninja-gcc"
         local ws = make_ws({
             projects = { App = { cmake = {} } },
         }, nil, {
@@ -139,7 +139,7 @@ describe("build dir refs", function()
                 ["App/Debug:ninja-gcc"] = {
                     project_key = "App", config_key = "Debug:ninja-gcc",
                     type = "cmake", variant = "Debug", tool_key = "ninja-gcc",
-                    state = "configured", build_dir = "/root/.nvim/build/App/ninja-gcc",
+                    state = "configured", build_dir = "/root/.lw/build/App/ninja-gcc",
                 },
             },
         })
@@ -149,13 +149,13 @@ describe("build dir refs", function()
         temp_cache.build_dirs["build/App/ninja-gcc/Release"] = {
             project_key = "App", config_key = "Release:ninja-gcc",
             type = "cmake", variant = "Release", tool_key = "ninja-gcc",
-            state = "configured", build_dir = "/root/.nvim/build/App/ninja-gcc/Release",
+            state = "configured", build_dir = "/root/.lw/build/App/ninja-gcc/Release",
         }
         ws:remerge(nil, temp_cache)
 
         -- Now we have two different build dirs (one shared would need same build_dir value)
-        local refs1 = ws:get_build_dir_refs("/root/.nvim/build/App/ninja-gcc")
-        local refs2 = ws:get_build_dir_refs("/root/.nvim/build/App/ninja-gcc/Release")
+        local refs1 = ws:get_build_dir_refs("/root/.lw/build/App/ninja-gcc")
+        local refs2 = ws:get_build_dir_refs("/root/.lw/build/App/ninja-gcc/Release")
         assert.equals(1, #refs1)
         assert.equals(1, #refs2)
     end)
@@ -168,7 +168,7 @@ end)
 
 describe("deletion safety with shared dirs", function()
     pending("skips deleting dir still referenced by other configs", function()
-        local shared_dir = "/root/.nvim/build/App/ninja-gcc"
+        local shared_dir = "/root/.lw/build/App/ninja-gcc"
         local deleted_dirs = {}
 
         local ws, events_log, notifications = make_ws({
@@ -216,7 +216,7 @@ describe("deletion safety with shared dirs", function()
     end)
 
     it("deletes dir when all referencing configs are in the batch", function()
-        local shared_dir = "/root/.nvim/build/App/ninja-gcc"
+        local shared_dir = "/root/.lw/build/App/ninja-gcc"
         local deleted_dirs = {}
 
         local ws = make_ws({
@@ -260,7 +260,7 @@ describe("deletion safety with shared dirs", function()
     end)
 
     it("deletes dir when only one config references it", function()
-        local build_dir = "/root/.nvim/build/App/ninja-gcc/Debug"
+        local build_dir = "/root/.lw/build/App/ninja-gcc/Debug"
         local deleted_dirs = {}
 
         local ws = make_ws({
@@ -898,14 +898,14 @@ describe("_validate_build_dir: 8.3 short<->long reconciliation", function()
         local realpath = function(p)
             p = p:gsub("\\", "/"):lower()
             if p == SHORT_ROOT:lower() or p == LONG_ROOT:lower() then return LONG_ROOT end
-            if p == (SHORT_ROOT .. "/.nvim/build/app/debug"):lower() then
-                return LONG_ROOT .. "/.nvim/build/app/debug"
+            if p == (SHORT_ROOT .. "/.lw/build/app/debug"):lower() then
+                return LONG_ROOT .. "/.lw/build/app/debug"
             end
             return nil
         end
         local ws = boundary_ws(realpath)
         assert.is_true(ws:_validate_build_dir(
-            SHORT_ROOT .. "/.nvim/build/app/debug", LONG_ROOT))
+            SHORT_ROOT .. "/.lw/build/app/debug", LONG_ROOT))
     end)
 
     it("ACCEPTS a NON-existent short-form build dir via its existing root ancestor", function()
@@ -918,7 +918,7 @@ describe("_validate_build_dir: 8.3 short<->long reconciliation", function()
         end
         local ws = boundary_ws(realpath)
         assert.is_true(ws:_validate_build_dir(
-            SHORT_ROOT .. "/.nvim/build/app/debug", LONG_ROOT))
+            SHORT_ROOT .. "/.lw/build/app/debug", LONG_ROOT))
     end)
 
     it("still REJECTS a path genuinely outside the workspace", function()

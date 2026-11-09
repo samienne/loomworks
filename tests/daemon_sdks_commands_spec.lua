@@ -25,7 +25,7 @@ end
 
 --- The decoded working copy (its signature stripped).
 local function working_copy(root)
-    local _, content = trust.verify("user", read(root .. "/.nvim/loomworks.user.json"))
+    local _, content = trust.verify("user", read(root .. "/.lw/user.json"))
     return vim.json.decode(content)
 end
 

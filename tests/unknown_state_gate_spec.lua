@@ -38,7 +38,7 @@ local function make_core()
             },
             configuration_sets = { debug = { App = "Debug", Lib = "Debug" } },
         }),
-        ["loomworks.user.json"] = h.make_user_json({ profiles = { debug = {
+        ["user.json"] = h.make_user_json({ profiles = { debug = {
             configuration_set = "debug",
             tools = { cmake = { key = GCC_TOOL.key, data = GCC_TOOL.data } },
         } } }),

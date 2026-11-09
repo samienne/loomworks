@@ -52,7 +52,7 @@ local function make_core(tool)
             projects = { App = { cmake = { configurations = { Debug = { variant = "Debug" } } } } },
             configuration_sets = { debug = { App = "Debug" } },
         }),
-        ["loomworks.user.json"] = h.make_user_json({ profiles = { debug = {
+        ["user.json"] = h.make_user_json({ profiles = { debug = {
             configuration_set = "debug",
             tools = { cmake = { key = tool.key, data = tool.data } },
         } } }),

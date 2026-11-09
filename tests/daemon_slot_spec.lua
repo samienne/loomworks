@@ -83,9 +83,9 @@ describe("runtime slot", function()
         assert.are_not.equal(a[5], b[5])
         for i = 1, 3 do assert.are_not.equal(a[i], b[i]) end
         if IS_WIN then assert.are_not.equal(a[4], b[4]) end
-        assert.equals(root .. "/.nvim/loomworks.daemon-" .. a[5] .. ".lock", a[1])
-        assert.equals(root .. "/.nvim/loomworks.daemon-" .. a[5] .. ".json", a[2])
-        assert.equals(root .. "/.nvim/loomworks.daemon-" .. b[5] .. ".log", b[3])
+        assert.equals(root .. "/.lw/daemon-" .. a[5] .. ".lock", a[1])
+        assert.equals(root .. "/.lw/daemon-" .. a[5] .. ".json", a[2])
+        assert.equals(root .. "/.lw/daemon-" .. b[5] .. ".log", b[3])
         identity._set_identity("1000")
         local u = identity.slot()
         identity._set_identity("0")

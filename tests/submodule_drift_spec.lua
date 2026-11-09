@@ -374,7 +374,7 @@ describe("lw health submodule items", function()
         assert.equals(4, sub_items)
 
         -- Report-only: nothing about submodules lands in the health cache …
-        local f = assert(io.open(super .. "/.nvim/loomworks.health.json", "rb"))
+        local f = assert(io.open(super .. "/.lw/health.json", "rb"))
         local cached = f:read("*a"); f:close()
         assert.is_nil(cached:find("submodules", 1, true))
 

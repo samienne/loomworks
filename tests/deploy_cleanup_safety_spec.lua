@@ -1,5 +1,5 @@
 -- Deploy cleanup deletion safety (spec §8.8.5 step 2): a deploy record's key
--- comes from loomworks.cache.json, so cleanup unlinks it only when it is an
+-- comes from cache.json, so cleanup unlinks it only when it is an
 -- absolute, traversal-free path to a regular file whose canonical path lies
 -- strictly under the workspace root with no link on the way. A destination
 -- outside the workspace is left in place (record dropped, reported); an

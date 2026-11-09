@@ -28,6 +28,19 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
 
 ## Unreleased
 
+### Upgrade notes
+
+- lw now keeps a workspace's state in `.lw/` instead of `.nvim/`, with
+  shorter names (`.lw/user.json`, `.lw/cache.json`, ...); builds go to
+  `.lw/build/`. The first command in a workspace of an earlier release copies
+  the working copy over and says so; `.nvim/` is left as it was for older lw
+  versions, and its build trees are not reused (the first build configures
+  afresh). `.lw/` ignores itself (`.lw/.gitignore`), so no `.gitignore` line is
+  needed. Launchers written by `lw bootstrap install` cache a 0.2.0+ pin's
+  binary in `.lw/cache/`; launchers of earlier releases keep working. If an
+  older lw is still running in the workspace, the copy waits for you to stop
+  it and retry (#PR).
+
 ### Added
 
 - `lw` is now built for Linux arm64 (`lw-linux-arm64`) and Intel macOS

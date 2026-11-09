@@ -92,7 +92,7 @@ describe("record_task_result state protection", function()
         })
         local deps = h.make_test_deps({
             ["loomworks.json"] = config_json,
-            ["loomworks.cache.json"] = cache_json,
+            ["cache.json"] = cache_json,
         }, {
             modules = {
                 get = function(mod_type)

@@ -265,6 +265,7 @@ Shared state is protected by locks and transactions:
 |---|---|---|
 | Build-directory lock | `build_lock.lua` | one build directory across processes; exclusive for configure, clean and delete, shared for build |
 | Workspace operation lock | `op_lock.lua` | operations that write several workspace files or remove build trees |
+| State directory | `state_dir.lua`, `state_migration.lua` | `<root>/.lw/` and its self-ignore file; the one-time, copy-only move of a working copy from the `.nvim/` of a release before 0.2.0 (marker `.lw/migrated.json`, run by `Core:setup` before any state is read) |
 | Concurrent-writer guard | `save_guard.lua` | the `.lw/` state files: a save never overwrites a change another process made since this one read the file (the cache is merged, the working copy refused) |
 | Commit journal | `txn.lua` | multi-file writes: staged, then committed together, recoverable after a crash |
 | Lock records | `lock_record.lua`, `lock_break.lua`, `proc.lua` | the common lock record, liveness of the holder, recovery of a dead holder's lock (`lw unlock`) |
