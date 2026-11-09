@@ -282,6 +282,21 @@ end
 --- @param root string
 --- @param env table from M.env
 --- @return table result of M.lw
+--- An editor observer session on the daemon at `address`, subscribed to
+--- every task (`/tasks`) and to the model's changes (`/workspace`), as the
+--- editor observes: it gets every task's frames and `Workspace/1.changed`.
+--- @param address string
+--- @param on_message fun(m: table)
+--- @return table conn
+function M.observer(address, on_message)
+    local client = require("loomworks.daemon.client")
+    local conn = assert(client.session(address, { client = "editor", role = "observer", on_message = on_message }))
+    for _, s in ipairs({ { "/tasks", "loomworks.Tasks" }, { "/workspace", "loomworks.Workspace" } }) do
+        assert(client.call_sync(conn, "/", "loomworks.Root", 1, "subscribe", { object = s[1], iface = s[2], v = 1 }))
+    end
+    return conn
+end
+
 function M.stop_daemon(root, env)
     local lk = require("loomworks.daemon.rlock").read(root)
     if lk and type(lk.pid) == "number" then M.track(lk.pid, lk.start_time) end

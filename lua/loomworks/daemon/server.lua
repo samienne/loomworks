@@ -13,24 +13,20 @@
 ---      `welcome`, which lists the objects); then, through one
 ---      dispatch table (`M.DISPATCH`), the frozen control requests `ping`,
 ---      `status`, `stop`, `retire`, the interface envelope's `call` (the
----      registry loomworks.daemon.interfaces, with the root object `/`), and
----      — with a build service attached (`lw daemon run`,
----      loomworks.daemon.service) — the protocol-10 request kinds as v0
----      aliases;
+---      registry loomworks.daemon.interfaces, with the root object `/`; the
+---      core interfaces are mounted with a build service attached, `lw daemon
+---      run`, loomworks.daemon.service);
 ---   4. heartbeat (about 5 s): R's own timer refreshes the lock; the server
 ---      refreshes the handle (rewriting it if it was removed) and checks that
 ---      R still carries its record — a replaced record means the lock was
 ---      reclaimed while this process was suspended: it exits at once, nonzero,
 ---      touching no workspace file.
 ---
---- Broadcasts: `model_change { seq,
---- session_generation }` to every authenticated client below transport 11
---- after each committed write of a state file (`model_changed`, called by
---- the build service), and `retiring` to OBSERVER connections below 11
---- (hello `role = "observer"`, the editor) when the daemon is retired —
---- observers then disconnect. A connection of transport 11 gets their
---- interface forms instead, only by subscription (`Workspace/1.changed`) or
---- as the root's `retiring` signal.
+--- Changes: after each committed write of a state file (`model_changed`,
+--- called by the build service) the subscribers of `Workspace/1.changed`;
+--- when the daemon is retired, the root's `retiring` signal to every
+--- connection. A connection gets them only by subscription, or as the root's
+--- signal.
 ---
 --- Busy: only a connection that owns a running
 --- task or has a command in flight (`conn_busy`) holds off a retirement or
@@ -701,16 +697,11 @@ function Server:_maybe_retire()
     end))
 end
 
---- A committed write of a state file: advance the sequence number
---- and tell every authenticated client (the protocol-10 `model_change`
---- broadcast), and the subscribers of loomworks.Workspace/1 (`changed`).
+--- A committed write of a state file: advance the model revision and tell
+--- the subscribers of loomworks.Workspace/1 (`changed`).
 function Server:model_changed()
     if self.stopped then return end
     self.seq = self.seq + 1
-    local msg = { kind = protocol.KIND.model_change, seq = self.seq, session_generation = self.generation }
-    for conn in pairs(self.conns) do
-        if conn.authed and not conn.closed and M.takes_v0_broadcasts(conn) then self:_send(conn, msg) end
-    end
     if self.interfaces then
         local core_ifaces = require("loomworks.daemon.core_interfaces")
         core_ifaces.changed(self.interfaces, self.seq)
@@ -875,7 +866,7 @@ function Server:_authed(conn)
             end
         end
     end
-    -- Transport fields beside the header (protocol 11): the objects
+    -- Transport fields beside the header: the objects
     -- (describe().objects without digests).
     local objects = self.interfaces and self.interfaces:object_list(false) or nil
     self:_send(conn, {
@@ -944,7 +935,7 @@ function Server:adopt_pipe(sock, on_close)
 end
 
 --- The status a `status` request returns (frozen shape: only additions).
---- @param conn? table the asking connection (its tasks' `task_id` form, tasks.wire_id)
+--- @param conn? table the asking connection (its tasks' `owned`)
 function Server:status(conn)
     local r = self:_handle_record()
     r.root = self.root
@@ -977,23 +968,16 @@ function Server:_dispatch(conn, msg)
     local ok, err = pcall(self._dispatch_request, self, conn, msg)
     if not ok then
         self:log("handler error for %s: %s", tostring(msg.kind), tostring(err))
-        -- An interface call gets the structured error; a v0 request the string.
-        local e = "internal error"
-        if msg.kind == protocol.KIND.call then e = { code = "internal", message = "internal error" } end
-        self:_send(conn, { kind = protocol.KIND.error, req_id = msg.req_id, error = e })
+        self:_send(conn, { kind = protocol.KIND.error, req_id = msg.req_id,
+            error = { code = "internal", message = "internal error" } })
     end
 end
 
 --- The dispatch table: one entry per request kind.
 --- `call` is the interface envelope, served by the registry
---- (loomworks.daemon.interfaces); the frozen control subset answers itself;
---- the request kinds of protocol 10 are v0 ALIASES, served unchanged by the
---- build service's handlers — the same handlers the interface methods
---- adapt — and only when a service is attached (else, as before,
---- an unknown kind). A v0 request gets a v0 reply: `error` is a string.
+--- (loomworks.daemon.interfaces); the frozen control subset answers itself.
 ---   control = fun(server, conn, msg, reply)
----   v0      = the build service's method name
---- @type table<string, { control?: fun(server: loomworks.daemon.Server, conn: table, msg: table, reply: fun(fields: table|nil, cb: function|nil)), v0?: string }>
+--- @type table<string, { control: fun(server: loomworks.daemon.Server, conn: table, msg: table, reply: fun(fields: table|nil, cb: function|nil)) }>
 M.DISPATCH = {
     [protocol.KIND.ping] = { control = function(_, _, _, reply) return reply({}) end },
     [protocol.KIND.status] = {
@@ -1014,17 +998,6 @@ M.DISPATCH = {
             return server:registry():call(conn, msg)
         end,
     },
-    -- Routed operations: `build`, the batch `test`, the preparation of `lw
-    -- run` (the program runs in the client), `lw clean`, `lw reset`.
-    [protocol.KIND.build] = { v0 = "on_build" },
-    [protocol.KIND.test] = { v0 = "on_test" },
-    [protocol.KIND.prepare_run] = { v0 = "on_run" },
-    [protocol.KIND.clean] = { v0 = "on_clean" },
-    [protocol.KIND.reset] = { v0 = "on_reset" },
-    -- The model: a scope snapshot for the client's projection; a
-    -- host-probing query in the client's environment.
-    [protocol.KIND.snapshot] = { v0 = "on_snapshot" },
-    [protocol.KIND.query] = { v0 = "on_query" },
 }
 
 --- The frozen control subset among the request kinds: never a
@@ -1032,30 +1005,13 @@ M.DISPATCH = {
 M.CONTROL = { [protocol.KIND.ping] = true, [protocol.KIND.status] = true, [protocol.KIND.stop] = true,
     [protocol.KIND.retire] = true }
 
---- Does `conn` take the protocol-10 broadcasts (`model_change`, `retiring`,
---- every task's frames)? Every connection below transport 11 does, as
---- before; one of transport 11 receives only what it subscribed to, plus the
---- root's signals.
---- @param conn table
---- @return boolean
-function M.takes_v0_broadcasts(conn)
-    return not (type(conn.transport) == "number" and conn.transport >= 11)
-end
-
---- Mark the daemon retiring: observers below transport 11 are told
---- with the v0 `retiring` broadcast (they disconnect on it and never hold the
---- retirement off), every connection of transport 11 with the root's
+--- Mark the daemon retiring: every connection is told with the root's
 --- `retiring` signal. Already idle, it exits at once (after the reply).
 function Server:_retire()
     local first = not self.retiring
     self.retiring = true
     if not first then return end
     self:log("retiring: a client of another version asked; exits when idle")
-    for c in pairs(self.conns) do
-        if c.authed and not c.closed and c.observer and M.takes_v0_broadcasts(c) then
-            self:_send(c, { kind = protocol.KIND.retiring })
-        end
-    end
     if self.interfaces then self.interfaces:root_signal("retiring", {}) end
     self:_maybe_retire()
 end
@@ -1080,9 +1036,8 @@ function Server:_dispatch_request(conn, msg)
         end
         conn.in_flight[msg.req_id] = { at = uv.now(), kind = what }
     end
-    if entry and entry.control then return entry.control(self, conn, msg, reply) end
-    if entry and entry.v0 and self.service then return self.service[entry.v0](self.service, conn, msg) end
-    reply({ kind = K.error, error = "unknown request kind: " .. tostring(msg.kind) })
+    if entry then return entry.control(self, conn, msg, reply) end
+    reply({ kind = K.error, error = { code = "invalid_args", message = "unknown request kind: " .. tostring(msg.kind) } })
 end
 
 --- Authenticated client count (tests).

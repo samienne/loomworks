@@ -109,7 +109,7 @@ describe("LspConfig/1 in the daemon (§19.20)", function()
                 db_dir = { ["$pattern"] = "Debug$" }, compile_commands_dir = { ["$pattern"] = "Debug$" } }
         end
         local a, b = run({
-            name = "ready entry, db_rev and changed", allow = { { kind = "task" }, { kind = "model_change" },
+            name = "ready entry, db_rev and changed", allow = { { kind = "task" },
                 { kind = "signal", object = "/lsp", name = "changed" } },
             steps = steps(SUBSCRIBE, {
                 lsp(2, "get"),
@@ -190,7 +190,7 @@ describe("LspConfig/1 in the daemon (§19.20)", function()
         local theirs
         local a, b = run({
             name = "stale",
-            allow = { { kind = "model_change" }, { kind = "task" } },
+            allow = { { kind = "task" } },
             steps = steps(op(1, "configure"), {
                 lsp(2, "set_option", { server = "clangd", key = "clang_tidy", value = false }),
                 ok(2, { outcome = "refused", message = { ["$type"] = "string" } }),

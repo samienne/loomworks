@@ -103,11 +103,11 @@ describe("conformance engine", function()
         assert.is_false(ok)
         assert.truthy(err:find("gap", 1, true), err)
         -- An unconsumed frame that no `allow` pattern covers fails the case.
-        ok, err = run({}, { J('{"kind":"model_change","seq":1,"session_generation":1}') })
+        ok, err = run({}, { J('{"kind":"lwtest_frame","n":1}') })
         assert.is_false(ok)
         assert.truthy(err:find("unexpected frame", 1, true), err)
-        ok = engine.run_case({ name = "t", handshake = false, steps = {}, allow = { { kind = "model_change" } } },
-            canned({ J('{"kind":"model_change","seq":1,"session_generation":1}') }), { timeout_ms = 10, settle_ms = 0 })
+        ok = engine.run_case({ name = "t", handshake = false, steps = {}, allow = { { kind = "lwtest_frame" } } },
+            canned({ J('{"kind":"lwtest_frame","n":1}') }), { timeout_ms = 10, settle_ms = 0 })
         assert.is_true(ok)
     end)
 
@@ -145,7 +145,7 @@ describe("conformance engine", function()
             J('{"kind":"task","task_id":"g.4","phase":"line","stream":"out","text":"x","role":3}'), done })
         assert.is_false(ok)
         assert.truthy(err:find("role", 1, true), err)
-        -- A task no interface call started (protocol 10) is only matched.
+        -- A task no tracked interface call started is only matched.
         ok, err = run({ J('{"kind":"ok","req_id":1,"result":{"outcome":"refused","message":"m","exit_code":1}}'),
             J('{"kind":"task","task_id":"g.9","phase":"start","meta":{"kind":"build"}}'),
             J('{"kind":"task","task_id":"g.9","phase":"done","exit_code":0}') })
@@ -157,9 +157,9 @@ describe("conformance engine", function()
             return engine.run_case({ name = "t", handshake = false, allow = { { kind = "task" } }, steps = {} },
                 canned(frames), { timeout_ms = 10, settle_ms = 0 })
         end
-        local start = J('{"kind":"task","task_id":7,"phase":"start","meta":{"kind":"build"}}')
-        local line = J('{"kind":"task","task_id":7,"phase":"line","stream":"out","text":"x"}')
-        local done = J('{"kind":"task","task_id":7,"phase":"done","exit_code":0}')
+        local start = J('{"kind":"task","task_id":"g.7","phase":"start","meta":{"kind":"build"}}')
+        local line = J('{"kind":"task","task_id":"g.7","phase":"line","stream":"out","text":"x"}')
+        local done = J('{"kind":"task","task_id":"g.7","phase":"done","exit_code":0}')
         local ok, err = run({ start, line, done })
         assert.is_true(ok, err)
         ok, err = run({ line, start, done })
@@ -234,31 +234,35 @@ describe("conformance engine", function()
         assert.truthy(err:find("not as long as notes", 1, true), err)
     end)
 
-    it("validates a protocol-10 reply against its v0 shape", function()
-        local function run(frames, hello_protocol)
-            local steps = {}
-            if hello_protocol then
-                steps[#steps + 1] = { send = { kind = "hello", protocol = hello_protocol, nonce = "0" } }
-            end
-            steps[#steps + 1] = { send = J('{"kind":"build","req_id":1,"args":{}}') }
-            steps[#steps + 1] = { expect = { kind = "ok", req_id = 1 } }
+    it("validates a control request's reply against its shape", function()
+        local function run(frames)
+            local steps = {
+                { send = { kind = "hello", protocol = 1, nonce = "0" } },
+                { send = J('{"kind":"status","req_id":1}') },
+                { expect = { req_id = 1 } },
+            }
             return engine.run_case({ name = "t", handshake = false, steps = steps }, canned(frames),
                 { timeout_ms = 10, settle_ms = 0 })
         end
-        local ok, err = run({ J('{"kind":"ok","req_id":1,"outcome":"accepted","task_id":3,"profile_key":"dev"}') })
+        local ok, err = run({ J('{"kind":"ok","req_id":1,"pid":4,"root":"/r"}') })
         assert.is_true(ok, err)
-        ok, err = run({ J('{"kind":"ok","req_id":1,"task_id":3}') })
+        ok, err = run({ J('{"kind":"ok","req_id":1,"pid":4}') })
         assert.is_false(ok)
-        assert.truthy(err:find("v0 build reply", 1, true), err)
-        ok, err = run({ J('{"kind":"ok","req_id":1,"outcome":"accepted","task_id":"g.3"}') }, 10)
+        assert.truthy(err:find("status reply", 1, true), err)
+        ok, err = run({ J('{"kind":"error","req_id":1,"error":{"code":"internal","message":"y"}}') })
+        assert.is_true(ok, err)
+        ok, err = run({ J('{"kind":"error","req_id":1,"error":"y"}') })
         assert.is_false(ok)
-        assert.truthy(err:find("not an integer", 1, true), err)
-        ok, err = run({ J('{"kind":"ok","req_id":1,"outcome":"accepted","task_id":3}') }, 11)
+        assert.truthy(err:find("no structured error", 1, true), err)
+    end)
+
+    it("takes a task id as the opaque string", function()
+        local steps = { { send = { kind = "hello", protocol = 1, nonce = "0" } },
+            { expect = { kind = "task", phase = "start" } } }
+        local ok, err = engine.run_case({ name = "t", handshake = false, steps = steps },
+            canned({ J('{"kind":"task","task_id":3,"phase":"start","meta":{}}') }), { timeout_ms = 10, settle_ms = 0 })
         assert.is_false(ok)
-        assert.truthy(err:find("not a string", 1, true), err)
-        ok, err = run({ J('{"kind":"error","req_id":1,"error":{"code":"x","message":"y"}}') })
-        assert.is_false(ok)
-        assert.truthy(err:find("non-string error", 1, true), err)
+        assert.truthy(err:find("string", 1, true), err)
     end)
 end)
 
@@ -301,7 +305,7 @@ describe("loomworks.Tasks/1 across connections (§19.20 Tasks and cancel)", func
         local b = assert(client.loopback_session(srv))
         local env = require("loomworks.daemon.envscope").capture()
         env.LW_TEST_SLEEP = "60000"
-        local r = assert(client.request(a, { kind = "build", args = { profile = "dev" }, interactive = false,
+        local r = assert(require("loomworks.daemon.calls").request_sync(a, { kind = "build", args = { profile = "dev" }, interactive = false,
             env = env, command = "lw build" }))
         assert.equals("accepted", r.outcome, r.message)
         local tid = r.task_id

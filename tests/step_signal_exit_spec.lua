@@ -134,7 +134,7 @@ local function build(srv, args)
     })
     assert.is_not_nil(conn)
     rec.conn = conn
-    conn:request({ kind = "build", args = args or { profile = "dev" }, interactive = false,
+    require("loomworks.daemon.calls").request(conn, { kind = "build", args = args or { profile = "dev" }, interactive = false,
         env = envscope.capture(), command = "lw build" }, function(r, e) rec.reply = r or { error = e } end)
     function rec.done()
         for _, m in ipairs(rec.events) do if m.phase == "done" then return m end end

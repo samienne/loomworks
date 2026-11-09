@@ -418,7 +418,7 @@ local function accept(service, ctx, kind)
     local task = service.tasks:create(ctx.conn)
     task.call = ctx.call
     ctx.task, ctx.ws, ctx.profile, ctx.units = task, ws, profile, units
-    ctx.reply({ outcome = "accepted", task_id = tasks_mod.wire_id(task, ctx.conn), profile_key = profile.key,
+    ctx.reply({ outcome = "accepted", task_id = task.id, profile_key = profile.key,
         pid = service.server.pid, notes = ctx.notes, note_roles = ctx.note_roles })
     -- The task is accepted: from here a throw before the runner has the run
     -- (which `ctx.run` would cancel) ends the task itself.

@@ -49,8 +49,7 @@
 --- deploys and resolves the launch; its `done` carries the resolved `launch`
 --- (or `device = true`) and the client executes the program.
 ---
---- **`Launch/1.prepare_debug`** (an interface method only,
---- no protocol-10 alias) — the args of `prepare_run` minus `quiet` /
+--- **`Launch/1.prepare_debug`** — the args of `prepare_run` minus `quiet` /
 --- `prefix` / `verbose`, the same outcomes, never "declined" for a foreign kit: a device
 --- or foreign target ends its task nonzero instead. Its `done.result` carries
 --- the debug spec. Both preparations take `build_scope` ("profile", the
@@ -68,8 +67,7 @@
 --- in-process `nothing to clean …` line when there is nothing to clean,
 --- decided after resolution and before any lock (as in-process).
 ---
---- **`Build/1.configure`** (an
---- interface method only, no protocol-10 kind) — the outcomes of `build`: the
+--- **`Build/1.configure`** — the outcomes of `build`: the
 --- configure step of every unit of the scope, also one already configured.
 --- **`units`** on build, configure and clean: the scope is those configuration
 --- units (each `{ id }` or `{ project, configuration }`, resolved with the
@@ -107,7 +105,6 @@
 
 local build_run = require("loomworks.build_run")
 local envscope = require("loomworks.daemon.envscope")
-local protocol = require("loomworks.daemon.protocol")
 local snapshot = require("loomworks.daemon.snapshot")
 local tasks_mod = require("loomworks.daemon.tasks")
 
@@ -523,45 +520,6 @@ function Service:live(ctx, as_is)
     return ws
 end
 
---- Handle a `build` request on an authenticated connection.
---- @param conn table
---- @param msg table
-function Service:on_build(conn, msg)
-    return self:_on_operation("build", conn, msg)
-end
-
---- Handle a `test` request (the batch `lw test`) on an
---- authenticated connection.
---- @param conn table
---- @param msg table
-function Service:on_test(conn, msg)
-    return self:_on_operation("test", conn, msg)
-end
-
---- Handle a `prepare_run` request (the preparation of `lw run`) on an
---- authenticated connection.
---- @param conn table
---- @param msg table
-function Service:on_run(conn, msg)
-    return self:_on_operation("run", conn, msg)
-end
-
---- Handle a `clean` request (`lw clean`) on an
---- authenticated connection.
---- @param conn table
---- @param msg table
-function Service:on_clean(conn, msg)
-    return self:_on_operation("clean", conn, msg)
-end
-
---- Handle a `reset` request (`lw reset`) on an
---- authenticated connection.
---- @param conn table
---- @param msg table
-function Service:on_reset(conn, msg)
-    return self:_on_operation("reset", conn, msg)
-end
-
 --- Apply another process's changes to the workspace files before the
 --- header and the views are computed: the
 --- loaded model's light sync (Workspace:sync_light) — never a load, never a
@@ -614,7 +572,7 @@ end
 --- @param msg table
 --- @param answer fun(ws: table, ctx: table): table
 --- @param bad string|nil a validation failure: declined as malformed
---- @param deliver? fun(fields: table) answer an interface call instead of a v0 reply
+--- @param deliver fun(fields: table) answer the interface call
 function Service:_on_model_request(conn, msg, answer, bad, deliver)
     local srv = self.server
     local env, eerr = envscope.validate(msg.env)
@@ -622,11 +580,8 @@ function Service:_on_model_request(conn, msg, answer, bad, deliver)
     function ctx.reply(fields)
         ctx.replied = true
         self:_before_ack(ctx)
-        -- An interface method's adapter takes the fields as its result.
-        if deliver then return deliver(fields) end
-        fields.kind = protocol.KIND.ok
-        fields.req_id = msg.req_id
-        srv:_send(conn, fields)
+        -- The interface method's adapter takes the fields as its result.
+        return deliver(fields)
     end
     if not env then return ctx.reply({ outcome = "declined", reason = eerr }) end
     if bad then return ctx.reply({ outcome = "declined", reason = bad }) end
@@ -666,17 +621,8 @@ function Service:_on_model_request(conn, msg, answer, bad, deliver)
     end)
 end
 
---- Handle a `snapshot` request: the scope's tables of the live
---- model, its toolchain detection and the current-key → id index.
---- @param conn table
---- @param msg table
-function Service:on_snapshot(conn, msg)
-    local bad = not snapshot.valid_scope(msg.scope) and "malformed request" or nil
-    return self:_on_model_request(conn, msg, self:_snapshot_answer(conn, msg.scope), bad)
-end
-
---- The model segment's answer to a snapshot of `scope` (the `snapshot`
---- request and lw.internal.Snapshot/1.get).
+--- The model segment's answer to a snapshot of `scope`
+--- (lw.internal.Snapshot/1.get).
 --- @param conn table
 --- @param scope string|nil
 --- @return fun(ws: table): table
@@ -689,20 +635,8 @@ function Service:_snapshot_answer(conn, scope)
     end
 end
 
---- Handle a `query` request: a registered host-probing query run
---- against the live model in the client's environment.
---- @param conn table
---- @param msg table
-function Service:on_query(conn, msg)
-    local bad = (type(msg.name) ~= "string" or (msg.args ~= nil and type(msg.args) ~= "table"))
-        and "malformed request" or nil
-    return self:_on_model_request(conn, msg, function(ws)
-        return self:_query(conn, ws, msg.name, msg.args or {})
-    end, bad)
-end
-
---- Run registered query `name` against the live model (the `query` request
---- and its interface methods, Toolchains/1.list and Profiles/1.compiler_cache):
+--- Run registered query `name` against the live model (its interface
+--- methods, Toolchains/1.list and Profiles/1.compiler_cache):
 --- `{ result }`, or a refusal.
 --- @param conn table
 --- @param ws table
@@ -768,26 +702,13 @@ local function scope_args_ok(a)
     return true
 end
 
---- Does `a` (a protocol-10 request's args) carry none of `Build/1`'s
---- editor-scope fields (`units`, `jobs`, `{ project, target }` items)?
---- @param a table
---- @return boolean
-local function v0_args_ok(a)
-    if a.units ~= nil or a.jobs ~= nil then return false end
-    for _, v in ipairs(type(a.targets) == "table" and a.targets or {}) do
-        if type(v) ~= "string" then return false end
-    end
-    return true
-end
-
 --- Is `a` (a `prepare_run` or, `op == "debug"`, a `prepare_debug` request's
 --- args — or, `op == "target_build"`, a `Launch/1.build` request's)
---- well-formed? `force` only through the interface methods (`interface`).
+--- well-formed?
 --- @param a table
 --- @param op "run"|"debug"|"target_build"
---- @param interface boolean
 --- @return boolean
-local function run_args_ok(a, op, interface)
+local function run_args_ok(a, op)
     for _, k in ipairs({ "target", "project", "cwd" }) do
         if a[k] ~= nil and type(a[k]) ~= "string" then return false end
     end
@@ -795,8 +716,6 @@ local function run_args_ok(a, op, interface)
     for _, k in ipairs({ "no_build", "quiet", "prefix", "force" }) do
         if a[k] ~= nil and type(a[k]) ~= "boolean" then return false end
     end
-    -- (The conflict question's answer: not in the protocol-10 request.)
-    if a.force ~= nil and not interface then return false end
     -- (No report and no wrapper for a debug launch.)
     if op ~= "run" and (a.quiet ~= nil or a.prefix ~= nil) then return false end
     -- (A launch target's build: no launch to resolve, always built.)
@@ -808,15 +727,14 @@ local function run_args_ok(a, op, interface)
 end
 
 --- A routed operation's request: validate it, then accept it in a model
---- segment. The protocol-10 request and the task-streamed interface method
---- (Build/1, Tests/1.run, Launch/1.prepare_run; daemon/core_interfaces.lua)
---- are this one implementation: the method passes `deliver` (its reply) and
---- `call` (the task's interface identity and result, `Task.call`). `debug`
---- (Launch/1.prepare_debug) has no protocol-10 request.
+--- segment. The implementation of the task-streamed interface methods
+--- (Build/1, Tests/1, Launch/1; daemon/core_interfaces.lua): the method
+--- passes `deliver` (its reply) and `call` (the task's interface identity and
+--- result, `Task.call`).
 --- @param op "build"|"test"|"run"|"debug"|"target_build"|"clean"|"reset"|"configure"
 --- @param conn table
 --- @param msg table
---- @param deliver? fun(fields: table) answer an interface call instead of a v0 reply
+--- @param deliver fun(fields: table) answer the interface call
 --- @param call? loomworks.daemon.TaskCall
 function Service:_on_operation(op, conn, msg, deliver, call)
     local srv = self.server
@@ -827,10 +745,7 @@ function Service:_on_operation(op, conn, msg, deliver, call)
     function ctx.reply(fields)
         ctx.replied = true
         self:_before_ack(ctx)
-        if deliver then return deliver(fields) end
-        fields.kind = protocol.KIND.ok
-        fields.req_id = msg.req_id
-        srv:_send(conn, fields)
+        return deliver(fields)
     end
     if not env then return ctx.reply({ outcome = "declined", reason = eerr }) end
     if self.stopping or srv.stopped then
@@ -844,17 +759,15 @@ function Service:_on_operation(op, conn, msg, deliver, call)
     for _, v in ipairs(a.extra or {}) do
         if type(v) ~= "string" then return ctx.reply({ outcome = "declined", reason = "malformed request" }) end
     end
-    -- (`units` only on build, configure and clean; `jobs` only on build;
-    -- both, and `{ project, target }` items, only through Build/1 — the
-    -- CLI's protocol-10 requests are unchanged.)
+    -- (`units` only on build, configure and clean; `jobs` only on build.)
     if not scope_args_ok(a) or (a.units ~= nil and op ~= "build" and op ~= "configure" and op ~= "clean")
-        or (a.jobs ~= nil and op ~= "build") or (not deliver and not v0_args_ok(a)) then
+        or (a.jobs ~= nil and op ~= "build") then
         return ctx.reply({ outcome = "declined", reason = "malformed request" })
     end
     if (a.profile ~= nil and type(a.profile) ~= "string") or (a.junit ~= nil and type(a.junit) ~= "string")
         or (a.profile_id ~= nil and (type(a.profile_id) ~= "string" or a.profile ~= nil))
         or (a.project_id ~= nil and (type(a.project_id) ~= "string" or a.project ~= nil))
-        or ((op == "run" or op == "debug" or op == "target_build") and not run_args_ok(a, op, deliver ~= nil))
+        or ((op == "run" or op == "debug" or op == "target_build") and not run_args_ok(a, op))
         or (op == "test" and a.no_build ~= nil and type(a.no_build) ~= "boolean")
         -- (`verbose` only where its API defines it: build, clean, test,
         -- prepare_run — not reset, configure, prepare_debug or Launch/1.build.)
@@ -1018,7 +931,7 @@ function Service:_accept(ctx)
     local task = self.tasks:create(ctx.conn)
     task.call = ctx.call
     ctx.task, ctx.ws, ctx.profile, ctx.units = task, ws, profile, units
-    ctx.reply({ outcome = "accepted", task_id = tasks_mod.wire_id(task, ctx.conn),
+    ctx.reply({ outcome = "accepted", task_id = task.id,
         profile_key = profile and profile.key or nil, pid = self.server.pid,
             notes = ctx.notes, note_roles = ctx.note_roles })
     local runner = require("loomworks.daemon.runner")
@@ -1110,7 +1023,7 @@ function Service:_accept_reset(ctx, ws, refs)
     local task = self.tasks:create(ctx.conn)
     task.call = ctx.call
     ctx.task, ctx.ws = task, ws
-    ctx.reply({ outcome = "accepted", task_id = tasks_mod.wire_id(task, ctx.conn), profile_key = profile_key,
+    ctx.reply({ outcome = "accepted", task_id = task.id, profile_key = profile_key,
         pid = self.server.pid, notes = ctx.notes, note_roles = ctx.note_roles })
     local run = require("loomworks.daemon.runner").reset(self, {
         op = "reset", task = task, ws = ws, plan = plan, env = ctx.env, command = ctx.command,

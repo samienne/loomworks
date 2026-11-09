@@ -1,11 +1,11 @@
 --- loomworks/daemon/calls.lua — the CLI's requests as interface calls.
 ---
---- The CLI builds its daemon requests in the protocol-10 shape (`build`,
---- `test`, `prepare_run`, `clean`, `reset`, `snapshot`, `query`), which stay
---- the v0 aliases older clients use. On a connection whose negotiated
---- transport is 11 or later, `M.request` sends the interface call instead and
---- hands the caller the reply in the protocol-10 shape, so the CLI's handling
---- (outcomes, notes, the task stream) is one code path for both:
+--- The CLI builds its daemon requests as operation messages (`build`,
+--- `test`, `prepare_run`, `clean`, `reset`, `snapshot`, `query`), a shape
+--- never sent as it is: `M.request` sends the interface call and hands the
+--- caller the reply flattened into that shape (the outcome's fields on the
+--- reply), so the CLI's handling (outcomes, notes, the task stream) stays one
+--- code path:
 ---
 ---   build / clean / reset   /build       loomworks.Build/1       build / clean / reset
 ---   test                    /tests       loomworks.Tests/1       run
@@ -18,25 +18,25 @@
 --- the user typed). A transport error of the call is answered by its code
 --- (M.on_error):
 ---
----   unknown_object, unknown_interface,    nothing ran: the protocol-10 request
----   unknown_method, unsupported_version   is sent instead (an older daemon
----                                         speaks transport 11 without
----                                         these interfaces)
----   invalid_args, same_build_required,    `declined` with the error: the CLI
----   stopping, retiring                    runs the command in-process
+---   unknown_object, unknown_interface,    nothing ran: `declined` with the
+---   unknown_method, unsupported_version,  error, the CLI runs the command
+---   invalid_args, same_build_required,    in-process
+---   stopping, retiring
 ---   internal or an unknown code           a mutating method (it may have
 ---                                         started): `refused`, exit 1, never
 ---                                         run a second time in-process; any
 ---                                         other method: `declined`
 ---
---- A request with no interface form (`ping`, an unknown query) is sent as it
---- is.
+--- A query the registry does not name is answered here (`declined` for a
+--- malformed one, `refused` for an unknown name), as the daemon answers an
+--- unknown query; any other request with no interface form (`ping`) is sent
+--- as it is.
 
 local M = {}
 
 local VERSION = 1
 
---- The interface of each protocol-10 operation kind: object, iface, method;
+--- The interface of each operation kind: object, iface, method;
 --- `mutates` as the method's schema declares it.
 M.OPERATIONS = {
     build = { "/build", "loomworks.Build", "build", mutates = true },
@@ -46,23 +46,21 @@ M.OPERATIONS = {
     prepare_run = { "/launch", "loomworks.Launch", "prepare_run", mutates = true },
 }
 
---- Transport error codes after which nothing ran and the protocol-10
---- request is sent instead.
-M.RETRY_V0 = { unknown_object = true, unknown_interface = true, unknown_method = true,
+--- Transport error codes saying the daemon does not serve the method:
+--- nothing ran.
+M.ABSENT = { unknown_object = true, unknown_interface = true, unknown_method = true,
     unsupported_version = true }
---- Transport error codes after which nothing ran and the CLI runs in-process.
+--- Other transport error codes after which nothing ran.
 M.DECLINE = { invalid_args = true, same_build_required = true, stopping = true, retiring = true }
 
 --- What the CLI does after a transport error `code` of a call:
---- "retry_v0" (send the protocol-10 request), "declined" (run in-process) or
---- "failed" (a mutating method that may have started: exit 1, never run it
---- again).
+--- "declined" (nothing ran: run in-process) or "failed" (a mutating method
+--- that may have started: exit 1, never run it again).
 --- @param code any
 --- @param mutates boolean
---- @return "retry_v0"|"declined"|"failed"
+--- @return "declined"|"failed"
 function M.on_error(code, mutates)
-    if M.RETRY_V0[code] then return "retry_v0" end
-    if M.DECLINE[code] then return "declined" end
+    if M.ABSENT[code] or M.DECLINE[code] then return "declined" end
     return mutates and "failed" or "declined"
 end
 
@@ -77,16 +75,16 @@ M.QUERIES = {
         result = function(r) return { cache = r.cache } end },
 }
 
---- Does `conn` speak interface calls (transport 11 or later)?
+--- Does `conn` speak interface calls (it agreed on a transport)?
 --- @param conn table
 --- @return boolean
 function M.speaks_calls(conn)
-    return type(conn) == "table" and type(conn.transport) == "number" and conn.transport >= 11
+    return type(conn) == "table" and type(conn.transport) == "number"
 end
 
---- The call frame of protocol-10 request `msg`, or nil when it has no
---- interface form. The second value maps the call's `ok` result back to the
---- protocol-10 reply's fields; the third is whether the method mutates.
+--- The call frame of operation message `msg`, or nil when it has no
+--- interface form. The second value maps the call's `ok` result to the
+--- reply's fields; the third is whether the method mutates.
 --- @param msg table
 --- @return table|nil frame, (fun(result: table): table)|nil to_reply, boolean|nil mutates
 function M.frame(msg)
@@ -118,20 +116,17 @@ function M.frame(msg)
     return nil
 end
 
---- The protocol-10 reply of a call's reply frame; nil for an error after
---- which the protocol-10 request is sent instead (M.on_error).
+--- The flattened reply of a call's reply frame (M.on_error for an error).
 --- @param reply table the `ok` / `error` frame
 --- @param to_reply fun(result: table): table
 --- @param mutates? boolean the method mutates
 --- @param what? string the operation, for the message of a failed call
---- @return table|nil
+--- @return table
 function M.reply(reply, to_reply, mutates, what)
     if reply.kind == "error" then
         local e = type(reply.error) == "table" and reply.error or {}
         local text = string.format("%s: %s", tostring(e.code or "error"), tostring(e.message or ""))
-        local action = M.on_error(e.code, mutates == true)
-        if action == "retry_v0" then return nil end
-        if action == "failed" then
+        if M.on_error(e.code, mutates == true) == "failed" then
             return { kind = "ok", req_id = reply.req_id, outcome = "refused", exit_code = 1,
                 message = string.format("the workspace daemon failed the %s (%s); it may have started, so it is"
                     .. " not run again without the daemon", what or "operation", text) }
@@ -145,29 +140,30 @@ function M.reply(reply, to_reply, mutates, what)
     return out
 end
 
---- Send protocol-10 request `msg` on `conn`: as its interface call when the
---- connection speaks transport 11 and the request has one, else as it is.
---- `cb(reply|nil, err)` gets the reply in the protocol-10 shape.
+--- Send operation message `msg` on `conn`: as its interface call when the
+--- connection speaks calls and the message has one, else as it is.
+--- `cb(reply|nil, err)` gets the reply flattened (M.reply).
 --- @param conn table a client session (loomworks.daemon.client)
 --- @param msg table
 --- @param cb fun(reply: table|nil, err: any)
 function M.request(conn, msg, cb)
     local frame, to_reply, mutates
     if M.speaks_calls(conn) then frame, to_reply, mutates = M.frame(msg) end
+    if not frame and msg.kind == "query" then
+        if type(msg.name) ~= "string" then
+            return cb({ kind = "ok", outcome = "declined", reason = "malformed request" }, nil)
+        end
+        return cb({ kind = "ok", outcome = "refused", message = "unknown query: " .. msg.name, exit_code = 1 }, nil)
+    end
     if not frame then return conn:request(msg, cb) end
     local what = msg.kind == "prepare_run" and "run" or msg.kind
-    local function answer(r)
-        -- Nothing ran: the protocol-10 request instead.
-        if r == nil then return conn:request(msg, cb) end
-        cb(r, nil)
-    end
     conn:request(frame, function(reply, err)
         -- (The session hands an `error` frame over as its error object.)
         if not reply and type(err) == "table" and err.code ~= nil then
-            return answer(M.reply({ kind = "error", req_id = frame.req_id, error = err }, to_reply, mutates, what))
+            return cb(M.reply({ kind = "error", req_id = frame.req_id, error = err }, to_reply, mutates, what), nil)
         end
         if not reply then return cb(nil, err) end
-        answer(M.reply(reply, to_reply, mutates, what))
+        cb(M.reply(reply, to_reply, mutates, what), nil)
     end)
 end
 

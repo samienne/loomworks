@@ -1,4 +1,4 @@
---- loomworks/proto/envelope.lua — the message envelope of transport 11:
+--- loomworks/proto/envelope.lua — the message envelope of the transport:
 ---
 ---   call   { kind = "call",   req_id, object, iface, v, method, args, env? }
 ---   ok     { kind = "ok",     req_id, result }

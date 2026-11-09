@@ -19,8 +19,8 @@
 ---
 --- Object `/` always implements `loomworks.Root/1` (frozen):
 --- `describe`, `schema`, `subscribe`, `unsubscribe`. Its signals
---- (`objects_changed`, `retiring`) reach every connection of transport 11
---- without a subscription; other interfaces' signals reach only the
+--- (`objects_changed`, `retiring`) reach every connection with an agreed
+--- transport without a subscription; other interfaces' signals reach only the
 --- connections subscribed to them, stamped with the `sub_id` and a `seq` per
 --- object and connection: it counts only the signals of that object the
 --- connection is actually sent, so a gap means a lost signal, never one
@@ -42,7 +42,7 @@ M.ASYNC = setmetatable({}, { __tostring = function() return "interfaces.ASYNC" e
 --- The root's methods, as `describe().root_methods` lists them.
 M.ROOT_METHODS = { "describe", "schema", "subscribe", "unsubscribe" }
 
---- How this daemon delivers to a transport-11 connection, as
+--- How this daemon delivers to a connection, as
 --- `describe().delivery` reports it: only by subscription.
 M.DELIVERY = "subscription"
 
@@ -309,11 +309,12 @@ function Registry:_shape(e, node, value)
     return schema.shape(node, value, { doc = e.doc, base = e.rel, resolve_doc = self.docs:resolver() })
 end
 
---- Is the connection on transport 11 or later (it understands envelope frames)?
+--- Did the connection agree on a transport (it understands envelope frames)?
+--- One with no overlap is served only the frozen control subset.
 --- @param conn table
 --- @return boolean
 function M.speaks_envelope(conn)
-    return type(conn.transport) == "number" and conn.transport >= 11
+    return type(conn.transport) == "number"
 end
 
 --- Serve a `call` frame on `conn`.
@@ -385,7 +386,8 @@ end
 -- Signals and subscriptions
 -- ---------------------------------------------------------------------------
 
---- Send a root signal to every authenticated connection of transport 11.
+--- Send a root signal to every authenticated connection with an agreed
+--- transport.
 --- @param name string
 --- @param args table
 function Registry:root_signal(name, args)
@@ -528,8 +530,8 @@ function M.root_impl()
             session_generation = server.generation,
             objects = reg:object_list(true),
             root_methods = M.ROOT_METHODS,
-            -- A transport-11 connection gets task frames and changes only
-            -- through its subscriptions.
+            -- A connection gets task frames and changes only through its
+            -- subscriptions.
             delivery = M.DELIVERY,
         }
     end

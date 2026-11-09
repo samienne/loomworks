@@ -3,7 +3,7 @@
 ---
 --- A message is a JSON object prefixed by its decimal byte length and a
 --- newline: `<len>\n<json>`. Every request carries a `req_id` its reply
---- echoes; broadcasts carry none. The decoder enforces a frame cap on the
+--- echoes; signals and task frames carry none. The decoder enforces a frame cap on the
 --- LENGTH PREFIX, before any payload is buffered: 64 KiB until the connection
 --- has authenticated, `MAX_FRAME` after.
 ---
@@ -16,7 +16,7 @@ local M = {}
 
 --- The wire protocol version (loomworks.daemon.version.PROTOCOL).
 M.VERSION = require("loomworks.daemon.version").PROTOCOL
---- The oldest transport still spoken (loomworks.daemon.version.PROTOCOL_MIN).
+--- The oldest transport spoken (loomworks.daemon.version.PROTOCOL_MIN).
 M.VERSION_MIN = require("loomworks.daemon.version").PROTOCOL_MIN
 
 --- Frame cap before authentication.
@@ -38,23 +38,19 @@ M.KIND = {
     -- replies (frozen)
     ok = "ok",
     error = "error",
-    -- routed operations: a request and its task stream
+    -- the CLI's operations, in the shape loomworks.daemon.calls turns into
+    -- interface calls (never sent as they are), and the task stream
     build = "build",
     test = "test",
     prepare_run = "prepare_run",
     clean = "clean",
     reset = "reset",
     task = "task",
-    -- the model: a scope snapshot for a client's
-    -- projection; a read-only query that probes the host in the client's
-    -- environment
+    -- the model, likewise: a scope snapshot for a client's projection; a
+    -- read-only query that probes the host in the client's environment
     snapshot = "snapshot",
     query = "query",
-    -- broadcasts: a committed write of a state file; the
-    -- daemon was retired (observers disconnect)
-    model_change = "model_change",
-    retiring = "retiring",
-    -- the message envelope of protocol 11 (loomworks.proto.envelope):
+    -- the message envelope (loomworks.proto.envelope):
     -- an interface call and an interface signal (replies are `ok` / `error`,
     -- the error then a structured object)
     call = "call",
@@ -72,14 +68,6 @@ M.KIND = {
 function M.session_id(generation, n)
     local g = type(generation) == "number" and string.format("%d", generation) or tostring(generation or 0)
     return g .. "." .. string.format("%d", n)
-end
-
---- Does `conn` take the opaque string ids of transport 11? A
---- protocol-10 (v0) connection keeps its integer task ids.
---- @param conn table|nil
---- @return boolean
-function M.opaque_ids(conn)
-    return type(conn) == "table" and type(conn.transport) == "number" and conn.transport >= 11
 end
 
 --- Encode a message table as a frame.

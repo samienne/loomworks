@@ -474,7 +474,7 @@ function M.accept(svc, ctx)
     local task = svc.tasks:create(ctx.conn)
     task.call = ctx.call
     ctx.task, ctx.ws, ctx.profile = task, ws, profile
-    ctx.reply({ outcome = "accepted", task_id = tasks_mod.wire_id(task, ctx.conn), profile_key = profile.key,
+    ctx.reply({ outcome = "accepted", task_id = task.id, profile_key = profile.key,
         pid = svc.server.pid, notes = ctx.notes, note_roles = ctx.note_roles })
     local run = M.run(svc, ctx)
     svc.server:log("discover %s (task %s) accepted", profile.key, task.id)

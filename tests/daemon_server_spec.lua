@@ -221,7 +221,8 @@ describe("daemon server (in-process)", function()
         assert.equals(srv.pid, st.pid)
         assert.is_true(vim.wait(15000, function() return handle.read(root).clients == 1 end, 10))
         local _, err = client.request(conn, { kind = "build" })
-        assert.truthy(tostring(err):find("unknown request kind", 1, true))
+        assert.equals("invalid_args", err.code)
+        assert.truthy(err.message:find("unknown request kind", 1, true))
         conn:close()
         -- (Generous: on a loaded Windows runner the named pipe's EOF can take
         -- seconds to reach the server's read.)
@@ -780,7 +781,7 @@ describe("version handshake (§19.9)", function()
         idle:close()
     end)
 
-    it("the policy compares describe's lw_version over transport 11, the challenge's before", function()
+    it("the policy compares describe's lw_version, the challenge's without an answer", function()
         local first = assert(client.session(srv.address))
         local match, v = ensure.policy(first)
         first:close()
@@ -802,8 +803,9 @@ describe("version handshake (§19.9)", function()
         conn:close()
         assert.is_false(match)
         assert.equals("0.0.1", v)
-        -- A protocol-10 daemon (no describe): the challenge's versions.
-        local fake = { transport = 10, challenge = { protocol = 10, lw_version = srv.identity,
+        -- No answer to describe (a connection that cannot call): the
+        -- challenge's versions.
+        local fake = { transport = 1, challenge = { protocol = 1, lw_version = "0.0.1",
             schemas = require("loomworks.daemon.version").schemas() } }
         match = ensure.policy(fake)
         assert.is_false(match)
@@ -976,7 +978,7 @@ describe("review hardening (§19.5, §19.7)", function()
         local conn = assert(client.session(srv.address))
         local reply, err = client.request(conn, { kind = "status" })
         assert.is_nil(reply)
-        assert.equals("internal error", err)
+        assert.same({ code = "internal", message = "internal error" }, err)
         assert.truthy(client.request(conn, { kind = "ping" }))
         conn:close()
         local real_touch = handle.touch

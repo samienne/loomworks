@@ -1,7 +1,6 @@
 -- loomworks.Sdks/1 and loomworks.Toolchains/1.rescan in the daemon (API.md
 -- §11, §21; spec daemon.md §19.14 "As interfaces"; step 5o part B4): detect,
--- add (followed by a toolchain rescan), remove, and rescan, called over
--- transport 11 against an in-process server with the build service attached
+-- add (followed by a toolchain rescan), remove, and rescan, called against an in-process server with the build service attached
 -- and a real `shell` workspace. References resolve to the live objects at the
 -- boundary (an id, or a key); the write goes through loomworks.model_commands.
 

@@ -1,7 +1,8 @@
 -- The CLI's two-stage Ctrl-C for a routed operation (spec §19.15 "Task
 -- ownership"): the first Ctrl-C sends `loomworks.Tasks/1.cancel` and lw keeps
--- waiting; the second ends lw (closing the connection). A daemon without
--- Tasks/1 (protocol 10) gets the connection closed on the first one.
+-- waiting; the second ends lw (closing the connection). A connection that
+-- cannot carry the call (no agreed transport) or a daemon without Tasks/1
+-- gets the connection closed on the first one.
 
 _G.LOOMWORKS_CLI_NO_AUTORUN = true
 local cli = require("loomworks.cli")
@@ -65,7 +66,7 @@ describe("two-stage Ctrl-C (cli)", function()
     end)
 
     it("_routed_cancel sends Tasks/1.cancel for the task and keeps waiting", function()
-        local conn = fake_conn(11, { { outcome = "ok" }, nil })
+        local conn = fake_conn(1, { { outcome = "ok" }, nil })
         local escalated = false
         assert.is_true(cli._routed_cancel(conn, "t-1", function() escalated = true end))
         assert.equals(1, #conn.calls)
@@ -78,21 +79,21 @@ describe("two-stage Ctrl-C (cli)", function()
     it("_routed_cancel: a task that already ended or a closed connection keeps waiting", function()
         for _, err in ipairs({ { code = "forbidden" }, { code = "closed" } }) do
             local escalated = false
-            assert.is_true(cli._routed_cancel(fake_conn(11, { nil, err }), "t-1", function() escalated = true end))
+            assert.is_true(cli._routed_cancel(fake_conn(1, { nil, err }), "t-1", function() escalated = true end))
             assert.is_false(escalated, err.code)
         end
     end)
 
-    it("_routed_cancel: a daemon without Tasks/1 closes the connection (protocol 10, no interface)", function()
-        -- Protocol 10: no interface calls, an integer task id.
-        assert.is_false(cli._routed_cancel(fake_conn(10), 3, function() end))
-        assert.is_false(cli._routed_cancel(fake_conn(11), 3, function() end))
-        local closed = fake_conn(11); closed.closed = true
+    it("_routed_cancel: no agreed transport or a daemon without Tasks/1 closes the connection", function()
+        -- No agreed transport (no interface calls), or no string task id.
+        assert.is_false(cli._routed_cancel(fake_conn(nil), "t-1", function() end))
+        assert.is_false(cli._routed_cancel(fake_conn(1), 3, function() end))
+        local closed = fake_conn(1); closed.closed = true
         assert.is_false(cli._routed_cancel(closed, "t-1", function() end))
-        -- Transport 11 whose daemon has no Tasks/1: escalated.
+        -- A daemon without Tasks/1: escalated.
         for _, code in ipairs({ "unknown_object", "unknown_interface", "unknown_method", "unsupported_version" }) do
             local escalated = false
-            assert.is_true(cli._routed_cancel(fake_conn(11, { nil, { code = code } }), "t-1",
+            assert.is_true(cli._routed_cancel(fake_conn(1, { nil, { code = code } }), "t-1",
                 function() escalated = true end))
             assert.is_true(escalated, code)
         end
@@ -109,7 +110,7 @@ describe("two-stage Ctrl-C (cli)", function()
         local function err_text() return table.concat(writes) end
 
         it("the first Ctrl-C while waiting cancels, prints one line, and is recorded", function()
-            local conn = fake_conn(11, { { outcome = "ok" }, nil })
+            local conn = fake_conn(1, { { outcome = "ok" }, nil })
             local code
             local cleanup = cli._make_interrupt_cleanup(130, function(c) code = c end)
             local intercepted = cli._await_routed(conn, "t-1", "build", function() cleanup("sigint") end)
@@ -124,7 +125,7 @@ describe("two-stage Ctrl-C (cli)", function()
             local prev = function() return true end
             cli._set_interrupt_intercept(prev)
             local seen
-            local intercepted = cli._await_routed(fake_conn(11), "t-1", "test", function()
+            local intercepted = cli._await_routed(fake_conn(1), "t-1", "test", function()
                 seen = cli._interrupt_intercept
             end)
             assert.is_false(intercepted)
@@ -134,10 +135,10 @@ describe("two-stage Ctrl-C (cli)", function()
             assert.equals("", err_text())
         end)
 
-        it("a Ctrl-C the daemon cannot take (protocol 10) is not recorded and prints nothing", function()
+        it("a Ctrl-C the daemon cannot take (no agreed transport) is not recorded and prints nothing", function()
             local code
             local cleanup = cli._make_interrupt_cleanup(130, function(c) code = c end)
-            local intercepted = cli._await_routed(fake_conn(10), 3, "build", function() cleanup("sigint") end)
+            local intercepted = cli._await_routed(fake_conn(nil), "t-1", "build", function() cleanup("sigint") end)
             assert.is_false(intercepted)
             assert.equals(130, code)
             assert.equals("", err_text())
@@ -146,7 +147,7 @@ describe("two-stage Ctrl-C (cli)", function()
         it("restores the interceptor when the wait raises, and re-raises", function()
             local prev = function() return true end
             cli._set_interrupt_intercept(prev)
-            local ok, err = pcall(cli._await_routed, fake_conn(11), "t-1", "build", function() error("boom", 0) end)
+            local ok, err = pcall(cli._await_routed, fake_conn(1), "t-1", "build", function() error("boom", 0) end)
             assert.is_false(ok)
             assert.equals("boom", err)
             assert.equals(prev, cli._interrupt_intercept)

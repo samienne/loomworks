@@ -2,10 +2,10 @@
 --- version handshake.
 ---
 --- After authenticating, a CLI client applies its version policy (`policy`):
---- an agreed transport, and over transport 11 the daemon's
---- `describe().binary.lw_version` and schemas equal to its own (before 11:
---- protocol, host version and schemas of the challenge,
---- loomworks.daemon.version.matches). On a mismatch:
+--- an agreed transport, and the daemon's `describe().binary.lw_version` and
+--- schemas equal to its own (without an answer to `describe`: protocol, host
+--- version and schemas of the challenge, loomworks.daemon.version.matches).
+--- On a mismatch:
 ---   * idle daemon (no running task, no other connection that owns a task or
 ---     has a command in flight — observers and subscribers never count,
 ---     a command in flight; observers and subscribers never count) — the client stops it
@@ -78,11 +78,10 @@ function M.newer_line(info)
 end
 
 --- The CLI's version policy against an authenticated connection: with no
---- agreed transport a mismatch; over transport 11 or later the daemon's
+--- agreed transport a mismatch; else the daemon's
 --- `describe().binary.lw_version` and the challenge's schemas must equal ours
---- (version.cli_policy_matches); over transport 10 (a daemon before protocol
---- 11) — or when `describe` gets no answer — the challenge's versions as
---- before (version.matches). Returns match, the daemon's version.
+--- (version.cli_policy_matches); when `describe` gets no answer, the
+--- challenge's versions (version.matches). Returns match, the daemon's version.
 --- @param conn loomworks.daemon.Conn
 --- @param step? integer
 --- @return boolean match, string|nil daemon_version
@@ -90,7 +89,7 @@ function M.policy(conn, step)
     local info = conn.challenge or {}
     local t = conn.transport
     if type(t) ~= "number" then return false, info.lw_version end
-    if t >= 11 and type(conn.call) == "function" then
+    if type(conn.call) == "function" then
         local d = client.call_sync(conn, "/", "loomworks.Root", 1, "describe", {}, { timeout_ms = step })
         local lw = type(d) == "table" and type(d.binary) == "table" and d.binary.lw_version or nil
         if type(lw) == "string" then

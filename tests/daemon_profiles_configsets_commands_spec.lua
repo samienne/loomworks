@@ -1,8 +1,7 @@
 -- loomworks.Profiles/1 and loomworks.ConfigSets/1 commands in the daemon
 -- (API.md §11, §20; spec daemon.md §19.14 "As interfaces"; step 5o part B2):
 -- Profiles set_active, create, tool_choices, add_tool, remove_tool and
--- ConfigSets candidates, add, update, remove, generate_defaults, called over
--- transport 11 against an in-process server with the build service attached
+-- ConfigSets candidates, add, update, remove, generate_defaults, called against an in-process server with the build service attached
 -- and a real `shell` workspace. References resolve to the live objects at the
 -- boundary (an id, or a key); the write goes through loomworks.model_commands;
 -- a profile's toolchain change and a set rename take the workspace operation

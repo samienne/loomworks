@@ -67,7 +67,7 @@ local function build(srv, args, opts)
     rec.conn = conn
     local env = envscope.capture()
     for k, v in pairs(opts.env or {}) do env[k] = v or nil end
-    conn:request({ kind = "build", args = args or { profile = "dev" }, interactive = false,
+    require("loomworks.daemon.calls").request(conn, { kind = "build", args = args or { profile = "dev" }, interactive = false,
         env = env, command = "lw build" }, function(r, e) rec.reply = r or { error = e } end)
     function rec.wait_reply() return vim.wait(60000, function() return rec.reply ~= nil end, 10) end
     function rec.done()
@@ -166,7 +166,7 @@ describe("daemon task stream flow control (§19.15)", function()
             on_message = function(m) if m.kind == "task" then seen[#seen + 1] = m end end,
         })
         assert.is_not_nil(obs)
-        -- From transport 11 a connection observes the tasks its `/tasks`
+        -- A connection observes the tasks its `/tasks`
         -- subscription matches (§19.15 "Observation").
         assert(client.call_sync(obs, "/", "loomworks.Root", 1, "subscribe",
             { object = "/tasks", iface = "loomworks.Tasks", v = 1 }))

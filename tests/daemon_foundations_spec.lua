@@ -55,7 +55,7 @@ describe("version identity (§19.9)", function()
         local ok, what = version.matches(other)
         assert.is_false(ok); assert.equals("version", what)
         assert.is_true((version.matches(other, { editor = true })))
-        other = vim.deepcopy(me); other.protocol = 1
+        other = vim.deepcopy(me); other.protocol = 11 -- a pre-0.2.0 transport
         ok, what = version.matches(other, { editor = true })
         assert.is_false(ok); assert.equals("protocol", what)
         other = vim.deepcopy(me); other.schemas.cache = other.schemas.cache + 1

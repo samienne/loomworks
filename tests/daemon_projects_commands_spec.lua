@@ -3,7 +3,7 @@
 -- configuration_save / _remove, options_save, launch_save / _remove,
 -- deploy_save, variable_save / _remove, type_config_set, expand_preview and
 -- unit_options (step 5o C2d),
--- called over transport 11 against an in-process server with the build
+-- called against an in-process server with the build
 -- service attached and a real `shell` workspace. References resolve to the
 -- live objects at the boundary (an id, or a key with the project); the write
 -- goes through loomworks.model_commands; a configuration rename takes the

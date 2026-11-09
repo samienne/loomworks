@@ -218,7 +218,7 @@ function M.accept(svc, ctx)
     local task = svc.tasks:create(ctx.conn)
     task.call = ctx.call
     ctx.task, ctx.ws, ctx.deletion, ctx.listing = task, ws, r.deletion, r.listing
-    ctx.reply({ outcome = "accepted", task_id = tasks_mod.wire_id(task, ctx.conn), pid = svc.server.pid,
+    ctx.reply({ outcome = "accepted", task_id = task.id, pid = svc.server.pid,
         notes = ctx.notes, note_roles = ctx.note_roles })
     local run = M.run(svc, ctx)
     svc.server:log("delete %s (task %s) accepted", r.deletion.label, task.id)
@@ -514,7 +514,7 @@ function M.nuke_accept(svc, ctx)
     task.call = ctx.call
     ctx.task, ctx.ws, ctx.plan = task, ws, a.plan
     ctx.listing = a.plan == nil and listing or nil
-    ctx.reply({ outcome = "accepted", task_id = tasks_mod.wire_id(task, ctx.conn), pid = svc.server.pid,
+    ctx.reply({ outcome = "accepted", task_id = task.id, pid = svc.server.pid,
         notes = ctx.notes, note_roles = ctx.note_roles })
     local run = M.nuke_run(svc, ctx)
     svc.server:log("nuke (task %s) accepted", task.id)

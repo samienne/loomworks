@@ -16,19 +16,38 @@ local H = require("tests.daemon_helpers")
 
 client.TIMEOUT_MS = 30000
 
---- A stub build service: answers `build` with an ok reply and a task stream.
+--- The stub's interface: one method, `build`, answered by the stub service.
+local STUB_DOC = {
+    interface = "lwtest.Stub", version = 1, status = "draft",
+    methods = {
+        build = {
+            params = { type = "object", properties = { profile = { type = "string" } } },
+            result = { type = "object", required = { "task_id" }, properties = { task_id = { type = "string" } } },
+        },
+    },
+}
+
+--- A stub build service: `/stub` `lwtest.Stub/1.build` answers with a
+--- task id and a task stream (`svc.on_build`, replaceable).
 local function stub_service(srv)
     local svc = { closed = {}, stopping = nil }
-    function svc:on_build(conn, msg)
-        srv:_send(conn, { kind = protocol.KIND.ok, req_id = msg.req_id, task_id = 7 })
-        srv:_send(conn, { kind = protocol.KIND.task, task_id = 7, phase = "line", stream = "out",
-            text = "hello " .. tostring(msg.args and msg.args.profile) })
-        srv:_send(conn, { kind = protocol.KIND.task, task_id = 7, phase = "done", exit_code = 0 })
+    function svc:on_build(conn, args, ctx)
+        ctx.reply({ task_id = "7" })
+        srv:_send(conn, { kind = protocol.KIND.task, task_id = "7", phase = "line", stream = "out",
+            text = "hello " .. tostring(args.profile) })
+        srv:_send(conn, { kind = protocol.KIND.task, task_id = "7", phase = "done", exit_code = 0 })
     end
     function svc:owns_task() return false end
     function svc:on_conn_closed(conn) self.closed[#self.closed + 1] = conn end
     function svc:on_stopping(reason) self.stopping = reason end
     srv.service = svc
+    local interfaces = require("loomworks.daemon.interfaces")
+    assert(srv.interfaces:mount("/stub", "core", "lwtest.Stub", 1, { doc = STUB_DOC, methods = {
+        build = function(ctx, args)
+            svc.on_build(svc, ctx.conn, args, ctx)
+            return interfaces.ASYNC
+        end,
+    } }))
     return svc
 end
 
@@ -168,8 +187,8 @@ describe("attached runtime (§19.1, §19.2)", function()
         -- A frozen control request, then a routed one through the stub.
         local st = assert(client.request(conn, { kind = "status" }))
         assert.equals(srv.pid, st.pid)
-        local reply = assert(client.request(conn, { kind = "build", args = { profile = "dev" } }))
-        assert.equals(7, reply.task_id)
+        local reply = assert(client.call_sync(conn, "/stub", "lwtest.Stub", 1, "build", { profile = "dev" }))
+        assert.equals("7", reply.task_id)
         assert.is_true(vim.wait(2000, function()
             return events[#events] and events[#events].phase == "done"
         end, 5))
@@ -187,12 +206,12 @@ describe("attached runtime (§19.1, §19.2)", function()
         local closed = false
         local conn = assert(client.loopback_session(srv, { on_close = function() closed = true end }))
         local rerr
-        conn:request({ kind = "build", args = {} }, function(_, e) rerr = e end)
+        conn:call("/stub", "lwtest.Stub", 1, "build", {}, function(_, e) rerr = e end)
         vim.wait(50, function() return false end, 5)
         srv:stop("command done", 0)
         assert.is_true(vim.wait(2000, function() return closed end, 5))
         assert.is_true(conn.closed)
-        assert.equals(client.ERR_CLOSED, rerr)
+        assert.equals(client.ERR_CLOSED, rerr.code)
         assert.equals("command done", svc.stopping)
         assert.is_nil(rlock.read(root))
     end)
@@ -255,16 +274,16 @@ describe("attached runtime (§19.1, §19.2)", function()
         conn:close()
     end)
 
-    it("delivers broadcasts to a loopback observer of protocol 10", function()
+    it("delivers the root's signals to a loopback observer", function()
         assert(srv:start_attached({ command = "build" }))
         local seen
-        local conn = assert(client.loopback_session(srv, { role = "observer", protocol = 10,
-            on_message = function(m) if m.kind == protocol.KIND.model_change then seen = m end end }))
+        local conn = assert(client.loopback_session(srv, { role = "observer",
+            on_message = function(m) if m.kind == "signal" and m.name == "objects_changed" then seen = m end end }))
         assert.equals(1, srv:observer_count())
         assert.equals(0, srv:active_clients())
-        srv:model_changed()
+        stub_service(srv) -- mounts /stub
         assert.is_true(vim.wait(2000, function() return seen ~= nil end, 5))
-        assert.equals(srv.generation, seen.session_generation)
+        assert.equals("/", seen.object)
         conn:close()
     end)
 

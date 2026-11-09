@@ -310,25 +310,23 @@ describe("daemon launch-target build (§19.15 Build of a launch target)", functi
 end)
 
 describe("Launch/1.build and force: request validation", function()
-    local function decline(op, args, interface)
+    local function decline(op, args)
         local reply
-        local svc = setmetatable({ server = { _send = function(_, _, f) reply = f end } }, service.Service)
+        local svc = setmetatable({ server = {} }, service.Service)
         svc.with_model = function() error("accepted a malformed request") end
-        local deliver = interface and function(f) reply = f end or nil
-        svc:_on_operation(op, { closed = false }, { args = args, env = { PATH = "/bin" } }, deliver)
+        svc:_on_operation(op, { closed = false }, { args = args, env = { PATH = "/bin" } }, function(f) reply = f end)
         return reply
     end
 
-    it("refuses force on a protocol-10 prepare_run, and a launch build's launch-only arguments", function()
+    it("refuses a malformed force, and a launch build's launch-only arguments", function()
         for _, c in ipairs({
-            { "run", { force = true }, false },
-            { "run", { force = 1 }, true },
-            { "target_build", { cwd = "/x" }, true },
-            { "target_build", { no_build = true }, true },
-            { "target_build", { build_scope = "profile" }, true },
-            { "target_build", { quiet = true }, true },
+            { "run", { force = 1 } },
+            { "target_build", { cwd = "/x" } },
+            { "target_build", { no_build = true } },
+            { "target_build", { build_scope = "profile" } },
+            { "target_build", { quiet = true } },
         }) do
-            local r = decline(c[1], c[2], c[3])
+            local r = decline(c[1], c[2])
             assert.are.equal("declined", r.outcome, vim.inspect(c))
             assert.are.equal("malformed request", r.reason)
         end

@@ -280,7 +280,7 @@ M.QUERIES = {
     --- The compiler cache a profile resolves for one of its projects
     --- (`lw profile query <profile> <project> cache`, which formats it with
     --- profile.lua `compiler_cache_text`): `args.profile` and `args.project`,
-    --- each a key (the v0 query, the CLI) or the live object an interface
+    --- each a key (the CLI) or the live object an interface
     --- call's id resolved to (never matched again by its key)
     --- → `{ cache = { policy, tool?, path?, present, stale,
     --- msvc_auto_off, applicable, not_applied_reason?, not_applied_hint? } }`;
@@ -318,7 +318,7 @@ M.QUERIES = {
 --- @return table|nil reply, string|nil err
 function M.fetch(conn, opts)
     opts = opts or {}
-    -- (lw.internal.Snapshot/1.get over transport 11, daemon/calls.lua.)
+    -- (lw.internal.Snapshot/1.get, daemon/calls.lua.)
     local reply, err = require("loomworks.daemon.calls").request_sync(conn,
         { kind = require("loomworks.daemon.protocol").KIND.snapshot, scope = opts.scope or "all",
             env = opts.env or require("loomworks.daemon.envscope").capture() }, opts.timeout_ms)
@@ -389,8 +389,7 @@ end
 --- @return table|nil result, string|nil err
 function M.query(conn, name, args, opts)
     opts = opts or {}
-    -- (Toolchains/1.list, Profiles/1.compiler_cache over transport 11,
-    -- daemon/calls.lua.)
+    -- (Toolchains/1.list, Profiles/1.compiler_cache, daemon/calls.lua.)
     local reply, err = require("loomworks.daemon.calls").request_sync(conn,
         { kind = require("loomworks.daemon.protocol").KIND.query, name = name, args = args or {},
             env = opts.env or require("loomworks.daemon.envscope").capture() }, opts.timeout_ms)

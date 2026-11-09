@@ -31,7 +31,7 @@ M.ERR_UNTRUSTED = "untrusted"   -- the server's proof did not verify
 M.ERR_CONNECT = "connect"       -- nothing accepted the connection
 M.ERR_TIMEOUT = "timeout"       -- no answer in time
 M.ERR_CLOSED = "closed"         -- the daemon closed the connection
-M.ERR_TRANSPORT = "transport"   -- the negotiated transport has no interface calls (protocol 10)
+M.ERR_TRANSPORT = "transport"   -- no transport was agreed (only the frozen control subset)
 
 --- @class loomworks.daemon.WelcomeRelay  a relay's `welcome.relay`
 --- @field lw_version string the relay's own code identity: that of the daemon it would launch
@@ -64,7 +64,7 @@ end
 --- the interface version; `cb(result|nil, err)` with the `ok` reply's
 --- `result`, or the structured error object (`{ code, message, data? }`;
 --- loomworks.proto.envelope) — a closed connection is `{ code = "closed" }`,
---- and a connection whose negotiated transport is below 11 fails at once with
+--- and a connection that agreed on no transport fails at once with
 --- `{ code = "transport" }` (M.ERR_TRANSPORT; client-side, never on the wire).
 --- @param object string
 --- @param iface string
@@ -74,12 +74,11 @@ end
 --- @param cb fun(result: any, err: loomworks.proto.ErrorObject|nil)
 --- @param env? table<string, string> the client's environment
 function Conn:call(object, iface, v, method, args, cb, env)
-    -- Interface calls are transport 11: a daemon of protocol 10
-    -- would only answer "unknown request kind".
-    if not (type(self.transport) == "number" and self.transport >= 11) then
+    -- Without an agreed transport the daemon serves only the frozen control
+    -- subset.
+    if type(self.transport) ~= "number" then
         return cb(nil, { code = M.ERR_TRANSPORT,
-            message = string.format("the daemon's transport is %s; interface calls need 11",
-                tostring(self.transport or "not agreed")) })
+            message = "no transport agreed with the daemon; interface calls need one" })
     end
     local frame = require("loomworks.proto.envelope").call(object, iface, v, method, args, env)
     self:request(frame, function(reply, err)
@@ -170,8 +169,8 @@ local function frame_reader(conn, opts, state, finish, is_done, on_challenge)
                 if p then
                     conn._pending[msg.req_id] = nil
                     if msg.kind == protocol.KIND.error then
-                        -- An interface call's error is a structured object;
-                        -- a v0 request's a string.
+                        -- A structured object ({ code, message, data? });
+                        -- a string is tolerated.
                         p(nil, type(msg.error) == "table" and msg.error or tostring(msg.error))
                     else
                         p(msg)
