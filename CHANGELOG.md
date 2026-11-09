@@ -39,7 +39,7 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
   needed. Launchers written by `lw bootstrap install` cache a 0.2.0+ pin's
   binary in `.lw/cache/`; launchers of earlier releases keep working. If an
   older lw is still running in the workspace, the copy waits for you to stop
-  it and retry (#PR).
+  it and retry (#162).
 
 ### Added
 
