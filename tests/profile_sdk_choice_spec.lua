@@ -58,10 +58,10 @@ describe("tool picker: a profile made of an SDK", function()
         function shell.tool_label(td) return td and td.id or nil end
         function shell.tools_match(a, b) return (a and a.id) == (b and b.id) end
 
-        local _, content = trust.verify("user", read(root .. "/.nvim/loomworks.user.json"))
+        local _, content = trust.verify("user", read(root .. "/.lw/user.json"))
         local user = vim.json.decode(content)
         user.sdks = { ["fake_tc-1"] = { type = "fake_tc", path = root } }
-        local f = assert(io.open(root .. "/.nvim/loomworks.user.json", "wb"))
+        local f = assert(io.open(root .. "/.lw/user.json", "wb"))
         f:write(trust.sign("user", trust.encode(user))); f:close()
     end)
 
@@ -189,7 +189,7 @@ describe("tool picker: a profile made of an SDK", function()
             -- The user points the SDK at another installation (a user.json
             -- change: a remerge, no tool detection).
             local user = ws:_serialize_user()
-            user.sdks["fake_tc-1"].path = root .. "/.nvim"
+            user.sdks["fake_tc-1"].path = root .. "/.lw"
             ws:remerge(nil, nil, user)
             assert.is_true(old._removed == true, "the replaced SDK is marked removed")
             local profile = find(ws._profiles, "key", key)

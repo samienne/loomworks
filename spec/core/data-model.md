@@ -10,6 +10,10 @@ top-level organizational unit.
 
 - One workspace is active at a time.
 - The workspace root is the directory containing `loomworks.json`.
+- A **workspace marker** is `loomworks.json` or the working copy
+  `.lw/user.json`; a working copy of a release before 0.2.0,
+  `.nvim/loomworks.user.json`, is one too, so that the workspace is found
+  and migrated (§16.44).
 - When a tool discovers the root by searching upward from a starting
   directory, the search MUST NOT cross a git working-tree boundary: a
   directory holding a `.git` entry but no workspace marker ends the search
@@ -57,7 +61,7 @@ top-level organizational unit.
 
 A project is a sub-component of a workspace with a type (cmake, meson,
 typescript, etc.). Projects are declared in `loomworks.json` and/or
-`loomworks.user.json` under `"projects"` (see §2.4 for the merge model).
+`.lw/user.json` under `"projects"` (see §2.4 for the merge model).
 
 - Key: the project identifier (typically the directory name).
 - `path`: relative to workspace root, defaults to the key.
@@ -70,7 +74,7 @@ typescript, etc.). Projects are declared in `loomworks.json` and/or
 
 A launch configuration is a named way to run something of a project
 (§8.7), declared under the project's `"launch"` (name → table) in
-`loomworks.json` and/or `loomworks.user.json`, merged per name (§2.4).
+`loomworks.json` and/or `.lw/user.json`, merged per name (§2.4).
 
 - Key: its name, unique within its project.
 - Owned by its project; it is a domain object like a configuration:
@@ -852,7 +856,7 @@ prompts the user to remove dead weight.
 2. **Materialized** — written to cache with mappings and skeleton config
    entries. Shown in Profiles section.
 3. **Active** — the user-selected profile. Stored in
-   `loomworks.user.json` as `active_profile` (see §2.2). Determines which
+   `.lw/user.json` as `active_profile` (see §2.2). Determines which
    configurations the LSP, statusline, and `buf_status()` report.
 4. **Orphaned (stale)** — the profile's configuration set was removed from
    `loomworks.json`. The profile remains functional (builds still work)

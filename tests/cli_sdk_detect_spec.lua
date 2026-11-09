@@ -25,7 +25,7 @@ local function capture(fn)
 end
 
 local function read_user(root)
-  local f = io.open(root .. "/.nvim/loomworks.user.json", "r")
+  local f = io.open(root .. "/.lw/user.json", "r")
   if not f then return nil end
   local c = f:read("*a"); f:close()
   -- The working copy is signed (workspace trust): the JSON is the first part.

@@ -183,7 +183,7 @@ describe("daemon-routed step (runner)", function()
         assert.equals(137, r.done().exit_code, vim.inspect(r.done()))
         assert.equals("build failed (killed by signal 9 (SIGKILL)): app: build Debug", r.done().error)
         assert.is_nil(r.lines():find("BUILD OK", 1, true))
-        local cache = read(root .. "/.nvim/loomworks.cache.json") or ""
+        local cache = read(root .. "/.lw/cache.json") or ""
         assert.is_nil(cache:find('"built"', 1, true), cache)
         r.conn:close()
     end)

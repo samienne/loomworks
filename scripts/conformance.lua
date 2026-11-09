@@ -111,7 +111,7 @@ if ms then vim.uv.sleep(ms) end
 --- @return string
 function M.fixture(name, key_path)
     local root = tmp()
-    vim.fn.mkdir(root .. "/.nvim", "p")
+    vim.fn.mkdir(root .. "/.lw", "p")
     if name == nil or name == "empty" then
         write(root .. "/loomworks.json", vim.json.encode({ projects = vim.empty_dict() }))
         return root
@@ -165,7 +165,7 @@ function M.fixture(name, key_path)
     local signed, serr = trust.sign("user", trust.encode(user))
     trust._set_key_path(nil)
     if not signed then error(serr) end
-    write(root .. "/.nvim/loomworks.user.json", signed)
+    write(root .. "/.lw/user.json", signed)
     return root
 end
 
@@ -209,7 +209,7 @@ function M.tests_fixture(root, key_path, cmd)
     local signed, serr = trust.sign("user", trust.encode(user))
     trust._set_key_path(nil)
     if not signed then error(serr) end
-    write(root .. "/.nvim/loomworks.user.json", signed)
+    write(root .. "/.lw/user.json", signed)
     return root
 end
 
@@ -255,7 +255,7 @@ function M.devices_fixture(root, key_path, cmd)
     local signed, serr = trust.sign("user", trust.encode(user))
     trust._set_key_path(nil)
     if not signed then error(serr) end
-    write(root .. "/.nvim/loomworks.user.json", signed)
+    write(root .. "/.lw/user.json", signed)
     return root
 end
 

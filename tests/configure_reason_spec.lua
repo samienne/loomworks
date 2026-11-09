@@ -35,7 +35,7 @@ local function make_core(options)
             } } } } },
             configuration_sets = { debug = { App = "Debug" } },
         }),
-        ["loomworks.user.json"] = h.make_user_json({ profiles = { debug = {
+        ["user.json"] = h.make_user_json({ profiles = { debug = {
             configuration_set = "debug",
             tools = { cmake = { key = GCC_TOOL.key, data = GCC_TOOL.data } },
         } } }),

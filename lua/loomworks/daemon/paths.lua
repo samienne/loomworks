@@ -1,8 +1,8 @@
 --- loomworks/daemon/paths.lua — where the workspace runtime's files live.
 ---
----   <root>/.nvim/loomworks.daemon-<S>.lock   the runtime lock R
----   <root>/.nvim/loomworks.daemon-<S>.json   the handle: discovery only
----   <root>/.nvim/loomworks.daemon-<S>.log    the runtime log
+---   <root>/.lw/daemon-<S>.lock   the runtime lock R
+---   <root>/.lw/daemon-<S>.json   the handle: discovery only
+---   <root>/.lw/daemon-<S>.log    the runtime log
 ---   <root>/.nvim/loomworks.daemon.{lock,json,log}  the legacy (unslotted)
 ---                                        names of lw before slots
 ---                                        (daemon.legacy)
@@ -62,28 +62,28 @@ function M.root_hash(root)
     return M.short_hash(hash_key(root))
 end
 
---- The base name of this slot's runtime files: `loomworks.daemon-<S>`.
+--- The base name of this slot's runtime files: `daemon-<S>`.
 --- @return string
 function M.slot_base()
-    return "loomworks.daemon-" .. require("loomworks.daemon.identity").slot()
+    return "daemon-" .. require("loomworks.daemon.identity").slot()
 end
 
 --- The runtime lock of this process's slot.
 --- @param root string
 --- @return string
 function M.lock_path(root)
-    return M.norm_root(root) .. "/.nvim/" .. M.slot_base() .. ".lock"
+    return M.norm_root(root) .. "/.lw/" .. M.slot_base() .. ".lock"
 end
 
 --- The handle of this process's slot.
 --- @param root string
 --- @return string
 function M.handle_path(root)
-    return M.norm_root(root) .. "/.nvim/" .. M.slot_base() .. ".json"
+    return M.norm_root(root) .. "/.lw/" .. M.slot_base() .. ".json"
 end
 
---- The legacy (unslotted) file names in `<root>/.nvim/`: never read to
---- connect to a daemon.
+--- The legacy (unslotted) file names in `<root>/.nvim/` (lw before slots;
+--- see loomworks.daemon.legacy): never read to connect to a daemon.
 M.LEGACY = {
     lock = "loomworks.daemon.lock",
     handle = "loomworks.daemon.json",
@@ -108,7 +108,7 @@ end
 --- @param root string
 --- @return string
 function M.log_path(root)
-    return M.norm_root(root) .. "/.nvim/" .. M.slot_base() .. ".log"
+    return M.norm_root(root) .. "/.lw/" .. M.slot_base() .. ".log"
 end
 
 --- Where earlier versions kept the runtime logs (`<hash>.log`), now

@@ -170,7 +170,7 @@ describe("recorded provenance → configure message, health remedy", function()
                 projects = { App = { cmake = {} } },
                 configuration_sets = { debug = { App = "Debug" } },
             }),
-            ["loomworks.user.json"] = h.make_user_json({
+            ["user.json"] = h.make_user_json({
                 profiles = { debug = { configuration_set = "debug",
                     tools = { cmake = { key = "ninja-msvc", data = MSVC } } } },
                 profile_variables = { ["debug:ninja-msvc"] = { App = { cache = "sccache" } } },

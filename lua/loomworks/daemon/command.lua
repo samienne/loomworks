@@ -159,12 +159,12 @@ function M.status(root, host)
     else
         out("Daemon         " .. inspect.row(st, mode, own))
     end
-    -- A live daemon of an earlier lw holding the legacy (unslotted) runtime
-    -- lock: reported, never connected to.
+    -- A live daemon of an earlier lw holding a runtime lock in .nvim/ (the
+    -- unslotted one, or this slot's of lw 0.1.x): reported, never connected to.
     local linfo = require("loomworks.daemon.legacy").live_daemon(root)
     if linfo then
-        out(string.format("Legacy         daemon of an earlier lw (pid %s, legacy runtime lock) — stop it with: "
-            .. "lw daemon stop", tostring(linfo.pid)))
+        out(string.format("Legacy         daemon of an earlier lw (pid %s, .nvim/%s) — stop it with: "
+            .. "lw daemon stop", tostring(linfo.pid), tostring(linfo.lock_name)))
     end
     local lk, h = st.lock, st.handle
     if lk and st.kind ~= "stale" then
@@ -325,11 +325,13 @@ end
 --- @param opts { force?: boolean, kill?: boolean }
 --- @return integer
 function M.stop(root, host, opts)
-    -- A live daemon of this slot holding the legacy (unslotted) runtime lock
-    -- is an earlier lw's: stopped the way a starting daemon stops it (asked,
+    -- A live daemon of this slot holding a runtime lock of an earlier lw in
+    -- .nvim/ (the unslotted one, or this slot's of lw 0.1.x) is an earlier
+    -- lw's: stopped the way a starting daemon stops it (asked,
     -- then its tree killed and verified gone — `stop_live`), whether or not
     -- --force / kill was given; then the legacy lock and handle of one that is
-    -- gone are removed as a reclaimer would. The
+    -- gone are removed as a reclaimer would (only the unslotted ones: this
+    -- slot's .nvim/ files of lw 0.1.x are never removed). The
     -- legacy files are never used to connect to a daemon.
     local stopped_legacy = false
     if not opts._again then

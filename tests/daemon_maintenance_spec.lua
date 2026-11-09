@@ -90,7 +90,7 @@ local function exists(p) return uv.fs_stat(p) ~= nil end
 
 --- A stray build directory (no cache entry references it) with a file.
 local function stray(root, name)
-    local dir = root .. "/.nvim/build/" .. name
+    local dir = root .. "/.lw/build/" .. name
     vim.fn.mkdir(dir .. "/sub", "p")
     local f = assert(io.open(dir .. "/sub/f.txt", "w")); f:write("x"); f:close()
     return dir
@@ -126,7 +126,7 @@ describe("Maintenance/1.execute_deletion in the workspace daemon (API.md §22)",
         -- Its cached state cleared, in the model and on disk.
         local u = s.unit()
         assert.is_true(u.state_value == nil or u.state_value == "unconfigured", tostring(u.state_value))
-        local fh = assert(io.open(s.root .. "/.nvim/loomworks.cache.json", "rb"))
+        local fh = assert(io.open(s.root .. "/.lw/cache.json", "rb"))
         local text = fh:read("*a"); fh:close()
         assert.is_nil(text:find('"built"', 1, true), text)
         -- Nothing left: the same target is now nothing to delete (stdout).
@@ -187,7 +187,7 @@ describe("Maintenance/1.execute_deletion in the workspace daemon (API.md §22)",
         assert.truthy(r.message:find("path outside workspace: ", 1, true), r.message)
         assert.is_true(exists(outside))
         -- Under the workspace but no stray build directory (a project dir).
-        local inside = s.root .. "/.nvim/build/not-there"
+        local inside = s.root .. "/.lw/build/not-there"
         r = s.delete({ target = { stray_dir = inside }, yes = true })
         assert.equals("refused", r.outcome, vim.inspect(r))
         assert.truthy(r.message:find("not a stray build directory: ", 1, true), r.message)
@@ -219,7 +219,7 @@ describe("Maintenance/1.execute_deletion in the workspace daemon (API.md §22)",
         s = session()
         s.build()
         local ws = s.ws()
-        local dir = s.root .. "/.nvim/build/gone/Debug"
+        local dir = s.root .. "/.lw/build/gone/Debug"
         vim.fn.mkdir(dir, "p")
         local cache = ws:_serialize_cache()
         cache.build_dirs = cache.build_dirs or {}
@@ -261,7 +261,7 @@ describe("Maintenance/1.execute_deletion in the workspace daemon (API.md §22)",
         cache.build_dirs = cache.build_dirs or {}
         local out = {}
         for _, p in ipairs(projects) do
-            local dir = s.root .. "/.nvim/build/" .. p .. "/Debug"
+            local dir = s.root .. "/.lw/build/" .. p .. "/Debug"
             vim.fn.mkdir(dir, "p")
             cache.build_dirs[p .. "/Debug"] = { project_key = p, config_key = "Debug", type = "shell",
                 variant = "Debug", state = "built", build_dir = dir }
@@ -489,13 +489,13 @@ describe("Maintenance/1.nuke in the workspace daemon (API.md §22, part B6)", fu
         end
     end)
 
-    --- A workspace with build state in `.nvim`: a build (its build directory
-    --- is `out/`, outside `.nvim`), a tree under `.nvim/build` and the cache.
+    --- A workspace with build state in `.lw`: a build (its build directory
+    --- is `out/`, outside `.lw`), a tree under `.lw/build` and the cache.
     local function prepared()
         s = session()
         s.build()
         local x = stray(s.root, "x")
-        return x, s.root .. "/.nvim/loomworks.cache.json"
+        return x, s.root .. "/.lw/cache.json"
     end
 
     --- Wrap the core's `_nuke_begin`: `fn(n)` runs before its n-th call (the
@@ -520,7 +520,7 @@ describe("Maintenance/1.nuke in the workspace daemon (API.md §22, part B6)", fu
         local bd = s.unit():build_dir()
         assert.is_true(exists(bd), "built: " .. tostring(bd))
         -- The shell template puts the unit's build directory at <root>/out/Debug,
-        -- outside `.nvim`: nuke removes only `.nvim/build`, so it must neither
+        -- outside `.lw`: nuke removes only `.lw/build`, so it must neither
         -- list nor remove it.
         -- Compared by real path: the root and the build dir may be spelled
         -- differently (Windows 8.3 short names in TEMP).
@@ -529,14 +529,14 @@ describe("Maintenance/1.nuke in the workspace daemon (API.md §22, part B6)", fu
         local real_root = vim.fs.normalize(assert(uv.fs_realpath(s.root)))
         assert.equals(real_root .. "/out/Debug", real_bd, tostring(bd))
         local bd_files = vim.fn.readdir(bd)
-        -- A file of the workspace outside `.nvim`.
+        -- A file of the workspace outside `.lw`.
         vim.fn.mkdir(s.root .. "/keep", "p")
         local kf = assert(io.open(s.root .. "/keep/f.txt", "w")); kf:write("x"); kf:close()
         local before = s.ws()
         local c = s.nuke()
         assert.equals("confirm", c.outcome, vim.inspect(c))
         assert.equals(maint.NUKE_HEADER, c.lines[1])
-        assert.truthy(table.concat(c.lines, "\n"):find("/.nvim/build/", 1, true), vim.inspect(c.lines))
+        assert.truthy(table.concat(c.lines, "\n"):find("/.lw/build/", 1, true), vim.inspect(c.lines))
         assert.falsy(table.concat(c.lines, "\n"):find("/out/Debug", 1, true), vim.inspect(c.lines))
         assert.is_string(c.plan)
         assert.is_true(exists(x) and exists(cache), "a confirm removes nothing")
@@ -548,12 +548,12 @@ describe("Maintenance/1.nuke in the workspace daemon (API.md §22, part B6)", fu
         local f, lines = s.done(r.task_id, 60000)
         assert.equals(0, f.exit_code, vim.inspect(lines) .. " " .. tostring(f.error))
         assert.is_false(exists(x))
-        assert.is_false(exists(s.root .. "/.nvim/build"))
-        -- Outside `.nvim` nothing is touched: not even the unit's build
+        assert.is_false(exists(s.root .. "/.lw/build"))
+        -- Outside `.lw` nothing is touched: not even the unit's build
         -- directory, which keeps its contents (only the cache forgets it).
-        assert.is_true(exists(bd), "the unit's build directory outside .nvim is kept: " .. tostring(bd))
+        assert.is_true(exists(bd), "the unit's build directory outside .lw is kept: " .. tostring(bd))
         assert.same(bd_files, vim.fn.readdir(bd), "its contents are untouched")
-        assert.is_true(exists(s.root .. "/keep/f.txt"), "a file outside .nvim is kept")
+        assert.is_true(exists(s.root .. "/keep/f.txt"), "a file outside .lw is kept")
         assert.is_true(exists(s.root .. "/loomworks.json"))
         -- Loaded again: a new model, its cache claims nothing built.
         assert.is_not_nil(s.ws())
@@ -629,7 +629,7 @@ describe("Maintenance/1.nuke in the workspace daemon (API.md §22, part B6)", fu
 
     it("a changed plan is refused before anything is removed, at the call and under the locks", function()
         local x, cache = prepared()
-        local area = s.root .. "/.nvim/cache/cc"
+        local area = s.root .. "/.lw/cache/cc"
         local c = s.nuke()
         assert.equals("confirm", c.outcome, vim.inspect(c))
         -- A new owned database area changes the plan.
@@ -658,8 +658,8 @@ describe("Maintenance/1.nuke in the workspace daemon (API.md §22, part B6)", fu
         local elsewhere = (vim.fn.tempname():gsub("\\", "/"))
         vim.fn.mkdir(elsewhere, "p")
         local precious = assert(io.open(elsewhere .. "/precious.txt", "w")); precious:write("x"); precious:close()
-        local area = s.root .. "/.nvim/cache/cc"
-        vim.fn.mkdir(s.root .. "/.nvim/cache", "p")
+        local area = s.root .. "/.lw/cache/cc"
+        vim.fn.mkdir(s.root .. "/.lw/cache", "p")
         local function link() return uv.fs_symlink(elsewhere, area, IS_WIN and { junction = true } or nil) == true end
         local c = s.nuke()
         assert.equals("confirm", c.outcome, vim.inspect(c))
@@ -724,7 +724,7 @@ describe("Maintenance/1.nuke in the workspace daemon (API.md §22, part B6)", fu
         io_mod.rm_rf_async = orig
         assert(ok, err)
         assert.is_false(exists(x))
-        assert.is_false(exists(s.root .. "/.nvim/build"))
+        assert.is_false(exists(s.root .. "/.lw/build"))
         local fh = io.open(cache, "rb")
         if fh then
             local text = fh:read("*a"); fh:close()
@@ -760,7 +760,7 @@ describe("Maintenance/1.nuke in the workspace daemon (API.md §22, part B6)", fu
         local f, lines = s.done(r.task_id, 60000)
         assert.equals(0, f.exit_code, vim.inspect(lines) .. " " .. tostring(f.error))
         assert.is_false(exists(x))
-        assert.is_false(exists(s.root .. "/.nvim/build"))
+        assert.is_false(exists(s.root .. "/.lw/build"))
         assert.is_true(exists(s.root .. "/loomworks.json"))
         local now = io.open(cache, "rb")
         if now then
@@ -799,7 +799,7 @@ describe("Maintenance/1.nuke in the workspace daemon (API.md §22, part B6)", fu
         assert.equals("accepted", r.outcome, vim.inspect(r))
         local f = s.done(r.task_id, 60000)
         assert.equals(1, f.exit_code, tostring(f.error))
-        assert.truthy(tostring(f.error):find("cannot nuke: could not move .nvim/build aside", 1, true),
+        assert.truthy(tostring(f.error):find("cannot nuke: could not move .lw/build aside", 1, true),
             tostring(f.error))
         -- The caches went first; the tree is left as it is.
         assert.is_false(exists(cache) and (function()

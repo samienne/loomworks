@@ -90,8 +90,8 @@ local function plant_leftovers(sb)
         write(sb.tmp .. "/lw-describe-" .. HEX24 .. ".txt"),
         write(sb.bin .. "/lw.exe.new"),
         write(sb.bin .. "/lw.exe.old"),
-        write(sb.root .. "/.nvim/tmp/lw-test-" .. HEX24 .. ".xml"),
-        write(sb.root .. "/.nvim/tmp/lw-describe-" .. HEX24 .. ".txt"),
+        write(sb.root .. "/.lw/tmp/lw-test-" .. HEX24 .. ".xml"),
+        write(sb.root .. "/.lw/tmp/lw-describe-" .. HEX24 .. ".txt"),
         write(sb.cache .. "/tools.json.4242." .. HEX24 .. ".tmp"),
     }
     if IS_WIN then list[#list + 1] = write(sb.tmp .. "/lw_vcvars_x64_0123456789abcdef.bat") end
@@ -169,7 +169,7 @@ describe("housekeeping (spec §16.40)", function()
             write(sb.tmp .. "/lw_vcvars_bogus_0123456789abcdef.bat"),
             write(sb.tmp .. "/lw_vcvars_x64_0123.bat"),
             write(sb.bin .. "/lw.exe.older"), write(sb.bin .. "/other.exe.old"),
-            write(sb.root .. "/.nvim/tmp/notes.txt"),
+            write(sb.root .. "/.lw/tmp/notes.txt"),
             write(sb.cache .. "/tools.json.tmp"), write(sb.cache .. "/tools.json.12ab." .. HEX24 .. ".tmp"),
             write(sb.cache .. "/tools.json.4242.abc.tmp"), write(sb.cache .. "/xtools.json.4242." .. HEX24 .. ".tmp"),
             write(sb.cache .. "/tools.json.4242." .. HEX24 .. ".tmp.bak"),
@@ -368,7 +368,7 @@ describe("housekeeping (spec §16.40)", function()
 
     it("the startup pass runs at most once a day, logs to the workspace, never raises", function()
         plant_leftovers(sb)
-        mkdir(sb.root .. "/.nvim")
+        mkdir(sb.root .. "/.lw")
         local o = opts(sb)
         local removed, failed = hk.startup(sb.root, o)
         assert.is_true(removed > 0)

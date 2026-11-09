@@ -16,7 +16,7 @@
 ## 19. Workspace Runtime and Daemon
 
 **End state.** Each workspace has **exactly one runtime**: a single process
-that owns the workspace model, its `.nvim/` files and the operations that
+that owns the workspace model, its `.lw/` files and the operations that
 change them. Every operation of §1–§18 executes in that runtime; the
 non-interactive host and the editor are **clients** of it. The runtime is the
 host binary itself, run in **daemon mode** (`lw daemon run`) — there is no
@@ -129,7 +129,7 @@ record makes the daemon exit 1); the attached runtime's side
 stop without ending the process), its use by the CLI and the busy wait
 (`cli._delegate_attached`, setting `runtime-busy-wait`) implemented.*
 
-The **runtime lock** `<root>/.nvim/loomworks.daemon-<S>.lock` designates the
+The **runtime lock** `<root>/.lw/daemon-<S>.lock` designates the
 one runtime of a workspace for a slot (§19.7.1). It uses the build-directory lock primitive (§16.6): an
 exclusive create and an mtime heartbeat (about 5 s); a dead or hung holder is
 handled per §19.5. Its record is [formats.md](../formats.md) §6.2.
@@ -203,8 +203,8 @@ locks still guard against older versions and version-bypass runs (§19.9).
 
 | # | Lock | Scope / file | Held | Acquisition |
 |--|--|--|--|--|
-| R | Runtime | `.nvim/loomworks.daemon-<S>.lock` (§19.2) | daemon lifetime / attached command | brief wait, then fail |
-| O | Workspace operation | `.nvim/loomworks.op.lock` | one multi-file operation | fail-fast |
+| R | Runtime | `.lw/daemon-<S>.lock` (§19.2) | daemon lifetime / attached command | brief wait, then fail |
+| O | Workspace operation | `.lw/op.lock` | one multi-file operation | fail-fast |
 | B | Build directory | `<build dir>.loomworks-lock` (§16.6) | one build-directory operation | fail-fast |
 | D | Device | per-serial, per-user (§18.7) | one remote operation | waits by default (§18.7) |
 | F | File save | `<file>.lock` (§2.7) | the re-read + write, milliseconds | bounded retry (about 2 s) |
@@ -212,7 +212,7 @@ locks still guard against older versions and version-bypass runs (§19.9).
 **Order.** A process acquires locks only in the order R → O → B → D → F, and
 within a class in a canonical order: build directories by normalized identity
 (§4.6 resolved real path, §2.3 normalization), devices by serial, files in the order
-`loomworks.json`, `loomworks.user.json`, `loomworks.cache.json`. It never
+`loomworks.json`, `.lw/user.json`, `.lw/cache.json`. It never
 acquires a lock of an earlier class, or an earlier member of the same class,
 while holding a later one. Release order is free. Waiting (R briefly, D by
 default, F bounded) is allowed only because it respects this order, so no
@@ -278,17 +278,17 @@ reset, orphan delete, `lw reset`) takes the build lock of every build
 directory its plan removes, after O, as a counted reference within its
 process: an editor task on the same directory that the deletion cancels
 releases only its own reference, so the lock stays until the removal ends.
-`lw nuke` removes the whole `.nvim/build/`; it takes the lock of every
+`lw nuke` removes the whole `.lw/build/`; it takes the lock of every
 directory under it that has a lockfile (`<dir>.loomworks-lock`, found by a
 depth-bounded, link-free scan — a lockfile marks a directory some process uses
 or used) and of every build directory of the loaded workspace there. Holding
 them, it removes the build and health caches first (so nothing claims a
-configured or built tree from then on), then renames `.nvim/build` to
-`.nvim/build.nuke-<hex>` in one step and removes that tree, keeping its event
+configured or built tree from then on), then renames `.lw/build` to
+`.lw/build.nuke-<hex>` in one step and removes that tree, keeping its event
 loop running so O keeps heartbeating. A build that starts once the locks are
-gone creates a fresh `.nvim/build`, never a directory inside the tree being
+gone creates a fresh `.lw/build`, never a directory inside the tree being
 removed. A tree left aside by a nuke that crashed (a real directory directly
-in `.nvim/` named exactly `build.nuke-<hex>`) is removed by the next nuke.
+in `.lw/` named exactly `build.nuke-<hex>`) is removed by the next nuke.
 Where the rename is impossible (a file in the tree held open on Windows), nuke
 refuses after removing the caches, leaving the tree: removing it in place
 would let a build that starts once the locks go write into a tree being
@@ -322,7 +322,7 @@ workspace.
    target and flush it to stable storage. A removal has no staged file. The
    staged bytes are final — signed where the file is signed (§17.3).
 3. **Commit point.** Atomically write the journal
-   `<root>/.nvim/loomworks.txn.json` ([formats.md](../formats.md) §7).
+   `<root>/.lw/txn.json` ([formats.md](../formats.md) §7).
 4. **Apply.** For each entry in order, rename the staged file over the target
    (or remove the target), then flush the directory where the platform
    supports it.
@@ -345,7 +345,7 @@ over the target; a removal removes a target whose hash equals `sha256_old`. It
 then removes the journal and stray staged files and reports once:
 
 ```
-lw: completed an interrupted publish (pid 4242 crashed) — .nvim/loomworks.user.json, .nvim/loomworks.cache.json
+lw: completed an interrupted publish (pid 4242 crashed) — .lw/user.json, .lw/cache.json
 ```
 
 An entry whose target matches neither hash (another writer that ignores
@@ -557,7 +557,7 @@ dangerous things.
 by `daemon/server.lua`), the Runtime row and `lw daemon status`; the running-task
 lines (`daemon/running.lua`).*
 
-A daemon publishes its handle `<root>/.nvim/loomworks.daemon-<S>.json`
+A daemon publishes its handle `<root>/.lw/daemon-<S>.json`
 (its slot's, §19.7.1; [formats.md](../formats.md) §8) after binding its endpoint. It
 refreshes the file's modification time on its heartbeat and rewrites it when
 `clients`/`busy` change. Liveness is judged by the heartbeat, never by probing
@@ -578,8 +578,11 @@ runtime log only once it has kept failing for a few seconds. The heartbeat
 still refreshes the published file's time meanwhile. A record identical to the
 one last written is not rewritten.
 
-**Legacy files.** `loomworks.daemon.json`, `.lock` and `.log` (lw before
-slots) are never read to connect to a daemon. A legacy runtime lock
+**Legacy files.** `.nvim/loomworks.daemon.json`, `.lock` and `.log` (lw before
+slots), and this slot's `.nvim/loomworks.daemon-<S>.json`, `.lock` and
+`.log` (lw 0.1.x, before the move to `.lw/`), are never read to connect to a
+daemon. A legacy runtime lock — the unslotted one, or this slot's
+`.nvim/loomworks.daemon-<S>.lock` —
 whose holder is a live daemon of this slot (§19.5 identity rules) is a
 daemon of another version (§19.9). It is stopped before this slot's daemon
 starts, and by `lw daemon stop` (with or without `--force`), `kill` and
@@ -587,13 +590,16 @@ starts, and by `lw daemon stop` (with or without `--force`), `kill` and
 These commands report it ("stopped the workspace daemon of an earlier lw
 (pid N)"), and stopping it alone counts as stopping a daemon. `lw daemon
 status` reports it on its own line, `daemon of an earlier lw (pid N,
-legacy runtime lock) — stop it with: lw daemon stop`, and never connects to
+.nvim/<lock name>) — stop it with: lw daemon stop`, and never connects to
 it. A holder of another slot, an attached run, or a hung, dead or foreign
-holder is not stopped by these commands. Housekeeping, `lw daemon stop` and `lw cleanup` remove the legacy
-lock and handle only as a reclaimer would (§19.5: holder dead, these exact
-regular files) and the legacy log only as a leftover (these exact regular
-files, `.log` and `.log.1`). A process removes only its own slot's files
-and the legacy names; another slot's files are never touched.
+holder is not stopped by these commands. Housekeeping, `lw daemon stop` and `lw cleanup` remove the
+unslotted lock and handle only as a reclaimer would (§19.5: holder dead, these exact
+regular files) and the unslotted log only as a leftover (these exact regular
+files, `.log` and `.log.1`). This slot's `.nvim/loomworks.daemon-<S>.*` files
+are never removed, whatever their holder's state: stopping their daemon
+needs no removal (the older lw's own exit or reclaim handles them, and the
+move to `.lw/` copies none of them). A process removes only its own slot's files
+and the unslotted legacy names; another slot's files are never touched.
 
 **Runtime row.** `lw status` shows one `Runtime` line computed **only** from the
 handle and the runtime lock — it never launches or connects (the running-task
@@ -842,7 +848,7 @@ file is a socket owned by the caller, whatever the current environment. A
 socket is removed only under the same conditions. Any other address (a
 remote `\\host\pipe\…`, another user's socket) marks the handle as
 untrusted: nothing is connected to, and the command says so. The handle sits
-in a `.nvim/` other local users may be able to write; connecting to a remote
+in a `.lw/` other local users may be able to write; connecting to a remote
 pipe would hand the user's credentials to that host.
 
 #### 19.7.1 Runtime slot
@@ -1076,13 +1082,13 @@ holder is gone) launches `<own executable> daemon run --root <root>`:
 - **Detached**, in a new process group/session, with **no inherited standard
   handles** (on Windows, standard input, output and error are not inherited;
   on POSIX they are `/dev/null`); the daemon writes its own **runtime log**
-  inside the workspace, `<root>/.nvim/loomworks.daemon-<S>.log`, capped at a few
+  inside the workspace, `<root>/.lw/daemon-<S>.log`, capped at a few
   megabytes with one rotated predecessor (`.log.1`). Each line is appended
   with the file opened and closed again, so no process keeps it open, and as
   one atomic append (the system places the write at the end of the file:
   O_APPEND, on Windows append-only access), so lines that a client and the
   daemon it just launched write at the same moment are both kept. A write
-  creates `.nvim/` only when the workspace root exists, and never creates the
+  creates `.lw/` only when the workspace root exists, and never creates the
   root: a daemon whose workspace was removed does not bring it back. A file at
   the log's name that is not lw's runtime log is never written, rotated or
   removed (§16.40). `lw daemon status` names the log when it exists. (Earlier versions kept it in the
@@ -1400,7 +1406,7 @@ operation (§19.15). A running build makes the daemon busy (handle `busy`); a
     housekeeping are not daemon background work yet, and each defines its
     own unit and fingerprint when it becomes one. Tool detection is persisted
     in the machine-level tool cache `tools.json` (§16.43) — never in
-    `loomworks.cache.json`, which keeps no tool results and whose entries are
+    `.lw/cache.json`, which keeps no tool results and whose entries are
     the source of build directories for deletion. The unit is the **module
     type**: each type's result is written with a timestamp and the
     fingerprint of its inputs (§16.43: the `lw` identity including its
@@ -1538,9 +1544,9 @@ detection (it goes on in the background). The reply is `ok` with
 - `config` (scope `config`): the published baseline as the daemon loaded it
   from `loomworks.json` (parsed, program-bearing fields stripped, §17.6);
 - `user` (scope `user`): the working copy as the model serializes it for
-  `loomworks.user.json`, with its schema `_meta`;
+  `.lw/user.json`, with its schema `_meta`;
 - `cache` (scope `cache`): the cache as the model serializes it for
-  `loomworks.cache.json`, with its schema `_meta`;
+  `.lw/cache.json`, with its schema `_meta`;
 - always: `tools` (the toolchain detection the model holds, as tool rows:
   module type → list of `{ key, label, tool_data }`, `key` absent for a
   module whose single toolchain has none; the same shape as the `tools`
@@ -1675,7 +1681,7 @@ never loads a workspace and never runs a tool detection: a change to
 `loomworks.json` (which can need a tool detection) or one that needs a
 reload, and the files changed with it, are not applied at a view check;
 they wait for the next state-changing request's sync.
-The daemon watches `loomworks.json` and `loomworks.user.json`. Another process's change is applied when it is seen, as a check would apply it, with no request needed. It is applied after the current model segment, if one runs. A change that needs a load or a tool detection waits as above.
+The daemon watches `loomworks.json` and `.lw/user.json`. Another process's change is applied when it is seen, as a check would apply it, with no request needed. It is applied after the current model segment, if one runs. A change that needs a load or a tool detection waits as above.
 The editor in `daemon`
 mode writes only through command methods (step 5o, [loomworks.nvim `spec/plugin.md` §19.16](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#1916-the-editor-as-a-client) "Model writes"),
 whose `update`s precede their replies.
@@ -2242,7 +2248,7 @@ in-process path in this step; they are not routed commands, so they print no
 daemon line, and their cross-process locks (§16.6, §19.3) serialize them with
 the daemon's operations as with any other process:
 
-- `lw nuke` — removes the workspace's build state (`.nvim/build/`, the build
+- `lw nuke` — removes the workspace's build state (`.lw/build/`, the build
   and health caches), taking every build-directory lock first (§19.3); the
   editor's nuke in `daemon` mode is `Maintenance/1.nuke` ([loomworks.nvim `spec/plugin.md` §19.16](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#1916-the-editor-as-a-client) "Model
   writes");
@@ -2754,13 +2760,13 @@ parts 5k D and 5m D; 6b-α next, then 6, 6b-β,
 
 **Later steps, in this order** (after the steps above; [`DAEMON.md`](https://github.com/samienne/loomworks.nvim/blob/7b7d1f9f07a3ec55845b65f6ded5972bbbdceba8/DAEMON.md) 8a–8c):
 
-- **8a — Workspace data to `.lw/`**: lw's workspace data files move from
+- **8a — Workspace data to `.lw/`** (§16.44): lw's workspace data files move from
   `.nvim/` to `.lw/` with a one-time migration recorded by a marker; when
   both exist and disagree, lw refuses rather than choosing. Every deletion
   scope that names `.nvim/` (the workspace-files scope of nuke, housekeeping's
   `<root>/.nvim/tmp`, the launcher cache `.nvim/cache`) is moved and
-  re-reviewed for deletion safety; `lw bootstrap` writes the new ignore lines
-  and the launcher templates get a new generation.
+  re-reviewed for deletion safety; `.lw/` ignores itself, and the launcher
+  templates get a new generation.
 - **8b — Release v0.2.0**: `staging/daemon` is merged to master and released
   once the daemon steps and 8a are done.
 - **8c — Repository split**: this repository keeps only the editor plugin;

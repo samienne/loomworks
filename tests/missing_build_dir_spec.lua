@@ -1,8 +1,8 @@
 --- Regression tests for the "build directory deleted out of band" deadlock.
 ---
 --- State is normally derived purely from the cache; the physical build
---- directory is never stat'd. So when a user deletes `.nvim/build` behind
---- loomworks' back, the surviving `loomworks.cache.json` reloads the unit as
+--- directory is never stat'd. So when a user deletes `.lw/build` behind
+--- loomworks' back, the surviving `cache.json` reloads the unit as
 --- `built`. The build gate only configures `unconfigured` / `configure_failed`
 --- / stale units, so it skips configure and runs `cmake --build <missing dir>`
 --- which fails → `failed_build`, which is *also* not a configure trigger →
@@ -46,7 +46,7 @@ local function make_fake_module()
         tool_label = function(td) return td and (td.compiler_id or td.id) or "fake" end,
         resolve_build_dir = function(project_name, config_name, _config_info, root, tool_data)
             local seg = tool_data and (tool_data.compiler_id or tool_data.id) or nil
-            local base = root .. "/.nvim/build/" .. project_name
+            local base = root .. "/.lw/build/" .. project_name
             if seg then return base .. "/" .. seg .. "/" .. (config_name or "default") end
             return base .. "/" .. (config_name or "default")
         end,
@@ -123,10 +123,10 @@ local function build_core(cache_overrides, dir_exists)
     end
     local files = {
         ["loomworks.json"] = h.make_config_json(CONFIG),
-        ["loomworks.user.json"] = h.make_user_json(USER),
+        ["user.json"] = h.make_user_json(USER),
     }
     if cache_overrides then
-        files["loomworks.cache.json"] = h.make_cache_json(cache_overrides)
+        files["cache.json"] = h.make_cache_json(cache_overrides)
     end
     local opts = {
         modules = { get = fake_get },

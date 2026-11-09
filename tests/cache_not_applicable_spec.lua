@@ -154,7 +154,7 @@ describe("status and health for a not-applicable configuration", function()
                 projects = { App = { cmake = cfg_extra or {} } },
                 configuration_sets = { debug = { App = "Debug" } },
             }),
-            ["loomworks.user.json"] = h.make_user_json({
+            ["user.json"] = h.make_user_json({
                 profiles = { debug = {
                     configuration_set = "debug",
                     tools = { cmake = { key = "vs-msvc", data = tool_data } },

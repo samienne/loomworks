@@ -73,19 +73,19 @@ describe("meson module", function()
         -- meson.resolve_build_dir sanitizes like cmake's.
         it("sanitizes ':' in the config name (variant:Debug -> variant_Debug)", function()
             local dir = meson.resolve_build_dir("App", "variant:Debug", nil, "/root", nil)
-            assert.equals("/root/.nvim/build/App/variant_Debug", dir)
+            assert.equals("/root/.lw/build/App/variant_Debug", dir)
         end)
 
         it("strips every Windows-illegal char from path components", function()
             local dir = meson.resolve_build_dir('a:b', 'x<>:"|?*y', nil, "/root", nil)
-            local tail = dir:sub(#"/root/.nvim/build/" + 1)
+            local tail = dir:sub(#"/root/.lw/build/" + 1)
             assert.is_nil(tail:find('[<>:"|?*]'))
         end)
 
         it("scopes the build dir by compiler (compiler_id segment)", function()
             local dir = meson.resolve_build_dir("App", "variant:Debug", nil, "/root",
                 { compiler_id = "gcc-14.2.0" })
-            assert.equals("/root/.nvim/build/App/gcc-14.2.0/variant_Debug", dir)
+            assert.equals("/root/.lw/build/App/gcc-14.2.0/variant_Debug", dir)
         end)
 
         it("gives cl and clang-cl distinct build dirs for the same config", function()
@@ -94,12 +94,12 @@ describe("meson module", function()
             local clcl = meson.resolve_build_dir("R", "variant:Debug", nil, "/root",
                 { compiler_id = "clang-cl-18.1.7" })
             assert.are_not.equal(cl, clcl)
-            assert.equals("/root/.nvim/build/R/msvc-17-2022-enterprise/variant_Debug", cl)
+            assert.equals("/root/.lw/build/R/msvc-17-2022-enterprise/variant_Debug", cl)
         end)
 
         it("omits the compiler segment when tool_data has no id", function()
             local dir = meson.resolve_build_dir("App", "Debug", nil, "/root", {})
-            assert.equals("/root/.nvim/build/App/Debug", dir)
+            assert.equals("/root/.lw/build/App/Debug", dir)
         end)
     end)
 
@@ -365,13 +365,13 @@ describe("meson module", function()
             local project = {
                 key = "App",
                 path = "app",
-                _workspace = ws_with("/root/.nvim/build/App/Debug", true),
+                _workspace = ws_with("/root/.lw/build/App/Debug", true),
                 type_config = {},
             }
             local entries = meson.lsp_configs(project)
             assert.equals(1, #entries)
             assert.equals("clangd", entries[1].server)
-            assert.equals("/root/.nvim/build/App/Debug", entries[1].compile_commands_dir)
+            assert.equals("/root/.lw/build/App/Debug", entries[1].compile_commands_dir)
             assert.equals("ready", entries[1].db_state)
             assert.equals("/root/app", entries[1].root_dir)
         end)
@@ -379,8 +379,8 @@ describe("meson module", function()
         it("offers no database from a unit not configured here (spec §9.1)", function()
             local project = {
                 key = "App", path = "app",
-                _workspace = ws_with("/root/.nvim/build/App/Debug", false),
-                cached = { build_dir = "/root/.nvim/build/App/Debug" },
+                _workspace = ws_with("/root/.lw/build/App/Debug", false),
+                cached = { build_dir = "/root/.lw/build/App/Debug" },
                 type_config = {},
             }
             local entries = meson.lsp_configs(project)
@@ -393,7 +393,7 @@ describe("meson module", function()
             local project = {
                 key = "App", path = "app",
                 _workspace = { root = "/root" },
-                cached = { build_dir = "/root/.nvim/build/App/Debug" },
+                cached = { build_dir = "/root/.lw/build/App/Debug" },
                 type_config = {},
             }
             local entries = meson.lsp_configs(project)
@@ -405,7 +405,7 @@ describe("meson module", function()
             local project = {
                 key = "App", path = "app",
                 _workspace = { root = "/root" },
-                cached = { build_dir = "/root/.nvim/build/App/Debug" },
+                cached = { build_dir = "/root/.lw/build/App/Debug" },
                 type_config = { clangd = "/usr/local/bin/clangd" },
             }
             local entries = meson.lsp_configs(project)
@@ -768,7 +768,7 @@ describe("meson clang-cl (per MSVC install)", function()
         local project = {
             key = "App", path = "app",
             _workspace = { root = "/root" },
-            cached = { build_dir = "/root/.nvim/build/App/clang-cl" },
+            cached = { build_dir = "/root/.lw/build/App/clang-cl" },
             type_config = {},
             tool_data = { clangd_path = "C:/LLVM/bin/clangd.exe" },
         }

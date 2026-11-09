@@ -54,7 +54,7 @@ local function fake_build_dir(ws, profile, dir)
 end
 
 local function add_orphan(ws, root, name)
-  local dir = root .. "/.nvim/build/" .. name
+  local dir = root .. "/.lw/build/" .. name
   mkdir_marker(dir)
   local bd = BuildDir.new("build/" .. name, dir, {
     state = "built", project_key = name, config_key = name,
@@ -108,7 +108,7 @@ describe("reset_plan.plan", function()
   it("lists the profile's build dir on disk, its unit and a stable token", function()
     local root = make_ws()
     local ws, profile = load(root)
-    local dir = root .. "/.nvim/build/App/Debug"
+    local dir = root .. "/.lw/build/App/Debug"
     local unit = fake_build_dir(ws, profile, dir)
     local plan = reset_plan.plan(ws, { profile = profile })
     assert.same({ dir }, plan.removal_dirs)
@@ -132,7 +132,7 @@ describe("reset_plan.plan", function()
   it("verify: equal for an unchanged plan; a directory that appeared since is CHANGED", function()
     local root = make_ws()
     local ws, profile = load(root)
-    local dir = root .. "/.nvim/build/App/Debug"
+    local dir = root .. "/.lw/build/App/Debug"
     fake_build_dir(ws, profile, dir)
     vim.fn.delete(dir, "rf")
     local plan = reset_plan.plan(ws, { profile = profile })
@@ -168,7 +168,7 @@ describe("reset_plan.plan", function()
   it("--all covers every unit with a build dir plus the orphans", function()
     local root = make_ws()
     local ws, profile = load(root)
-    local dir = root .. "/.nvim/build/App/Debug"
+    local dir = root .. "/.lw/build/App/Debug"
     local unit = fake_build_dir(ws, profile, dir)
     local plan0 = reset_plan.plan(ws, { all = true })
     local orphan = add_orphan(ws, root, "Gone")
@@ -188,7 +188,7 @@ describe("reset_plan.execute stop between entries", function()
   it("a stop before the removal removes nothing and leaves the unit unknown", function()
     local root = make_ws()
     local ws, profile = load(root)
-    local dir = root .. "/.nvim/build/App/Debug"
+    local dir = root .. "/.lw/build/App/Debug"
     local unit = fake_build_dir(ws, profile, dir)
     local plan = reset_plan.plan(ws, { profile = profile })
     local done, got = false, nil

@@ -17,7 +17,7 @@ local M = {}
 
 M.LW_SH = [==[#!/bin/sh
 # loomworks repo-local launcher. Committed alongside lw.pin. Fetches the pinned,
-# verified lw host binary into .nvim/cache/ and execs it; the host provisions the
+# verified lw host binary into .lw/cache/ and execs it; the host provisions the
 # pinned bundle itself. Regenerate with `lw bootstrap install`. See
 # `lw help bootstrap`. LOOMWORKS_LAUNCHER tells lw which launcher ran it, so the
 # commands it prints read ./lw.sh.
@@ -73,7 +73,12 @@ case "$version" in
   *) repo=samienne/loomworks ;;
 esac
 
-cache="$here/.nvim/cache"
+# Where the binary is cached: .lw/cache for lw 0.2 and later; a pin below 0.2
+# keeps .nvim/cache, where that release expects its own binary.
+case "$version" in
+  0.0.*|0.1.*) cache="$here/.nvim/cache" ;;
+  *) cache="$here/.lw/cache" ;;
+esac
 bin="$cache/lw-$version-$asset"
 
 # --- peel launcher-only flags (--insecure / --verify); forward the rest ---
@@ -143,6 +148,10 @@ fetch_retry() {
 if [ ! -f "$bin" ] || [ "$(sha_of "$bin" | tr 'A-Z' 'a-z')" != "$want" ]; then
   rm -f "$bin"
   mkdir -p "$cache"
+  # .lw/ ignores itself (created once, never rewritten or written through a link)
+  if [ "$cache" = "$here/.lw/cache" ] && [ ! -e "$here/.lw/.gitignore" ] && [ ! -L "$here/.lw/.gitignore" ]; then
+    (set -C; printf '%s\n' '# lw workspace state, machine-local: ignore everything here' '*' > "$here/.lw/.gitignore") 2>/dev/null || :
+  fi
   if [ -n "${LOOMWORKS_RELEASE_URL:-}" ]; then
     url="$LOOMWORKS_RELEASE_URL/$asset"
   else
@@ -178,7 +187,7 @@ LOOMWORKS_LAUNCHER=lw.sh LOOMWORKS_PINNED="$version" LW_ROOT="$PWD" exec "$bin" 
 M.LW_CMD = [==[@echo off
 setlocal EnableExtensions EnableDelayedExpansion
 rem loomworks repo-local launcher (Windows). Committed alongside lw.pin. Fetches
-rem the pinned, verified lw host binary into .nvim\cache\ and runs it; the host
+rem the pinned, verified lw host binary into .lw\cache\ and runs it; the host
 rem provisions the pinned bundle itself. Regenerate with `lw bootstrap install`.
 rem Run it as .\lw.cmd: a bare lw.cmd can resolve to another one on PATH.
 rem LOOMWORKS_LAUNCHER tells lw which launcher ran it, so the commands it prints
@@ -227,7 +236,11 @@ set "repo=samienne/loomworks"
 if "!version:~0,4!"=="0.0." set "repo=samienne/loomworks.nvim"
 if "!version:~0,4!"=="0.1." set "repo=samienne/loomworks.nvim"
 
-set "cache=%here%.nvim\cache"
+rem where the binary is cached: .lw\cache for lw 0.2 and later; a pin below 0.2
+rem keeps .nvim\cache, where that release expects its own binary
+set "cache=%here%.lw\cache"
+if "!version:~0,4!"=="0.0." set "cache=%here%.nvim\cache"
+if "!version:~0,4!"=="0.1." set "cache=%here%.nvim\cache"
 set "bin=%cache%\lw-!version!-%asset%"
 
 rem detect launcher-only flags without shifting (so phase 2 still sees all args)
@@ -245,6 +258,17 @@ if "!ok!"=="1" goto forward
 
 del /f /q "%bin%" 2>nul
 if not exist "%cache%" mkdir "%cache%"
+rem .lw\ ignores itself (created once, never rewritten), with LF line ends as
+rem lw.sh and lw write it (`echo` ends lines with CRLF): `set /p` prints its
+rem text without a line end, LF is a bare line feed (the two empty lines after
+rem `set LF=^` are part of the idiom), `ver` resets the errorlevel `set /p` sets.
+set LF=^
+
+
+if /I "!cache!"=="%here%.lw\cache" if not exist "%here%.lw\.gitignore" (
+  > "%here%.lw\.gitignore" <nul set /p "=# lw workspace state, machine-local: ignore everything here!LF!*!LF!"
+  ver >nul
+)
 if defined LOOMWORKS_RELEASE_URL (
   set "url=%LOOMWORKS_RELEASE_URL%/%asset%"
 ) else (
@@ -386,8 +410,21 @@ local NO_NEW_PLATFORMS_BETA5 = { severity = "breaks", text = "does not select th
 local OLD_PLATFORM_LIST_BETA5 = { severity = "minor", text = "on a platform without an lw build, " ..
   "names a supported-platform list without linux-arm64 and macos-x86_64" }
 
+-- Before the launcher cached a 0.2.0+ pin's binary in .lw/cache (§16.44):
+-- such a launcher keeps using .nvim/cache, which the host still treats as a
+-- launcher cache, so it works; it only keeps lw's files in .nvim/.
+local NVIM_CACHE_LW02 = { severity = "minor", text = "caches the lw binary of a 0.2.0 or later " ..
+  "pin in .nvim/cache instead of .lw/cache" }
+
 M.GENERATIONS = {
   sh = {
+    -- v0.2.0-beta.5
+    ["17cb11f08a5f3688b49e14e20332215622c363ae89141eced2491cf20e8aa30e"] = {
+      gen = 6, releases = "0.2.0-beta.5",
+      defects = {
+        NVIM_CACHE_LW02,
+      },
+    },
     -- v0.2.0-beta.4
     ["c1897827fab9bfe7a3fda236241e707da4cac0aea074ebb7be7c603848346aa2"] = {
       gen = 5, releases = "0.2.0-beta.4",
@@ -431,6 +468,13 @@ M.GENERATIONS = {
     },
   },
   cmd = {
+    -- v0.2.0-beta.5
+    ["da74e958cb2fcaeef0f78da26ec443ea696736833bc81cd8d40f311c92f1362e"] = {
+      gen = 9, releases = "0.2.0-beta.5",
+      defects = {
+        NVIM_CACHE_LW02,
+      },
+    },
     -- v0.2.0-beta.4
     ["d5a48a129933e296500b23a4fb471cc3a80115e972c9f564ba86ee5f9af535cf"] = {
       gen = 8, releases = "0.2.0-beta.4",
@@ -531,8 +575,38 @@ end
 -- the git queries that check them (shared by pin management and health).
 -- ---------------------------------------------------------------------------
 
---- The launcher cache directory, relative to the pin root.
-M.CACHE_DIR = ".nvim/cache"
+--- The launcher cache directory, relative to the pin root: where the current
+--- launchers cache the binary of a 0.2.0 or later pin.
+M.CACHE_DIR = ".lw/cache"
+
+--- Where launchers of earlier generations, and the current ones for a pin
+--- below 0.2.0, cache the binary. Never pruned by this host.
+M.LEGACY_CACHE_DIR = ".nvim/cache"
+
+--- The launcher cache the launchers present use for the pin `version`:
+--- CACHE_DIR when every launcher present is the current generation and the
+--- pin is 0.2.0 or later, LEGACY_CACHE_DIR otherwise (a pin below 0.2.0, or a
+--- launcher of an earlier generation, which caches in `.nvim/cache`). No
+--- launcher present (a pin only, or none yet): CACHE_DIR unless the pin is
+--- below 0.2.0. Mixed generations (one launcher current, the other not):
+--- each caches where its own generation does; LEGACY_CACHE_DIR is checked
+--- (an ignore rule must be committed for it, and it is never pruned) until
+--- `lw bootstrap install` makes both current — so `.lw/cache` of the current
+--- one is not pruned meanwhile (spec headless §16.44 *Launchers*).
+--- @param version string|nil the pinned version
+--- @param texts { sh?: string, cmd?: string } the launchers' content (nil: absent)
+--- @return string
+function M.cache_dir_for(version, texts)
+  if type(version) == "string" and origin.is_legacy(version) then return M.LEGACY_CACHE_DIR end
+  texts = texts or {}
+  for _, kind in ipairs({ "sh", "cmd" }) do
+    local t = texts[kind]
+    if type(t) == "string" and M.normalize(t) ~= M.normalize(kind == "sh" and M.LW_SH or M.LW_CMD) then
+      return M.LEGACY_CACHE_DIR
+    end
+  end
+  return M.CACHE_DIR
+end
 
 --- The committed files, in report order.
 M.FILES = { "lw.sh", "lw.cmd", "lw.pin" }
@@ -543,21 +617,25 @@ M.EOL = { ["lw.sh"] = "lf", ["lw.cmd"] = "crlf", ["lw.pin"] = "lf" }
 --- The attribute lines pin management appends, per file.
 function M.attr_line(file) return file .. " text eol=" .. M.EOL[file] end
 
---- Is `line` (one ignore-file line) a rule that ignores the launcher cache —
---- the cache directory itself or its `.nvim` parent? Textual fallback for when
---- git cannot answer (no git / not a repository).
+--- Is `line` (one ignore-file line) a rule that ignores the launcher cache
+--- `dir` (default CACHE_DIR) — the cache directory itself or its parent
+--- (`.lw` / `.nvim`)? Textual fallback for when git cannot answer (no git / not
+--- a repository).
 --- @param line string
+--- @param dir? string the cache directory, relative to the pin root
 --- @return boolean
-function M.ignore_line_covers(line)
+function M.ignore_line_covers(line, dir)
+  dir = dir or M.CACHE_DIR
+  local parent = dir:match("^(.*)/[^/]+$") or dir
   local l = tostring(line):gsub("%s+$", ""):gsub("^%s+", "")
   l = l:gsub("^/", ""):gsub("/$", "")
-  return l == ".nvim" or l == ".nvim/cache" or l == ".nvim/*"
+  return l == parent or l == dir or l == parent .. "/*"
 end
 
---- Does ignore-file text contain a line covering the launcher cache?
-function M.ignore_text_covers(text)
+--- Does ignore-file text contain a line covering the launcher cache `dir`?
+function M.ignore_text_covers(text, dir)
   for line in (tostring(text or "") .. "\n"):gmatch("([^\n]*)\n") do
-    if M.ignore_line_covers(line) then return true end
+    if M.ignore_line_covers(line, dir) then return true end
   end
   return false
 end

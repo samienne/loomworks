@@ -2,10 +2,10 @@
 --- state.
 ---
 --- A workspace directory may come from anywhere (a clone, an archive, a copy
---- from another machine), so the `.nvim/` files inside it are untrusted input
---- until proven otherwise. Every `.nvim/` file loomworks writes that feeds
---- execution — the working copy (`loomworks.user.json`), the build cache
---- (`loomworks.cache.json`) and the health cache (`loomworks.health.json`) —
+--- from another machine), so the `.lw/` files inside it are untrusted input
+--- until proven otherwise. Every `.lw/` file loomworks writes that feeds
+--- execution — the working copy (`user.json`), the build cache
+--- (`cache.json`) and the health cache (`health.json`) —
 --- carries an HMAC-SHA256 made with a per-machine secret key that lives in the
 --- per-user data directory, never in a repository. A file whose signature does
 --- not verify was not written by loomworks on this machine (it was copied in,
@@ -50,11 +50,11 @@ local tobit = bit.tobit
 local function uv() return vim.uv or vim.loop end
 
 --- File roles that carry a signature. The value is the file's basename under
---- `<root>/.nvim/`.
+--- `<root>/.lw/`.
 M.FILES = {
-    user = "loomworks.user.json",
-    cache = "loomworks.cache.json",
-    health = "loomworks.health.json",
+    user = "user.json",
+    cache = "cache.json",
+    health = "health.json",
 }
 
 M.SIG_VERSION = "loomworks-sig-v1"
@@ -309,7 +309,7 @@ function M.key(create)
     local hex = text:match("^%s*(%x+)%s*$")
     if not hex or #hex ~= 64 then
         return nil, "the trust key at " .. path .. " is malformed (delete it to create a new one; "
-            .. "every workspace's .nvim files then need `lw trust` / a reset)"
+            .. "every workspace's .lw files then need `lw trust` / a reset)"
     end
     local key = from_hex(hex:lower())
     _key_cache = { path = path, key = key }
@@ -408,7 +408,7 @@ function M.encode(tbl)
     return io_mod._pretty_json(io_mod.encode_sorted(tbl))
 end
 
---- Kind of a `.nvim/` path by basename (nil when not a signed file).
+--- Kind of a `.lw/` path by basename (nil when not a signed file).
 --- @param path string
 --- @return string|nil
 function M.kind_for_path(path)

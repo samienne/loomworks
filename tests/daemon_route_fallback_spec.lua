@@ -248,7 +248,7 @@ while vim.uv.now() - t0 < %d do handle.read(%q); vim.uv.sleep(1); vim.uv.update_
         local rec = handle.read(root)
         assert.is_true(rec.valid)
         assert.equals(n, rec.n)
-        for name in vim.fs.dir(root .. "/.nvim") do
+        for name in vim.fs.dir(root .. "/.lw") do
             assert.is_nil(name:find(".tmp-", 1, true), name)
         end
     end)
@@ -282,7 +282,7 @@ while vim.uv.now() - t0 < %d do handle.read(%q); vim.uv.sleep(1); vim.uv.update_
         assert.is_true(ok, tostring(err))
         assert.truthy(stat.calls > 1)
         assert.equals(2, handle.read(root).n)
-        for name in vim.fs.dir(root .. "/.nvim") do
+        for name in vim.fs.dir(root .. "/.lw") do
             assert.is_nil(name:find(".tmp-", 1, true), name)
         end
     end)
@@ -307,7 +307,7 @@ while vim.uv.now() - t0 < %d do handle.read(%q); vim.uv.sleep(1); vim.uv.update_
         -- would not return at all.
         assert.truthy(ms < 150 + 3000, ms)
         assert.equals(1, handle.read(root).n)
-        for name in vim.fs.dir(root .. "/.nvim") do
+        for name in vim.fs.dir(root .. "/.lw") do
             assert.is_nil(name:find(".tmp-", 1, true), name)
         end
         -- Any other failure is not retried.
@@ -349,7 +349,7 @@ while vim.uv.now() - t0 < %d do handle.read(%q); vim.uv.sleep(1); vim.uv.update_
         for _, l in ipairs(lines) do
             assert.is_nil(l:find("could not write the handle", 1, true), l)
         end
-        for name in vim.fs.dir(root .. "/.nvim") do
+        for name in vim.fs.dir(root .. "/.lw") do
             assert.is_nil(name:find(".tmp-", 1, true), name)
         end
     end)

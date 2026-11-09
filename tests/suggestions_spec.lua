@@ -154,7 +154,7 @@ describe("compiler-cache suggestion provider", function()
                 projects = { App = { cmake = cfg_extra or {} } },
                 configuration_sets = { debug = { App = "Debug" } },
             }),
-            ["loomworks.user.json"] = h.make_user_json({ profiles = prof }),
+            ["user.json"] = h.make_user_json({ profiles = prof }),
         }
         local deps = h.make_test_deps(files, {
             modules = { get = modules_get },
@@ -500,7 +500,7 @@ describe("update-check provider: lw binary staleness", function()
         assert.same({}, suggestions.update_check_provider({}))
         suggestions._host_facts = host("0.1.0", { pinned = true })
         assert.same({}, suggestions.update_check_provider({}))
-        suggestions._host_facts = host("0.1.0", { exe = "/repo/.nvim/cache/lw-0.1.0/lw" })
+        suggestions._host_facts = host("0.1.0", { exe = "/repo/.lw/cache/lw-0.1.0/lw" })
         assert.same({}, suggestions.update_check_provider({}))
         suggestions._host_facts = function() return nil end -- the editor
         assert.same({}, suggestions.update_check_provider({}))

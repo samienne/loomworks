@@ -31,7 +31,7 @@ end
 
 --- The decoded working copy (its signature stripped).
 local function working_copy(root)
-    local _, content = trust.verify("user", read(root .. "/.nvim/loomworks.user.json"))
+    local _, content = trust.verify("user", read(root .. "/.lw/user.json"))
     return vim.json.decode(content)
 end
 
@@ -116,13 +116,13 @@ describe("loomworks.Projects/1 (step 5o part B3)", function()
         loaded()
         local r = call("configuration_save", { project = APP, name = "Fast", fields = vim.empty_dict() })
         assert.equals("ok", r.outcome, vim.inspect(r))
-        local before = read(root .. "/.nvim/loomworks.user.json")
+        local before = read(root .. "/.lw/user.json")
         local h = L.hold(op_lock.path(root), "import")
         r = call("configuration_save", { project = APP, configuration = { id = r.configuration.id }, name = "Slow",
             fields = vim.empty_dict() })
         assert.equals("refused", r.outcome, vim.inspect(r))
         assert.matches("pid " .. h.pid, r.message, 1, true)
-        assert.equals(before, read(root .. "/.nvim/loomworks.user.json"))
+        assert.equals(before, read(root .. "/.lw/user.json"))
     end)
 
     it("launch_save renames by id (id kept) without O, and creates by name", function()
@@ -531,7 +531,7 @@ describe("loomworks.Projects/1 (step 5o part B3)", function()
 
     it("a stale id or an unknown key is refused and changes nothing", function()
         loaded()
-        local before = read(root .. "/.nvim/loomworks.user.json")
+        local before = read(root .. "/.lw/user.json")
         local r = call("options_save", { project = { id = "999.999" }, options = { A = "1" } })
         assert.equals("refused", r.outcome, vim.inspect(r))
         assert.equals("no project with id 999.999 (a stale reference)", r.message)
@@ -542,6 +542,6 @@ describe("loomworks.Projects/1 (step 5o part B3)", function()
         r = call("declaration", { project = { key = "nope" } })
         assert.equals("refused", r.outcome, vim.inspect(r))
         assert.equals("no project 'nope'", r.message)
-        assert.equals(before, read(root .. "/.nvim/loomworks.user.json"))
+        assert.equals(before, read(root .. "/.lw/user.json"))
     end)
 end)

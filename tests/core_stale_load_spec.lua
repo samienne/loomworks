@@ -6,7 +6,7 @@ local cli = require("loomworks.cli")
 local trust = require("loomworks.trust")
 local H = require("tests.daemon_helpers")
 
-local USER = "/.nvim/loomworks.user.json"
+local USER = "/.lw/user.json"
 
 local function read(path)
     local f = assert(io.open(path, "rb"))

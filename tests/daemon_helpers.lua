@@ -27,7 +27,7 @@ function M.workspace()
     local f = assert(io.open(root .. "/loomworks.json", "w"))
     f:write(vim.json.encode({ projects = vim.empty_dict() }))
     f:close()
-    vim.fn.mkdir(root .. "/.nvim", "p")
+    vim.fn.mkdir(root .. "/.lw", "p")
     return root
 end
 
@@ -218,7 +218,7 @@ end
 function M.shell_workspace(opts)
     local root = tmp()
     vim.fn.mkdir(root .. "/app", "p")
-    vim.fn.mkdir(root .. "/.nvim", "p")
+    vim.fn.mkdir(root .. "/.lw", "p")
     local step = root .. "/step.lua"
     local f = io.open(step, "w"); f:write(M.STEP); f:close()
     local nv = (vim.v.progpath:gsub("\\", "/"))
@@ -247,7 +247,7 @@ function M.shell_workspace(opts)
         -- returns nothing.)
         local signed, serr = trust.sign("user", trust.encode(user))
         if not signed then error(serr) end
-        f = io.open(root .. "/.nvim/loomworks.user.json", "wb")
+        f = io.open(root .. "/.lw/user.json", "wb")
         f:write(signed); f:close()
     end
     return root
@@ -271,7 +271,7 @@ function M.load_warnings(root, opts)
     cfg.projects.ghost = ghost
     f = assert(io.open(root .. "/loomworks.json", "wb")); f:write(vim.json.encode(cfg)); f:close()
     if opts and opts.signed_cache then return end
-    f = assert(io.open(root .. "/.nvim/loomworks.cache.json", "wb"))
+    f = assert(io.open(root .. "/.lw/cache.json", "wb"))
     f:write('{ "_meta": { "version": 8 }, "build_dirs": {} }'); f:close()
 end
 
@@ -388,7 +388,7 @@ function M.add_module_env(root, key_path, vars)
     local function rd(path)
         local f = assert(io.open(path, "rb")); local t = f:read("*a"); f:close(); return t
     end
-    local upath = root .. "/.nvim/loomworks.user.json"
+    local upath = root .. "/.lw/user.json"
     local cfg = vim.json.decode(rd(root .. "/loomworks.json"))
     trust._set_key_path(key_path)
     local status, body = trust.verify("user", rd(upath))

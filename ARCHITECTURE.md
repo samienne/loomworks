@@ -265,7 +265,8 @@ Shared state is protected by locks and transactions:
 |---|---|---|
 | Build-directory lock | `build_lock.lua` | one build directory across processes; exclusive for configure, clean and delete, shared for build |
 | Workspace operation lock | `op_lock.lua` | operations that write several workspace files or remove build trees |
-| Concurrent-writer guard | `save_guard.lua` | the `.nvim/` state files: a save never overwrites a change another process made since this one read the file (the cache is merged, the working copy refused) |
+| State directory | `state_dir.lua`, `state_migration.lua` | `<root>/.lw/` and its self-ignore file; the one-time, copy-only move of a working copy from the `.nvim/` of a release before 0.2.0 (marker `.lw/migrated.json`, run by `Core:setup` before any state is read) |
+| Concurrent-writer guard | `save_guard.lua` | the `.lw/` state files: a save never overwrites a change another process made since this one read the file (the cache is merged, the working copy refused) |
 | Commit journal | `txn.lua` | multi-file writes: staged, then committed together, recoverable after a crash |
 | Lock records | `lock_record.lua`, `lock_break.lua`, `proc.lua` | the common lock record, liveness of the holder, recovery of a dead holder's lock (`lw unlock`) |
 
@@ -323,11 +324,11 @@ command builders.
 
 - **One daemon per workspace and slot.** A slot is the operating-system user
   and, on Windows, whether the process is elevated. The runtime lock
-  `<root>/.nvim/loomworks.daemon-<slot>.lock` decides which process is the
+  `<root>/.lw/daemon-<slot>.lock` decides which process is the
   daemon; a second `lw daemon run` for the same slot exits, and its client
   uses the first.
 - **Discovery.** After binding its endpoint the daemon writes the handle
-  `<root>/.nvim/loomworks.daemon-<slot>.json` (pid, endpoint, versions, busy
+  `<root>/.lw/daemon-<slot>.json` (pid, endpoint, versions, busy
   state). A client reads the handle, checks the endpoint and authenticates:
   the daemon proves knowledge of a key derived from the per-user machine key
   before the client sends anything else. When no daemon runs, the client
@@ -352,8 +353,8 @@ A workspace has three files (their syntax: [`spec/formats.md`](spec/formats.md))
 | File | Shared? | Role |
 |---|---|---|
 | `loomworks.json` | committed | the published configuration: projects, configurations, configuration sets, shared profiles, launch configurations |
-| `.nvim/loomworks.user.json` | machine-local | the **working copy**: everything the user works with, including local-only items, the active profile and selections. It is the runtime source of truth |
-| `.nvim/loomworks.cache.json` | machine-local | build state of every build directory, detected tools, deploy records |
+| `.lw/user.json` | machine-local | the **working copy**: everything the user works with, including local-only items, the active profile and selections. It is the runtime source of truth |
+| `.lw/cache.json` | machine-local | build state of every build directory, detected tools, deploy records |
 
 Changes go to the working copy; `lw publish` regenerates `loomworks.json`
 from the items the user chose to share. Each item has an **intent**: `local`
@@ -366,9 +367,11 @@ feed execution are signed with a per-user machine key
 ([`trust.lua`](lua/loomworks/trust.lua)). A file with a missing or foreign
 signature is not used for execution until the user accepts it (`lw trust`).
 
-Other files under `.nvim/`: the lock files, the commit journal
-(`loomworks.txn.json`), the daemon handle, `.nvim/build/` (default build
-trees), `.nvim/cache/` and `.nvim/tmp/`. Outside the workspace, the per-user
+Other files under `.lw/`: the lock files, the commit journal
+(`.lw/txn.json`), the daemon handle, `.lw/build/` (default build
+trees), `.lw/cache/`, `.lw/tmp/`, the self-ignore `.lw/.gitignore` and the
+migration marker; the full layout and the migration from the `.nvim/` of
+releases before 0.2.0 are [headless §16.44](spec/core/headless.md#1644-workspace-state-directory-lw). Outside the workspace, the per-user
 data directory holds the machine key, the cached release executables
 (`<data>/exe/<sha256>/`), acquired modules, device locks and daemon logs, and
 possibly code directories left by releases before self-contained executables.
@@ -394,8 +397,8 @@ against the rules below.
   deletion starts, and drops it only after the deletion succeeded. A unit in
   `unknown` is refused by the build gate (API §8.2) until it is cleaned or
   reset.
-- **`.nvim/` contents** (`Core:_safe_nvim_path`, `Core:_nuke_files`). Removal
-  of workspace caches and user files is confined to `<root>/.nvim/`.
+- **`.lw/` contents** (`Core:_safe_nvim_path`, `Core:_nuke_files`). Removal
+  of workspace caches and user files is confined to `<root>/.lw/`.
 - **Owned language-server databases** (`Workspace:_remove_owned_lsp_dbs`,
   [`lsp_db_cleanup.lua`](lua/loomworks/lsp_db_cleanup.lua)). A database
   mirror is removed only after its build directory's deletion is confirmed,

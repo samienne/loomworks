@@ -651,7 +651,7 @@ function M.tools_match(a, b)
 end
 
 --- Resolve the build directory for a meson configuration:
---- `.nvim/build/<project>/<compiler>/<config>`.
+--- `.lw/build/<project>/<compiler>/<config>`.
 ---
 --- The compiler segment gives each toolchain its own build dir — meson bakes
 --- the compiler into a configured build tree (switching compilers on the same
@@ -670,7 +670,7 @@ end
 --- @return string absolute build directory
 function M.resolve_build_dir(project_name, config_name, config_info, workspace_root, tool_data)
     local function san(s) return (tostring(s):gsub('[:<>"|?*]', "_")) end
-    local base = workspace_root .. "/.nvim/build/" .. san(project_name)
+    local base = workspace_root .. "/.lw/build/" .. san(project_name)
     local segment
     if tool_data and tool_data._effective_keys and #tool_data._effective_keys > 1 then
         segment = table.concat(tool_data._effective_keys, "+")
@@ -1133,7 +1133,7 @@ function M.clean_tasks(project, active_config)
     local env = compose_task_env(project.env or {}, project.tool_data)
     local meson_prefix = resolve_meson(project.tool_data)
     local build_dir = project.cached_build_dir
-        or (project.workspace_root .. "/.nvim/build/" .. project.name .. "/" .. active_config)
+        or (project.workspace_root .. "/.lw/build/" .. project.name .. "/" .. active_config)
     local configuration_key = project.configuration_key or active_config
 
     return {

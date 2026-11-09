@@ -24,7 +24,7 @@ local function capture(fn)
   return { exit_code = exit_code, stdout = table.concat(out_buf), stderr = table.concat(err_buf) }
 end
 
-local function user_path(root) return root .. "/.nvim/loomworks.user.json" end
+local function user_path(root) return root .. "/.lw/user.json" end
 
 local function read_user(root)
   local f = io.open(user_path(root), "r")

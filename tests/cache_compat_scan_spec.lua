@@ -220,7 +220,7 @@ describe("cache_compat recording and health", function()
                 projects = { App = { cmake = {} } },
                 configuration_sets = { debug = { App = "Debug" }, debug2 = { App = "Debug" } },
             }),
-            ["loomworks.user.json"] = h.make_user_json({ profiles = {
+            ["user.json"] = h.make_user_json({ profiles = {
                 debug = {
                     configuration_set = "debug",
                     tools = { cmake = { key = "ninja-msvc", data = MSVC } },

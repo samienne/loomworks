@@ -1,4 +1,4 @@
---- loomworks/daemon/rlock.lua — the runtime lock R, `<root>/.nvim/loomworks.daemon-<S>.lock`.
+--- loomworks/daemon/rlock.lua — the runtime lock R, `<root>/.lw/daemon-<S>.lock`.
 ---
 --- It designates the one runtime of a workspace. Same primitive as the
 --- build-directory lock (loomworks.build_lock): an exclusive create and an

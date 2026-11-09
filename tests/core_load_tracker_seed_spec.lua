@@ -62,7 +62,7 @@ describe("a write between the load's read and its tracking", function()
     it("to the working copy is applied by the next sync", function()
         trust._set_key_path(H.tmp() .. "/trust.key")
         local root = short_root()
-        local user = root .. "/.nvim/loomworks.user.json"
+        local user = root .. "/.lw/user.json"
         local old_user = read(user)
         local new_user = trust.sign("user", trust.encode({ _meta = { version = 2 }, debug = { adapters = { ["c++"] = "cppdbg" } },
             profiles = { dev = { configuration_set = "dev" } } }))
@@ -81,7 +81,7 @@ describe("a write between the load's read and its tracking", function()
     it("to loomworks.json or the cache leaves the tracker at the bytes the load read", function()
         trust._set_key_path(H.tmp() .. "/trust.key")
         local root = short_root()
-        local config, cache = root .. "/loomworks.json", root .. "/.nvim/loomworks.cache.json"
+        local config, cache = root .. "/loomworks.json", root .. "/.lw/cache.json"
         local old_config = read(config)
 
         local ws = load_with_late_write(root, function()

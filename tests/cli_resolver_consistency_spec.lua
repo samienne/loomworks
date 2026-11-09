@@ -203,7 +203,7 @@ describe("aliases + cset positional create (on-disk)", function()
   end
 
   local function read_user(root)
-    local f = io.open(root .. "/.nvim/loomworks.user.json", "r")
+    local f = io.open(root .. "/.lw/user.json", "r")
     if not f then return nil end
     local c = f:read("*a"); f:close()
     return vim.json.decode(c)

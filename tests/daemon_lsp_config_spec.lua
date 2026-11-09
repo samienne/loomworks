@@ -59,7 +59,7 @@ local function fixture(key)
     local user = { _meta = { version = 2 }, active_profile = "dev",
         profiles = { dev = { configuration_set = "dev" } }, projects = { app = cfg.projects.app } }
     local signed = assert(trust.sign("user", trust.encode(user)))
-    local f = assert(io.open(root .. "/.nvim/loomworks.user.json", "wb"))
+    local f = assert(io.open(root .. "/.lw/user.json", "wb"))
     f:write(signed)
     f:close()
     return root
@@ -135,7 +135,7 @@ describe("LspConfig/1 in the daemon (§19.20)", function()
 
     it("a refused load: get reports state refused with nothing else; set_option is refused and writes nothing", function()
         local root = fixture(H.tmp() .. "/trust.key")
-        local user_path = root .. "/.nvim/loomworks.user.json"
+        local user_path = root .. "/.lw/user.json"
         local before = table.concat(vim.fn.readfile(user_path, "b"), "\n")
         -- Another machine's key: the working copy is not trusted here (§17.4).
         local a, b = run({
@@ -159,7 +159,7 @@ describe("LspConfig/1 in the daemon (§19.20)", function()
         -- is not refused, it fails (§19.13 header state `error`).
         trust._set_key_path(key)
         local user = { _meta = { version = 2 }, projects = { app = 42 } }
-        local w = assert(io.open(root .. "/.nvim/loomworks.user.json", "wb"))
+        local w = assert(io.open(root .. "/.lw/user.json", "wb"))
         local signed = trust.sign("user", trust.encode(user))
         assert.is_string(signed)
         w:write(signed)
@@ -186,7 +186,7 @@ describe("LspConfig/1 in the daemon (§19.20)", function()
         -- (§2.7); one it cannot trust leaves the write refused.
         local key = H.tmp() .. "/trust.key"
         local root = fixture(key)
-        local user_path = root .. "/.nvim/loomworks.user.json"
+        local user_path = root .. "/.lw/user.json"
         local theirs
         local a, b = run({
             name = "stale",

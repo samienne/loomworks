@@ -54,7 +54,7 @@ local function make_ws(user_overrides)
                     saved = payload
                     return true
                 end,
-                filepath = function(root) return root .. "/.nvim/loomworks.user.json" end,
+                filepath = function(root) return root .. "/.lw/user.json" end,
             },
             io = {
                 write_json = function() return true end,

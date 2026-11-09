@@ -33,7 +33,7 @@ local function stat_for(present)
     return function(path)
         for root in pairs(present) do
             if path == root .. "/loomworks.json"
-                or path == root .. "/.nvim/loomworks.user.json" then
+                or path == root .. "/.lw/user.json" then
                 return { type = "file" }
             end
         end
@@ -200,13 +200,13 @@ describe("cli.cmd_worktree (rendered listing)", function()
     end)
 
     it("reflects the working copy alone as `workspace` (no published snapshot)", function()
-        -- Only .nvim/loomworks.user.json present at feat — still counts as inited.
+        -- Only .lw/user.json present at feat — still counts as inited.
         local res = capture(function()
             return cli.cmd_worktree({ "worktree" }, {
                 dir = "/repo/main",
                 git = fake_git({ version = true, toplevel = "/repo/main", list = MULTI }),
                 stat = function(path)
-                    if path == "/repo/wt-feat/.nvim/loomworks.user.json" then
+                    if path == "/repo/wt-feat/.lw/user.json" then
                         return { type = "file" }
                     end
                     return nil
@@ -381,7 +381,7 @@ describe("cli.cmd_worktree (real git worktrees)", function()
         git(main, "config", "user.name", "t")
         -- Commit a README so `git worktree add` has a HEAD to check out. The
         -- workspace file stays UNTRACKED (like the real setup: loomworks.json /
-        -- .nvim are the marker in the main checkout but git-ignored / uncommitted),
+        -- .lw are the marker in the main checkout but git-ignored / uncommitted),
         -- so a fresh worktree does NOT inherit it.
         local rf = assert(io.open(main .. "/README.md", "wb"))
         rf:write("demo\n"); rf:close()

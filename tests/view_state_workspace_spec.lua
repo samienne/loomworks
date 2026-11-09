@@ -164,8 +164,8 @@ local FIXTURES = {
 local function fixture_core(name)
     local fx = FIXTURES[name]
     local files = { ["loomworks.json"] = h.make_config_json(fx.config) }
-    if fx.user then files["loomworks.user.json"] = h.make_user_json(fx.user) end
-    if fx.cache then files["loomworks.cache.json"] = h.make_cache_json(fx.cache) end
+    if fx.user then files["user.json"] = h.make_user_json(fx.user) end
+    if fx.cache then files["cache.json"] = h.make_cache_json(fx.cache) end
     local core = Core.new(h.make_test_deps(files, { modules = modules_dep(fx.tools),
         notify = function() end }))
     core:setup({ root = "/root" })

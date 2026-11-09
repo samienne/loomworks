@@ -13,7 +13,7 @@ local KIT = { id = "ninja-mc", generator = "Ninja Multi-Config" }
 
 local ROOT = "/root"
 local TREE = "build/App/ninja-mc"
-local TREE_ABS = ROOT .. "/.nvim/" .. TREE
+local TREE_ABS = ROOT .. "/.lw/" .. TREE
 
 --- @param opts? { cache?: table, app?: table, sets?: table, profiles?: table, deps?: table }
 local function make_core(opts)
@@ -42,9 +42,9 @@ local function make_core(opts)
             projects = { App = { cmake = opts.app or {} } },
             configuration_sets = sets,
         }),
-        ["loomworks.user.json"] = h.make_user_json({ profiles = profiles }),
+        ["user.json"] = h.make_user_json({ profiles = profiles }),
     }
-    if opts.cache then files["loomworks.cache.json"] = vim.json.encode(opts.cache) end
+    if opts.cache then files["cache.json"] = vim.json.encode(opts.cache) end
     local saves = {}
     local deps_opts = {
         modules = { get = function(id) if id == "cmake" then return fake_cmake end end },
@@ -154,7 +154,7 @@ describe("multi-config cmake: version 8 cache migration (three-file-model §2.3)
                     tool_key = KIT.id, tool_data = KIT },
                 ["build/Other/Debug"] = { project_key = "Other", config_key = "Debug",
                     type = "cmake", variant = "Debug", state = "built",
-                    build_dir = ROOT .. "/.nvim/build/Other/Debug", overwritten_by = TREE },
+                    build_dir = ROOT .. "/.lw/build/Other/Debug", overwritten_by = TREE },
             },
             deploy_state = {
                 ["/root/out/app.exe"] = { source_build_dir = TREE, source_rel_path = "Debug/app.exe",
@@ -511,7 +511,7 @@ describe("multi-config cmake: rename onto an orphaned id (spec §4.8)", function
                 [TREE .. "#Dev2:ninja-mc"] = v9_entry("Dev2", "built"),
                 ["build/Other/Debug"] = { project_key = "Other", config_key = "Debug",
                     type = "cmake", variant = "Debug", state = "built",
-                    build_dir = ROOT .. "/.nvim/build/Other/Debug",
+                    build_dir = ROOT .. "/.lw/build/Other/Debug",
                     overwritten_by = TREE .. "#Dev2:ninja-mc" },
             }, deploy_state = {
                 ["/root/out/old.exe"] = { source_build_dir = TREE .. "#Dev2:ninja-mc",

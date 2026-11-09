@@ -91,7 +91,7 @@
 --- @field module_info? table opaque module-specific project-level info
 --- @field default_target? table
 
---- Parsed loomworks.user.json structure.
+--- Parsed user.json structure.
 --- @class loomworks.UserData
 --- @field _meta { version: number, written_by?: string } schema + writing loomworks version
 --- @field name? string workspace name override (working copy wins)
@@ -102,7 +102,7 @@
 --- @field configuration_set_descriptions? table<string, string> set_name -> description
 ---     (sidecar), for the sets this file holds
 
---- Parsed loomworks.cache.json structure.
+--- Parsed cache.json structure.
 --- @class loomworks.CacheData
 --- @field _meta loomworks.CacheMeta
 --- @field configurations table<string, loomworks.CachedConfig> flat dict keyed by "project_key/config_key"

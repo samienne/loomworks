@@ -48,23 +48,23 @@ unset LOOMWORKS_RUNTIME LOOMWORKS_NO_DAEMON CI LW_ROOT || true
 WS="$TMP/ws"
 mkdir -p "$WS"
 printf '{"projects":{}}\n' > "$WS/loomworks.json"
-# The runtime files are per slot (spec 19.7.1): `.nvim/loomworks.daemon-<S>.*`,
+# The runtime files are per slot (spec 19.7.1): `.lw/daemon-<S>.*`,
 # S 16 hex digits derived from the OS user (Windows: also the elevation). The
 # runner has one user, so one slot: S is learned from the first daemon's lock
 # (`learn_slot`) and every path below uses it.
 SLOT=
 LOCK=; HANDLE=
-lockf() { printf '%s/.nvim/loomworks.daemon-%s.lock' "$1" "$SLOT"; }
+lockf() { printf '%s/.lw/daemon-%s.lock' "$1" "$SLOT"; }
 learn_slot() {
   local found
-  found=$(ls -1 "$WS/.nvim" 2>/dev/null | sed -n 's/^loomworks\.daemon-\([0-9a-f]\{16\}\)\.lock$/\1/p')
+  found=$(ls -1 "$WS/.lw" 2>/dev/null | sed -n 's/^daemon-\([0-9a-f]\{16\}\)\.lock$/\1/p')
   if [ "$(printf '%s\n' "$found" | grep -c .)" = 1 ]; then
     SLOT=$found; ok "one slot's runtime lock (slot $SLOT)"
   else
-    bad "expected one slot's runtime lock in $WS/.nvim, found: $(ls -1 "$WS/.nvim" 2>/dev/null | tr '\n' ' ')"
+    bad "expected one slot's runtime lock in $WS/.lw, found: $(ls -1 "$WS/.lw" 2>/dev/null | tr '\n' ' ')"
     SLOT=unknown
   fi
-  LOCK=$(lockf "$WS"); HANDLE="$WS/.nvim/loomworks.daemon-$SLOT.json"
+  LOCK=$(lockf "$WS"); HANDLE="$WS/.lw/daemon-$SLOT.json"
   # Never the legacy unslotted names (spec 19.6 "Legacy files").
   [ ! -e "$WS/.nvim/loomworks.daemon.lock" ] && [ ! -e "$WS/.nvim/loomworks.daemon.json" ] \
     && ok "no legacy unslotted runtime files" || bad "legacy unslotted runtime files written"
@@ -193,7 +193,7 @@ if [ -n "$mpid" ] && alive "$mpid"; then ok "started daemon pid $mpid"; else bad
 if [ $((t1 - t0)) -lt 15000 ]; then ok "lw profiles | cat returned in $((t1 - t0)) ms"; else bad "lw profiles | cat took $((t1 - t0)) ms"; fi
 t0=$(now_ms); lw profiles | cat >/dev/null; t1=$(now_ms)
 [ "$(pid_of "$LOCK")" = "$mpid" ] && ok "next command reused it ($((t1 - t0)) ms)" || bad "next command started another daemon"
-logf="$WS/.nvim/loomworks.daemon-$SLOT.log"
+logf="$WS/.lw/daemon-$SLOT.log"
 [ -d "$TMP/data/daemon/logs" ] && bad "a runtime log outside the workspace ($TMP/data/daemon/logs)" || ok "no runtime log outside the workspace"
 grep -q "launched the workspace daemon" "$logf" 2>/dev/null && ok "runtime log records the launch" || bad "no launch in the runtime log ($logf)"
 
@@ -334,10 +334,10 @@ JSON
   done
   if [ -n "$died" ]; then
     bad "the daemon died when its client was killed mid-output (round $died); log tail:"
-    tail -5 "$PIPE_WS/.nvim/loomworks.daemon-$SLOT.log" >&2
+    tail -5 "$PIPE_WS/.lw/daemon-$SLOT.log" >&2
   elif [ "$rounds" -eq 8 ]; then
     ok "the daemon survived 8 clients killed mid-output"
-    n=$(grep -c "disconnected" "$PIPE_WS/.nvim/loomworks.daemon-$SLOT.log" 2>/dev/null)
+    n=$(grep -c "disconnected" "$PIPE_WS/.lw/daemon-$SLOT.log" 2>/dev/null)
     [ "${n:-0}" -ge 8 ] && ok "it logged each disconnect ($n)" || bad "disconnects logged: ${n:-0}"
     # The CLI's own reader goes away (`lw build | head`): lw ends (141, as
     # SIGPIPE would) with its cleanup, rather than running on, and the

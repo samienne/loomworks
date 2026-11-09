@@ -168,6 +168,7 @@ end
 --- Default directory names to skip during scanning.
 local DEFAULT_FILTER = {
     [".git"] = true,
+    [".lw"] = true,
     [".nvim"] = true,
     [".cache"] = true,
     [".vs"] = true,

@@ -211,12 +211,12 @@ describe("_main_has_working_copy (pull hint detection)", function()
   local LIST = "worktree /repo\nHEAD abc\nbranch refs/heads/main\n\n" ..
     "worktree /repo/wt\nHEAD def\nbranch refs/heads/feat\n"
 
-  it("is true in a linked worktree whose main checkout has .nvim/loomworks.user.json", function()
+  it("is true in a linked worktree whose main checkout has .lw/user.json", function()
     local seen
     local ok = cli._main_has_working_copy({ dir = "/repo/wt", git = fake_git("/repo/wt", LIST),
-      stat = function(p) seen = p; return p == "/repo/.nvim/loomworks.user.json" and {} or nil end })
+      stat = function(p) seen = p; return p == "/repo/.lw/user.json" and {} or nil end })
     assert.is_true(ok)
-    assert.equals("/repo/.nvim/loomworks.user.json", seen)
+    assert.equals("/repo/.lw/user.json", seen)
   end)
 
   it("is false in the main checkout itself, with no working copy, or without git", function()
@@ -241,14 +241,14 @@ describe("_main_has_working_copy (pull hint detection)", function()
     git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "init")
     local wt = main .. "-wt"
     git("worktree", "add", "-q", wt, "-b", "feat")
-    vim.fn.mkdir(main .. "/.nvim", "p")
-    local u = assert(io.open(main .. "/.nvim/loomworks.user.json", "w")); u:write("{}"); u:close()
+    vim.fn.mkdir(main .. "/.lw", "p")
+    local u = assert(io.open(main .. "/.lw/user.json", "w")); u:write("{}"); u:close()
     -- Real git, but with the git-required probe budget (30 s) instead of the
     -- status probe's 1.5 s: on a loaded runner a timed-out probe reads as "no
     -- main checkout" and would fail the positive assertion.
     local git_q = cli._git_query_required
     assert.is_true(cli._main_has_working_copy({ dir = wt, git = git_q }))
-    vim.fn.delete(main .. "/.nvim", "rf")
+    vim.fn.delete(main .. "/.lw", "rf")
     assert.is_false(cli._main_has_working_copy({ dir = wt, git = git_q }))
     vim.fn.system({ "git", "-C", main, "worktree", "remove", "--force", wt })
     vim.fn.delete(wt, "rf")

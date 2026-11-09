@@ -176,9 +176,9 @@ describe("cache", function()
     end)
 
     describe("relative_build_dir", function()
-        it("strips root/.nvim/ prefix", function()
+        it("strips root/.lw/ prefix", function()
             assert.equals("build/App/Debug",
-                cache.relative_build_dir("/workspace/.nvim/build/App/Debug", "/workspace"))
+                cache.relative_build_dir("/workspace/.lw/build/App/Debug", "/workspace"))
         end)
 
         it("returns path as-is for external dirs", function()
@@ -188,8 +188,8 @@ describe("cache", function()
     end)
 
     describe("absolute_build_dir", function()
-        it("prepends root/.nvim/ to relative path", function()
-            assert.equals("/workspace/.nvim/build/App/Debug",
+        it("prepends root/.lw/ to relative path", function()
+            assert.equals("/workspace/.lw/build/App/Debug",
                 cache.absolute_build_dir("build/App/Debug", "/workspace"))
         end)
 
@@ -273,9 +273,9 @@ describe("cache", function()
     end)
 
     describe("filepath", function()
-        it("returns path under .nvim", function()
+        it("returns path under .lw", function()
             local p = cache.filepath("/workspace")
-            assert.equals("/workspace/.nvim/loomworks.cache.json", p)
+            assert.equals("/workspace/.lw/cache.json", p)
         end)
     end)
 end)

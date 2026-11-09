@@ -30,7 +30,7 @@ local function make_ws(mod_type, tool)
             projects = { App = { [mod_type] = { configurations = { Debug = { variant = "Debug" } } } } },
             configuration_sets = { debug = { App = "Debug" } },
         }),
-        ["loomworks.user.json"] = h.make_user_json({ profiles = { debug = {
+        ["user.json"] = h.make_user_json({ profiles = { debug = {
             configuration_set = "debug",
             tools = { [mod_type] = { key = tool.key, data = tool.data } },
         } } }),

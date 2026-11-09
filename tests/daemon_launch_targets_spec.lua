@@ -27,7 +27,7 @@ end
 
 --- The decoded working copy (its signature stripped).
 local function working_copy(root)
-    local _, content = trust.verify("user", read(root .. "/.nvim/loomworks.user.json"))
+    local _, content = trust.verify("user", read(root .. "/.lw/user.json"))
     return vim.json.decode(content)
 end
 
@@ -140,7 +140,7 @@ describe("Launch/1.targets, Profiles/1.set_default_target, view projects[].targe
         .. " nothing written", function()
         local ws, dev = loaded()
         local app = find(ws._projects, "key", "app")
-        local before = read(root .. "/.nvim/loomworks.user.json")
+        local before = read(root .. "/.lw/user.json")
         local r = profiles("set_default_target", { profile = { id = id_of(dev) },
             target = { kind = "target", project = { id = id_of(app) }, name = "core" } })
         assert.equals("refused", r.outcome)
@@ -156,7 +156,7 @@ describe("Launch/1.targets, Profiles/1.set_default_target, view projects[].targe
         assert.equals("refused", r.outcome)
         assert.matches("stale", r.message, 1, true)
         assert.is_nil(dev._default_target_descriptor)
-        assert.equals(before, read(root .. "/.nvim/loomworks.user.json"))
+        assert.equals(before, read(root .. "/.lw/user.json"))
     end)
 
     it("an unconfigured project of a module that parses targets is incomplete", function()
@@ -454,7 +454,7 @@ describe("Launch/1.targets, Profiles/1.set_default_target, view projects[].targe
         local app = find(ws._projects, "key", "app")
         local prev = { project = "app", launch = "run" }
         assert.is_true(dev:set_default_target_descriptor(prev))
-        local before = read(root .. "/.nvim/loomworks.user.json")
+        local before = read(root .. "/.lw/user.json")
         ws._no_write = "read-only for the test"
         local ok, err = dev:set_default_target(app, "server")
         assert.is_false(ok)
@@ -469,7 +469,7 @@ describe("Launch/1.targets, Profiles/1.set_default_target, view projects[].targe
         assert.equals("refused", r.outcome)
         assert.same(prev, dev._default_target_descriptor)
         ws._no_write = nil
-        assert.equals(before, read(root .. "/.nvim/loomworks.user.json"))
+        assert.equals(before, read(root .. "/.lw/user.json"))
     end)
 
     it("a default-target write refused as stale keeps the working copy reloaded from disk", function()
@@ -481,7 +481,7 @@ describe("Launch/1.targets, Profiles/1.set_default_target, view projects[].targe
         wc.default_target = { dev = { project = "app", target = "core" } }
         local signed, serr = trust.sign("user", trust.encode(wc))
         assert.is_string(signed, serr)
-        local f = assert(io.open(root .. "/.nvim/loomworks.user.json", "wb"))
+        local f = assert(io.open(root .. "/.lw/user.json", "wb"))
         f:write(signed); f:close()
         local ok, err = dev:set_default_target(app, "server")
         assert.is_false(ok)

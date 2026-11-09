@@ -63,7 +63,7 @@ describe("inventory requirements", function()
                 projects = opts.projects or { App = { cmake = {} } },
                 configuration_sets = opts.sets or { debug = { App = "Debug" } },
             }),
-            ["loomworks.user.json"] = h.make_user_json({ profiles = opts.profiles or {} }),
+            ["user.json"] = h.make_user_json({ profiles = opts.profiles or {} }),
         }
         local deps = h.make_test_deps(files, {
             modules = { get = modules_get },
@@ -627,7 +627,7 @@ describe("inventory: the lw entry in pinned context", function()
 
     local function lw_entry(version)
         sug._host_facts = function()
-            return { release_version = version, pinned = true, self_update = true, exe = "/r/.nvim/cache/lw" }
+            return { release_version = version, pinned = true, self_update = true, exe = "/r/.lw/cache/lw" }
         end
         sug._current_release_version = function() return version end
         local by = probe(inv.declarations(fake_ctx()), fake_ctx())

@@ -35,7 +35,7 @@ local function shared(root) return vim.json.decode(read(root .. "/loomworks.json
 
 --- The decoded working copy (its signature stripped).
 local function working_copy(root)
-    local _, content = trust.verify("user", read(root .. "/.nvim/loomworks.user.json"))
+    local _, content = trust.verify("user", read(root .. "/.lw/user.json"))
     return vim.json.decode(content)
 end
 
@@ -139,13 +139,13 @@ describe("loomworks.Workspace/1 commands (step 5o part B1)", function()
 
     it("a stale or unknown id is refused and changes nothing", function()
         loaded()
-        local before = read(root .. "/.nvim/loomworks.user.json")
+        local before = read(root .. "/.lw/user.json")
         local r = call("set_intent", { item = { id = "999.999" }, intent = "local" })
         assert.equals("refused", r.outcome, vim.inspect(r))
         assert.matches("no item with id 999.999 %(a stale reference%)", r.message)
         r = call("set_description", { item = { id = "999.999" }, text = "x" })
         assert.equals("refused", r.outcome, vim.inspect(r))
-        assert.equals(before, read(root .. "/.nvim/loomworks.user.json"))
+        assert.equals(before, read(root .. "/.lw/user.json"))
     end)
 
     it("an unknown intent or a key reference is invalid", function()
@@ -182,7 +182,7 @@ describe("loomworks.Workspace/1 commands (step 5o part B1)", function()
     describe("a working copy this machine did not sign", function()
         local user_path
         before_each(function()
-            user_path = root .. "/.nvim/loomworks.user.json"
+            user_path = root .. "/.lw/user.json"
             -- Unsigned: written by hand.
             write(user_path, trust.encode(working_copy(root)))
         end)

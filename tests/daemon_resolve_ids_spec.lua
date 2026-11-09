@@ -27,7 +27,7 @@ end
 --- `2` and `x` (both app=Debug). In key order `2` is first and `x` second.
 local function workspace()
     local root = vim.fs.normalize(assert(uv.fs_realpath(H.tmp())))
-    for _, d in ipairs({ "app", ".nvim" }) do vim.fn.mkdir(root .. "/" .. d, "p") end
+    for _, d in ipairs({ "app", ".lw" }) do vim.fn.mkdir(root .. "/" .. d, "p") end
     local step = root .. "/step.lua"
     write(step, H.STEP)
     local nv = (vim.v.progpath:gsub("\\", "/"))
@@ -42,7 +42,7 @@ local function workspace()
     }))
     local signed = trust.sign("user", trust.encode({ _meta = { version = 2 },
         profiles = { ["2"] = { configuration_set = "2" }, x = { configuration_set = "x" } } }))
-    write(root .. "/.nvim/loomworks.user.json", signed)
+    write(root .. "/.lw/user.json", signed)
     return root
 end
 
@@ -201,7 +201,7 @@ describe("an operation's { id } reference in the daemon (step 5o part 0)", funct
         local cfg = vim.json.decode(table.concat(vim.fn.readfile(root .. "/loomworks.json"), "\n"))
         cfg.configuration_sets.x = nil
         write(root .. "/loomworks.json", vim.json.encode(cfg))
-        write(root .. "/.nvim/loomworks.user.json", trust.sign("user", trust.encode({ _meta = { version = 2 },
+        write(root .. "/.lw/user.json", trust.sign("user", trust.encode({ _meta = { version = 2 },
             profiles = { ["2"] = { configuration_set = "2" } } })))
         local r = call(srv, "build", { profile = { id = id_x } }, other_env())
         assert.is_true(r.wait_reply())

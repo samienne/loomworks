@@ -196,7 +196,7 @@ describe("Devices/1 in the workspace daemon (loomworks.nvim spec/plugin.md §19.
         assert.equals("ok", r.outcome, vim.inspect(r))
         assert.same({ "dev" }, s.list()[1].profiles)
         assert.equals("SER1", s.service().ws._active_profile:device_serial())
-        assert.truthy(read(s.root .. "/.nvim/loomworks.user.json"):find('"SER1"', 1, true))
+        assert.truthy(read(s.root .. "/.lw/user.json"):find('"SER1"', 1, true))
         r = s.call("/profiles", "loomworks.Profiles", "clear_device", { profile = { key = "dev" } }, s.env)
         assert.equals("ok", r.outcome)
         assert.is_nil(s.list()[1].profiles)

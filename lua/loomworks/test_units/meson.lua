@@ -561,7 +561,7 @@ end
 --- @param exe string
 --- @param filter? string GTEST_FILTER value
 --- @param output_path? string the results file (a per-run path); default
----   the build directory's fixed `.nvim/gtest_results.xml`
+---   the build directory's fixed `.lw/gtest_results.xml`
 --- @return table|nil
 function MesonTestUnit:_build_gtest_run(exe, filter, output_path)
     local spec = self._exec_specs[exe]
@@ -576,7 +576,7 @@ function MesonTestUnit:_build_gtest_run(exe, filter, output_path)
 
     local xml = output_path
     if type(xml) ~= "string" or xml == "" then
-        local nvim_dir = self._build_dir .. "/.nvim"
+        local nvim_dir = self._build_dir .. "/.lw"
         if not uv.fs_stat(nvim_dir) then
             uv.fs_mkdir(nvim_dir, 493) -- 0755
         end

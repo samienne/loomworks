@@ -22,7 +22,7 @@ end
 --- A workspace `<dir>/<name>`.
 local function ws(dir, name)
     local root = dir .. "/" .. name
-    vim.fn.mkdir(root .. "/.nvim", "p")
+    vim.fn.mkdir(root .. "/.lw", "p")
     local f = assert(io.open(root .. "/loomworks.json", "w"))
     f:write('{"projects":{}}')
     f:close()

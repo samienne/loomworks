@@ -42,7 +42,7 @@ local function exists(path) return uv.fs_lstat(path) ~= nil end
 --- A project's persisted cache state for `config` (default Debug); nil when
 --- it has no entry or no state.
 local function cached_state(root, project, config)
-    local t = read(root .. "/.nvim/loomworks.cache.json")
+    local t = read(root .. "/.lw/cache.json")
     if not t then return nil end
     local data = vim.json.decode(t)
     for _, c in pairs(data.build_dirs or {}) do
@@ -56,7 +56,7 @@ end
 --- `rel` (lib=Release).
 local function workspace(shared)
     local root = vim.fs.normalize(assert(uv.fs_realpath(H.tmp())))
-    for _, d in ipairs({ "app", "lib", ".nvim" }) do vim.fn.mkdir(root .. "/" .. d, "p") end
+    for _, d in ipairs({ "app", "lib", ".lw" }) do vim.fn.mkdir(root .. "/" .. d, "p") end
     local step = root .. "/step.lua"
     write(step, H.STEP)
     local nv = (vim.v.progpath:gsub("\\", "/"))
@@ -75,7 +75,7 @@ local function workspace(shared)
     }))
     local profiles = { dev = { configuration_set = "dev" } }
     if shared then profiles.rel = { configuration_set = "rel" } end
-    write(root .. "/.nvim/loomworks.user.json", trust.sign("user", trust.encode({ _meta = { version = 2 },
+    write(root .. "/.lw/user.json", trust.sign("user", trust.encode({ _meta = { version = 2 },
         profiles = profiles })))
     return root
 end

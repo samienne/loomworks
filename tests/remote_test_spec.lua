@@ -329,9 +329,9 @@ describe("named test executables on the host", function()
                 })
         end)
         gtest.probe_sync = orig
-        -- The results file is in the workspace's .nvim/tmp (spec §16.40) and
+        -- The results file is in the workspace's .lw/tmp (spec §16.40) and
         -- is removed once read.
-        assert.equals((root:gsub("\\", "/")) .. "/.nvim/tmp/", xml:sub(1, #root + 11))
+        assert.equals((root:gsub("\\", "/")) .. "/.lw/tmp/", xml:sub(1, #root + 9))
         assert.truthy(xml:match("/lw%-test%-%x+%.xml$"), xml)
         assert.is_nil((vim.uv or vim.loop).fs_stat(xml))
         require("loomworks.io").rm_rf(root)

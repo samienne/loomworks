@@ -1,6 +1,6 @@
 --- Owned LSP database cleanup (spec §4.6 "Owned LSP database cleanup", §8.4
 --- `lsp_database_root` / `lsp_database_dir`, ui §1.11 check 4): a build
---- directory's module-owned database mirror under `.nvim/cache/<area>/` is
+--- directory's module-owned database mirror under `.lw/cache/<area>/` is
 --- removed with it — only after the build dir's deletion succeeded, never while
 --- another build dir maps to it, never outside the area, never through a link —
 --- and nuke removes the whole area (aborting entirely on a linked area).
@@ -50,49 +50,49 @@ describe("lsp_db_cleanup.check_mirror", function()
     local root
     before_each(function()
         root = new_tmp()
-        touch(root .. "/.nvim/cache/cc/App/Debug/compile_commands.json")
-        touch(root .. "/.nvim/cache/cc2/App/Debug/compile_commands.json")
+        touch(root .. "/.lw/cache/cc/App/Debug/compile_commands.json")
+        touch(root .. "/.lw/cache/cc2/App/Debug/compile_commands.json")
         touch(root .. "/precious/keep.txt")
     end)
     after_each(function() vim.fn.delete(root, "rf") end)
 
     it("approves a mirror strictly inside the area", function()
-        local st, path, area = cleanup.check_mirror(root, "cc", root .. "/.nvim/cache/cc/App/Debug", norm)
+        local st, path, area = cleanup.check_mirror(root, "cc", root .. "/.lw/cache/cc/App/Debug", norm)
         assert.equals("ok", st, tostring(path))
-        assert.equals(norm(root .. "/.nvim/cache/cc/App/Debug"), norm(path))
-        assert.equals(root .. "/.nvim/cache/cc", area)
+        assert.equals(norm(root .. "/.lw/cache/cc/App/Debug"), norm(path))
+        assert.equals(root .. "/.lw/cache/cc", area)
     end)
 
     it("nil / empty inputs mean nothing to remove", function()
         assert.equals("absent", (cleanup.check_mirror(root, "cc", nil, norm)))
         assert.equals("absent", (cleanup.check_mirror(root, "cc", "", norm)))
-        assert.equals("absent", (cleanup.check_mirror(root, nil, root .. "/.nvim/cache/cc/App", norm)))
-        assert.equals("absent", (cleanup.check_mirror(nil, "cc", root .. "/.nvim/cache/cc/App", norm)))
-        assert.equals("absent", (cleanup.check_mirror("", "cc", root .. "/.nvim/cache/cc/App", norm)))
+        assert.equals("absent", (cleanup.check_mirror(root, nil, root .. "/.lw/cache/cc/App", norm)))
+        assert.equals("absent", (cleanup.check_mirror(nil, "cc", root .. "/.lw/cache/cc/App", norm)))
+        assert.equals("absent", (cleanup.check_mirror("", "cc", root .. "/.lw/cache/cc/App", norm)))
     end)
 
     it("a missing mirror is absent, not an error", function()
-        assert.equals("absent", (cleanup.check_mirror(root, "cc", root .. "/.nvim/cache/cc/Nope/Debug", norm)))
+        assert.equals("absent", (cleanup.check_mirror(root, "cc", root .. "/.lw/cache/cc/Nope/Debug", norm)))
     end)
 
     it("refuses '..' segments, even ones resolving back inside", function()
-        assert.is_nil((cleanup.check_mirror(root, "cc", root .. "/.nvim/cache/cc/../../../precious", norm)))
-        assert.is_nil((cleanup.check_mirror(root, "cc", root .. "/.nvim/cache/cc/App/../App/Debug", norm)))
-        assert.is_nil((cleanup.check_mirror(root, "cc", root .. "/.nvim/cache/cc/./App", norm)))
+        assert.is_nil((cleanup.check_mirror(root, "cc", root .. "/.lw/cache/cc/../../../precious", norm)))
+        assert.is_nil((cleanup.check_mirror(root, "cc", root .. "/.lw/cache/cc/App/../App/Debug", norm)))
+        assert.is_nil((cleanup.check_mirror(root, "cc", root .. "/.lw/cache/cc/./App", norm)))
     end)
 
     it("refuses a prefix collision (cc vs cc2) and the area itself", function()
-        assert.is_nil((cleanup.check_mirror(root, "cc", root .. "/.nvim/cache/cc2/App/Debug", norm)))
-        assert.is_nil((cleanup.check_mirror(root, "cc", root .. "/.nvim/cache/cc", norm)))
-        assert.is_nil((cleanup.check_mirror(root, "cc", root .. "/.nvim/cache/cc/", norm)))
-        assert.is_nil((cleanup.check_mirror(root, "cc", root .. "/.nvim/cache", norm)))
-        assert.is_nil((cleanup.check_mirror(root, "cc", root .. "/.nvim", norm)))
+        assert.is_nil((cleanup.check_mirror(root, "cc", root .. "/.lw/cache/cc2/App/Debug", norm)))
+        assert.is_nil((cleanup.check_mirror(root, "cc", root .. "/.lw/cache/cc", norm)))
+        assert.is_nil((cleanup.check_mirror(root, "cc", root .. "/.lw/cache/cc/", norm)))
+        assert.is_nil((cleanup.check_mirror(root, "cc", root .. "/.lw/cache", norm)))
+        assert.is_nil((cleanup.check_mirror(root, "cc", root .. "/.lw", norm)))
         assert.is_nil((cleanup.check_mirror(root, "cc", root .. "/precious", norm)))
     end)
 
     it("refuses an invalid area segment", function()
         for _, seg in ipairs({ ".", "..", "a/b", "a\\b", "c:" }) do
-            assert.is_nil((cleanup.check_mirror(root, seg, root .. "/.nvim/cache/cc/App", norm)), seg)
+            assert.is_nil((cleanup.check_mirror(root, seg, root .. "/.lw/cache/cc/App", norm)), seg)
         end
     end)
 
@@ -100,20 +100,20 @@ describe("lsp_db_cleanup.check_mirror", function()
         if not IS_WIN then pending("Windows path semantics") return end
         -- "App/.. " is opened as "App/.." by Win32 — i.e. the area itself.
         for _, tail in ipairs({ "App/.. ", "App/. ", "App.", "App ", "App/Debug.", "App/Debug " }) do
-            assert.is_nil((cleanup.check_mirror(root, "cc", root .. "/.nvim/cache/cc/" .. tail, norm)), tail)
+            assert.is_nil((cleanup.check_mirror(root, "cc", root .. "/.lw/cache/cc/" .. tail, norm)), tail)
         end
         for _, seg in ipairs({ "cc.", "cc " }) do
-            assert.is_nil((cleanup.check_mirror(root, seg, root .. "/.nvim/cache/" .. seg .. "/App", norm)), seg)
+            assert.is_nil((cleanup.check_mirror(root, seg, root .. "/.lw/cache/" .. seg .. "/App", norm)), seg)
             assert.is_nil((cleanup.check_area(root, seg, norm)), seg)
         end
-        assert.is_true(exists(root .. "/.nvim/cache/cc/App/Debug/compile_commands.json"))
+        assert.is_true(exists(root .. "/.lw/cache/cc/App/Debug/compile_commands.json"))
     end)
 
-    it("refuses a mirror whose realpath leaves the area (even inside .nvim)", function()
+    it("refuses a mirror whose realpath leaves the area (even inside .lw)", function()
         local real_fn = uv.fs_realpath
-        local mirror = root .. "/.nvim/cache/cc/App/Debug"
+        local mirror = root .. "/.lw/cache/cc/App/Debug"
         uv.fs_realpath = function(p)
-            if norm(p) == norm(mirror) then return root .. "/.nvim/cache/cc2/App/Debug" end
+            if norm(p) == norm(mirror) then return root .. "/.lw/cache/cc2/App/Debug" end
             return real_fn(p)
         end
         local ok, st = pcall(cleanup.check_mirror, root, "cc", mirror, norm)
@@ -123,35 +123,35 @@ describe("lsp_db_cleanup.check_mirror", function()
     end)
 
     it("refuses a link inside the mirror path", function()
-        vim.fn.delete(root .. "/.nvim/cache/cc/App", "rf")
+        vim.fn.delete(root .. "/.lw/cache/cc/App", "rf")
         vim.fn.mkdir(root .. "/precious/Debug", "p")
-        if not dir_link(root .. "/precious", root .. "/.nvim/cache/cc/App") then
+        if not dir_link(root .. "/precious", root .. "/.lw/cache/cc/App") then
             pending("cannot create a directory link here") return
         end
-        assert.is_nil((cleanup.check_mirror(root, "cc", root .. "/.nvim/cache/cc/App/Debug", norm)))
-        assert.is_nil((cleanup.check_mirror(root, "cc", root .. "/.nvim/cache/cc/App", norm)))
+        assert.is_nil((cleanup.check_mirror(root, "cc", root .. "/.lw/cache/cc/App/Debug", norm)))
+        assert.is_nil((cleanup.check_mirror(root, "cc", root .. "/.lw/cache/cc/App", norm)))
     end)
 
     it("refuses a linked area / cache dir", function()
         local elsewhere = new_tmp()
         touch(elsewhere .. "/App/Debug/compile_commands.json")
-        vim.fn.delete(root .. "/.nvim/cache/cc", "rf")
-        if not dir_link(elsewhere, root .. "/.nvim/cache/cc") then
+        vim.fn.delete(root .. "/.lw/cache/cc", "rf")
+        if not dir_link(elsewhere, root .. "/.lw/cache/cc") then
             vim.fn.delete(elsewhere, "rf")
             pending("cannot create a directory link here") return
         end
-        assert.is_nil((cleanup.check_mirror(root, "cc", root .. "/.nvim/cache/cc/App/Debug", norm)))
+        assert.is_nil((cleanup.check_mirror(root, "cc", root .. "/.lw/cache/cc/App/Debug", norm)))
         assert.is_nil((cleanup.check_area(root, "cc", norm)))
-        uv.fs_unlink(root .. "/.nvim/cache/cc"); uv.fs_rmdir(root .. "/.nvim/cache/cc")
+        uv.fs_unlink(root .. "/.lw/cache/cc"); uv.fs_rmdir(root .. "/.lw/cache/cc")
         vim.fn.delete(elsewhere, "rf")
     end)
 end)
 
 describe("cmake lsp_database_dir", function()
-    it("mirrors the build dir tail under .nvim/cache/cc", function()
+    it("mirrors the build dir tail under .lw/cache/cc", function()
         assert.equals("cc", cmake.lsp_database_root)
-        assert.equals("C:/ws/.nvim/cache/cc/App/ninja/Debug",
-            cmake.lsp_database_dir({ workspace_root = "C:/ws", build_dir = "C:/ws/.nvim/build/App/ninja/Debug" }))
+        assert.equals("C:/ws/.lw/cache/cc/App/ninja/Debug",
+            cmake.lsp_database_dir({ workspace_root = "C:/ws", build_dir = "C:/ws/.lw/build/App/ninja/Debug" }))
         assert.is_nil(cmake.lsp_database_dir({ workspace_root = "C:/ws" }))
         assert.is_nil(cmake.lsp_database_dir({ workspace_root = "", build_dir = "C:/ws/b" }))
         assert.is_nil(cmake.lsp_database_dir(nil))
@@ -244,15 +244,15 @@ describe("owned LSP database removed with its build directory", function()
     before_each(function()
         root = new_tmp()
         touch(root .. "/loomworks.json", "{}")
-        bd_debug = root .. "/.nvim/build/App/ninja/Debug"
-        bd_release = root .. "/.nvim/build/App/ninja/Release"
-        cc_debug = root .. "/.nvim/cache/cc/App/ninja/Debug"
-        cc_release = root .. "/.nvim/cache/cc/App/ninja/Release"
+        bd_debug = root .. "/.lw/build/App/ninja/Debug"
+        bd_release = root .. "/.lw/build/App/ninja/Release"
+        cc_debug = root .. "/.lw/cache/cc/App/ninja/Debug"
+        cc_release = root .. "/.lw/cache/cc/App/ninja/Release"
         touch(bd_debug .. "/CMakeCache.txt")
         touch(bd_release .. "/CMakeCache.txt")
         touch(cc_debug .. "/compile_commands.json")
         touch(cc_release .. "/compile_commands.json")
-        touch(root .. "/.nvim/cache/lw-0.1.0-x")  -- unrelated cache content
+        touch(root .. "/.lw/cache/lw-0.1.0-x")  -- unrelated cache content
     end)
     after_each(function() vim.fn.delete(root, "rf") end)
 
@@ -277,8 +277,8 @@ describe("owned LSP database removed with its build directory", function()
         assert.is_false(exists(bd_debug))
         assert.is_true(exists(cc_release .. "/compile_commands.json"))
         assert.is_true(exists(bd_release .. "/CMakeCache.txt"))
-        assert.is_true(exists(root .. "/.nvim/cache/cc"))
-        assert.is_true(exists(root .. "/.nvim/cache/lw-0.1.0-x"))
+        assert.is_true(exists(root .. "/.lw/cache/cc"))
+        assert.is_true(exists(root .. "/.lw/cache/lw-0.1.0-x"))
     end)
 
     it("prunes emptied ancestors up to (not including) the area", function()
@@ -289,8 +289,8 @@ describe("owned LSP database removed with its build directory", function()
             { unit = d, build_dir = bd_debug, disposition = "reset" },
             { unit = r, build_dir = bd_release, disposition = "reset" },
         })
-        assert.is_true(wait(function() return not exists(root .. "/.nvim/cache/cc/App") end))
-        assert.is_true(exists(root .. "/.nvim/cache/cc"))
+        assert.is_true(wait(function() return not exists(root .. "/.lw/cache/cc/App") end))
+        assert.is_true(exists(root .. "/.lw/cache/cc"))
     end)
 
     it("keeps the mirror when the build dir deletion fails", function()
@@ -306,8 +306,8 @@ describe("owned LSP database removed with its build directory", function()
 
     it("keeps the mirror of a build dir skipped as still referenced", function()
         -- Both units share one build dir; deleting only one skips the rm-rf.
-        local shared_cc = root .. "/.nvim/cache/cc/App/ninja/Shared"
-        local shared = root .. "/.nvim/build/App/ninja/Shared"
+        local shared_cc = root .. "/.lw/cache/cc/App/ninja/Shared"
+        local shared = root .. "/.lw/build/App/ninja/Shared"
         touch(shared .. "/CMakeCache.txt")
         touch(shared_cc .. "/compile_commands.json")
         local ws = make_ws(root, {
@@ -325,7 +325,7 @@ describe("owned LSP database removed with its build directory", function()
 
     it("keeps a mirror another remaining build dir maps to", function()
         local ws = two_unit_ws({
-            lsp_database_dir = function() return root .. "/.nvim/cache/cc/App/ninja/Debug" end,
+            lsp_database_dir = function() return root .. "/.lw/cache/cc/App/ninja/Debug" end,
         })
         local unit = UNIT_DEBUG
         run_deletion(ws, { { unit = unit, build_dir = bd_debug, disposition = "reset" } })
@@ -337,7 +337,7 @@ describe("owned LSP database removed with its build directory", function()
     it("keeps a mirror that contains a remaining build dir's mirror", function()
         -- Out-of-tree style mapping: Debug's mirror is an ANCESTOR of Release's,
         -- so removing it would take Release's live database with it.
-        local outer = root .. "/.nvim/cache/cc/App/ninja"
+        local outer = root .. "/.lw/cache/cc/App/ninja"
         touch(outer .. "/compile_commands.json")
         local ws = two_unit_ws({
             lsp_database_dir = function(ctx)
@@ -353,7 +353,7 @@ describe("owned LSP database removed with its build directory", function()
     end)
 
     it("removes a mirror nested inside a remaining build dir's mirror", function()
-        local outer = root .. "/.nvim/cache/cc/App/ninja"
+        local outer = root .. "/.lw/cache/cc/App/ninja"
         touch(outer .. "/compile_commands.json")
         local ws = two_unit_ws({
             lsp_database_dir = function(ctx)
@@ -370,7 +370,7 @@ describe("owned LSP database removed with its build directory", function()
         local ws = two_unit_ws({
             lsp_database_dir = function(ctx)
                 if norm(ctx.build_dir) == norm(bd_debug) then
-                    return root .. "/.nvim/cache/cc/../../build/App/ninja/Release"
+                    return root .. "/.lw/cache/cc/../../build/App/ninja/Release"
                 end
             end,
         })
@@ -434,35 +434,35 @@ describe("nuke removes owned LSP database areas", function()
     before_each(function()
         root = new_tmp()
         touch(root .. "/loomworks.json", "{}")
-        touch(root .. "/.nvim/build/App/Debug/CMakeCache.txt")
-        touch(root .. "/.nvim/cache/cc/App/Debug/compile_commands.json")
-        touch(root .. "/.nvim/cache/cc2/keep.json")
-        touch(root .. "/.nvim/cache/lw-0.1.0-x")
+        touch(root .. "/.lw/build/App/Debug/CMakeCache.txt")
+        touch(root .. "/.lw/cache/cc/App/Debug/compile_commands.json")
+        touch(root .. "/.lw/cache/cc2/keep.json")
+        touch(root .. "/.lw/cache/lw-0.1.0-x")
     end)
     after_each(function() vim.fn.delete(root, "rf") end)
 
-    it("removes .nvim/cache/cc and nothing else under .nvim/cache", function()
+    it("removes .lw/cache/cc and nothing else under .lw/cache", function()
         local notes = {}
         local core = make_core(notes)
         assert.is_not_nil(core:_nuke_files(root))
-        assert.is_false(exists(root .. "/.nvim/cache/cc"))
-        assert.is_false(exists(root .. "/.nvim/build"))
-        assert.is_true(exists(root .. "/.nvim/cache/cc2/keep.json"))
-        assert.is_true(exists(root .. "/.nvim/cache/lw-0.1.0-x"))
+        assert.is_false(exists(root .. "/.lw/cache/cc"))
+        assert.is_false(exists(root .. "/.lw/build"))
+        assert.is_true(exists(root .. "/.lw/cache/cc2/keep.json"))
+        assert.is_true(exists(root .. "/.lw/cache/lw-0.1.0-x"))
     end)
 
     it("lists only areas present on disk", function()
         local core = make_core({})
         assert.equals(1, #core:_nuke_lsp_db_areas(norm(root)))
-        vim.fn.delete(root .. "/.nvim/cache/cc", "rf")
+        vim.fn.delete(root .. "/.lw/cache/cc", "rf")
         assert.equals(0, #core:_nuke_lsp_db_areas(norm(root)))
     end)
 
     it("aborts entirely (deletes nothing) when the area is a link", function()
         local elsewhere = new_tmp()
         touch(elsewhere .. "/precious.txt")
-        vim.fn.delete(root .. "/.nvim/cache/cc", "rf")
-        if not dir_link(elsewhere, root .. "/.nvim/cache/cc") then
+        vim.fn.delete(root .. "/.lw/cache/cc", "rf")
+        if not dir_link(elsewhere, root .. "/.lw/cache/cc") then
             vim.fn.delete(elsewhere, "rf")
             pending("cannot create a directory link here") return
         end
@@ -470,27 +470,27 @@ describe("nuke removes owned LSP database areas", function()
         local core = make_core(notes)
         assert.is_nil(core:_nuke_files(root))
         assert.is_true(exists(elsewhere .. "/precious.txt"))
-        assert.is_true(exists(root .. "/.nvim/build/App/Debug/CMakeCache.txt"))
+        assert.is_true(exists(root .. "/.lw/build/App/Debug/CMakeCache.txt"))
         local found = false
         for _, n in ipairs(notes) do if n.msg:find("aborting nuke") then found = true end end
         assert.is_true(found)
-        uv.fs_unlink(root .. "/.nvim/cache/cc"); uv.fs_rmdir(root .. "/.nvim/cache/cc")
+        uv.fs_unlink(root .. "/.lw/cache/cc"); uv.fs_rmdir(root .. "/.lw/cache/cc")
         vim.fn.delete(elsewhere, "rf")
     end)
 
-    it("aborts when .nvim/cache itself is a link", function()
+    it("aborts when .lw/cache itself is a link", function()
         local elsewhere = new_tmp()
         touch(elsewhere .. "/cc/precious.txt")
-        vim.fn.delete(root .. "/.nvim/cache", "rf")
-        if not dir_link(elsewhere, root .. "/.nvim/cache") then
+        vim.fn.delete(root .. "/.lw/cache", "rf")
+        if not dir_link(elsewhere, root .. "/.lw/cache") then
             vim.fn.delete(elsewhere, "rf")
             pending("cannot create a directory link here") return
         end
         local core = make_core({})
         assert.is_nil(core:_nuke_files(root))
         assert.is_true(exists(elsewhere .. "/cc/precious.txt"))
-        assert.is_true(exists(root .. "/.nvim/build/App/Debug/CMakeCache.txt"))
-        uv.fs_unlink(root .. "/.nvim/cache"); uv.fs_rmdir(root .. "/.nvim/cache")
+        assert.is_true(exists(root .. "/.lw/build/App/Debug/CMakeCache.txt"))
+        uv.fs_unlink(root .. "/.lw/cache"); uv.fs_rmdir(root .. "/.lw/cache")
         vim.fn.delete(elsewhere, "rf")
     end)
 
@@ -503,7 +503,7 @@ describe("nuke removes owned LSP database areas", function()
             },
         })
         assert.is_nil(core:_nuke_files(root))
-        assert.is_true(exists(root .. "/.nvim/build/App/Debug/CMakeCache.txt"))
+        assert.is_true(exists(root .. "/.lw/build/App/Debug/CMakeCache.txt"))
     end)
 end)
 
@@ -533,8 +533,8 @@ describe("in-process nuke compares the confirmed plan under the locks", function
     before_each(function()
         root = new_tmp()
         touch(root .. "/loomworks.json", "{}")
-        touch(root .. "/.nvim/build/App/Debug/CMakeCache.txt")
-        touch(root .. "/.nvim/cache/cc/App/Debug/compile_commands.json")
+        touch(root .. "/.lw/build/App/Debug/CMakeCache.txt")
+        touch(root .. "/.lw/cache/cc/App/Debug/compile_commands.json")
     end)
     after_each(function() vim.fn.delete(root, "rf") end)
 
@@ -546,14 +546,14 @@ describe("in-process nuke compares the confirmed plan under the locks", function
         -- While the live workspace is retired (the loop is pumped), a new
         -- owned LSP database area appears: it was never listed.
         core._retire_workspace = function()
-            touch(root .. "/.nvim/cache/cc3/App/compile_commands.json")
+            touch(root .. "/.lw/cache/cc3/App/compile_commands.json")
         end
         local r = mc.nuke(core, root, c.plan, true)
         assert.equals("refused", r.outcome)
         assert.equals(require("loomworks.deletion_plan").CHANGED, r.message)
-        assert.is_true(exists(root .. "/.nvim/cache/cc3/App/compile_commands.json"))
-        assert.is_true(exists(root .. "/.nvim/cache/cc/App/Debug/compile_commands.json"))
-        assert.is_true(exists(root .. "/.nvim/build/App/Debug/CMakeCache.txt"))
+        assert.is_true(exists(root .. "/.lw/cache/cc3/App/compile_commands.json"))
+        assert.is_true(exists(root .. "/.lw/cache/cc/App/Debug/compile_commands.json"))
+        assert.is_true(exists(root .. "/.lw/build/App/Debug/CMakeCache.txt"))
         -- The locks were released: a nuke runs afterwards.
         assert.is_true((core:nuke_check(root)))
     end)
@@ -563,8 +563,8 @@ describe("in-process nuke compares the confirmed plan under the locks", function
         local c = mc.nuke(core, root, nil, false)
         core._retire_workspace = function() end
         assert.equals("ok", mc.nuke(core, root, c.plan, true).outcome)
-        assert.is_false(exists(root .. "/.nvim/build"))
-        assert.is_false(exists(root .. "/.nvim/cache/cc"))
+        assert.is_false(exists(root .. "/.lw/build"))
+        assert.is_false(exists(root .. "/.lw/cache/cc"))
     end)
 
     it("a refusal is reported once: in the outcome, not also notified", function()
@@ -576,6 +576,6 @@ describe("in-process nuke compares the confirmed plan under the locks", function
         assert.equals("refused", r.outcome)
         assert.truthy(r.message:find("aborting nuke", 1, true))
         assert.equals(0, #notes)
-        assert.is_true(exists(root .. "/.nvim/build/App/Debug/CMakeCache.txt"))
+        assert.is_true(exists(root .. "/.lw/build/App/Debug/CMakeCache.txt"))
     end)
 end)

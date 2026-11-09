@@ -116,7 +116,7 @@ describe("LaunchConfiguration domain object (spec §1.2.1)", function()
     assert.equals("new", l.name)
     assert.same(decl, l:serialize())
     assert.is_false(l._removed)
-    local user = vim.json.decode(read(root .. "/.nvim/loomworks.user.json"))
+    local user = vim.json.decode(read(root .. "/.lw/user.json"))
     assert.is_nil(user.projects.App.launch.old)
     assert.equals("Kept", user.projects.App.launch.new.description)
     -- A removed (or foreign) object is refused.
@@ -134,7 +134,7 @@ describe("LaunchConfiguration domain object (spec §1.2.1)", function()
     assert.is_true(l._removed)
     assert.is_nil(proj:find_launch("serve"))
     assert.is_false(proj:has_launches())
-    local user = vim.json.decode(read(root .. "/.nvim/loomworks.user.json"))
+    local user = vim.json.decode(read(root .. "/.lw/user.json"))
     assert.is_nil(user.projects.App.launch)
     -- Deleting it again is refused.
     assert.is_false((proj:delete_launch_config(l)))
@@ -161,7 +161,7 @@ describe("LaunchConfiguration domain object (spec §1.2.1)", function()
     assert.is_true(l:set_description("Hello"))
     assert.equals("Hello", l.description)
     assert.is_false(l:set_description("Hello"))
-    local user = vim.json.decode(read(root .. "/.nvim/loomworks.user.json"))
+    local user = vim.json.decode(read(root .. "/.lw/user.json"))
     assert.equals("Hello", user.projects.App.launch.serve.description)
   end)
 
@@ -176,10 +176,10 @@ describe("LaunchConfiguration domain object (spec §1.2.1)", function()
     serve.debug = { "c++" }
     serve:_apply(vim.tbl_extend("force", serve:serialize(), { future_field = { nested = true } }))
     assert.is_true(ws:_save_user())
-    local before = read(root .. "/.nvim/loomworks.user.json")
+    local before = read(root .. "/.lw/user.json")
     ws = load(root)
     assert.is_true(ws:_save_user())
-    assert.equals(before, read(root .. "/.nvim/loomworks.user.json"))
+    assert.equals(before, read(root .. "/.lw/user.json"))
     local decl = vim.json.decode(before).projects.App.launch.serve
     assert.same({ nested = true }, decl.future_field)
     assert.same(vim.json.decode(before).projects.App.launch, find_project(ws, "App"):serialize_launches())
@@ -234,7 +234,7 @@ describe("LaunchConfiguration domain object (spec §1.2.1)", function()
   it("round-trips a hand-written launch with unknown and invalid entries", function()
     local root = make_ws()
     launch(root, "add", "App", "serve", "node", "x.js")
-    local upath = root .. "/.nvim/loomworks.user.json"
+    local upath = root .. "/.lw/user.json"
     local user = vim.json.decode(read(upath))
     user.projects.App.launch.serve.future_field = { nested = { "a", "b" } }
     user.projects.App.launch.odd = "not a table"

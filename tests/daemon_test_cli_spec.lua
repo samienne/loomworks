@@ -117,7 +117,7 @@ end
 
 --- The persisted build state, comparable across two roots.
 local function cache_of(root, key_path)
-    local text = read(root .. "/.nvim/loomworks.cache.json")
+    local text = read(root .. "/.lw/cache.json")
     if not text then return nil end
     trust._set_key_path(key_path)
     local status, body = trust.verify("cache", text)
@@ -131,7 +131,7 @@ local function cache_of(root, key_path)
         end
         if type(v) ~= "table" then return v end
         local out = {}
-        -- Keys too: a build dir outside `.nvim/build` is keyed by its path.
+        -- Keys too: a build dir outside `.lw/build` is keyed by its path.
         for kk, vv in pairs(v) do
             out[type(kk) == "string" and unroot(kk, root) or kk] = walk(vv, kk)
         end
@@ -168,7 +168,7 @@ describe("lw test through the workspace daemon (real processes)", function()
         roots[#roots + 1] = root
         vim.fn.mkdir(root .. "/app", "p")
         vim.fn.mkdir(root .. "/lib", "p")
-        vim.fn.mkdir(root .. "/.nvim", "p")
+        vim.fn.mkdir(root .. "/.lw", "p")
         local step = root .. "/step.lua"
         write(step, H.STEP)
         local nv = (vim.v.progpath:gsub("\\", "/"))
@@ -209,7 +209,7 @@ describe("lw test through the workspace daemon (real processes)", function()
             app.launch = { chk = launch("chk"), chk2 = launch("chk2"),
                 tchk = { target = "tprog", args = { "--headless", "-u", "NONE", "-l", prog, "tchk" } } }
             app.lwtestmod.tests = saved
-            local upath = root .. "/.nvim/loomworks.user.json"
+            local upath = root .. "/.lw/user.json"
             trust._set_key_path(env.data .. "/trust.key")
             local status, body = trust.verify("user", read(upath))
             assert.equals("valid", status)

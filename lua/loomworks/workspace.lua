@@ -145,16 +145,30 @@ function M.init_workspace(root, name, write_json)
     local user_path = user_mod.filepath(root)
     local config_path = root .. "/loomworks.json"
 
+    -- A working copy of a release before 0.2.0 (`.nvim/`) makes this a
+    -- workspace already: it is copied into `.lw/` first (§16.44), or init
+    -- refuses with the migration's reason — never a fresh working copy
+    -- beside it.
+    local sm = require("loomworks.state_migration")
+    local migrated
+    if sm.pending(root) then
+        local status, msg = sm.run(root)
+        if status == "refused" then return false, (tostring(msg):gsub("^lw: ", "")) end
+        migrated = status ~= nil
+    end
+
     -- Already initialized if either file exists
     if uv.fs_stat(config_path) or uv.fs_stat(user_path) then
         return false, "workspace already exists in " .. root
+            .. (migrated and " (its working copy was copied from .nvim/ into .lw/)" or "")
     end
 
-    -- Ensure .nvim directory exists
-    local nvim_dir = root .. "/.nvim"
+    -- Ensure .lw directory exists
+    local nvim_dir = root .. "/.lw"
     if not uv.fs_stat(nvim_dir) then
         assert(require("loomworks.io").mkdir_p(nvim_dir))
     end
+    require("loomworks.state_dir").ensure_ignore(root)
 
     local data = { _meta = { version = user_mod.CURRENT_VERSION,
         written_by = require("loomworks.save_guard").version() } }
@@ -423,7 +437,7 @@ end
 --- @param user_content string|nil raw user.json content
 --- @param cache_content string|nil raw cache.json content
 --- @param opts? { trust?: table, modules?: table } `trust` verifies the
----   signed `.nvim` files (defaults to `loomworks.trust`),
+---   signed `.lw` files (defaults to `loomworks.trust`),
 ---   `modules` is the module registry whose `trust_fields` declarations name
 ---   the program-bearing type_config keys stripped from the shared layer.
 --- @return loomworks.WorkspaceData|nil ws, string|nil err
@@ -844,9 +858,9 @@ function Workspace:_compute_build_dir(project, variant, tool_data_or_list)
             segment = primary_data.id
         end
         if segment then
-            abs_path = self.root .. "/.nvim/build/" .. project.key .. "/" .. segment .. "/" .. variant
+            abs_path = self.root .. "/.lw/build/" .. project.key .. "/" .. segment .. "/" .. variant
         else
-            abs_path = self.root .. "/.nvim/build/" .. project.key .. "/" .. variant
+            abs_path = self.root .. "/.lw/build/" .. project.key .. "/" .. variant
         end
     end
     local rel_key = cache_mod.relative_build_dir(abs_path, self.root)
@@ -1146,12 +1160,12 @@ function Workspace:_disk_cache_for_merge(disk)
     local status, body = self._core._deps.trust.verify("cache", disk)
     if status == "unsigned" then return nil end
     if status ~= "valid" then
-        return nil, ".nvim/loomworks.cache.json was not written on this machine (its signature"
+        return nil, ".lw/cache.json was not written on this machine (its signature"
             .. " does not match) — it was left unchanged"
     end
     local theirs, mismatch, newer = cache_mod.parse(body)
     if newer then
-        return nil, save_guard.newer_schema_message(".nvim/loomworks.cache.json", newer,
+        return nil, save_guard.newer_schema_message(".lw/cache.json", newer,
             cache_mod.CURRENT_VERSION)
     end
     if mismatch then return nil end
@@ -3285,7 +3299,7 @@ end
 --- Every form (`_path_forms`) of every build dir referenced by a ConfigUnit,
 --- except a dir whose identity (`_build_dir_identity`) is in `exempt`.
 --- The normalized spelling is kept beside the canonical form because a build
---- dir reached through a link/junction canonicalizes OUTSIDE `.nvim/build`,
+--- dir reached through a link/junction canonicalizes OUTSIDE `.lw/build`,
 --- where only its recorded spelling still sits under its parent. Resolves
 --- (realpath) once per unit per call.
 --- @param exempt? table<string, true> build-dir identities to leave out
@@ -3344,7 +3358,7 @@ end
 --- True when `dir` IS, CONTAINS, or lies INSIDE a live build dir (every form
 --- of each side, separator-bounded) — such a dir must never be deleted as
 --- stray or orphaned. "Lies inside" only counts for a live dir that is not a
---- strict ancestor of `<root>/.nvim/build`: an in-source unit (build_dir ==
+--- strict ancestor of `<root>/.lw/build`: an in-source unit (build_dir ==
 --- workspace root, allowed by `_pre_configure_reset`) contains the whole build
 --- tree without owning any of it, and must not shield every stray dir.
 --- @param dir string
@@ -3353,7 +3367,7 @@ end
 function Workspace:_overlaps_live_build_dir(dir, known)
     known = known or self:_live_build_dir_forms()
     local function is_ancestor(a, b) return b:sub(1, #a + 1) == a .. "/" end
-    local build_roots = self:_path_forms(self.root .. "/.nvim/build")
+    local build_roots = self:_path_forms(self.root .. "/.lw/build")
     local function contains_build_root(k)
         for _, br in ipairs(build_roots) do
             if is_ancestor(k, br) then return true end
@@ -3371,7 +3385,7 @@ function Workspace:_overlaps_live_build_dir(dir, known)
     return false
 end
 
---- Find build directories on disk under {root}/.nvim/build/ that are not
+--- Find build directories on disk under {root}/.lw/build/ that are not
 --- referenced by any cache entry. Uses top-down pruning: reports the
 --- highest-level directory whose entire subtree contains no cache entries.
 --- Directory identity is compared through every form of each side: the plain
@@ -3390,7 +3404,7 @@ end
 --- @return string[] absolute paths of stray directories
 function Workspace:find_stray_build_dirs(opts)
     local uv = vim.uv or vim.loop
-    local build_root = self.root .. "/.nvim/build"
+    local build_root = self.root .. "/.lw/build"
     local normalize = self._core._deps.normalize
     local on_list = opts and opts.on_list
 
@@ -5006,7 +5020,7 @@ function Workspace:_delete_build_dirs_async(dirs, callback, opts)
         return future_mod.resolved({})
     end
 
-    local build_root = self._core._deps.normalize(self.root .. "/.nvim/build")
+    local build_root = self._core._deps.normalize(self.root .. "/.lw/build")
     local stop = opts and opts.stop
     local dir_futures = {}
     for _, dir in ipairs(dirs) do
@@ -7294,7 +7308,7 @@ function Workspace:prepare_import(content, opts)
         return nil, "not valid JSON", "json"
     end
     if raw._meta ~= nil or raw._sig ~= nil then
-        return nil, "a working copy (.nvim/loomworks.user.json), not an export", "working_copy"
+        return nil, "a working copy (.lw/user.json), not an export", "working_copy"
     end
     local config, verr = config_mod.validate(vim.deepcopy(raw), self.root)
     if not config then return nil, verr, "invalid" end
@@ -8808,7 +8822,7 @@ end
 --- its trees before it releases the deletion's locks anyway.
 M.TEARDOWN_WAIT_MS = 30000
 
-M.STALE_USER_MESSAGE = "the working copy (.nvim/loomworks.user.json) changed on disk"
+M.STALE_USER_MESSAGE = "the working copy (.lw/user.json) changed on disk"
     .. " (another lw or editor) — reloaded it; your last change was not saved, redo it"
 
 --- A saved test-target list of `project` changed: drop the
@@ -10012,7 +10026,7 @@ function Workspace:_on_file_changed(path, content)
                 if okp and parsed then pcall(self._core._validate_projects, self._core, parsed, self.root) end
                 capture.quiet = nil
             end
-            local warning = save_guard.newer_writer_warning(path, ".nvim/loomworks.user.json", user_data._meta)
+            local warning = save_guard.newer_writer_warning(path, ".lw/user.json", user_data._meta)
             if warning then deps.notify("loomworks: " .. warning, vim.log.levels.WARN) end
             if user_data.projects and next(user_data.projects) then
                 local normalized, norm_err = config_mod.normalize_projects(user_data.projects)
@@ -10032,7 +10046,7 @@ function Workspace:_on_file_changed(path, content)
         local cache_data, newer = cache_mod.default(), nil
         if content then local _m; cache_data, _m, newer = cache_mod.parse(content) end
         if newer then return refuse() end
-        local warning = save_guard.newer_writer_warning(path, ".nvim/loomworks.cache.json", cache_data._meta)
+        local warning = save_guard.newer_writer_warning(path, ".lw/cache.json", cache_data._meta)
         if warning then deps.notify("loomworks: " .. warning, vim.log.levels.WARN) end
         self:remerge(nil, cache_data)
         self:_adopt_disk("cache", raw)

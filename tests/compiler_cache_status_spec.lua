@@ -39,7 +39,7 @@ describe("Profile compiler-cache status", function()
                 projects = { App = proj },
                 configuration_sets = { debug = { App = "Debug" } },
             }),
-            ["loomworks.user.json"] = h.make_user_json({
+            ["user.json"] = h.make_user_json({
                 profiles = {
                     debug = {
                         configuration_set = "debug",
@@ -187,7 +187,7 @@ describe("Profile compiler-cache status", function()
                 projects = { Web = { typescript = {} } },
                 configuration_sets = { debug = { Web = "default" } },
             }),
-            ["loomworks.user.json"] = h.make_user_json({
+            ["user.json"] = h.make_user_json({
                 profiles = { debug = { configuration_set = "debug", tools = {} } },
             }),
         }
@@ -212,7 +212,7 @@ describe("Profile compiler-cache status", function()
                 projects = { Web = { typescript = {} } },
                 configuration_sets = { debug = { Web = "default" } },
             }),
-            ["loomworks.user.json"] = h.make_user_json({
+            ["user.json"] = h.make_user_json({
                 profiles = { debug = { configuration_set = "debug", tools = {} } },
             }),
         }

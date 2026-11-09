@@ -40,7 +40,7 @@ local function make_core()
             } } } } },
             configuration_sets = { debug = { App = "Debug" } },
         }),
-        ["loomworks.user.json"] = h.make_user_json({ profiles = { debug = {
+        ["user.json"] = h.make_user_json({ profiles = { debug = {
             configuration_set = "debug",
             tools = { cmake = { key = tool.key, data = tool.data } },
         } } }),
@@ -70,10 +70,10 @@ local function with_ws(ws, fn)
     return res
 end
 
---- The workspace log — the real file `.nvim/loomworks.log` (Core's default
+--- The workspace log — the real file `.lw/workspace.log` (Core's default
 --- logger, rooted at the workspace).
 local function log_text(ws)
-    local f = io.open(ws.root .. "/.nvim/loomworks.log", "r")
+    local f = io.open(ws.root .. "/.lw/workspace.log", "r")
     if not f then return "" end
     local s = f:read("*a"); f:close()
     return s

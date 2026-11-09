@@ -44,14 +44,14 @@ describe("workspace operation lock (§19.3)", function()
 
     it("publish ∥ rename: the rename is refused and changes nothing", function()
         local root = L.make_ws()
-        local before_user = L.read(root .. "/.nvim/loomworks.user.json")
-        local before_cache = L.read(root .. "/.nvim/loomworks.cache.json")
+        local before_user = L.read(root .. "/.lw/user.json")
+        local before_cache = L.read(root .. "/.lw/cache.json")
         L.hold(op_lock.path(root), "publish")
         local r = L.capture(function() cli.cmd_project_rename(root, "App", "App2") end)
         assert.equals(1, r.exit_code)
         assert.is_truthy(r.stderr:find("workspace busy: publish", 1, true), r.stderr)
-        assert.equals(before_user, L.read(root .. "/.nvim/loomworks.user.json"))
-        assert.equals(before_cache, L.read(root .. "/.nvim/loomworks.cache.json"))
+        assert.equals(before_user, L.read(root .. "/.lw/user.json"))
+        assert.equals(before_cache, L.read(root .. "/.lw/cache.json"))
     end)
 
     it("import ∥ publish: lw publish is refused while an import holds the lock", function()
@@ -80,7 +80,7 @@ describe("workspace operation lock (§19.3)", function()
         local r = L.capture(function() cli.cmd_trust(root, { "trust", "--discard", "--yes" }) end)
         assert.equals(1, r.exit_code)
         assert.is_truthy(r.stderr:find("workspace busy", 1, true), r.stderr)
-        assert.is_not_nil(uv.fs_stat(root .. "/.nvim/loomworks.user.json"))
+        assert.is_not_nil(uv.fs_stat(root .. "/.lw/user.json"))
     end)
 
     it("a hung holder is reported with the recovery command; --break-locks recovers", function()
@@ -151,10 +151,10 @@ describe("nuke takes the build locks (§19.3)", function()
         local h = L.hold(bl.lock_path(dir), "build")
         local r = L.capture(function() cli.cmd_nuke(root, { "nuke", "-y" }) end)
         assert.equals(1, r.exit_code)
-        assert.is_truthy(r.stderr:find("cannot nuke: a build is running in .nvim/build/App/Debug (pid "
+        assert.is_truthy(r.stderr:find("cannot nuke: a build is running in .lw/build/App/Debug (pid "
             .. h.pid, 1, true), r.stderr)
         assert.is_not_nil(uv.fs_stat(dir))
-        assert.is_not_nil(uv.fs_stat(root .. "/.nvim/loomworks.cache.json"))
+        assert.is_not_nil(uv.fs_stat(root .. "/.lw/cache.json"))
         assert.is_nil(op_lock.read(root), "the operation lock was released on refusal")
         local _ = saved_core
     end)
@@ -207,7 +207,7 @@ describe("a refused nuke prints only the refusal (field report)", function()
         local r = L.capture(function() cli.cmd_nuke(root, { "nuke", "-y" }) end)
         assert.equals(1, r.exit_code)
         assert.is_nil(r.stdout:find("delete", 1, true), "printed a deletion list: " .. r.stdout)
-        assert_one_refusal(r.stderr, "a build is running in %.nvim/build/App/Debug %(pid " .. h.pid .. "%)")
+        assert_one_refusal(r.stderr, "a build is running in %.lw/build/App/Debug %(pid " .. h.pid .. "%)")
         assert.is_not_nil(uv.fs_stat(dir))
         assert.is_nil(op_lock.read(root))
     end)
@@ -245,7 +245,7 @@ describe("a refused nuke prints only the refusal (field report)", function()
         assert.is_truthy(r.stdout:find("Will delete", 1, true), r.stdout)
         assert.is_truthy(r.stderr:find("aborted", 1, true), r.stderr)
         assert.is_not_nil(uv.fs_stat(dir))
-        assert.is_not_nil(uv.fs_stat(root .. "/.nvim/loomworks.cache.json"))
+        assert.is_not_nil(uv.fs_stat(root .. "/.lw/cache.json"))
         assert.is_nil(op_lock.read(root), "the operation lock was left behind")
         assert.is_nil(bl.read(dir), "a build lock was left behind")
     end)
@@ -288,7 +288,7 @@ describe("a refused nuke prints only the refusal (field report)", function()
         local h = L.hold(bl.lock_path(dir), "build")
         local ok, msg = require("loomworks.app").core():nuke_check(root, { skip_own = true })
         assert.is_nil(ok)
-        assert.is_truthy(tostring(msg):find("^cannot nuke: a build is running in %.nvim/build/App/Debug %(pid "
+        assert.is_truthy(tostring(msg):find("^cannot nuke: a build is running in %.lw/build/App/Debug %(pid "
             .. h.pid .. "%)"), tostring(msg))
         assert.is_nil(op_lock.read(root), "the check left the operation lock behind")
         L.cleanup()
@@ -325,7 +325,7 @@ describe("the editor's deletion takes O and B (§19.3)", function()
         assert.equals(false, result)
         local all = table.concat(errs, "\n")
         assert.is_truthy(all:find("cannot delete: ", 1, true), all)
-        assert.is_truthy(all:find(".nvim/build/App/Debug is in use by lw build (pid " .. h.pid, 1, true), all)
+        assert.is_truthy(all:find(".lw/build/App/Debug is in use by lw build (pid " .. h.pid, 1, true), all)
         assert.is_not_nil(uv.fs_stat(dir))
         assert.is_nil(op_lock.read(root))
     end)
@@ -369,7 +369,7 @@ describe("review fixes (§19.3)", function()
     --- Run `hook(target)` when nuke starts removing its build tree, then remove it.
     local function on_tree_removal(hook)
         local function intercept(target)
-            if target:find("/.nvim/build", 1, true) and not target:find("loomworks", 1, true) then
+            if target:find("/.lw/build", 1, true) and not target:find("loomworks", 1, true) then
                 hook(target)
             end
         end
@@ -382,7 +382,7 @@ describe("review fixes (§19.3)", function()
 
     it("nuke ∥ a build starting mid-removal: the new build's tree survives", function()
         local root = L.make_ws()
-        local fresh = root .. "/.nvim/build/App/Debug"
+        local fresh = root .. "/.lw/build/App/Debug"
         local newlock
         on_tree_removal(function()
             if newlock then return end
@@ -398,7 +398,7 @@ describe("review fixes (§19.3)", function()
         assert.is_not_nil(bl.read(fresh), "nuke deleted the new build's lock")
         bl.release(newlock)
         local left = {}
-        for n in vim.fs.dir(root .. "/.nvim") do if n:match("^build%.nuke") then left[#left + 1] = n end end
+        for n in vim.fs.dir(root .. "/.lw") do if n:match("^build%.nuke") then left[#left + 1] = n end end
         assert.same({}, left, "the aside tree is removed")
     end)
 
@@ -407,7 +407,7 @@ describe("review fixes (§19.3)", function()
         bl.HEARTBEAT_MS = 100
         local cache_gone, fresh_beat
         local function slow(p, cb)
-            cache_gone = uv.fs_stat(root .. "/.nvim/loomworks.cache.json") == nil
+            cache_gone = uv.fs_stat(root .. "/.lw/cache.json") == nil
             L.age(op_lock.path(root), 300)
             local t = uv.new_timer()
             t:start(1500, 0, function()
@@ -418,13 +418,13 @@ describe("review fixes (§19.3)", function()
             end)
         end
         io_mod.rm_rf_async = function(p, cb)
-            if p:find("build.nuke-", 1, true) or p:match("/%.nvim/build$") then return slow(p, cb) end
+            if p:find("build.nuke-", 1, true) or p:match("/%.lw/build$") then return slow(p, cb) end
             return saved.rm_rf_async(p, cb)
         end
         io_mod.rm_rf = function(p)
-            if p:match("/%.nvim/build$") then
+            if p:match("/%.lw/build$") then
                 -- (the code before the fix removed the tree synchronously)
-                cache_gone = uv.fs_stat(root .. "/.nvim/loomworks.cache.json") == nil
+                cache_gone = uv.fs_stat(root .. "/.lw/cache.json") == nil
                 fresh_beat = false
             end
             return saved.rm_rf(p)
@@ -437,7 +437,7 @@ describe("review fixes (§19.3)", function()
 
     it("a leftover tree of a crashed nuke is removed; look-alikes are not", function()
         local root = L.make_ws()
-        local nv = root .. "/.nvim/"
+        local nv = root .. "/.lw/"
         vim.fn.mkdir(nv .. "build.nuke-abc123/x", "p")
         vim.fn.mkdir(nv .. "build.nuke-notHEX", "p")
         vim.fn.mkdir(nv .. "keep.nuke-abc", "p")
@@ -504,7 +504,7 @@ describe("review fixes (§19.3)", function()
         local applied = false
         migrate.plan = function()
             -- another process writes the working copy right after this plan
-            local p = root .. "/.nvim/loomworks.user.json"
+            local p = root .. "/.lw/user.json"
             local f = assert(io.open(p, "ab")); f:write("\n"); f:close()
             return { changes = { { project = "App", item = "Debug", rule = "r", before = "a", after = "b" } },
                 skipped = {} }
@@ -530,10 +530,10 @@ describe("fake roots never get lockfiles (§19.3)", function()
         local ws = assert(core:get_workspace())
         local tok = assert(ws:_op_lock("publish"))
         ws:_op_unlock(tok)
-        ws:_locked_deletion("delete", { root .. "/.nvim/build/App/Debug" },
+        ws:_locked_deletion("delete", { root .. "/.lw/build/App/Debug" },
             function() return require("loomworks.future").resolved(true) end)
-        assert.is_true(ws:_acquire_file_lock(root .. "/.nvim/build/App/Debug", "build"))
-        ws:_release_file_lock(root .. "/.nvim/build/App/Debug")
+        assert.is_true(ws:_acquire_file_lock(root .. "/.lw/build/App/Debug", "build"))
+        ws:_release_file_lock(root .. "/.lw/build/App/Debug")
         assert.is_nil(uv.fs_stat(root), "a lock created " .. root)
     end)
 end)
@@ -559,7 +559,7 @@ describe("re-review fixes (§19.3)", function()
         local r = L.capture(function() cli.cmd_nuke(root, { "nuke", "-y" }) end)
         uv.fs_rename = saved.rename
         assert.equals(1, r.exit_code)
-        assert.is_truthy(r.stderr:find("could not move .nvim/build aside", 1, true), r.stderr)
+        assert.is_truthy(r.stderr:find("could not move .lw/build aside", 1, true), r.stderr)
         assert.is_not_nil(uv.fs_stat(dir), "the tree was removed in place")
         assert.is_nil(bl.read(dir), "a build lock was left behind")
         assert.is_nil(op_lock.read(root), "the operation lock was left behind")
@@ -584,14 +584,14 @@ describe("re-review fixes (§19.3)", function()
         io_mod.rm_rf_async = function(p, cb)
             -- a late callback of the old workspace while the removal pumps the loop
             pcall(ws._save_cache, ws)
-            recreated = L.read(root .. "/.nvim/loomworks.cache.json")
+            recreated = L.read(root .. "/.lw/cache.json")
             return saved.rm_rf_async(p, cb)
         end
         core:nuke_cache(root)
         io_mod.rm_rf_async = saved.rm_rf_async
         vim.wait(5000, function() return core._state ~= "initializing" end, 10)
         assert.is_nil(recreated, "the old workspace recreated the cache mid-nuke: " .. tostring(recreated))
-        local cache = L.read(root .. "/.nvim/loomworks.cache.json") or ""
+        local cache = L.read(root .. "/.lw/cache.json") or ""
         assert.is_nil(cache:find('"built"', 1, true), "a stale built state came back: " .. cache)
         assert.is_nil(uv.fs_stat(dir), "the tree survived")
         assert.same({}, ws._build_dir_file_locks or {})

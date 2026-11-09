@@ -27,7 +27,7 @@ local function load(root) return assert(cli._load_workspace(root, false)) end
 --- Add a cached build directory no profile references (an orphan), at `dir`
 --- (default: a directory of its own).
 local function add_orphan(ws, root, dir)
-    dir = dir or (root .. "/.nvim/build/App/Release")
+    dir = dir or (root .. "/.lw/build/App/Release")
     vim.fn.mkdir(dir, "p")
     local cache = ws:_serialize_cache()
     cache.build_dirs = cache.build_dirs or {}
@@ -112,7 +112,7 @@ describe("deletion safety (execute_deletion)", function()
             local dir = add_orphan(ws, root)
             local on_disk
             io_mod.rm_rf_async = function(d, cb)
-                if not on_disk then on_disk = L.read(root .. "/.nvim/loomworks.cache.json") or "" end
+                if not on_disk then on_disk = L.read(root .. "/.lw/cache.json") or "" end
                 return real_rm(d, cb)
             end
             local ok = wait_done(cleanup_now)
@@ -124,7 +124,7 @@ describe("deletion safety (execute_deletion)", function()
         end)
 
         it("keeps a stray directory that stopped being stray before the lock was taken", function()
-            local stray = root .. "/.nvim/build/App/Stray"
+            local stray = root .. "/.lw/build/App/Stray"
             vim.fn.mkdir(stray, "p")
             assert.equals(1, #dp.plan(ws, { orphans = true }).strays, "test setup: one stray dir")
             local removed = count_rm()
@@ -147,7 +147,7 @@ describe("deletion safety (execute_deletion)", function()
 
         it("deletes nothing when applying external changes unloaded the workspace", function()
             local dir = add_orphan(ws, root)
-            local stray = root .. "/.nvim/build/App/Stray"
+            local stray = root .. "/.lw/build/App/Stray"
             vim.fn.mkdir(stray, "p")
             local removed = count_rm()
             on_sync(function() ws._torn_down = true end)
@@ -196,7 +196,7 @@ describe("deletion safety (execute_deletion)", function()
     -- The status page's single-row orphan delete (`delete_orphaned_build_dir`)
     -- gets the same protections as the bulk cleanup: an orphan dir that
     -- contains a live build dir (a build-dir template that gained a level,
-    -- `.nvim/build/App` -> `.nvim/build/App/Debug`) or that IS a live build
+    -- `.lw/build/App` -> `.lw/build/App/Debug`) or that IS a live build
     -- dir under another spelling (8.3 short name) keeps its tree; only the
     -- entry is dropped.
     describe("single-row orphan delete", function()
@@ -253,7 +253,7 @@ describe("deletion safety (execute_deletion)", function()
         end
 
         it("removes an orphan dir that contains a live build dir it also resets", function()
-            local dir = add_orphan(ws, root, root .. "/.nvim/build/App")
+            local dir = add_orphan(ws, root, root .. "/.lw/build/App")
             local plan, got = reset_all()
             assert.is_true(vim.tbl_contains(plan.removal_dirs, dir), "test setup: listed as removed")
             assert.equals(0, got.code, tostring(got.msg))
@@ -263,7 +263,7 @@ describe("deletion safety (execute_deletion)", function()
         end)
 
         it("still keeps an orphan dir whose live build dir the reset could not remove", function()
-            local dir = add_orphan(ws, root, root .. "/.nvim/build/App")
+            local dir = add_orphan(ws, root, root .. "/.lw/build/App")
             io_mod.rm_rf_async = function(d, cb)
                 if vim.startswith(d:lower(), built:lower()) then return cb(false, "boom") end
                 return real_rm(d, cb)
@@ -279,7 +279,7 @@ describe("deletion safety (execute_deletion)", function()
         -- protecting the orphan that contains it: the reset leaves both and
         -- does not report success (spec §16.30: a refused dir is not removed).
         it("keeps an orphan dir holding a live build dir the deletion refused", function()
-            local dir = add_orphan(ws, root, root .. "/.nvim/build/App")
+            local dir = add_orphan(ws, root, root .. "/.lw/build/App")
             local norm = ws._core._deps.normalize
             local refused = norm(built)
             local real_validate = ws._validate_build_dir
@@ -297,7 +297,7 @@ describe("deletion safety (execute_deletion)", function()
 
     describe("stray directory deletion", function()
         it("keeps a directory that stopped being stray before the lock was taken", function()
-            local stray = root .. "/.nvim/build/App/Stray"
+            local stray = root .. "/.lw/build/App/Stray"
             vim.fn.mkdir(stray, "p")
             local n = ws._core._deps.normalize(stray)
             -- The scan reports the spelling under ws.root, which may differ
@@ -323,7 +323,7 @@ describe("deletion safety (execute_deletion)", function()
         end)
 
         it("deletes nothing when applying external changes unloaded the workspace", function()
-            local stray = ws._core._deps.normalize(root .. "/.nvim/build/App/Stray")
+            local stray = ws._core._deps.normalize(root .. "/.lw/build/App/Stray")
             vim.fn.mkdir(stray, "p")
             local removed = count_rm()
             on_sync(function() ws._torn_down = true end)
@@ -336,7 +336,7 @@ describe("deletion safety (execute_deletion)", function()
         end)
 
         it("calls on_done(false) and releases the locks when the re-check raises", function()
-            local stray = ws._core._deps.normalize(root .. "/.nvim/build/App/Stray")
+            local stray = ws._core._deps.normalize(root .. "/.lw/build/App/Stray")
             vim.fn.mkdir(stray, "p")
             on_sync(function() error("sync exploded") end)
             local ok = wait_done(function(done) delete({ stray_dir = stray }, done) end)
@@ -397,7 +397,7 @@ describe("deletion unknown marks", function()
         io_mod.rm_rf_async = function(d, cb)
             handed[#handed + 1] = d
             if ws._core._deps.normalize(d) == norm_orphan then
-                local cache = vim.json.decode(L.read(root .. "/.nvim/loomworks.cache.json") or "{}")
+                local cache = vim.json.decode(L.read(root .. "/.lw/cache.json") or "{}")
                 removed_state = "<missing>"
                 for _, e in pairs(cache.build_dirs or {}) do
                     if e.project_key == "App" and e.config_key == "Release" then removed_state = e.state end
@@ -416,7 +416,7 @@ describe("deletion unknown marks", function()
         assert.equals(1, #handed, "only the unshared dir is handed to rm-rf")
         assert.equals("unknown", removed_state,
             "the removed dir's entry was not unknown on disk before its rm-rf")
-        local cache = vim.json.decode(L.read(root .. "/.nvim/loomworks.cache.json") or "{}")
+        local cache = vim.json.decode(L.read(root .. "/.lw/cache.json") or "{}")
         local shared_state = "<missing>"
         for _, e in pairs(cache.build_dirs or {}) do
             if ws._core._deps.normalize(e.build_dir or "") == ws._core._deps.normalize(built) then
@@ -463,7 +463,7 @@ describe("deletion unknown marks", function()
         end
 
         local function disk_states()
-            local cache = vim.json.decode(L.read(root .. "/.nvim/loomworks.cache.json") or "{}")
+            local cache = vim.json.decode(L.read(root .. "/.lw/cache.json") or "{}")
             local states = {}
             for _, e in pairs(cache.build_dirs or {}) do
                 if e.project_key == "App" then states[e.config_key] = e.state end
@@ -520,7 +520,7 @@ describe("deletion unknown marks", function()
                 "for %I in (\"" .. p:gsub("/", "\\") .. "\") do @echo %~sI" })
             return vim.v.shell_error == 0 and (vim.trim(out or ""):gsub("\\", "/")) or nil
         end
-        local app = root .. "/.nvim/build/App"
+        local app = root .. "/.lw/build/App"
         local short, short_app = short_of(built), short_of(app)
         if not short or not short:find("~", 1, true) or not short_app
                 or ws._core._deps.normalize(short) == ws._core._deps.normalize(built) then
@@ -551,7 +551,7 @@ describe("deletion unknown marks", function()
 
     -- reset --all end to end (#309 review): a live unit recorded its dir
     -- under its 8.3 short LEAF (`App/LONG-D~1`); an orphan at
-    -- `.nvim/build/App` holds it. Phase 1 removes the dir; between the
+    -- `.lw/build/App` holds it. Phase 1 removes the dir; between the
     -- phases a live host's remerge re-derives the reset unit's dir from its
     -- template under the LONG leaf (`App/long-debug-directory`). The removed
     -- dir's identity must be taken while it still resolves: computed after
@@ -561,7 +561,7 @@ describe("deletion unknown marks", function()
         if vim.fn.has("win32") == 0 then
             pending("8.3 short names are Windows-only"); return
         end
-        local app = root .. "/.nvim/build/App"
+        local app = root .. "/.lw/build/App"
         local long = app .. "/long-debug-directory"
         vim.fn.mkdir(long, "p")
         local out = vim.fn.system({ "cmd", "/c",

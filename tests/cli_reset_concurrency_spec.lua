@@ -89,7 +89,7 @@ describe("lw reset — CLI/editor concurrency", function()
   it("fails fast (never rm's) when the editor holds the build-dir lock", function()
     local root = make_ws()
     local ws, profile = load(root)
-    local dir = root .. "/.nvim/build/App/Debug"
+    local dir = root .. "/.lw/build/App/Debug"
     fake_build_dir(ws, profile, dir)
 
     local build_lock = require("loomworks.build_lock")
@@ -110,7 +110,7 @@ describe("lw reset — CLI/editor concurrency", function()
   it("the editor's next load sees the reset unit as unconfigured", function()
     local root = make_ws()
     local ws, profile = load(root)
-    local dir = root .. "/.nvim/build/App/Debug"
+    local dir = root .. "/.lw/build/App/Debug"
     fake_build_dir(ws, profile, dir)
     ws:_save_cache() -- persist the built state the editor currently sees
 
@@ -134,7 +134,7 @@ describe("lw reset — CLI/editor concurrency", function()
   it("does not downgrade an 'unknown' unit the CLI left mid-deletion", function()
     local root = make_ws()
     local ws, profile = load(root)
-    local dir = root .. "/.nvim/build/App/Debug"
+    local dir = root .. "/.lw/build/App/Debug"
     local unit = fake_build_dir(ws, profile, dir)
     unit.state_value = "unknown" -- the crash-safe marker reset writes pre-rm
     ws:_save_cache()
@@ -154,7 +154,7 @@ describe("lw reset — CLI/editor concurrency", function()
   it("forces reconfigure for stale in-memory 'built' state after the dir is gone", function()
     local root = make_ws()
     local ws, profile = load(root)
-    local dir = root .. "/.nvim/build/App/Debug"
+    local dir = root .. "/.lw/build/App/Debug"
     local unit = fake_build_dir(ws, profile, dir)
 
     local r = capture(function() return cli.cmd_reset(ws, { "reset", profile.key, "-y" }) end)

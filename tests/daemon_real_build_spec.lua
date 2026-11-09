@@ -82,7 +82,7 @@ describe("a real cmake build through the daemon", function()
         assert.truthy(r.stdout:find("BUILD OK: " .. prof, 1, true), r.stdout)
         -- Real build-tool output, streamed back.
         assert.truthy((r.stdout .. r.stderr):find("%[%d+/%d+%]") or r.stdout:find("Linking", 1, true), r.stdout)
-        local exe = find_file(root .. "/.nvim/build", H.is_win and "app.exe" or "app")
+        local exe = find_file(root .. "/.lw/build", H.is_win and "app.exe" or "app")
         assert.truthy(exe, "no artifact")
 
         -- The daemon's cache write-back is the in-process one: neither a

@@ -83,9 +83,9 @@ describe("runtime slot", function()
         assert.are_not.equal(a[5], b[5])
         for i = 1, 3 do assert.are_not.equal(a[i], b[i]) end
         if IS_WIN then assert.are_not.equal(a[4], b[4]) end
-        assert.equals(root .. "/.nvim/loomworks.daemon-" .. a[5] .. ".lock", a[1])
-        assert.equals(root .. "/.nvim/loomworks.daemon-" .. a[5] .. ".json", a[2])
-        assert.equals(root .. "/.nvim/loomworks.daemon-" .. b[5] .. ".log", b[3])
+        assert.equals(root .. "/.lw/daemon-" .. a[5] .. ".lock", a[1])
+        assert.equals(root .. "/.lw/daemon-" .. a[5] .. ".json", a[2])
+        assert.equals(root .. "/.lw/daemon-" .. b[5] .. ".log", b[3])
         identity._set_identity("1000")
         local u = identity.slot()
         identity._set_identity("0")
@@ -240,6 +240,50 @@ describe("legacy daemon files", function()
         end
     end)
 
+    it("lw daemon stop / kill stop an earlier lw's slot daemon in .nvim/ and remove none of its files", function()
+        local cmd = require("loomworks.daemon.command")
+        local lb = require("loomworks.lock_break")
+        local saved = lb.break_holder
+        identity._process_probe = function() return identity.identity() end
+        local slot_lock = root .. "/.nvim/loomworks." .. paths.slot_base() .. ".lock"
+        local slot_handle = root .. "/.nvim/loomworks." .. paths.slot_base() .. ".json"
+        for _, opts in ipairs({ {}, { kill = true } }) do
+            write(slot_lock, lock_rec(proc.self_start_time()))
+            write(slot_handle, handle_rec(proc.self_start_time()))
+            local broke
+            lb.break_holder = function(info, ctx) broke = { pid = info.pid, what = ctx.what }; return true end
+            local host, out = cmd_host()
+            local ok, code = pcall(cmd.stop, root, host, opts)
+            lb.break_holder = saved
+            assert.is_true(ok, tostring(code))
+            assert.equals(0, code)
+            assert.is_table(broke)
+            assert.equals(uv.os_getpid(), broke.pid)
+            assert.is_truthy(broke.what:find("loomworks." .. paths.slot_base() .. ".lock", 1, true), broke.what)
+            local text = table.concat(out, "\n")
+            assert.is_truthy(text:find("stopped the workspace daemon of an earlier lw (pid "
+                .. uv.os_getpid() .. ")", 1, true), text)
+            assert.is_true(exists(slot_lock))
+            assert.is_true(exists(slot_handle))
+        end
+        -- Its holder gone: still nothing under .nvim/ is removed for it.
+        write(slot_lock, lock_rec(gone_start()))
+        write(slot_handle, handle_rec(gone_start()))
+        local host, out = cmd_host()
+        assert.equals(0, cmd.stop(root, host, {}))
+        assert.is_truthy(table.concat(out, "\n"):find("no workspace daemon is running", 1, true))
+        assert.is_true(exists(slot_lock))
+        assert.is_true(exists(slot_handle))
+        -- Another slot's slot daemon in .nvim/ is left alone.
+        write(root .. "/.nvim/loomworks.daemon-" .. OTHER .. ".lock", lock_rec(proc.self_start_time()))
+        local broke
+        lb.break_holder = function() broke = true; return true end
+        identity._process_probe = function() return "another user" end
+        assert.equals(0, cmd.stop(root, (cmd_host()), {}))
+        lb.break_holder = saved
+        assert.is_nil(broke)
+    end)
+
     it("lw daemon stop reports a legacy daemon it could not stop, and leaves another slot's alone", function()
         local cmd = require("loomworks.daemon.command")
         local lb = require("loomworks.lock_break")
@@ -332,7 +376,7 @@ describe("legacy daemon files", function()
         assert.is_nil(asked)
         local text = table.concat(out, "\n")
         assert.is_truthy(text:find("daemon of an earlier lw (pid " .. uv.os_getpid()
-            .. ", legacy runtime lock) — stop it with: lw daemon stop", 1, true), text)
+            .. ", .nvim/loomworks.daemon.lock) — stop it with: lw daemon stop", 1, true), text)
         -- Another slot's: not reported.
         identity._process_probe = function() return "another user" end
         local host2, out2 = cmd_host()

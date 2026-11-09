@@ -100,7 +100,7 @@ local function fake_built(ws, unit, dir)
 end
 
 local function cached_state(root, unit)
-  local f = assert(io.open(root .. "/.nvim/loomworks.cache.json", "r"))
+  local f = assert(io.open(root .. "/.lw/cache.json", "r"))
   local data = vim.json.decode(f:read("*a")); f:close()
   for _, c in pairs(data.build_dirs or {}) do
     if c.project_key == unit._project.key and c.config_key == unit._config_key then return c end

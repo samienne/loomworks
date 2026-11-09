@@ -203,7 +203,7 @@ describe("lw profile set/unset (on-disk)", function()
         local c = f:read("*a"); f:close()
         return vim.json.decode(c)
     end
-    local function read_user(root) return read_json(root .. "/.nvim/loomworks.user.json") end
+    local function read_user(root) return read_json(root .. "/.lw/user.json") end
 
     it("set persists into user.json profile_variables and survives reload", function()
         local root = make_ws()

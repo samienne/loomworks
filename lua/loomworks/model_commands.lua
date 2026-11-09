@@ -286,7 +286,7 @@ function M.trust_accept(core, root, plan)
     if not review then return refused(rerr) end
     if review.status == "valid" then
         local r = ok()
-        r.notes = { ".nvim/loomworks.user.json is already trusted (signed by this machine)" }
+        r.notes = { ".lw/user.json is already trusted (signed by this machine)" }
         r.note_roles = { "plain" }
         return r
     end
@@ -301,7 +301,7 @@ function M.trust_accept(core, root, plan)
 end
 
 --- `delete_user_prefs { plan? }` — remove the working copy and its backup
---- (`Core:delete_user_prefs`: the operation lock, the `.nvim`
+--- (`Core:delete_user_prefs`: the operation lock, the `.lw`
 --- path check, then a reload), confirmed as `trust_accept` is: the token
 --- covers the file's exact text, so a file changed since it was shown is
 --- refused.
@@ -1878,7 +1878,7 @@ M.NUKE_HEADER = "Will delete (build state only; your configuration is kept):"
 
 --- The nuke's plan: the build directories it locks (`Core:_nuke_lock_dirs`,
 --- by normalized path) and the owned LSP database areas it removes (the ones
---- `nuke_check` / `_nuke_begin` approved). The fixed targets (`.nvim/build`,
+--- `nuke_check` / `_nuke_begin` approved). The fixed targets (`.lw/build`,
 --- the caches) are the same for every nuke and not part of the token.
 --- @param core table
 --- @param root string normalized root
@@ -1890,7 +1890,7 @@ M.NUKE_HEADER = "Will delete (build state only; your configuration is kept):"
 --- @return { token: string, lock_keys: string[], areas: string[] }
 function M.nuke_plan(core, root, areas, unit_dirs)
     local keys = {}
-    for _, e in ipairs(core:_nuke_lock_dirs(root .. "/.nvim/build", unit_dirs)) do keys[#keys + 1] = e.key end
+    for _, e in ipairs(core:_nuke_lock_dirs(root .. "/.lw/build", unit_dirs)) do keys[#keys + 1] = e.key end
     table.sort(keys)
     local token = require("loomworks.reset_plan").token("nuke", keys, areas or {}, nil, M.NUKE_KIND)
     return { token = token, lock_keys = keys, areas = areas or {} }

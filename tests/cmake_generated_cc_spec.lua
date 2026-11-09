@@ -316,7 +316,7 @@ describe("cmake lsp_configs compile_commands_dir (generated vs build dir)", func
     end
 
     it("points clangd at a loomworks-owned dir for a Ninja config (owned for all)", function()
-        local build_dir = "/work/.nvim/build/myapp/ninja/Debug"
+        local build_dir = "/work/.lw/build/myapp/ninja/Debug"
         local cfgs = cmake.lsp_configs(fake_project({
             ws_root = "/work",
             build_dir = build_dir,
@@ -325,12 +325,12 @@ describe("cmake lsp_configs compile_commands_dir (generated vs build dir)", func
         }))
         assert.equals("clangd", cfgs[1].server)
         assert.are_not.equal(build_dir, cfgs[1].compile_commands_dir)
-        assert.is_truthy(cfgs[1].compile_commands_dir:find("/.nvim/cache/cc/", 1, true))
+        assert.is_truthy(cfgs[1].compile_commands_dir:find("/.lw/cache/cc/", 1, true))
         assert.is_truthy(cfgs[1].compile_commands_dir:find("myapp/ninja/Debug", 1, true))
     end)
 
     it("offers no database and schedules no generation for a unit not configured here (§9.1)", function()
-        local build_dir = "/work/.nvim/build/myapp/ninja/Debug"
+        local build_dir = "/work/.lw/build/myapp/ninja/Debug"
         local orig = cmake.refresh_generated_cc
         local scheduled = false
         cmake.refresh_generated_cc = function() scheduled = true end
@@ -354,7 +354,7 @@ describe("cmake lsp_configs compile_commands_dir (generated vs build dir)", func
         cmake.refresh_generated_cc = function() end
         local cfgs = cmake.lsp_configs(fake_project({
             ws_root = "/work",
-            build_dir = "/work/.nvim/build/myapp/ninja/Debug",
+            build_dir = "/work/.lw/build/myapp/ninja/Debug",
             config = { base_name = "Debug", module_config = { variant = "Debug" } },
             tool_data = { generator = "Ninja" },
         }))
@@ -383,7 +383,7 @@ describe("cmake lsp_configs compile_commands_dir (generated vs build dir)", func
         cmake.refresh_generated_cc = function() scheduled = scheduled + 1 end
         local project = fake_project({
             ws_root = "/work",
-            build_dir = "/work/.nvim/build/myapp/ninja/Debug",
+            build_dir = "/work/.lw/build/myapp/ninja/Debug",
             config = { base_name = "Debug", module_config = { variant = "Debug" } },
             tool_data = { generator = "Ninja" },
         })
@@ -393,7 +393,7 @@ describe("cmake lsp_configs compile_commands_dir (generated vs build dir)", func
         assert.is_true(ok, tostring(cfgs))
         -- The workspace daemon generates: the entry still points at the
         -- owned database, nothing scheduled here.
-        assert.is_truthy(cfgs[1].compile_commands_dir:find("/.nvim/cache/cc/", 1, true))
+        assert.is_truthy(cfgs[1].compile_commands_dir:find("/.lw/cache/cc/", 1, true))
         assert.equals(0, scheduled)
         generates = true
         cmake.lsp_configs(project)
@@ -402,7 +402,7 @@ describe("cmake lsp_configs compile_commands_dir (generated vs build dir)", func
     end)
 
     it("falls back to the build dir when compile_commands_generated = false", function()
-        local build_dir = "/work/.nvim/build/myapp/ninja/Debug"
+        local build_dir = "/work/.lw/build/myapp/ninja/Debug"
         local cfgs = cmake.lsp_configs(fake_project({
             ws_root = "/work",
             build_dir = build_dir,
@@ -415,7 +415,7 @@ describe("cmake lsp_configs compile_commands_dir (generated vs build dir)", func
     end)
 
     it("points clangd at a loomworks-owned dir for a Visual Studio config", function()
-        local build_dir = "/work/.nvim/build/myapp/msvc"
+        local build_dir = "/work/.lw/build/myapp/msvc"
         local cfgs = cmake.lsp_configs(fake_project({
             ws_root = "/work",
             build_dir = build_dir,
@@ -425,15 +425,15 @@ describe("cmake lsp_configs compile_commands_dir (generated vs build dir)", func
         local dir = cfgs[1].compile_commands_dir
         assert.are_not.equal(build_dir, dir)
         -- Under the loomworks-owned cache, mirroring the build-dir subpath.
-        assert.is_truthy(dir:find("/.nvim/cache/cc/", 1, true),
-            "expected generated dir under .nvim/cache/cc, got: " .. tostring(dir))
+        assert.is_truthy(dir:find("/.lw/cache/cc/", 1, true),
+            "expected generated dir under .lw/cache/cc, got: " .. tostring(dir))
         assert.is_truthy(dir:find("myapp/msvc", 1, true))
         -- qmlls entry keeps the real build dir.
         assert.equals(build_dir, cfgs[2].build_dir)
     end)
 
     it("honors an explicit config-level compile_commands_generated = true", function()
-        local build_dir = "/work/.nvim/build/myapp/x"
+        local build_dir = "/work/.lw/build/myapp/x"
         local cfgs = cmake.lsp_configs(fake_project({
             ws_root = "/work",
             build_dir = build_dir,
@@ -441,7 +441,7 @@ describe("cmake lsp_configs compile_commands_dir (generated vs build dir)", func
                 variant = "Debug", compile_commands_generated = true } },
             tool_data = { generator = "Ninja" }, -- would otherwise be build_dir
         }))
-        assert.is_truthy(cfgs[1].compile_commands_dir:find("/.nvim/cache/cc/", 1, true))
+        assert.is_truthy(cfgs[1].compile_commands_dir:find("/.lw/cache/cc/", 1, true))
     end)
 end)
 
@@ -851,9 +851,9 @@ describe("cmake generated-cc freshness", function()
     end)
 
     it("refresh_lsp_database regenerates via the workspace-root out dir", function()
-        -- build_dir under <root>/.nvim/build maps to <root>/.nvim/cache/cc.
+        -- build_dir under <root>/.lw/build maps to <root>/.lw/cache/cc.
         local root = tmp
-        local bd = root .. "/.nvim/build/app/Debug"
+        local bd = root .. "/.lw/build/app/Debug"
         vim.fn.mkdir(bd .. "/.cmake/api/v1/reply", "p")
         local reply = bd .. "/.cmake/api/v1/reply"
         local function cp(src, dst)
@@ -880,7 +880,7 @@ describe("cmake generated-cc freshness", function()
         }, function() settled = true end)
         assert.is_true(vim.wait(30000, function() return settled end, 5),
             "refresh_lsp_database never settled")
-        assert.is_truthy(uvx.fs_stat(root .. "/.nvim/cache/cc/app/Debug/compile_commands.json"))
+        assert.is_truthy(uvx.fs_stat(root .. "/.lw/cache/cc/app/Debug/compile_commands.json"))
     end)
 
     it("lsp_database_watch_path returns the reply dir, nil when absent", function()
@@ -1556,7 +1556,7 @@ describe("cmake generate_compile_commands end-to-end (real VS configure)", funct
             -- VS generators never emit compile_commands.json.
             assert.is_nil(uv.fs_stat(build_dir .. "/compile_commands.json"))
 
-            local out_dir = root .. "/.nvim/cache/cc/app"
+            local out_dir = root .. "/.lw/cache/cc/app"
             local n = cmake.generate_compile_commands(build_dir, out_dir, {
                 variant = "Debug",
                 compiler = kit.compiler_path,

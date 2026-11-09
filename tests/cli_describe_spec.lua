@@ -40,7 +40,7 @@ local function make_ws(extra_lw)
 end
 
 local function read_user(root)
-  local f = io.open(root .. "/.nvim/loomworks.user.json", "r")
+  local f = io.open(root .. "/.lw/user.json", "r")
   if not f then return nil end
   local c = f:read("*a"); f:close()
   return vim.json.decode(c)
@@ -220,11 +220,11 @@ describe("lw describe", function()
     end
     describe_cmd(root, "project", "App", "-e")
     assert.same({ "fake-editor", "--wait" }, { seen[1], seen[2] })
-    -- The buffer is in the workspace's .nvim/tmp (spec §16.40), removed after.
+    -- The buffer is in the workspace's .lw/tmp (spec §16.40), removed after.
     local buf = seen[#seen]
-    assert.is_truthy(buf:match("/%.nvim/tmp/lw%-describe%-%x+%.txt$"), buf)
+    assert.is_truthy(buf:match("/%.lw/tmp/lw%-describe%-%x+%.txt$"), buf)
     local rp = (vim.uv or vim.loop).fs_realpath
-    assert.equals(rp(root .. "/.nvim/tmp"), rp((buf:gsub("/[^/]+$", ""))))
+    assert.equals(rp(root .. "/.lw/tmp"), rp((buf:gsub("/[^/]+$", ""))))
     assert.is_nil((vim.uv or vim.loop).fs_stat(buf))
     assert.equals("Edited summary\n\nEdited body", read_user(root).projects.App.typescript.description)
 

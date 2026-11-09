@@ -78,10 +78,10 @@ end
 --- @return boolean|nil covered (nil: git could not answer), string|nil source
 ---   when not covered but matched by an uncommitted rule: that file, relative
 ---   to the work-tree top
-function M.cache_ignored_by_repo(root, top, git)
+function M.cache_ignored_by_repo(root, top, git, dir)
   if not top then return nil end
   local code, out = git(root, { "-c", "core.excludesFile=", "check-ignore", "-v", "--no-index",
-    "--", launcher.CACHE_DIR .. "/lw.marker" })
+    "--", (dir or launcher.CACHE_DIR) .. "/lw.marker" })
   if code == nil or (code ~= 0 and code ~= 1) then return nil end
   if code ~= 0 then return false end
   local m = launcher.parse_check_ignore(out)
@@ -204,6 +204,9 @@ function M.run_checks(root, env)
   local p, perr = pin.parse(read(root .. "/lw.pin") or "")
   res.pin, res.pin_error = p, (not p) and tostring(perr) or nil
   res.version = p and p.version or nil
+  -- The launcher cache the launchers present use for this pin.
+  res.cache_dir = launcher.cache_dir_for(res.version, {
+    sh = has["lw.sh"] and read(root .. "/lw.sh") or nil, cmd = has["lw.cmd"] and read(root .. "/lw.cmd") or nil })
   -- Informational, listed after the all-good line: a self-contained pin is
   -- complete without the transitional bundle entry (formats §9).
   local no_bundle
@@ -400,24 +403,29 @@ function M.run_checks(root, env)
           (pin_only and " - the pin will be misread" or " - the launcher will fail"), repair(), nil, R)
       end
     end
-    -- ignore rule: a committed .gitignore of the repo, not a personal one
-    if not pin_only then
-      local by_repo, src = M.cache_ignored_by_repo(root, top, git)
+    -- ignore rule: a committed .gitignore of the repo, not a personal one;
+    -- `.lw/cache` ignores itself (`.lw/.gitignore`, which every launcher
+    -- writes before it downloads)
+    local cdir = res.cache_dir
+    if not pin_only and cdir == launcher.CACHE_DIR then
+      g.ignore = "self"
+    elseif not pin_only then
+      local by_repo, src = M.cache_ignored_by_repo(root, top, git, cdir)
       if by_repo == true then
         g.ignore = "repo"
       elseif by_repo == false and src then
         g.ignore, g.ignore_source = "uncommitted", src
-        nag("ignore", ".nvim/cache/ is ignored only by an uncommitted rule in " .. src ..
+        nag("ignore", cdir .. "/ is ignored only by an uncommitted rule in " .. src ..
           " - others will see downloaded binaries as untracked until it is committed",
           "commit it: `" .. M.commit_cmd({ src }) .. "`", nil,
           { command = M.commit_cmd({ src }), commit_files = { src }, why = "commit the ignore rule" })
       elseif by_repo == false then
-        local probe = launcher.CACHE_DIR .. "/lw.marker"
+        local probe = cdir .. "/lw.marker"
         local c5 = git(root, { "check-ignore", "-q", "--no-index", "--", probe })
         g.ignore = c5 == 0 and "personal" or "none"
         nag("ignore", c5 == 0
-          and ".nvim/cache/ is ignored only by an uncommitted or personal rule (your global gitignore or .git/info/exclude) - others will see downloaded binaries as untracked"
-          or ".nvim/cache/ is not ignored - downloaded binaries show as untracked",
+          and cdir .. "/ is ignored only by an uncommitted or personal rule (your global gitignore or .git/info/exclude) - others will see downloaded binaries as untracked"
+          or cdir .. "/ is not ignored - downloaded binaries show as untracked",
           repair(), nil, R)
       end
     end
@@ -425,11 +433,27 @@ function M.run_checks(root, env)
 
   -- ---- stale cached binaries ------------------------------------------------------
   if res.version and env.stale then
-    local n, bytes = env.stale(root, res.version)
+    local n, bytes = env.stale(root, res.version, res.cache_dir)
     if n and n > 0 then
       res.stale = { n = n, bytes = bytes }
-      info("stale-cache", string.format("%d old pinned binar%s in .nvim/cache (%.1f MB) - removed by the next %s",
-        n, n == 1 and "y" or "ies", (bytes or 0) / 1048576, M.cmd(invoked, "bootstrap install")))
+      if res.cache_dir == launcher.CACHE_DIR then
+        info("stale-cache", string.format("%d old pinned binar%s in %s (%.1f MB) - removed by the next %s",
+          n, n == 1 and "y" or "ies", res.cache_dir, (bytes or 0) / 1048576, M.cmd(invoked, "bootstrap install")))
+      else
+        -- `.nvim/cache` is never pruned (nothing under `.nvim/` is removed)
+        info("stale-cache", string.format("%d old pinned binar%s in %s (%.1f MB) - lw leaves them; remove them by hand",
+          n, n == 1 and "y" or "ies", res.cache_dir, (bytes or 0) / 1048576))
+      end
+    end
+    -- After the launchers moved to `.lw/cache`, `.nvim/cache` is no longer
+    -- a launcher cache: its leftover binaries are reported, never removed.
+    if res.cache_dir == launcher.CACHE_DIR then
+      local ln, lbytes = env.stale(root, nil, launcher.LEGACY_CACHE_DIR)
+      if ln and ln > 0 then
+        info("legacy-cache", string.format("%d pinned lw binar%s left in %s by older launchers (%.1f MB) - "
+          .. "no longer used; remove them by hand once no older lw is pinned here",
+          ln, ln == 1 and "y" or "ies", launcher.LEGACY_CACHE_DIR, (lbytes or 0) / 1048576))
+      end
     end
   end
 

@@ -99,7 +99,7 @@ end
 --- Write a temporary file at a FIXED name (`<target>.tmp`, the name crash
 --- recovery and stray-file cleanup know): whatever sits at that name first
 --- is removed — a leftover of a crashed write, or a link someone planted in a
---- shared `.nvim/` (unlinking a link removes only the link, never its
+--- shared `.lw/` (unlinking a link removes only the link, never its
 --- target) — then the file is created exclusively. A directory there is left
 --- alone (the create then fails).
 --- @param tmp string
@@ -304,7 +304,7 @@ function M.encode_json(tbl)
     return M._pretty_json(encoded)
 end
 
---- Write a loomworks state file under `.nvim/` (working copy, build cache,
+--- Write a loomworks state file under `.lw/` (working copy, build cache,
 --- health cache) as JSON signed with the machine key: the same
 --- sorted, pretty encoding as `write_json`, with the signature member first.
 --- When the key is unavailable the file is still written, unsigned (it will be

@@ -77,7 +77,7 @@ note_fail() { # $1 = description   $2 = exit code
 }
 
 # Root discovery must not cross a git working-tree boundary (spec §16.2): `lw`
-# in a fresh git worktree (a `.git` file, no `.nvim/` of its own) must NOT
+# in a fresh git worktree (a `.git` file, no `.lw/` of its own) must NOT
 # silently bind to a parent checkout's workspace. Toolchain-independent.
 test_worktree_boundary() {
     say "worktree boundary"
@@ -156,11 +156,11 @@ kill_tree() {
     kill -9 "$pid" 2>/dev/null
 }
 # The runtime lock of a workspace's daemon: per slot (spec 19.7.1),
-# `.nvim/loomworks.daemon-<S>.lock`, S 16 hex digits of the OS user. The runner
+# `.lw/daemon-<S>.lock`, S 16 hex digits of the OS user. The runner
 # has one user, so the one such file (empty when there is none or several).
 slot_lock() {
-  local m; m=$(ls -1 "$1/.nvim" 2>/dev/null | grep -E '^loomworks\.daemon-[0-9a-f]{16}\.lock$')
-  [ "$(printf '%s\n' "$m" | grep -c .)" = 1 ] && printf '%s/.nvim/%s' "$1" "$m"
+  local m; m=$(ls -1 "$1/.lw" 2>/dev/null | grep -E '^loomworks\.daemon-[0-9a-f]{16}\.lock$')
+  [ "$(printf '%s\n' "$m" | grep -c .)" = 1 ] && printf '%s/.lw/%s' "$1" "$m"
 }
 # The pid field of a lockfile.
 lock_pid() { sed -n 's/.*"pid":\([0-9][0-9]*\).*/\1/p' "$1" 2>/dev/null | head -1; }
@@ -193,11 +193,11 @@ test_lock_recovery() {
         printf '#!/bin/sh\n[ -f "$(dirname "$0")/slow-$1" ] && sleep %d\nexit 0\n' "$LOCK_SLEEP" > "$ws/slow.sh"
         step="\"sh\",\"$ws/slow.sh\""
     fi
-    # The build dir lies under .nvim/build: nuke (step 3) removes only that
+    # The build dir lies under .lw/build: nuke (step 3) removes only that
     # tree and takes only the locks found there (spec 19.3).
     cat > "$ws/loomworks.json" <<JSON
 {"projects":{"App":{"path":"App","shell":{
-  "build_dir":"\${workspace_root}/.nvim/build/b",
+  "build_dir":"\${workspace_root}/.lw/build/b",
   "configure_cmd":[$step,"configure"],
   "build_cmd":[$step,"build"],
   "configurations":{"Debug":{}}}}},
@@ -287,7 +287,7 @@ JSON
     # The refusal alone, one line: no "Will delete" list first, no double prefix.
     if [ $rc -ne 0 ] && grep -q "^lw: cannot nuke: a build is running in" "$out" \
         && ! grep -q -e "Will delete" -e "nuke failed" -e "loomworks: " "$out" \
-        && [ -d "$ws/.nvim/build" ] && [ -f "$ws/.nvim/loomworks.cache.json" ]; then
+        && [ -d "$ws/.lw/build" ] && [ -f "$ws/.lw/cache.json" ]; then
         ok "locks: nuke refuses while a build runs and deletes nothing"
     else note_fail "locks: nuke during a running build" $rc; fi
     rm -f "$ws/slow-build"
@@ -295,8 +295,8 @@ JSON
     ( cd "$ws" && run_lw nuke -y ) > "$out" 2>&1
     rc=$?
     local nuke_left
-    nuke_left=$(find "$ws/.nvim" -maxdepth 1 \( -name 'build' -o -name 'build.nuke-*' \
-        -o -name 'loomworks.cache.json' -o -name 'loomworks.op.lock' \) 2>/dev/null)
+    nuke_left=$(find "$ws/.lw" -maxdepth 1 \( -name 'build' -o -name 'build.nuke-*' \
+        -o -name 'cache.json' -o -name 'op.lock' \) 2>/dev/null)
     if [ $rc -eq 0 ] && grep -q "NUKED" "$out" && [ -z "$nuke_left" ]; then
         ok "locks: nuke removes the build tree and caches, leaving no aside tree or lock"
     else note_fail "locks: nuke left: $nuke_left" $rc; fi
@@ -306,9 +306,9 @@ JSON
     ( cd "$ws" && run_lw publish && run_lw project rename App App2 ) > "$out" 2>&1
     rc=$?
     local leftovers
-    leftovers=$(find "$ws" -maxdepth 2 \( -name 'loomworks.txn.json*' -o -name '*.txn-*' \
-        -o -name 'loomworks.op.lock' \) 2>/dev/null)
-    if [ $rc -eq 0 ] && [ -z "$leftovers" ] && grep -q '"App2"' "$ws/.nvim/loomworks.user.json"; then
+    leftovers=$(find "$ws" -maxdepth 2 \( -name 'txn.json*' -o -name '*.txn-*' \
+        -o -name 'op.lock' \) 2>/dev/null)
+    if [ $rc -eq 0 ] && [ -z "$leftovers" ] && grep -q '"App2"' "$ws/.lw/user.json"; then
         ok "locks: publish + rename commit cleanly (no journal, staged copy or op lock left)"
     else
         note_fail "locks: multi-file commit left $leftovers" $rc
@@ -491,7 +491,7 @@ test_signal_exit() {
   "configurations":{"Debug":{}}}}},
  "configuration_sets":{"Dev":{"App":"Debug"}}}
 JSON
-        rm -rf "$ws/.nvim"
+        rm -rf "$ws/.lw"
         run_lw profile create Dev > "$out" 2>&1 || { note_fail "signal: profile create" $?; return; }
         local how
         for how in in-process daemon; do
@@ -501,7 +501,7 @@ JSON
                 && ! grep -q "BUILD OK" "$out"; then
                 ok "signal: SIG$sig fails the build $how (exit $rc, signal named)"
             else note_fail "signal: SIG$sig build $how (exit $rc, want $code)" $rc; fi
-            if grep -q '"built"' "$ws/.nvim/loomworks.cache.json" 2>/dev/null; then
+            if grep -q '"built"' "$ws/.lw/cache.json" 2>/dev/null; then
                 bad "signal: SIG$sig build $how recorded as built"
             else ok "signal: SIG$sig build $how not recorded as built"; fi
         done
@@ -564,7 +564,7 @@ run_case() {
     # copy of the base's value.
     run_lw config add app inherited variant:Debug > "$out" 2>&1 \
         || { note_fail "$label config add with a base" $?; return; }
-    if grep -q '"variant"' .nvim/loomworks.user.json; then
+    if grep -q '"variant"' .lw/user.json; then
         note_fail "$label persisted a derived variant as if declared" 0; return
     fi
 

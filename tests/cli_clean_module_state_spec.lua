@@ -72,7 +72,7 @@ local function load(root)
 end
 
 local function cached(root)
-  local f = assert(io.open(root .. "/.nvim/loomworks.cache.json", "r"))
+  local f = assert(io.open(root .. "/.lw/cache.json", "r"))
   local data = vim.json.decode(f:read("*a")); f:close()
   for _, c in pairs(data.build_dirs or {}) do
     if c.project_key == "App" and c.config_key == "Debug" then return c end

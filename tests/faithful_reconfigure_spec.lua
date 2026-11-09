@@ -41,7 +41,7 @@ describe("Workspace:_pre_configure_reset (deletion safety)", function()
     local root, bd, ws
     before_each(function()
         root = (vim.fn.tempname():gsub("\\", "/"))
-        bd = root .. "/.nvim/build/App/Debug"
+        bd = root .. "/.lw/build/App/Debug"
         write(bd .. "/CMakeCache.txt", "cache")
         write(bd .. "/CMakeFiles/3.28/x.txt", "state")
         write(bd .. "/app.exe", "binary")
@@ -106,7 +106,7 @@ describe("previous-configure record round trip (planner + CLI)", function()
         local seen
         local fake = {
             id = "fakemod", api_version = 1, has_keyed_tools = false, languages = { "c++" },
-            resolve_build_dir = function(p, c, _, root) return root .. "/.nvim/build/" .. p .. "/" .. (c or "d") end,
+            resolve_build_dir = function(p, c, _, root) return root .. "/.lw/build/" .. p .. "/" .. (c or "d") end,
             info = function(_, tc)
                 local Configuration = require("loomworks.configuration")
                 return { configurations = Configuration.canonicalize({}, tc and tc.configurations, "fakemod") }
@@ -135,7 +135,7 @@ describe("previous-configure record round trip (planner + CLI)", function()
                 projects = { App = { fakemod = { configurations = { Debug = { options = { FOO = "1" } } } } } },
                 configuration_sets = { debug = { App = "Debug" } },
             }),
-            ["loomworks.user.json"] = h.make_user_json({
+            ["user.json"] = h.make_user_json({
                 profiles = { debug = { configuration_set = "debug", tools = {} } },
             }),
         }
@@ -185,7 +185,7 @@ describe("previous-configure record round trip (planner + CLI)", function()
                 } } } } },
                 configuration_sets = { debug = { App = "Debug" } },
             }),
-            ["loomworks.user.json"] = h.make_user_json({ profiles = { debug = {
+            ["user.json"] = h.make_user_json({ profiles = { debug = {
                 configuration_set = "debug",
                 tools = { cmake = { key = "ninja-gcc-12", data = { compiler_id = "gcc-12", generator = "Ninja" } } },
             } } }),
@@ -219,7 +219,7 @@ describe("configure record replacement (nil-can't-clear regression)", function()
             id = "fakemod", api_version = 1, has_keyed_tools = false, languages = { "c++" },
             -- Stands in for meson's record (its tasks drive the classification).
             configure_record_version = meson.configure_record_version,
-            resolve_build_dir = function(p, c, _, root) return root .. "/.nvim/build/" .. p .. "/" .. (c or "d") end,
+            resolve_build_dir = function(p, c, _, root) return root .. "/.lw/build/" .. p .. "/" .. (c or "d") end,
             info = function(_, tc)
                 local Configuration = require("loomworks.configuration")
                 return { configurations = Configuration.canonicalize({}, tc and tc.configurations, "fakemod") }
@@ -232,7 +232,7 @@ describe("configure record replacement (nil-can't-clear regression)", function()
                 projects = { App = { fakemod = { configurations = { Debug = {} } } } },
                 configuration_sets = { debug = { App = "Debug" } },
             }),
-            ["loomworks.user.json"] = h.make_user_json({
+            ["user.json"] = h.make_user_json({
                 profiles = { debug = { configuration_set = "debug", tools = {} } },
             }),
         }
@@ -286,7 +286,7 @@ describe("configure record replacement (nil-can't-clear regression)", function()
     it("a non-configure result merges (does not wipe the configure record)", function()
         local core, unit = make_unit()
         core:record_task_result({ unit = unit, action = "configure", success = true,
-            build_dir = "/root/.nvim/build/App/Debug",
+            build_dir = "/root/.lw/build/App/Debug",
             module_info = { passed_options = { A = "1" }, cache_launcher = "none" } })
         core:record_task_result({ unit = unit, action = "build", success = true,
             module_info = { extra = true } })

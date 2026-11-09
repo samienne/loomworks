@@ -528,11 +528,11 @@ local function norm_path(p)
     return p
 end
 
---- Remove a per-run results file `<root>/.nvim/tmp/lw-test-<hex>.xml` of the
+--- Remove a per-run results file `<root>/.lw/tmp/lw-test-<hex>.xml` of the
 --- workspace `root`. Deletion safety:
 --- only a regular file (lstat: never a directory or a link's target) that
---- is a direct child of `<root>/.nvim/tmp` (separator-bounded) whose name is
---- exactly `lw-test-<hex>.xml`, with `<root>/.nvim` and `<root>/.nvim/tmp`
+--- is a direct child of `<root>/.lw/tmp` (separator-bounded) whose name is
+--- exactly `lw-test-<hex>.xml`, with `<root>/.lw` and `<root>/.lw/tmp`
 --- real directories (lstat: never a link or junction); anything else is
 --- refused and left alone.
 --- @param root string|nil the workspace root
@@ -540,13 +540,13 @@ end
 --- @return boolean removed
 function M.unlink(root, path)
     if type(root) ~= "string" or root == "" or type(path) ~= "string" or path == "" then return false end
-    local prefix = norm_path(root) .. "/.nvim/tmp"
+    local prefix = norm_path(root) .. "/.lw/tmp"
     local p = norm_path(path)
     if p:sub(1, #prefix + 1) ~= prefix .. "/" then return false end
     if not p:sub(#prefix + 2):match("^lw%-test%-%x+%.xml$") then return false end
     local uv = vim.uv or vim.loop
     local r = root:gsub("[/\\]+$", "")
-    for _, dir in ipairs({ r .. "/.nvim", r .. "/.nvim/tmp" }) do
+    for _, dir in ipairs({ r .. "/.lw", r .. "/.lw/tmp" }) do
         local dst = uv.fs_lstat(dir)
         if not dst or dst.type ~= "directory" then return false end
     end

@@ -297,7 +297,7 @@ describe("state recovery of a killed holder's build directory (§19.5 step 5)", 
         local ws = assert(cli._load_workspace(root, false))
         local profile = ws._profiles[1]
         local unit = profile:projects()[1]._config_unit
-        local dir = root .. "/.nvim/build/App/Debug"
+        local dir = root .. "/.lw/build/App/Debug"
         vim.fn.mkdir(dir, "p")
         unit.build_dir_value = dir
         unit.state_value = "built"
@@ -363,14 +363,14 @@ describe("state recovery of a killed holder's build directory (§19.5 step 5)", 
         local root, dir = make_ws()
         local ws = assert(cli._load_workspace(root, false))
         local live = hold(bl.lock_path(dir), "build")
-        local r = capture(function() cli.cmd_unlock(ws, { "unlock", ".nvim/build/App/Debug" }) end)
+        local r = capture(function() cli.cmd_unlock(ws, { "unlock", ".lw/build/App/Debug" }) end)
         assert.equals(1, r.exit_code)
         assert.is_truthy(r.stderr:find("in use by lw build", 1, true), r.stderr)
         assert.is_not_nil(bl.read(dir))
         assert.is_true(proc.kill_tree(live.pid, live.start))
-        r = capture(function() cli.cmd_unlock(ws, { "unlock", ".nvim/build/App/Debug" }) end)
+        r = capture(function() cli.cmd_unlock(ws, { "unlock", ".lw/build/App/Debug" }) end)
         assert.is_nil(r.exit_code, r.stderr)
-        assert.is_truthy(r.stdout:find("unlocked .nvim/build/App/Debug", 1, true), r.stdout)
+        assert.is_truthy(r.stdout:find("unlocked .lw/build/App/Debug", 1, true), r.stdout)
         assert.is_nil(bl.read(dir))
         assert.equals("configured", state_after_reload(root))
     end)
@@ -379,7 +379,7 @@ describe("state recovery of a killed holder's build directory (§19.5 step 5)", 
         local root, dir = make_ws()
         local ws = assert(cli._load_workspace(root, false))
         local live = hold(bl.lock_path(dir), "build")
-        local r = capture(function() cli.cmd_unlock(ws, { "unlock", "--force", ".nvim/build/App/Debug" }) end)
+        local r = capture(function() cli.cmd_unlock(ws, { "unlock", "--force", ".lw/build/App/Debug" }) end)
         assert.is_nil(r.exit_code, r.stderr)
         assert.is_truthy(r.stderr:find("WARNING", 1, true), r.stderr)
         assert.is_truthy(r.stderr:find("may still be running", 1, true), r.stderr)
@@ -394,9 +394,9 @@ describe("state recovery of a killed holder's build directory (§19.5 step 5)", 
         f:write(vim.json.encode({ pid = 7, host = "far-away-host", lock_nonce = "n", kind = "lw",
             operation = "build", started_at = os.time() }))
         f:close()
-        local r = capture(function() cli.cmd_unlock(ws, { "unlock", ".nvim/build/App/Debug" }) end)
+        local r = capture(function() cli.cmd_unlock(ws, { "unlock", ".lw/build/App/Debug" }) end)
         assert.equals(1, r.exit_code)
-        r = capture(function() cli.cmd_unlock(ws, { "unlock", "--force", ".nvim/build/App/Debug" }) end)
+        r = capture(function() cli.cmd_unlock(ws, { "unlock", "--force", ".lw/build/App/Debug" }) end)
         assert.is_nil(r.exit_code, r.stderr)
         assert.is_truthy(r.stderr:find("on far-away-host", 1, true), r.stderr)
         assert.is_nil(bl.read(dir))
@@ -420,7 +420,7 @@ describe("state recovery of a killed holder's build directory (§19.5 step 5)", 
         local f = assert(io.open(lockf, "wb")); f:write("{}"); f:close()
         local base = outside:match("[^/]+$")
         local r = capture(function()
-            cli.cmd_unlock(ws, { "unlock", "--force", ".nvim/../../" .. base .. "/x" })
+            cli.cmd_unlock(ws, { "unlock", "--force", ".lw/../../" .. base .. "/x" })
         end)
         assert.equals(1, r.exit_code)
         assert.is_truthy(r.stderr:find("no '.' or '..' segments", 1, true), r.stderr)

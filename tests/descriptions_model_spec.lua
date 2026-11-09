@@ -45,7 +45,7 @@ local function read_json(path)
   return vim.json.decode(body)
 end
 
-local function user_json(root) return read_json(root .. "/.nvim/loomworks.user.json") end
+local function user_json(root) return read_json(root .. "/.lw/user.json") end
 local function shared_json(root) return read_json(root .. "/loomworks.json") end
 
 --- A temp workspace: typescript App, a user `Debug` config (inheriting
@@ -137,9 +137,9 @@ describe("descriptions: working-copy round-trip", function()
     local ws = load(root)
     local project = items(ws)
     assert.is_true(project:set_description("Same"))
-    local before = read_file(root .. "/.nvim/loomworks.user.json")
+    local before = read_file(root .. "/.lw/user.json")
     assert.is_false(project:set_description("Same  \r\n"))
-    assert.equals(before, read_file(root .. "/.nvim/loomworks.user.json"))
+    assert.equals(before, read_file(root .. "/.lw/user.json"))
   end)
 
   it("blank text clears the description and removes the key (never \"\")", function()
@@ -153,7 +153,7 @@ describe("descriptions: working-copy round-trip", function()
     assert.is_true(profile:set_description("\r\n"))
     assert.is_nil(project.description)
 
-    local text = read_file(root .. "/.nvim/loomworks.user.json")
+    local text = read_file(root .. "/.lw/user.json")
     assert.is_nil(text:find('"description"', 1, true))
     assert.is_nil(text:find("configuration_set_descriptions", 1, true))
   end)
@@ -504,7 +504,7 @@ describe("descriptions: older files", function()
     local ws = load(root)
     publish_all(ws)
     local shared1 = read_file(root .. "/loomworks.json")
-    local user1 = read_file(root .. "/.nvim/loomworks.user.json")
+    local user1 = read_file(root .. "/.lw/user.json")
     assert.is_nil(shared1:find("description", 1, true))
     assert.is_nil(user1:find("description", 1, true))
 

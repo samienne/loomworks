@@ -44,7 +44,7 @@ local function superproject(opts)
     mkdir(super .. "/.git/modules/sub")
     write(super .. "/.git/HEAD", "ref: refs/heads/master\n")
     if opts.user_only then
-        write(super .. "/.nvim/loomworks.user.json", '{ "_meta": { "version": 2 } }')
+        write(super .. "/.lw/user.json", '{ "_meta": { "version": 2 } }')
     else
         write(super .. "/loomworks.json", "{}")
     end
@@ -180,7 +180,7 @@ describe("root_finder.find", function()
         -- Worktree not initialised yet: the search stops at its root.
         assert.is_nil(finder.find(wt .. "/sub"))
         -- Once the worktree has its own working copy, the submodule resolves to it.
-        write(wt .. "/.nvim/loomworks.user.json", "{}")
+        write(wt .. "/.lw/user.json", "{}")
         local r, info = finder.find(wt .. "/sub")
         assert.equals(wt, norm(r))
         assert.equals(wt .. "/sub", norm(info.submodule))

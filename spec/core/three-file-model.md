@@ -28,7 +28,7 @@ external file changes are merged into the working copy, and the working
 copy is what the rest of the system consults. loomworks.json's only
 roles are publication out (`:w`) and propagation in (file watcher → merge).
 
-### 2.2 .nvim/loomworks.user.json — Working Copy & Runtime Source of Truth
+### 2.2 .lw/user.json — Working Copy & Runtime Source of Truth
 
 The live working state and the workspace's runtime source of truth. Every
 materialized item, every intent override, and every piece of session
@@ -431,7 +431,7 @@ Cycling intent never deletes the item's data: the working copy retains
 the representation across cycles. `:w` consolidates the on-disk state to
 match the declared intent.
 
-### 2.3 .nvim/loomworks.cache.json — Reality
+### 2.3 .lw/cache.json — Reality
 
 Sparse record of what has actually been configured and built.
 
@@ -445,7 +445,7 @@ Sparse record of what has actually been configured and built.
       "type": "cmake",
       "state": "built",
       "variant": "Debug",
-      "build_dir": "/workspace/.nvim/build/App/ninja-gcc-12/Debug",
+      "build_dir": "/workspace/.lw/build/App/ninja-gcc-12/Debug",
       "last_configured": "2026-03-10T12:00:00Z",
       "last_built": "2026-03-10T12:05:00Z",
       "tool_key": "ninja-gcc-12",
@@ -463,7 +463,7 @@ Sparse record of what has actually been configured and built.
       "type": "cmake",
       "state": "configured",
       "variant": "Release",
-      "build_dir": "/workspace/.nvim/build/Lib/ninja-mc",
+      "build_dir": "/workspace/.lw/build/Lib/ninja-mc",
       ...
     }
   },
@@ -553,8 +553,8 @@ Sparse record of what has actually been configured and built.
   deserialization, the cache data is consumed and discarded — no runtime
   code reads from it.
 - **External build directories**: Modules using external build systems
-  may have build directories outside `.nvim/build/`.
-  The cache key for these is their absolute path (no `.nvim/` prefix to
+  may have build directories outside `.lw/build/`.
+  The cache key for these is their absolute path (no `.lw/` prefix to
   strip). `absolute_build_dir()` detects absolute paths and returns them
   unchanged. Deletion safety requires the path to be under workspace root.
 - Atomic writes (temp + fsync + rename) with .bak recovery.
@@ -619,7 +619,7 @@ still work.
 ### 2.7 Concurrent writers
 
 Any number of loomworks processes may hold the same workspace open and write
-its `.nvim/` state at the same time: the editor, any number of CLI
+its `.lw/` state at the same time: the editor, any number of CLI
 invocations, a long-lived background process, and **older** loomworks versions
 (an older editor plugin, a repository pinned to an older release, §16.21). Each
 writes whole files atomically (§15 invariant 4) and reconciles the others'
@@ -676,7 +676,7 @@ external change, §2.4, verified per §17.4) — its own unsaved change is
 discarded — and reports:
 
 ```
-the working copy (.nvim/loomworks.user.json) changed on disk (another lw or editor) — reloaded it; your last change was not saved, redo it
+the working copy (.lw/user.json) changed on disk (another lw or editor) — reloaded it; your last change was not saved, redo it
 ```
 
 The editor shows it as an error notification; the CLI prints it as
@@ -730,7 +730,7 @@ cache).
   the workspace is refused (as for a version mismatch, §15 invariant 11), and a
   newer-schema file appearing while a workspace is loaded returns it to that
   refused state instead of being reconciled. The message names both versions
-  and the remedy — `.nvim/loomworks.cache.json was written by loomworks X
+  and the remedy — `.lw/cache.json was written by loomworks X
   (schema N), newer than this loomworks Y (schema M) — update loomworks; the
   file was left unchanged` — and does not offer a reset or a discard as the
   fix, since the file is valid, only newer.

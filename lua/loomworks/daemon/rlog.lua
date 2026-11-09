@@ -1,6 +1,6 @@
 --- loomworks/daemon/rlog.lua — the runtime log.
 ---
---- One file per workspace, inside it: `<root>/.nvim/loomworks.daemon-<S>.log`,
+--- One file per workspace, inside it: `<root>/.lw/daemon-<S>.log`,
 --- capped at `MAX_BYTES` with one rotated predecessor (`.log.1`). The daemon
 --- writes its lifecycle there (start, reclaimed locks, refused connections,
 --- stop reason); every client records the launches it makes or fails, and
@@ -8,7 +8,7 @@
 ---
 --- Append-only, one whole line per write (opened and closed again, so no
 --- process holds the file); several processes may append at once. A write
---- creates the log's directory (`.nvim/`) only when ITS parent (the workspace
+--- creates the log's directory (`.lw/`) only when ITS parent (the workspace
 --- root) exists — never the root itself, so a daemon whose workspace was
 --- removed does not bring it back. Rotation is best-effort (a failed rename
 --- just retries later), and removes only `<log>.1` — the one rotated
@@ -48,7 +48,7 @@ end
 
 --- Is the regular file `p` (lstat `st`) lw's runtime log: empty, or starting
 --- with a runtime-log line? A file at the name that is not (one a repository
---- ships in `.nvim/`, say) is never written, rotated or removed.
+--- ships in `.lw/`, say) is never written, rotated or removed.
 local function ours(p, st)
     if (st.size or 0) == 0 then return true end
     local fd = uv().fs_open(p, "r", 0)
@@ -62,7 +62,7 @@ end
 --- Append one line to the log file `p` (see `write`). Uses libuv and plain
 --- io only, so it may run inside libuv callbacks in the editor host.
 ---
---- The log sits in the workspace's `.nvim/`, which a repository can ship, so
+--- The log sits in the workspace's `.lw/`, which a repository can ship, so
 --- it is only ever appended to when it is a regular file of lw's own format
 --- (`ours`), through a descriptor checked to be the file lstat saw; a missing
 --- log is created exclusively (O_EXCL never follows a link planted at the

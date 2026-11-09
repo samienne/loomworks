@@ -121,8 +121,8 @@ log at info level; asked to (*Verbose*, below), the runner also prints them
 under the step's header. A step whose command is a wrapper shows
 the command the wrapper runs (§8.1 `display_cmd`), not the wrapper. Arguments
 are quoted for readability, and data in them is rendered like any other
-(§16.7). The workspace log (`.nvim/loomworks.log`) is appended to by every host
-and never truncated; past 1 MB it is rotated to `loomworks.log.1`, keeping one
+(§16.7). The workspace log (`.lw/workspace.log`) is appended to by every host
+and never truncated; past 1 MB it is rotated to `workspace.log.1`, keeping one
 old file.
 
 **Verbose.** `-v` / `--verbose` is an option of the build, run, test and clean
@@ -839,7 +839,7 @@ A headless test invocation MAY instead name one or more **test
 executables** (build targets). Each named target is built (unless the build is skipped, below), then run directly —
 not through the native batch runner — with its framework's machine-readable
 results option (§8.9), writing the results file to the workspace's
-`.nvim/tmp/` (§16.40) and removing it once read, and its outcome is judged per §18.6 (exit status, parsed
+`.lw/tmp/` (§16.40) and removing it once read, and its outcome is judged per §18.6 (exit status, parsed
 failures, missing results, crash reports). A named target runs in its
 **project directory**, the default working directory of a build target
 (§8.7). A **per-invocation working-directory override** — the same option a
@@ -1167,7 +1167,7 @@ non-interactive host (§16.9).
 
 The human status overview is likewise read-only — it runs no build and authors
 no project or build-system files (§16.9), though it MAY refresh its own internal
-advisory caches under `.nvim/` (the suggestion cache of §16.31, whose passive
+advisory caches under `.lw/` (the suggestion cache of §16.31, whose passive
 tier is computed lazily on first display). When no workspace resolves
 here (§1.1) it points the user at how to start one, with each suggested command
 on its own line, followed by a pointer to the command index (`lw help`); the
@@ -1884,8 +1884,11 @@ bootstrap upgrade`.
 carry the files correctly, each step idempotent and append-only toward files the
 user also edits. With `--pin-only` only the pin's attribute rule applies (above).
 
-- **Ignore rule.** The launcher cache directory must be ignored **by the
-  repository's own ignore rules**. When version control can answer which rule
+- **Ignore rule.** The launcher cache directory (`.lw/cache/`, or
+  `.nvim/cache/` for launchers of an earlier generation or a pin below 0.2.0,
+  §16.44) must be ignored **by the repository's own ignore rules**; for
+  `.lw/cache/` the self-ignore file `.lw/.gitignore` counts as such a rule and
+  nothing is appended (§16.44). When version control can answer which rule
   ignores a path, a rule in a committed ignore file of the repository that
   already covers the cache directory (for example one ignoring the whole
   workspace-state directory) satisfies this and nothing is appended; a match
@@ -1951,7 +1954,7 @@ user also edits. With `--pin-only` only the pin's attribute rule applies (above)
   bit staged) or a problem it could not fix;
 - each pruned binary is named with its version, file name and size
   (`removed old pinned lw 0.1.36 (lw-0.1.36-lw-windows-x86_64.exe, 5.5 MB) from
-  .nvim/cache`);
+  .lw/cache`);
 - a run that **created** the pin or a launcher closes with how to run the
   launchers (`./lw.sh <cmd>`, `.\lw.cmd <cmd>`) — or, for `--pin-only`, that a
   global `lw` honours the pin — and how to check it later (the status page);
@@ -2513,7 +2516,7 @@ time — the suggestion results are cached so the frequently-rendered
 `N suggestions` count does not repeat the work on every render. The cache is a
 small workspace-local file, separate from and independent of the build-state
 cache (its own schema, versioned on its own): it is an internal advisory cache
-under the workspace's `.nvim/` directory, never a project or build-system file,
+under the workspace's `.lw/` directory, never a project or build-system file,
 so "health authors nothing" (§16.9) continues to hold. It records two tiers:
 
 - a **local tier** — the results of the passive (workspace-scoped, local-detection)
@@ -2573,7 +2576,7 @@ always. The
 cache is advisory and self-healing: a missing, corrupt, or older-schema cache is
 treated as empty and recomputed — it never raises an error and never blocks a
 render or a health run. Writes are atomic. A passive collect outside a workspace
-(no `.nvim/` to key against) simply runs the passive providers directly without
+(no `.lw/` to key against) simply runs the passive providers directly without
 caching, and a health run outside a workspace runs its workspace-independent
 providers directly and **persists nothing anywhere** — no workspace cache and no
 per-user cache; the next run checks again. No background or
@@ -2815,12 +2818,13 @@ a timeout, run without optional locks (never refreshing the index):
   Windows launcher CRLF) → otherwise **actionable** ("lw.sh has CRLF line
   endings in this checkout — sh will fail"; remedy: re-checkout the file once
   the attributes are in place);
-- **ignore rule** — the launcher cache directory is ignored by a committed
-  rule of the repository: the matching line is in the committed content of a
+- **ignore rule** — the launcher cache directory (§16.44) is ignored by a
+  committed rule of the repository, or, for `.lw/cache/`, by the self-ignore
+  file. A committed rule means the matching line is in the committed content of a
   tracked ignore file inside the work tree, not only in a personal or
   repository-local exclude, and not only in an untracked, staged or modified
   ignore file (the same test pin management applies, §16.24); otherwise
-  **actionable** — "`.nvim/cache/` is ignored only by an uncommitted rule in
+  **actionable** — "`.lw/cache/` is ignored only by an uncommitted rule in
   `<file>`" (remedy: commit it), or "… ignored only by an uncommitted or
   personal rule (your global gitignore or .git/info/exclude) — others will see
   downloaded binaries as untracked", or "… is not ignored".
@@ -2829,7 +2833,7 @@ When every check passes, one **informational** line affirms it ("launcher: lw
 `<version>` pinned; lw.sh / lw.cmd current, modes and line endings ok"; in a
 pin-only repository "launcher: lw `<version>` pinned (pin only, no launchers);
 lw.pin line endings ok"). Stale cached binaries in the launcher cache are
-**informational** ("N old pinned binaries in .nvim/cache (`<size>`) — removed by
+**informational** ("N old pinned binaries in .lw/cache (`<size>`) — removed by
 the next lw bootstrap install").
 
 Items follow the report's conventions: one terse line each under a
@@ -3327,7 +3331,7 @@ In every `describe`, `--` ends lw's options: the token after it is the `<text>`
 operand, even when it starts with `-`.
 
 **Editor.** `-e` opens `$VISUAL`, then `$EDITOR`, on a temporary file in the
-workspace's `.nvim/tmp/` (§16.40), removed afterwards. The file
+workspace's `.lw/tmp/` (§16.40), removed afterwards. The file
 is pre-filled with the current description (or the pre-fill), followed by
 comment lines starting with `#` that name the item and explain the format. On
 save, the `#` lines are removed (the stored text is never commented) and the
@@ -3609,7 +3613,7 @@ no required split), grouped by area. Nothing is cached in either case
 **Refused working copy.** When the workspace's working copy is refused
 (§17.4), health does not stop at the refusal the way a workspace-requiring
 command does: it reports an **actionable** `workspace` item — title "working
-copy not trusted (.nvim/loomworks.user.json <not signed by this machine |
+copy not trusted (.lw/user.json <not signed by this machine |
 modified outside loomworks>)", remedy "review and trust it: lw trust (or
 discard it: lw trust --discard; lw help trust)" — and continues as outside a workspace (nothing of the refused file is read,
 §17.4; nothing is cached). A trusted workspace has no `workspace` item.
@@ -4069,10 +4073,10 @@ can parse. An output option writes it to a named file instead (`-` names
 standard output). The file is written atomically. An existing file is replaced,
 and its parent directory must already exist. Export **refuses**, writing
 nothing, to write to the workspace's own published snapshot. It also refuses any
-path inside the workspace's `.nvim/` directory. The comparison is on resolved
+path inside the workspace's `.lw/` directory. The comparison is on resolved
 paths with a separator boundary (§15 invariant 3's prefix rule). Writing the
 published snapshot is what publish is for, with its baseline update (§2.4). A
-`.nvim/` file is machine-signed state (§17.3) that an export must never
+`.lw/` file is machine-signed state (§17.3) that an export must never
 overwrite.
 
 **Reporting.** Export reports what it exported in one line: the item counts,
@@ -4204,7 +4208,7 @@ review that trusting a working copy uses (§17.4). Before writing, import prints
 
 Import then asks for confirmation. A confirmation flag skips the prompt. A
 **preview** flag prints the same summary and review, writes nothing — no
-`.nvim` file, the build cache included (an unsigned one is left as it is,
+`.lw/` file, the build cache included (an unsigned one is left as it is,
 §17.4) — and exits 0. Without the confirmation flag, import refuses in three cases: in a
 non-interactive host (§16.3), when its input is standard input (there is no
 terminal left to answer on), and when the answer is not yes. A refusal changes
@@ -4222,7 +4226,7 @@ workspace command does (§1.1). Outside one, it names workspace initialization.
 
 **Backup.** Before replacing an existing working copy, import keeps a byte-exact
 copy of it next to it, named with the import's local time:
-`.nvim/loomworks.user.json.<YYYYMMDD-HHMMSS>.bak`. The signature does not bind
+`.lw/user.json.<YYYYMMDD-HHMMSS>.bak`. The signature does not bind
 the file's name or the workspace root (§17.3), so copying the backup back over
 the working copy restores it on this machine. The report names the backup and
 gives that copy as the way to undo. If the backup cannot be written, the import
@@ -4283,7 +4287,7 @@ three places:
 `lw cleanup` and the host's last-use update (#122).*
 
 What a workspace's own operations produce lives **inside the workspace**, under
-`<root>/.nvim/`. Outside the workspace, `lw` keeps only the per-user state
+`<root>/.lw/`. Outside the workspace, `lw` keeps only the per-user state
 listed in this section. Every item is **bounded**, and every transient item an
 interrupted process can leave behind (a crash, a kill, a power loss) is
 **self-healing**: the next `lw` run removes it (housekeeping, below), and
@@ -4358,7 +4362,7 @@ versions left behind:
 | `<tmp>/lw-test-<hex>.xml` | when older than 24 hours |
 | `<tmp>/lw-describe-<hex>.txt` | when older than 7 days |
 
-These are exact regular files directly in a `.nvim` that is a real directory of the root; another slot's `loomworks.daemon-<S>.*` files are never among them.
+These are exact regular files directly in a `.nvim` that is a real directory of the root; another slot's `loomworks.daemon-<S>.*` files, and every other file of `.nvim/`, are never among them (§16.44 *Deletion*).
 
 **Legacy code directories.** Releases before self-contained executables kept
 their code in directories outside the executable. A self-contained host never
@@ -4377,21 +4381,21 @@ pinned host binary only when it is a regular file. Their use is read from
 their modification time (below); nothing marks a `<data>/lua-<ver>/`, so its
 age is that of its installation.
 
-**Inside the workspace.** The runtime log is `<root>/.nvim/loomworks.daemon-<S>.log`,
+**Inside the workspace.** The runtime log is `<root>/.lw/daemon-<S>.log`,
 with one rotated predecessor (§19.10). The results file of a named test
-executable (§16.16) is `<root>/.nvim/tmp/lw-test-<hex>.xml`, and the editor
-buffer of a description (§16.35) is `<root>/.nvim/tmp/lw-describe-<hex>.txt`.
-`.nvim/tmp/` is created when first needed (`.nvim/` only when the workspace
+executable (§16.16) is `<root>/.lw/tmp/lw-test-<hex>.xml`, and the editor
+buffer of a description (§16.35) is `<root>/.lw/tmp/lw-describe-<hex>.txt`.
+`.lw/tmp/` is created when first needed (`.lw/` only when the workspace
 root exists; the root itself is never created). Each file is removed after
 use. A leftover there is removed by housekeeping and by `lw cleanup` run in
 that workspace, after 24 hours (results) or 7 days (editor buffers). If
-`.nvim/tmp/` cannot be created, the file is made in `<tmp>` under the same
+`.lw/tmp/` cannot be created, the file is made in `<tmp>` under the same
 name, where a leftover is a legacy-location leftover.
 
 The runtime log is written only while it is lw's own: a regular file that is
 empty or starts with a runtime-log line, appended to through a descriptor
 checked to be the file `lstat` saw. A file at its name that is not (one a
-repository ships in `.nvim/`, say) is never written, rotated or removed, and
+repository ships in `.lw/`, say) is never written, rotated or removed, and
 an existing `.log.1` that is not lw's stops rotation (nothing more is
 written). The lines lost that way are only diagnostics; rewriting a file the
 repository owns would not be.
@@ -4425,7 +4429,7 @@ A command-line invocation removes leftovers at the start of its run:
   lw. A data directory without one (`LOOMWORKS_DATA_DIR` pointed at a home
   directory, say) is never scanned, and no stamp is written into it.
 - **What.** Exactly the leftovers in the tables above whose age has passed,
-  and the leftovers in the current workspace's `.nvim/tmp/`. Never a cached
+  and the leftovers in the current workspace's `.lw/tmp/`. Never a cached
   executable (only `lw cleanup --all` prunes them), never a legacy code
   directory (only `lw cleanup --legacy`), and never a legacy runtime log
   modified within 30 days.
@@ -4526,7 +4530,7 @@ Every removal by housekeeping and `lw cleanup` follows these rules:
    `<data>/pinned`, `<data>/pinned/<sha256>`,
    `<data>/modules`, `<data>/device-locks` (in its default location only),
    `<data>/daemon/logs`, `<tmp>`, the directory of `<exe>`, a `<run>`
-   directory, and `<root>/.nvim/tmp`. The directory must be a real directory
+   directory, and `<root>/.lw/tmp`. The directory must be a real directory
    (`lstat`: not a symbolic link or junction), and its resolved path must be
    the resolved location expected; below `<data>`, it must lie under the
    resolved `<data>` with a separator boundary.
@@ -4729,3 +4733,201 @@ only that cache write. Not covered by the fingerprint — and so needing
 the search path, or an upgrade in place that keeps the directory's
 modification time), and a module plugin upgraded without a change of its
 interface version.
+
+### 16.44 Workspace state directory `.lw/`
+
+*Status: implemented in 0.2.0. Releases before 0.2.0 keep the
+same state in `<root>/.nvim/` under the names of the **Legacy name** column
+below.*
+
+Everything `lw` keeps for one workspace lives in **`<root>/.lw/`**. The
+repository-root files — `loomworks.json` (§2), `lw.pin`, `lw.sh` and `lw.cmd`
+(§16.21) — stay at the root. From 0.2.0 on `.nvim/` holds nothing of lw's,
+and the editor plugin keeps no files of its own there either, so `.nvim/` is
+left to the editor and to whatever else a repository puts in it.
+
+**Layout.** Names inside `.lw/` carry no `loomworks.` prefix: the directory
+already says whose they are. The syntax of the normative files is
+[formats.md](../formats.md) §1.1.
+
+| `.lw/…` | What | Legacy name (`.nvim/…`) |
+|--|--|--|
+| `user.json` | working copy (§2.2) | `loomworks.user.json` |
+| `user.json.<YYYYMMDD-HHMMSS>.bak` | import backup (§16.39) | `loomworks.user.json.<…>.bak` |
+| `cache.json` | build cache (§2.3) | `loomworks.cache.json` |
+| `health.json` | health and suggestion cache (§16.31) | `loomworks.health.json` |
+| `txn.json`, `<file>.txn-<hex>` | commit journal and its staged files (§2.7) | `loomworks.txn.json`, … |
+| `<file>.lock` | file-save lock (F) of `user.json` and `cache.json` | `loomworks.user.json.lock`, … |
+| `op.lock` | workspace operation lock (O, §19.3) | `loomworks.op.lock` |
+| `daemon-<S>.json`, `.lock`, `.log`, `.log.1` | daemon handle, runtime lock, runtime log (§19) | `loomworks.daemon-<S>.*` |
+| `workspace.log`, `workspace.log.1` | workspace log (§16.7) | `loomworks.log`, `loomworks.log.1` |
+| `build/`, `build.nuke-<hex>` | default build directories (§8 `resolve_build_dir`) and a nuke in progress (§19.3) | `build/`, `build.nuke-<hex>` |
+| `cache/` | launcher cache (§16.22) and module-owned areas such as the language-server database (§4.6) | `cache/` |
+| `tmp/` | per-run files (§16.40) | `tmp/` |
+| `migrated.json` | migration marker (below) | — |
+| `local` | **reserved** for the local run-mode setting ([#159](https://github.com/samienne/loomworks/issues/159)) | — |
+| `.gitignore` | the self-ignore file (below) | — |
+
+Per-run files that a test unit writes inside a **build directory** move the
+same way: `<build dir>/.lw/` replaces `<build dir>/.nvim/`. These are the
+test-result files — `gtest_results.xml` and the saved-target results
+`saved_<…>_results.xml` — and any other per-run file a test unit keeps there;
+files an earlier release left in `<build dir>/.nvim/` are neither read nor
+removed.
+
+A workspace marker (§1.1) is `loomworks.json`, `.lw/user.json`, or — so that
+a workspace of an earlier release is found and migrated —
+`.nvim/loomworks.user.json`.
+
+**Self-ignore.** Whenever `lw` or a launcher creates `.lw/`, and whenever `lw`
+finds `.lw/` without one, it writes `.lw/.gitignore` holding a comment line
+and the single pattern `*`. Git then ignores the whole directory, that file
+included, on every checkout where `.lw/` exists, without a line in the
+repository's own ignore files. An existing `.lw/.gitignore` is never
+rewritten. A repository may still ignore `.lw/` itself; `lw` never adds a
+line for `.lw/` to the repository's ignore files (§16.24 *Ignore rule*).
+
+**Launchers.** The 0.2.0 launcher generation caches the pinned binary in
+`.lw/cache/` for a pin of 0.2.0 or later and in `.nvim/cache/` for a pin
+below 0.2.0 — the same version split as its download origin (§16.22) — so a
+release before 0.2.0 still finds its own binary where it expects it.
+Launchers written by earlier releases are committed files in users'
+repositories and keep working unchanged: they cache in `.nvim/cache/`, and a
+0.2.0+ host they run treats that location as a launcher cache as well (it
+never self-updates, or suggests as an installation, a binary in either). The
+**launcher cache** that pin management and health check (§16.24, §16.31
+provider #4) is the one the launchers present use for the pin: `.lw/cache/`
+for the current generation with a 0.2.0+ pin, `.nvim/cache/` otherwise.
+With mixed generations (one launcher regenerated, the other not) each
+launcher caches where its own generation does, so the binary may be in both;
+the launcher cache checked is then `.nvim/cache/` (its ignore rule must be
+committed, and it is not pruned), until `lw bootstrap install` makes both
+current. Only
+`.lw/cache/` is pruned; old binaries in `.nvim/cache/` are reported as
+informational, to be removed by hand (*Deletion*, below). For `.lw/cache/` the ignore check is satisfied by the self-ignore
+file as well as by a committed rule, since every checkout's launcher writes
+that file before it downloads anything. `lw bootstrap install` replaces
+launchers of a known earlier generation as before (§16.24); after that
+`.nvim/cache/` is no longer a launcher cache and is not pruned (*Deletion*,
+below): the status page reports its leftover binaries as informational, to be
+removed by hand.
+
+**Migration from `.nvim/`.** The first 0.2.0+ host that loads a workspace
+whose `.lw/` holds neither a working copy nor a marker, and whose `.nvim/`
+holds a working copy (a regular file, `lstat`), migrates it before reading
+any state. `lw init` in such a workspace migrates (or refuses) the same way
+first and then reports the workspace as existing — it never creates a fresh
+working copy beside the legacy one. A command that loads no workspace
+(`lw bootstrap`, `lw help`) migrates nothing.
+
+1. **Older lw at work.** If a legacy runtime lock
+   (`.nvim/loomworks.daemon-<S>.lock` of any slot, or the pre-slot
+   `.nvim/loomworks.daemon.lock`) or the legacy operation lock
+   `.nvim/loomworks.op.lock` has a live or hung holder (§6.1 of
+   [formats.md](../formats.md)), nothing is migrated and the command fails,
+   naming the holder: "lw: lw `<version>` (pid N on HOST) is using this
+   workspace's .nvim/ state — stop it or let it finish, then retry". A live
+   legacy daemon is not stopped automatically; `lw daemon stop` stops one of
+   this slot (the pre-slot lock or `.nvim/loomworks.daemon-<S>.lock`) as it
+   stops a daemon of an earlier lw (§19.6 *Legacy files*); another slot's is
+   stopped by its own user.
+2. **Exclusion.** The host takes `.lw/op.lock` and then the legacy
+   `.nvim/loomworks.op.lock` (an older lw honours the legacy one for every
+   multi-file operation), and re-checks the condition under them. A second
+   0.2.0+ process finds `.lw/op.lock` held, waits as for any operation, and
+   then finds the migration done.
+3. **Interrupted legacy commit.** A legacy journal `.nvim/loomworks.txn.json`
+   is left to the older lw that wrote it: nothing is copied and the command
+   fails — "lw: an older lw left an unfinished commit in .nvim/
+   (.nvim/loomworks.txn.json) — run that older lw once in this workspace so it
+   completes it, then retry".
+4. **Copy.** The legacy working copy is copied **byte for byte** to a
+   temporary name in `.lw/` (`user.json.migrate-<hex>`), flushed, its SHA-256
+   compared with that of the bytes read, and given the name `user.json` only
+   if that name is still absent (an atomic create-if-absent, as for lock files,
+   formats.md §6.1). Where hard links are unavailable the final name is
+   created exclusively and written instead — not atomic — and its bytes are
+   verified again. The signature binds neither the path nor the workspace
+   root (formats.md §2.2), so the copy is valid, unsigned or invalid exactly
+   as the original was, and the ordinary trust handling (§17.4) applies to it
+   in `.lw/`.
+5. **Commit point.** The marker `.lw/migrated.json` (formats.md §10) is
+   written atomically, last. Until it exists the migration has not happened.
+6. **Report.** One line: "lw: this workspace's state is now in .lw/ (working
+   copy copied from .nvim/, which is left as it was for older lw versions;
+   builds now go to .lw/build/)".
+
+Only the working copy is migrated. The build cache, health cache, backups,
+logs, locks, daemon files, `tmp/`, `cache/` and `build/` are not: caches and
+logs are rebuilt, and build directories start fresh under `.lw/build/`
+(below). A build directory outside `.nvim/build/` (a module's own location,
+§8) keeps its tree: with no build-cache entry it reads as unconfigured and
+reconfigures into the existing directory (§17.4).
+
+**Crash safety.** Each step leaves a state the next run recognizes. Before
+step 4 completes, `.lw/` holds at most locks and a temporary copy, which is a
+leftover removed by its exact name (by the next run, or, when its removal
+failed after the copy, by any later load once the marker exists: a run makes
+temporary copies only before the marker and removes its own before writing
+it). Between steps 4 and 5, `.lw/user.json` exists without a marker: the next
+run, under the locks of step 2, finishes only when that file is
+byte-identical (SHA-256) to the legacy working copy, writing the marker with
+that hash as `source_sha256`. Otherwise — a partial file of the non-atomic
+fallback, an older lw that saved in between, or a file put there by hand —
+it never copies over it and the command fails: "lw: .lw/user.json exists
+but differs from .nvim/loomworks.user.json and the copy was never finished
+(no .lw/migrated.json): an interrupted copy, or a file put there by hand. To
+copy .nvim/loomworks.user.json anew, move .lw/user.json out of .lw/ and
+retry; to keep .lw/user.json instead, copy it over .nvim/loomworks.user.json
+and retry". A marker path that exists but is not a
+regular file (`lstat`) stops the command: "lw: .lw/migrated.json is not a
+regular file — remove it, then retry".
+
+There is no migration command: migration only ever runs automatically, as
+above. Where it cannot proceed, the command fails with an error that says
+what to do — normally to stop the older lw it names and retry (step 1).
+
+**After migration.** A 0.2.0+ host reads and writes only `.lw/`. The legacy
+`.nvim/` stays exactly as it was, so a repository whose pin moves back to a
+release before 0.2.0 finds its state there. When such a release has changed
+`.nvim/loomworks.user.json` since the migration (its SHA-256 no longer equals
+the marker's `source_sha256`), a 0.2.0+ host still uses `.lw/`, and health
+reports it as actionable, with the manual way out as its fix:
+"`.nvim/loomworks.user.json` changed after it was copied to `.lw/` (an older
+lw ran here); lw 0.2.0 and later keep using `.lw/user.json`. To take the
+older copy instead, stop the older lw, move `.lw/user.json` and
+`.lw/migrated.json` out of `.lw/`, and run lw again: it copies
+`.nvim/loomworks.user.json` anew". lw itself never replaces or removes
+`.lw/user.json` or the marker for this.
+
+A workspace created by 0.2.0+ (`lw init`) has no `.nvim/` state and no
+marker. A working-copy pull or worktree seed (§16.25) reads the source
+checkout's `.lw/user.json`, or, while the source is not migrated, its legacy
+working copy, without migrating the source; the target is always written in
+`.lw/`.
+
+**Build directories.** The default build directory is
+`{workspace_root}/.lw/build/{project}/{config}` (§8). Build trees under
+`.nvim/build/` are neither moved — a configured CMake or Meson tree records
+its absolute location and cannot be relocated — nor deleted, since a pin moved
+back to a release before 0.2.0 still uses them. The first build of a
+configuration after migration configures and builds it afresh under
+`.lw/build/`. Health reports the legacy tree (informational): "`.nvim/build/`
+holds build trees lw 0.2.0 and later no longer use — remove it by hand once
+no older lw is pinned here". `lw nuke` removes `.lw/build/` only (§19.3).
+
+**Deletion.** No 0.2.0+ host deletes anything under `.nvim/`, with exactly one
+exception: the stale pre-slot daemon files of §16.40 *Legacy locations*, by
+their exact names, under the rules stated there (a regular file directly in a
+`.nvim` that is a real directory of the root, `lstat`, never through a link
+or junction, paths compared separator-bounded as in §15 invariant 3). In
+particular the legacy working copy and its backups, the legacy build and
+health caches, the slot daemon files, `.nvim/build/`, `.nvim/cache/` and
+`.nvim/tmp/` are never removed by lw; nor is a temporary migration copy left
+in `.nvim/` (none is made there). Every deletion scope that named `.nvim/`
+before 0.2.0 — nuke and its `build.nuke-<hex>` leftover, housekeeping's
+`tmp/`, the owned language-server database area, the launcher-cache prune,
+`lw trust --discard` — names `.lw/` instead, under the same rules, and needs
+the deletion-safety review again when implemented. The temporary copy of
+step 4 is removed only as a regular file named exactly
+`user.json.migrate-<hex>` directly in `.lw/`.

@@ -52,7 +52,7 @@ end
 local function state_of(root, key_path)
     local out = {}
     for _, f in ipairs({ "cache", "user" }) do
-        local text = read(root .. "/.nvim/loomworks." .. f .. ".json")
+        local text = read(root .. "/.lw/loomworks." .. f .. ".json")
         if text then
             trust._set_key_path(key_path)
             local status, body = trust.verify(f, text)
@@ -112,7 +112,7 @@ describe("read-only commands on the projection (§19.13, §19.14)", function()
     local function workspace()
         local root = H.tmp()
         roots[#roots + 1] = root
-        for _, d in ipairs({ "app", "lib", ".nvim" }) do vim.fn.mkdir(root .. "/" .. d, "p") end
+        for _, d in ipairs({ "app", "lib", ".lw" }) do vim.fn.mkdir(root .. "/" .. d, "p") end
         local step = root .. "/step.lua"
         write(step, H.STEP)
         local nv = (vim.v.progpath:gsub("\\", "/"))

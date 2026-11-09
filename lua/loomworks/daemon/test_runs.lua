@@ -29,7 +29,7 @@
 --- nodes are combined into one filtered invocation where its TestUnit
 --- filters (a gtest program), else it runs whole. Each step's command is the
 --- TestUnit's structured harness (`test_command` through the owning unit)
---- with its own results file `<root>/.nvim/tmp/lw-test-<hex>.xml` (removed
+--- with its own results file `<root>/.lw/tmp/lw-test-<hex>.xml` (removed
 --- once parsed). Run-all (no `select`) runs every runnable
 --- top-level node of every covered unit, each its own step (never a
 --- TestUnit's `test_command_all`).

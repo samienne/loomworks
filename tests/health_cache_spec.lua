@@ -26,8 +26,8 @@ local function mem_io()
 end
 
 describe("health_cache path", function()
-    it("sits beside the build cache under .nvim/", function()
-        assert.equals("/root/.nvim/loomworks.health.json", health_cache.path("/root"))
+    it("sits beside the build cache under .lw/", function()
+        assert.equals("/root/.lw/health.json", health_cache.path("/root"))
     end)
 end)
 

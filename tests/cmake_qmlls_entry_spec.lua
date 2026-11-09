@@ -43,7 +43,7 @@ describe("cmake lsp_configs qmlls entry", function()
 
     it("emits a qmlls entry as the second config", function()
         local cfgs = cmake.lsp_configs(fake_project({
-            build_dir = "/work/.nvim/build/myapp/Debug",
+            build_dir = "/work/.lw/build/myapp/Debug",
         }))
         assert.equals(2, #cfgs)
         assert.equals("clangd", cfgs[1].server)
@@ -52,23 +52,23 @@ describe("cmake lsp_configs qmlls entry", function()
 
     it("carries the active profile build_dir and project root_dir", function()
         local cfgs = cmake.lsp_configs(fake_project({
-            build_dir = "/work/.nvim/build/myapp/Debug",
+            build_dir = "/work/.lw/build/myapp/Debug",
         }))
         local q = cfgs[2]
-        assert.equals("/work/.nvim/build/myapp/Debug", q.build_dir)
+        assert.equals("/work/.lw/build/myapp/Debug", q.build_dir)
         assert.equals("/work/myapp", q.root_dir)
         -- clangd now routes through the loomworks-owned generated DB dir for
         -- every cmake generator (cmake.md §12), so it no longer equals the
         -- qmlls build dir; qmlls still resolves against the real build dir.
         assert.are_not.equal(q.build_dir, cfgs[1].compile_commands_dir)
-        assert.is_truthy(cfgs[1].compile_commands_dir:find("/.nvim/cache/cc/", 1, true))
+        assert.is_truthy(cfgs[1].compile_commands_dir:find("/.lw/cache/cc/", 1, true))
     end)
 
     it("qmlls keeps the project.cached.build_dir fallback without an active profile", function()
         local cfgs = cmake.lsp_configs(fake_project({
-            cached = { build_dir = "/work/.nvim/build/myapp/Cached" },
+            cached = { build_dir = "/work/.lw/build/myapp/Cached" },
         }))
-        assert.equals("/work/.nvim/build/myapp/Cached", cfgs[2].build_dir)
+        assert.equals("/work/.lw/build/myapp/Cached", cfgs[2].build_dir)
         -- clangd never gets a database without a unit configured here (§9.1).
         assert.is_nil(cfgs[1].compile_commands_dir)
         assert.equals("unconfigured", cfgs[1].db_state)
@@ -93,8 +93,8 @@ describe("cmake lsp_configs qmlls entry", function()
     end)
 
     it("clangd's db_dir is the active build dir without a redirect", function()
-        local cfgs = cmake.lsp_configs(fake_project({ build_dir = "/work/.nvim/build/myapp/Debug" }))
-        assert.equals("/work/.nvim/build/myapp/Debug", cfgs[1].db_dir)
+        local cfgs = cmake.lsp_configs(fake_project({ build_dir = "/work/.lw/build/myapp/Debug" }))
+        assert.equals("/work/.lw/build/myapp/Debug", cfgs[1].db_dir)
     end)
 
     it("core's state keeps qmlls's own build_dir (its -b) under a redirect", function()

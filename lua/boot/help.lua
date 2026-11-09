@@ -192,9 +192,11 @@ plus that of the release bundle when the release publishes one - a release from
 before self-contained executables needs it, and a global lw older than
 0.2.0-beta.3 cannot follow a pin without it), lw.sh and lw.cmd, and the
 repository metadata:
-  .gitignore      .nvim/cache/ ignored - appended unless a committed rule of the
-                  repo already covers it (your personal gitignore does not
-                  count: teammates and CI do not have it)
+  .gitignore      for a pin below 0.2.0, .nvim/cache/ ignored - appended
+                  unless a committed rule of the repo already covers it (your
+                  personal gitignore does not count: teammates and CI do not
+                  have it). A 0.2.0+ pin caches in .lw/cache/, and .lw/
+                  ignores itself (.lw/.gitignore): nothing is appended
   .gitattributes  lw.sh and lw.pin `text eol=lf`, lw.cmd `text eol=crlf`,
                   appended when missing
   exec bit        in a git repo that does not track file modes (Windows), lw.sh
@@ -202,13 +204,15 @@ repository metadata:
                   stages; commit the rest yourself
 It reports only what it changed (`lw.pin already at X - no changes` when
 nothing did, `lw.pin kept at X` when only other files changed), names the old
-pinned lw binaries it removes from .nvim/cache/, and ends with the `git add ...
+pinned lw binaries it removes from .lw/cache/ (never from .nvim/cache/), and
+ends with the `git add ...
 && git commit` for the files it wrote. It never commits.
 
 Which launcher: `./lw.sh <cmd>` in a POSIX shell - Linux, macOS, and Git Bash /
 MSYS2 on Windows; `.\lw.cmd <cmd>` in cmd.exe or PowerShell (the `.\` matters: a
 bare `lw.cmd` can run another lw.cmd found on PATH). The launcher downloads the
-pinned lw binary into .nvim/cache/ (quietly, retrying a failed download up to
+pinned lw binary into .lw/cache/ (.nvim/cache/ for a pin below 0.2.0; quietly,
+retrying a failed download up to
 3 times), verifies its sha256 against the pin, and runs it - a self-contained release
 needs nothing more; an older one provisions (downloads + verifies) its bundle
 into your per-user data dir, never into the repository. So a clean checkout goes from `./lw.sh build`

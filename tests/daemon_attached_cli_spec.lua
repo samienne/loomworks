@@ -45,7 +45,7 @@ local function norm(s, root) return unroot((s:gsub("\r\n", "\n")), root) end
 
 --- The persisted build state, comparable across roots.
 local function cache_of(root, key_path)
-    local text = read(root .. "/.nvim/loomworks.cache.json")
+    local text = read(root .. "/.lw/cache.json")
     if not text then return nil end
     trust._set_key_path(key_path)
     local status, body = trust.verify("cache", text)
@@ -72,7 +72,7 @@ local function count(s, pat) local _, n = s:gsub(vim.pesc(pat), ""); return n en
 --- slot, §19.7.1: the program runs as the same user) exists.
 local PROG = [[
 local root = arg[1]
-local held = vim.uv.fs_stat(root .. "/.nvim/]] .. require("loomworks.daemon.paths").slot_base() .. [[.lock") ~= nil
+local held = vim.uv.fs_stat(root .. "/.lw/]] .. require("loomworks.daemon.paths").slot_base() .. [[.lock") ~= nil
 io.write("prog LOCK=" .. (held and "held" or "free") .. string.char(10))
 ]]
 
@@ -90,7 +90,7 @@ describe("lw attached runs in runtime-mode daemon (real processes)", function()
             { env = { vars = vim.tbl_extend("force", env.vars, { LOOMWORKS_RUNTIME = "in-process" }),
                 data = env.data, config = env.config }, cwd = root })
         assert.equals(0, r.code, r.stderr)
-        local upath = root .. "/.nvim/loomworks.user.json"
+        local upath = root .. "/.lw/user.json"
         trust._set_key_path(env.data .. "/trust.key")
         local status, body = trust.verify("user", read(upath))
         assert.equals("valid", status)
@@ -319,8 +319,8 @@ describe("lw attached runs in runtime-mode daemon (real processes)", function()
     -- The workspace files' modification times (cache, working copy).
     local function mtimes(root)
         local t = {}
-        for _, f in ipairs({ "loomworks.cache.json", "loomworks.user.json" }) do
-            local st = uv.fs_stat(root .. "/.nvim/" .. f)
+        for _, f in ipairs({ "cache.json", "user.json" }) do
+            local st = uv.fs_stat(root .. "/.lw/" .. f)
             t[f] = st and (st.mtime.sec .. "." .. st.mtime.nsec) or "absent"
         end
         return t

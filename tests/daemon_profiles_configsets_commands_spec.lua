@@ -29,7 +29,7 @@ end
 
 --- The decoded working copy (its signature stripped).
 local function working_copy(root)
-    local _, content = trust.verify("user", read(root .. "/.nvim/loomworks.user.json"))
+    local _, content = trust.verify("user", read(root .. "/.lw/user.json"))
     return vim.json.decode(content)
 end
 
@@ -185,13 +185,13 @@ describe("loomworks.Profiles/1 and ConfigSets/1 commands (step 5o part B2)", fun
         assert.same({ id = id_of(cs), key = "Auto" }, r.config_set)
         assert.equals("Debug", working_copy(root).configuration_sets.Auto.app)
 
-        local before = read(root .. "/.nvim/loomworks.user.json")
+        local before = read(root .. "/.lw/user.json")
         for _, token in ipairs({ auto.candidate, "auto:nope" }) do
             r = sets("add", { candidate = token })
             assert.equals("refused", r.outcome, vim.inspect(r))
             assert.equals("the automatic configuration set changed since it was listed — choose it again", r.message)
         end
-        assert.equals(before, read(root .. "/.nvim/loomworks.user.json"))
+        assert.equals(before, read(root .. "/.lw/user.json"))
     end)
 
     it("a mapping by id resolves; another project's configuration and a project mapped twice are refused",
@@ -204,7 +204,7 @@ describe("loomworks.Profiles/1 and ConfigSets/1 commands (step 5o part B2)", fun
         assert.equals("ok", r.outcome, vim.inspect(r))
         assert.equals(debug, find(ws._config_sets, "name", "byid"):configuration(app))
 
-        local before = read(root .. "/.nvim/loomworks.user.json")
+        local before = read(root .. "/.lw/user.json")
         -- A configuration of another project, by id.
         local other = { key = "other", _removed = false }
         local foreign = { _project = other, name = "Foreign" }
@@ -220,7 +220,7 @@ describe("loomworks.Profiles/1 and ConfigSets/1 commands (step 5o part B2)", fun
             { project = { id = id_of(app) }, configuration = { key = "Debug" } } } })
         assert.equals("refused", r.outcome, vim.inspect(r))
         assert.equals("project 'app' is mapped twice", r.message)
-        assert.equals(before, read(root .. "/.nvim/loomworks.user.json"))
+        assert.equals(before, read(root .. "/.lw/user.json"))
     end)
 
     it("create whose profile save fails after a candidate set was added returns the set, with a warn", function()
@@ -296,11 +296,11 @@ describe("loomworks.Profiles/1 and ConfigSets/1 commands (step 5o part B2)", fun
             function P.match_version() return true end
             return P
         end
-        local _, content = trust.verify("user", read(root .. "/.nvim/loomworks.user.json"))
+        local _, content = trust.verify("user", read(root .. "/.lw/user.json"))
         local user = vim.json.decode(content)
         user.sdks = { ["fake_tc-1"] = { type = "fake_tc", path = root } }
         local signed = trust.sign("user", trust.encode(user))
-        local f = assert(io.open(root .. "/.nvim/loomworks.user.json", "wb"))
+        local f = assert(io.open(root .. "/.lw/user.json", "wb"))
         f:write(signed); f:close()
     end
 
@@ -422,14 +422,14 @@ describe("loomworks.Profiles/1 and ConfigSets/1 commands (step 5o part B2)", fun
         assert.equals(id, id_of(dev))
         assert.is_nil(op_lock.read(root), "O left behind")
 
-        local before = read(root .. "/.nvim/loomworks.user.json")
+        local before = read(root .. "/.lw/user.json")
         local key = dev.key
         local h = L.hold(op_lock.path(root), "import")
         r = profiles("remove_tool", { profile = { id = id }, tool = "gcc-x" })
         assert.equals("refused", r.outcome, vim.inspect(r))
         assert.matches("pid " .. h.pid, r.message, 1, true)
         assert.equals(key, dev.key)
-        assert.equals(before, read(root .. "/.nvim/loomworks.user.json"))
+        assert.equals(before, read(root .. "/.lw/user.json"))
         L.cleanup()
 
         r = profiles("remove_tool", { profile = { id = id }, tool = "gcc-x" })
@@ -448,13 +448,13 @@ describe("loomworks.Profiles/1 and ConfigSets/1 commands (step 5o part B2)", fun
         assert.is_not_nil(find(ws._profiles, "_configuration_set_name", "main"))
         assert.is_nil(op_lock.read(root), "O left behind")
 
-        local before = read(root .. "/.nvim/loomworks.user.json")
+        local before = read(root .. "/.lw/user.json")
         local h = L.hold(op_lock.path(root), "import")
         r = sets("update", { config_set = { id = id }, name = "other", mappings = { { project = { key = "app" }, configuration = { key = "Debug" } } } })
         assert.equals("refused", r.outcome, vim.inspect(r))
         assert.matches("pid " .. h.pid, r.message, 1, true)
         assert.equals("main", cs.name)
-        assert.equals(before, read(root .. "/.nvim/loomworks.user.json"))
+        assert.equals(before, read(root .. "/.lw/user.json"))
         L.cleanup()
 
         r = sets("remove", { config_set = { key = "main" } })
@@ -498,7 +498,7 @@ describe("loomworks.Profiles/1 and ConfigSets/1 commands (step 5o part B2)", fun
 
     it("a stale id, an unknown key and an unknown mapping are refused and change nothing", function()
         loaded()
-        local before = read(root .. "/.nvim/loomworks.user.json")
+        local before = read(root .. "/.lw/user.json")
         local r = profiles("set_active", { profile = { id = "999.999" } })
         assert.equals("refused", r.outcome, vim.inspect(r))
         assert.equals("no profile with id 999.999 (a stale reference)", r.message)
@@ -514,6 +514,6 @@ describe("loomworks.Profiles/1 and ConfigSets/1 commands (step 5o part B2)", fun
         assert.equals("no configuration 'Nope' in project 'app'", r.message)
         local _, e = profiles("add_tool", { profile = { key = "dev" } })
         assert.equals("invalid_args", e and e.code, vim.inspect(e))
-        assert.equals(before, read(root .. "/.nvim/loomworks.user.json"))
+        assert.equals(before, read(root .. "/.lw/user.json"))
     end)
 end)

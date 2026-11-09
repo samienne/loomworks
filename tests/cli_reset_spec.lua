@@ -112,7 +112,7 @@ describe("lw reset (on-disk)", function()
   it("removes the profile's build dir and drops the unit to unconfigured", function()
     local root = make_ws()
     local ws, profile = load(root)
-    local dir = root .. "/.nvim/build/App/Debug"
+    local dir = root .. "/.lw/build/App/Debug"
     local unit = fake_build_dir(ws, profile, dir)
     assert.is_not_nil(uv.fs_stat(dir), "precondition: build dir exists")
 
@@ -142,9 +142,9 @@ describe("lw reset (on-disk)", function()
     -- runner tempname() is an 8.3 short path, ws.root its long form), and the
     -- module maps a build dir to its mirror relative to ws.root.
     local root = ws.root
-    local dir = root .. "/.nvim/build/App/Debug"
+    local dir = root .. "/.lw/build/App/Debug"
     fake_build_dir(ws, profile, dir)
-    local mirror = root .. "/.nvim/cache/cc/App/Debug"
+    local mirror = root .. "/.lw/cache/cc/App/Debug"
     vim.fn.mkdir(mirror, "p")
     local mf = assert(io.open(mirror .. "/compile_commands.json", "w")); mf:write("[]"); mf:close()
     -- The module (typescript here) owns no database: stand in a cmake-like one.
@@ -163,18 +163,18 @@ describe("lw reset (on-disk)", function()
     assert.is_truthy(r.stdout:find(mirror, 1, true), r.stdout)
     assert.is_true(vim.wait(5000, function() return uv.fs_stat(mirror) == nil end, 20),
       "mirror must be removed with its build dir")
-    assert.is_not_nil(uv.fs_stat(root .. "/.nvim/cache/cc"), "the area itself stays")
+    assert.is_not_nil(uv.fs_stat(root .. "/.lw/cache/cc"), "the area itself stays")
   end)
 
   it("--all removes every build dir including orphaned ones", function()
     local root = make_ws()
     local ws, profile = load(root)
-    local prof_dir = root .. "/.nvim/build/App/Debug"
+    local prof_dir = root .. "/.lw/build/App/Debug"
     local unit = fake_build_dir(ws, profile, prof_dir)
 
     -- An orphaned build dir: cached state that no ConfigUnit references.
     local BuildDir = require("loomworks.build_dir")
-    local orphan_dir = root .. "/.nvim/build/orphan"
+    local orphan_dir = root .. "/.lw/build/orphan"
     vim.fn.mkdir(orphan_dir, "p")
     local of = assert(io.open(orphan_dir .. "/marker.txt", "w")); of:write("x"); of:close()
     table.insert(ws._build_dirs, BuildDir.new("build/orphan", orphan_dir, {
@@ -198,7 +198,7 @@ describe("lw reset (on-disk)", function()
   it("non-interactive without -y refuses and removes nothing", function()
     local root = make_ws()
     local ws, profile = load(root)
-    local dir = root .. "/.nvim/build/App/Debug"
+    local dir = root .. "/.lw/build/App/Debug"
     local unit = fake_build_dir(ws, profile, dir)
 
     -- Under `nvim --headless` stdin is not a tty → interactive() is false, so a
@@ -219,7 +219,7 @@ describe("lw reset (on-disk)", function()
     function()
     local root = make_ws()
     local ws, profile = load(root)
-    local dir = root .. "/.nvim/build/App/Debug"
+    local dir = root .. "/.lw/build/App/Debug"
     local unit = fake_build_dir(ws, profile, dir)
     local token = require("loomworks.reset_plan").plan(ws, { profile = profile }).token
 
@@ -262,7 +262,7 @@ describe("lw reset (on-disk)", function()
     -- without deleting, and shrinking the verify budget so the test is fast.
     local root = make_ws()
     local ws, profile = load(root)
-    local dir = root .. "/.nvim/build/App/Debug"
+    local dir = root .. "/.lw/build/App/Debug"
     fake_build_dir(ws, profile, dir)
 
     local future = require("loomworks.future")
@@ -289,7 +289,7 @@ describe("lw reset (on-disk)", function()
     -- loop must wait for genuine absence and then report success — not fail.
     local root = make_ws()
     local ws, profile = load(root)
-    local dir = root .. "/.nvim/build/App/Debug"
+    local dir = root .. "/.lw/build/App/Debug"
     fake_build_dir(ws, profile, dir)
     io_mod.rm_rf_async = function(d, cb)
       vim.defer_fn(function() vim.fn.delete(d, "rf") end, 150) -- vanishes later
@@ -311,7 +311,7 @@ describe("lw reset (on-disk)", function()
     -- alive (the real-CI symptom was the runner hanging ~30s post-suite).
     local root = make_ws()
     local ws, profile = load(root)
-    local dir = root .. "/.nvim/build/App/Debug"
+    local dir = root .. "/.lw/build/App/Debug"
     fake_build_dir(ws, profile, dir)
 
     local before = active_handles()
@@ -341,7 +341,7 @@ describe("lw reset (on-disk)", function()
     -- rather than remove a directory the user was not shown.
     local root = make_ws()
     local ws, profile = load(root)
-    local dir = root .. "/.nvim/build/App/Debug"
+    local dir = root .. "/.lw/build/App/Debug"
     local unit = fake_build_dir(ws, profile, dir)
     vim.fn.delete(dir, "rf")
     assert.is_nil(uv.fs_stat(dir), "precondition: the dir is gone")
@@ -403,7 +403,7 @@ describe("lw reset (on-disk)", function()
       state = "built", project_key = "Gone", config_key = "Gone",
       variant = "Gone", type = "typescript", build_dir = outside,
     }))
-    local inside = root .. "/.nvim/build/orphan"
+    local inside = root .. "/.lw/build/orphan"
     vim.fn.mkdir(inside, "p")
     table.insert(ws._build_dirs, BuildDir.new("build/orphan", inside, {
       state = "built", project_key = "Gone2", config_key = "Gone2",

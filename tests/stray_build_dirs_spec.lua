@@ -3,7 +3,7 @@
 -- (long name + real case), but a ConfigUnit's build dir can be recorded in a
 -- different spelling of the same location — on a Windows runner the temp dir is
 -- an 8.3 short path (`C:\Users\RUNNER~1\...`). A string comparison then misses
--- the live build dir `App/Debug` below `.nvim/build/App`, reports `App` as a
+-- the live build dir `App/Debug` below `.lw/build/App`, reports `App` as a
 -- stray directory, and orphan cleanup would DELETE a live build dir.
 --
 -- Two layers: a real 8.3 short-name reproduction (Windows with 8.3 name
@@ -100,12 +100,12 @@ describe("find_stray_build_dirs: directory identity, not spelling", function()
     local ws, profile = make_ws(long)
     -- The live build dir is recorded in the SHORT spelling (as a runner's
     -- tempname()-derived path would be); ws.root is the canonical LONG form.
-    live_build_dir(ws, profile, short .. "/.nvim/build/App/Debug", long .. "/.nvim/build/App/Debug")
-    vim.fn.mkdir(long .. "/.nvim/build/Old", "p")
+    live_build_dir(ws, profile, short .. "/.lw/build/App/Debug", long .. "/.lw/build/App/Debug")
+    vim.fn.mkdir(long .. "/.lw/build/Old", "p")
 
     local stray = ws:find_stray_build_dirs()
     assert.equals(1, #stray, vim.inspect(stray))
-    assert.is_truthy(stray[1]:lower():find("/%.nvim/build/old$"), vim.inspect(stray))
+    assert.is_truthy(stray[1]:lower():find("/%.lw/build/old$"), vim.inspect(stray))
   end)
 
   describe("deterministic (injected realpath)", function()
@@ -127,51 +127,51 @@ describe("find_stray_build_dirs: directory identity, not spelling", function()
         end
         return real(p)
       end
-      live_build_dir(ws, profile, alias .. "/.nvim/build/App/Debug", root .. "/.nvim/build/App/Debug")
-      vim.fn.mkdir(root .. "/.nvim/build/Old/x", "p")
+      live_build_dir(ws, profile, alias .. "/.lw/build/App/Debug", root .. "/.lw/build/App/Debug")
+      vim.fn.mkdir(root .. "/.lw/build/Old/x", "p")
     end)
 
     it("reports only the genuinely stray dir", function()
       local stray = ws:find_stray_build_dirs()
       assert.equals(1, #stray, vim.inspect(stray))
-      assert.is_truthy(stray[1]:lower():find("/%.nvim/build/old$"), vim.inspect(stray))
+      assert.is_truthy(stray[1]:lower():find("/%.lw/build/old$"), vim.inspect(stray))
     end)
 
     it("refuses to delete a 'stray' dir that contains a live build dir", function()
-      local r = delete(ws, { stray_dir = root .. "/.nvim/build/App" })
+      local r = delete(ws, { stray_dir = root .. "/.lw/build/App" })
       assert.equals("refused", r.outcome)
       assert.is_truthy(r.message)
-      assert.is_not_nil(uv.fs_stat(root .. "/.nvim/build/App/Debug/marker.txt"))
+      assert.is_not_nil(uv.fs_stat(root .. "/.lw/build/App/Debug/marker.txt"))
     end)
 
     it("orphan cleanup skips a listed dir that contains a live build dir", function()
-      cleanup_list(ws, {}, { root .. "/.nvim/build/App" })
-      assert.is_not_nil(uv.fs_stat(root .. "/.nvim/build/App/Debug/marker.txt"))
+      cleanup_list(ws, {}, { root .. "/.lw/build/App" })
+      assert.is_not_nil(uv.fs_stat(root .. "/.lw/build/App/Debug/marker.txt"))
     end)
 
     it("orphan cleanup keeps an orphaned entry's dir that is a live build dir", function()
-      local orphan = { project_key = "Gone", config_key = "Debug", build_dir = root .. "/.nvim/build/App/Debug" }
+      local orphan = { project_key = "Gone", config_key = "Debug", build_dir = root .. "/.lw/build/App/Debug" }
       cleanup_list(ws, { orphan }, {})
-      assert.is_not_nil(uv.fs_stat(root .. "/.nvim/build/App/Debug/marker.txt"))
+      assert.is_not_nil(uv.fs_stat(root .. "/.lw/build/App/Debug/marker.txt"))
     end)
 
     it("still deletes a genuinely stray dir", function()
       local r = delete(ws, { orphans = true })
       assert.equals("ok", r.outcome, r.message)
-      assert.is_true(vim.wait(5000, function() return uv.fs_stat(root .. "/.nvim/build/Old") == nil end, 20))
-      assert.is_not_nil(uv.fs_stat(root .. "/.nvim/build/App/Debug/marker.txt"))
+      assert.is_true(vim.wait(5000, function() return uv.fs_stat(root .. "/.lw/build/Old") == nil end, 20))
+      assert.is_not_nil(uv.fs_stat(root .. "/.lw/build/App/Debug/marker.txt"))
     end)
 
-    it("refuses to delete a dir lying inside a live build dir under .nvim/build", function()
-      vim.fn.mkdir(root .. "/.nvim/build/App/Debug/sub", "p")
-      local r = delete(ws, { stray_dir = root .. "/.nvim/build/App/Debug/sub" })
+    it("refuses to delete a dir lying inside a live build dir under .lw/build", function()
+      vim.fn.mkdir(root .. "/.lw/build/App/Debug/sub", "p")
+      local r = delete(ws, { stray_dir = root .. "/.lw/build/App/Debug/sub" })
       assert.equals("refused", r.outcome)
-      assert.is_not_nil(uv.fs_stat(root .. "/.nvim/build/App/Debug/sub"))
+      assert.is_not_nil(uv.fs_stat(root .. "/.lw/build/App/Debug/sub"))
     end)
   end)
 
   -- An in-source unit (build_dir == workspace root, allowed by
-  -- _pre_configure_reset) is an ancestor of all of .nvim/build. That must not
+  -- _pre_configure_reset) is an ancestor of all of .lw/build. That must not
   -- make every stray dir look like it "lies inside a live build dir".
   describe("in-source live build dir", function()
     local ws, root
@@ -183,31 +183,31 @@ describe("find_stray_build_dirs: directory identity, not spelling", function()
       ws, profile = make_ws(root)
       root = ws.root
       live_build_dir(ws, profile, root, root)
-      vim.fn.mkdir(root .. "/.nvim/build/Old/x", "p")
+      vim.fn.mkdir(root .. "/.lw/build/Old/x", "p")
     end)
 
     it("reports the genuinely stray dir", function()
       local stray = ws:find_stray_build_dirs()
       assert.equals(1, #stray, vim.inspect(stray))
-      assert.is_truthy(stray[1]:lower():find("/%.nvim/build/old$"), vim.inspect(stray))
+      assert.is_truthy(stray[1]:lower():find("/%.lw/build/old$"), vim.inspect(stray))
     end)
 
     it("orphan cleanup deletes the stray dir", function()
       local r = delete(ws, { orphans = true })
       assert.equals("ok", r.outcome, r.message)
-      assert.is_true(vim.wait(5000, function() return uv.fs_stat(root .. "/.nvim/build/Old") == nil end, 20))
+      assert.is_true(vim.wait(5000, function() return uv.fs_stat(root .. "/.lw/build/Old") == nil end, 20))
       assert.is_not_nil(uv.fs_stat(root .. "/marker.txt"))
     end)
 
     it("stray directory deletion deletes the stray dir", function()
-      local r = delete(ws, { stray_dir = root .. "/.nvim/build/Old" })
+      local r = delete(ws, { stray_dir = root .. "/.lw/build/Old" })
       assert.equals("ok", r.outcome, r.message)
-      assert.is_nil(uv.fs_stat(root .. "/.nvim/build/Old"))
+      assert.is_nil(uv.fs_stat(root .. "/.lw/build/Old"))
     end)
   end)
 
   -- A live build dir whose path goes through a link/junction canonicalizes
-  -- OUTSIDE .nvim/build; its recorded spelling must still protect its parent.
+  -- OUTSIDE .lw/build; its recorded spelling must still protect its parent.
   describe("live build dir behind a link", function()
     local ws, root
 
@@ -217,7 +217,7 @@ describe("find_stray_build_dirs: directory identity, not spelling", function()
       local profile
       ws, profile = make_ws(root)
       root = ws.root
-      local link = (root .. "/.nvim/build/App/Debug"):lower()
+      local link = (root .. "/.lw/build/App/Debug"):lower()
       local target = root:gsub("/[^/]+$", "/linktarget")
       local real = ws._core._deps.realpath or uv.fs_realpath
       ws._core._deps.realpath = function(p)
@@ -228,20 +228,20 @@ describe("find_stray_build_dirs: directory identity, not spelling", function()
         end
         return real(p)
       end
-      live_build_dir(ws, profile, root .. "/.nvim/build/App/Debug", root .. "/.nvim/build/App/Debug")
-      vim.fn.mkdir(root .. "/.nvim/build/Old", "p")
+      live_build_dir(ws, profile, root .. "/.lw/build/App/Debug", root .. "/.lw/build/App/Debug")
+      vim.fn.mkdir(root .. "/.lw/build/Old", "p")
     end)
 
     it("does not report the link's parent as stray", function()
       local stray = ws:find_stray_build_dirs()
       assert.equals(1, #stray, vim.inspect(stray))
-      assert.is_truthy(stray[1]:lower():find("/%.nvim/build/old$"), vim.inspect(stray))
+      assert.is_truthy(stray[1]:lower():find("/%.lw/build/old$"), vim.inspect(stray))
     end)
 
     it("refuses to delete the link's parent", function()
-      local r = delete(ws, { stray_dir = root .. "/.nvim/build/App" })
+      local r = delete(ws, { stray_dir = root .. "/.lw/build/App" })
       assert.equals("refused", r.outcome)
-      assert.is_not_nil(uv.fs_stat(root .. "/.nvim/build/App/Debug/marker.txt"))
+      assert.is_not_nil(uv.fs_stat(root .. "/.lw/build/App/Debug/marker.txt"))
     end)
   end)
 end)
@@ -252,19 +252,19 @@ describe("the workspace view's stray scan is cached", function()
     vim.fn.mkdir(root, "p")
     local ws, profile = make_ws(root)
     root = ws.root
-    local unit = live_build_dir(ws, profile, root .. "/.nvim/build/App/Debug", root .. "/.nvim/build/App/Debug")
-    vim.fn.mkdir(root .. "/.nvim/build/Old", "p")
+    local unit = live_build_dir(ws, profile, root .. "/.lw/build/App/Debug", root .. "/.lw/build/App/Debug")
+    vim.fn.mkdir(root .. "/.lw/build/Old", "p")
     local scans = 0
     local orig = uv.fs_scandir
     uv.fs_scandir = function(p, ...)
-      if type(p) == "string" and p:gsub("\\", "/"):find("/.nvim/build", 1, true) then scans = scans + 1 end
+      if type(p) == "string" and p:gsub("\\", "/"):find("/.lw/build", 1, true) then scans = scans + 1 end
       return orig(p, ...)
     end
     local ok, err = pcall(function()
       local function strays()
         local out = {}
         for _, d in ipairs(ws:view_workspace().orphaned.stray_dirs) do
-          out[#out + 1] = d:lower():match("/%.nvim/build/(.*)$")
+          out[#out + 1] = d:lower():match("/%.lw/build/(.*)$")
         end
         return out
       end
@@ -275,10 +275,10 @@ describe("the workspace view's stray scan is cached", function()
       assert.same({ "old" }, strays())
       assert.equals(n, scans, "the view rescanned with nothing changed")
       -- A directory appears in a scanned directory: the next view sees it.
-      vim.fn.mkdir(root .. "/.nvim/build/App/Release", "p")
+      vim.fn.mkdir(root .. "/.lw/build/App/Release", "p")
       assert.same({ "app/release", "old" }, strays())
       -- A unit's build dir changes: the next view sees it.
-      unit.build_dir_value = root .. "/.nvim/build/App/Release"
+      unit.build_dir_value = root .. "/.lw/build/App/Release"
       assert.same({ "app/debug", "old" }, strays())
       -- Deletion safety never reads the cache: a fresh scan each call.
       n = scans
@@ -294,16 +294,16 @@ describe("the workspace view's stray scan is cached", function()
     vim.fn.mkdir(root, "p")
     local ws, profile = make_ws(root)
     root = ws.root
-    live_build_dir(ws, profile, root .. "/.nvim/build/App/Debug", root .. "/.nvim/build/App/Debug")
+    live_build_dir(ws, profile, root .. "/.lw/build/App/Debug", root .. "/.lw/build/App/Debug")
     local orig = uv.fs_scandir
     local raced = false
     -- App/Release appears right after the scan listed App (so it missed it).
     uv.fs_scandir = function(p, ...)
       local h = orig(p, ...)
-      if not raced and type(p) == "string" and p:gsub("\\", "/"):lower():match("/%.nvim/build/app$") then
+      if not raced and type(p) == "string" and p:gsub("\\", "/"):lower():match("/%.lw/build/app$") then
         raced = true
         vim.wait(30, function() return false end)
-        vim.fn.mkdir(root .. "/.nvim/build/App/Release", "p")
+        vim.fn.mkdir(root .. "/.lw/build/App/Release", "p")
       end
       return h
     end
@@ -311,7 +311,7 @@ describe("the workspace view's stray scan is cached", function()
       local function strays()
         local out = {}
         for _, d in ipairs(ws:view_workspace().orphaned.stray_dirs) do
-          out[#out + 1] = d:lower():match("/%.nvim/build/(.*)$")
+          out[#out + 1] = d:lower():match("/%.lw/build/(.*)$")
         end
         return out
       end

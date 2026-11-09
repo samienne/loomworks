@@ -355,7 +355,7 @@ function M.run(svc, ctx)
     local P
 
     local function current()
-        if svc.ws ~= ws then return false, "the workspace was unloaded (refused or reloaded .nvim files)" end
+        if svc.ws ~= ws then return false, "the workspace was unloaded (refused or reloaded .lw files)" end
         if profile._removed then return false, "profile '" .. profile.key .. "' was removed" end
         return true
     end

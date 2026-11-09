@@ -791,7 +791,7 @@ function M._load_workspace_soft(root, wait_tools, opts)
   local handlers = opts and opts.handlers
   -- Route notifications to stderr (warnings/errors only, see load_notify).
   core._deps.notify = handlers and handlers.notify or load_notify
-  -- A refused `.nvim` file is reported by the CLI itself, with
+  -- A refused `.lw` file is reported by the CLI itself, with
   -- its own commands.
   core._deps.quiet_trust_errors = true
   core._deps.trust_actions = { trust = "lw trust", discard = "lw trust --discard", nuke = "lw nuke" }
@@ -1587,19 +1587,19 @@ end
 -- Workspace trust
 -- ---------------------------------------------------------------------------
 
---- The message for a refused `.nvim` file. `t` is the setup
+--- The message for a refused `.lw` file. `t` is the setup
 --- error's `trust` table `{ kind = "user"|"cache", status }`.
 --- @param t table
 --- @return string
 function M._trust_refusal_message(t)
   if t.kind == "cache" then
-    return ".nvim/loomworks.cache.json was not written on this machine (its signature does not match).\n"
-      .. "  It is not used. Reset the build cache (deletes .nvim/build and the cache): lw nuke"
+    return ".lw/cache.json was not written on this machine (its signature does not match).\n"
+      .. "  It is not used. Reset the build cache (deletes .lw/build and the cache): lw nuke"
   end
   local why = (t.status == "unsigned")
     and "is not signed by this machine (written by hand, or by an earlier lw)"
     or "was modified outside loomworks (its signature does not match this machine)"
-  return ".nvim/loomworks.user.json " .. why .. ".\n"
+  return ".lw/user.json " .. why .. ".\n"
     .. "  It is not used until you review it.\n"
     .. "  Review and trust it:  lw trust\n"
     .. "  Or discard it:        lw trust --discard\n"
@@ -1629,13 +1629,13 @@ function M.cmd_trust(root, args)
   local function cache_note()
     local ctext = io_mod.read_file(require("loomworks.cache").filepath(root))
     if ctext and trust.verify("cache", ctext) == "invalid" then
-      out("note: .nvim/loomworks.cache.json was not written on this machine — reset it with `lw nuke`.", "warn")
+      out("note: .lw/cache.json was not written on this machine — reset it with `lw nuke`.", "warn")
     end
   end
 
   local text = io_mod.read_file(path)
   if not text then
-    out("no working copy (.nvim/loomworks.user.json) — nothing to trust.", "plain")
+    out("no working copy (.lw/user.json) — nothing to trust.", "plain")
     cache_note()
     return 0
   end
@@ -1673,7 +1673,7 @@ function M.cmd_trust(root, args)
   end
 
   if status == "valid" then
-    out(".nvim/loomworks.user.json is trusted (signed by this machine) — nothing to do.", "plain")
+    out(".lw/user.json is trusted (signed by this machine) — nothing to do.", "plain")
     cache_note()
     return 0
   end
@@ -1704,12 +1704,12 @@ function M.cmd_trust(root, args)
   end
   local sok, serr = trust.sign_file(path, "user", content)
   if not sok then die("could not sign " .. path .. ": " .. tostring(serr)) end
-  out("TRUSTED: .nvim/loomworks.user.json (signed for this machine)", "ok")
+  out("TRUSTED: .lw/user.json (signed for this machine)", "ok")
   cache_note()
   return 0
 end
 
---- `lw nuke [-y]` — reset the build cache: delete `.nvim/build/`, the cache
+--- `lw nuke [-y]` — reset the build cache: delete `.lw/build/`, the cache
 --- and the health cache. The remedy for a cache this machine did
 --- not write; destructive, so it confirms (and `-y` is mandatory when
 --- non-interactive, like `lw reset`).
@@ -1863,7 +1863,7 @@ end
 
 --- Discard a stuck commit journal (`lw unlock --journal`): under
 --- the workspace operation lock (taken WITHOUT completing the journal), remove
---- exactly `.nvim/loomworks.txn.json` and the stray staged copies of the three
+--- exactly `.lw/txn.json` and the stray staged copies of the three
 --- workspace files (`<file>.txn-<hex>`, regular files). The files stay as
 --- they are — possibly a mix of the interrupted operation's old and new state.
 --- @param root string
@@ -1958,7 +1958,7 @@ function M._unlock_build_dirs(ws, all, name, force)
     local hit = not is_path and match_profile_arg(ws, name) or nil
     if not is_path and not hit then
       die("no profile matching '" .. name .. "' (a build directory is named by its path, e.g. "
-        .. ".nvim/build/App/Debug). Run `lw profile list` to list.")
+        .. ".lw/build/App/Debug). Run `lw profile list` to list.")
     end
     if hit then
       for _, bd in ipairs(profile_build_dirs(hit)) do targets[#targets + 1] = bd end
@@ -2470,7 +2470,7 @@ function M.cmd_test(ws, args)
     no_build = no_build, verbose = verbose })
 end
 
---- `lw init` — initialize the working copy (.nvim/loomworks.user.json).
+--- `lw init` — initialize the working copy (.lw/user.json).
 -- ---------------------------------------------------------------------------
 -- Launch configurations + run
 -- ---------------------------------------------------------------------------
@@ -3969,11 +3969,11 @@ function M.cmd_init(args)
   local ok, err = require("loomworks.workspace").init_workspace(dir, name)
   if not ok then die(err or "failed to initialize workspace") end
   out("initialized workspace at " .. dir)
-  out("  created .nvim/loomworks.user.json (working copy)")
+  out("  created .lw/user.json (working copy)")
   if name then out("  name: " .. name) end
   out("")
-  out("Add `.nvim/` to the repo's .gitignore — it holds the working copy, the")
-  out("cache and build trees, all machine-local. Only loomworks.json is shared.")
+  out("`.lw/` holds the working copy, the cache and build trees, all machine-local;")
+  out("it ignores itself (.lw/.gitignore). Only loomworks.json is shared.")
   out("")
   -- Next step: the first command on the path to a build.
   out("Next: `lw project add <path>` registers a project (type auto-detected);")
@@ -4340,7 +4340,7 @@ end
 
 --- Resolve and check `lw export -o <p>`: the parent directory must exist, the
 --- target must not be a directory, and it must be neither this workspace's
---- loomworks.json (that is publish) nor anything under its .nvim/
+--- loomworks.json (that is publish) nor anything under its .lw/
 --- (machine-signed state). Compared on resolved paths with a separator
 --- boundary. Returns the absolute path, or nil and the message.
 --- @param root string
@@ -4365,9 +4365,9 @@ function M._export_destination(root, p)
   if nf == nr .. "/loomworks.json" then
     return nil, "refusing to write this workspace's loomworks.json — that is what `lw publish` does"
   end
-  local nvim = nr .. "/.nvim"
+  local nvim = nr .. "/.lw"
   if nf == nvim or nf:sub(1, #nvim + 1) == nvim .. "/" then
-    return nil, "refusing to write inside this workspace's .nvim/ — it holds machine-signed state"
+    return nil, "refusing to write inside this workspace's .lw/ — it holds machine-signed state"
   end
   return full
 end
@@ -4450,7 +4450,7 @@ end
 --- @param label string where the import comes from
 function M._print_import_plan(plan, label)
   local transfer = require("loomworks.config_transfer")
-  out("Import " .. label .. " into .nvim/loomworks.user.json — replaces the working configuration.")
+  out("Import " .. label .. " into .lw/user.json — replaces the working configuration.")
   out("loomworks.json and build state are not touched.")
   out("")
   out(string.format("  %-20s  %s", "", "now → after"))
@@ -4556,7 +4556,7 @@ function M.cmd_import(root, args)
   local plan, err, kind = ws:prepare_import(content, { intent = create_intent, take_name = take_name })
   if not plan then
     if kind == "working_copy" then
-      die(label .. " is a working copy (.nvim/loomworks.user.json), not an export — on this machine "
+      die(label .. " is a working copy (.lw/user.json), not an export — on this machine "
         .. "use `lw pull <checkout>`; from another machine run `lw export` there")
     end
     if kind == "json" then die(label .. " is not valid JSON — nothing was changed") end
@@ -4584,9 +4584,9 @@ function M.cmd_import(root, args)
     local rel = backup
     local r = ws.root:gsub("\\", "/")
     if rel:sub(1, #r + 1) == r .. "/" then rel = rel:sub(#r + 2) end
-    out("  previous working copy: " .. rel .. " (copy it back over .nvim/loomworks.user.json to undo)")
+    out("  previous working copy: " .. rel .. " (copy it back over .lw/user.json to undo)")
   else
-    out("  created .nvim/loomworks.user.json (there was no working copy)")
+    out("  created .lw/user.json (there was no working copy)")
   end
   if plan.active_after then
     out("  active profile: " .. plan.active_after)
@@ -6106,7 +6106,7 @@ function M._describe_edit(prefill, what, root)
     die("no editor: set $VISUAL or $EDITOR, or give the description with -m, "
       .. "-F <file>, -F - or as an argument")
   end
-  -- In the workspace's .nvim/tmp, not the system temp dir.
+  -- In the workspace's .lw/tmp, not the system temp dir.
   local path = require("loomworks.housekeeping").tmp_path(root, "lw-describe-", ".txt")
   local f = io.open(path, "wb")
   if not f then die("cannot create a temporary file for the editor") end
@@ -8275,7 +8275,8 @@ end
 --- working copy. The same presence test the status hint and `lw worktree` use.
 local function stat_has_workspace(stat, root)
   return stat(root .. "/loomworks.json")
-      or stat(root .. "/.nvim/loomworks.user.json")
+      or stat(root .. "/.lw/user.json")
+      or stat(root .. "/.nvim/loomworks.user.json") -- not yet migrated (§16.44)
 end
 
 --- All worktrees of the git worktree containing `opts.dir`, from
@@ -8502,7 +8503,7 @@ end
 
 --- Can `lw pull` fill this workspace's empty profile list?
 --- True when we sit in a linked git worktree whose main checkout holds a
---- working copy (`.nvim/loomworks.user.json`). Presence only — the main
+--- working copy (`.lw/user.json`). Presence only — the main
 --- checkout's files are never read here (pull verifies them). Best-effort and
 --- time-bounded like the no-workspace hint; never throws. Returns
 --- `(bool, reason)`: `reason` is "git-timeout" when the probe ran past its
@@ -8515,7 +8516,7 @@ function M._main_has_working_copy(opts)
     local main, top, reason = M._main_worktree(opts)
     if reason == "git-timeout" then return false, reason end
     if not main or reason ~= nil or norm_cmp(main) == norm_cmp(top) then return false end
-    return stat(main .. "/.nvim/loomworks.user.json") and true or false
+    return (stat(main .. "/.lw/user.json") or stat(main .. "/.nvim/loomworks.user.json")) and true or false
   end)
   return ok and res == true, ok and why or nil
 end
@@ -10421,7 +10422,7 @@ function M._health_trust_item(t)
   local why = (t and t.status == "unsigned") and "not signed by this machine" or "modified outside loomworks"
   return {
     kind = "suggestion", area = "workspace",
-    title = "working copy not trusted (.nvim/loomworks.user.json " .. why .. ")",
+    title = "working copy not trusted (.lw/user.json " .. why .. ")",
     remedy = "review and trust it: lw trust   (or discard it: lw trust --discard; lw help trust)",
   }
 end
@@ -11138,10 +11139,10 @@ function M._plan_pull(opts)
 
   -- The source must carry a working copy. user.load returns defaults for a
   -- missing file, so test the file itself for a precise error.
-  local src_user_path = user.filepath(source_root)
+  local src_user_path = user.source_filepath(source_root)
   if not uv.fs_stat(src_user_path) then
     return nil, "nothing to pull from " .. source_root ..
-      " (no .nvim/loomworks.user.json)"
+      " (no .lw/user.json)"
   end
   -- Only a working copy signed by this machine is read, on either side: a pull
   -- must never turn an untrusted file into a
@@ -11153,7 +11154,7 @@ function M._plan_pull(opts)
       (status == "unsigned" and "not signed by this machine" or "modified outside loomworks") ..
       " — review it there first:  lw trust   (run in " .. root_dir .. ")"
   end
-  local src_data, src_status, src_detail = user.load(source_root)
+  local src_data, src_status, src_detail = user.load(source_root, { source = true })
   if not src_data then
     -- A source signed elsewhere usually came from another machine.
     local msg = untrusted(source_root, src_status, src_detail)
@@ -11523,7 +11524,7 @@ function M.cmd_worktree_add(args, opts)
   -- main, target = the new path). A main with NO working copy is "nothing to
   -- pull" — not a failure; the worktree stays and we succeed.
   local user = require("loomworks.user")
-  if not uv.fs_stat(user.filepath(main)) then
+  if not uv.fs_stat(user.source_filepath(main)) then
     out("  pull skipped — " .. main .. " has no working config to pull")
     return 0
   end
@@ -12323,7 +12324,7 @@ for a deterministic build. The CI pattern is:
   -v, --verbose  print each configure / build step's full command line, the
                 directory it runs in and the environment overrides it adds
                 (for an MSVC kit, the cmake command run inside vcvarsall). The
-                command line is always written to .nvim/loomworks.log. (Before
+                command line is always written to .lw/workspace.log. (Before
                 the command, `lw -v` is the version.)
   --break-locks[=now]  recover a build-directory lock whose holder hangs (or,
                 on this host, is still running): ask it to stop (POSIX), wait
@@ -12336,7 +12337,7 @@ changed since the last configure (options, env, toolchain, compiler cache), or
 the build dir was configured by an older lw — then builds. Each configure
 prints why it runs, e.g. `full reconfigure (--fresh): options changed (FOO
 removed)`. Non-zero exit on any failure. Artifacts land under
-.nvim/build/<project>/<tool>/<config>/ — a separate build dir per toolchain.]],
+.lw/build/<project>/<tool>/<config>/ — a separate build dir per toolchain.]],
   clean = [[lw clean [profile | config-set] [-v] [--break-locks]
 
 Run each project's build-system clean on the profile's build directories
@@ -12391,7 +12392,7 @@ it may run by where a setting comes from:
       clangd/qmlls binary) found there are IGNORED, with a diagnostic in
       `lw status`. They stay in the file (publishing keeps them); to use one,
       copy it into your working copy.
-  .nvim/loomworks.user.json (yours)    honored — when it is signed by this
+  .lw/user.json (yours)    honored — when it is signed by this
       machine. Every lw/editor write signs it with a per-machine key
       (<data dir>/trust.key, never in a repository). A file written by hand,
       by an earlier lw, or copied from another machine is REFUSED until you
@@ -12399,7 +12400,7 @@ it may run by where a setting comes from:
       this machine signed stays trusted when moved or copied to another
       workspace here (or seeded into a git worktree) — its profiles, tools
       and launch commands are then used as they are.
-  .nvim/loomworks.cache.json            build state; used only when signed here.
+  .lw/cache.json            build state; used only when signed here.
       An unsigned one (earlier lw) is ignored unread and replaced by the next
       command that writes the cache (read-only commands leave it); one
       signed elsewhere refuses the load until `lw nuke`.
@@ -12425,7 +12426,7 @@ that is what you asked for.
   lw trust --yes      trust without asking (non-interactive: required)
   lw trust --discard  delete the working copy instead (asks; --yes skips)
 
-Editing .nvim/loomworks.user.json by hand is fine: run `lw trust` afterwards.
+Editing .lw/user.json by hand is fine: run `lw trust` afterwards.
 Environment variables that hijack loaders or interpreters (LD_PRELOAD,
 DYLD_*, NODE_OPTIONS, PYTHONPATH, ComSpec, PATHEXT, GIT_SSH_COMMAND, …) are
 refused from every configuration, even a trusted one.
@@ -12434,8 +12435,8 @@ refused from every configuration, even a trusted one.
 copy and its backup; `--break-locks[=now]` recovers it from a hung holder.]],
   nuke = [[lw nuke [-y | --yes]
 
-Delete the workspace's build state: .nvim/build/, .nvim/loomworks.cache.json
-and .nvim/loomworks.health.json. Your configuration (loomworks.json and the
+Delete the workspace's build state: .lw/build/, .lw/cache.json
+and .lw/health.json. Your configuration (loomworks.json and the
 working copy) is kept; the next `lw build` reconfigures from scratch.
 
 This is the remedy when the build cache was not written on this machine (it is
@@ -12468,7 +12469,7 @@ lw's own directories are touched, never through a link, never while in use.
 lw also does this by itself: once a day, at the start of a command, it
 silently removes the same leftovers (pinned releases excepted, and old runtime
 logs only once unmodified for 30 days), and notes it in the workspace's
-runtime log (.nvim/loomworks.daemon-<slot>.log). In the workspace it also
+runtime log (.lw/daemon-<slot>.log). In the workspace it also
 removes the daemon files of lw before slots (.nvim/loomworks.daemon.lock and
 .json once their daemon is gone, .log and .log.1 as old runtime logs).
 
@@ -12590,9 +12591,9 @@ three 30 s keepalive intervals is dropped) and exits after
 such as 90s, 2m, 30m, 1h; default 45s),
 when the workspace directory is removed, or when its lock is taken over.
 
-Files: .nvim/loomworks.daemon-<slot>.lock (the runtime lock: one runtime per
-workspace and slot), .nvim/loomworks.daemon-<slot>.json (the handle a client
-finds the daemon by), and the runtime log .nvim/loomworks.daemon-<slot>.log
+Files: .lw/daemon-<slot>.lock (the runtime lock: one runtime per
+workspace and slot), .lw/daemon-<slot>.json (the handle a client
+finds the daemon by), and the runtime log .lw/daemon-<slot>.log
 (2 MB + one rotated .1): the daemon's starts, stops and refusals, every
 launch, and every kill and forced unlock (`lw daemon kill`, `--break-locks`,
 `lw unlock --force`). `lw daemon status` names the log. <slot> is a short
@@ -12611,12 +12612,12 @@ heartbeat) is reported with the recovery command, `<command> --break-locks`.
 
   <profile>    the locks of that profile's build dirs
   <build dir>  one build dir, by path (relative to the workspace root, or
-               absolute; it must lie under the root), e.g. .nvim/build/App/Debug
+               absolute; it must lie under the root), e.g. .lw/build/App/Debug
   --all        the locks of every profile's build dirs, and the workspace
                operation lock
-  --workspace  the workspace operation lock (.nvim/loomworks.op.lock), held
+  --workspace  the workspace operation lock (.lw/op.lock), held
                by publish / import / pull / rename / remove / reset / nuke
-  --journal    discard a stuck commit journal (.nvim/loomworks.txn.json) and
+  --journal    discard a stuck commit journal (.lw/txn.json) and
                its staged copies. A multi-file operation that crashed is
                normally completed by the next command; when it cannot be
                (a file changed since, a staged copy is missing) the workspace
@@ -12967,7 +12968,7 @@ Entry names are honoured from loomworks.json; an entry's args and working_dir
 are program settings and are used only from your local config (`lw help trust`).]],
   init = [[lw init [--name <name>]
 
-Initialize the workspace working copy (.nvim/loomworks.user.json). The shared
+Initialize the workspace working copy (.lw/user.json). The shared
 loomworks.json is written later by `lw publish` (working-copy model). Fails if
 the workspace already exists.
 
@@ -12976,10 +12977,9 @@ the workspace already exists.
                   you want published (e.g. a git worktree). Change it later
                   with `lw workspace rename <name>`.
 
-Add `.nvim/` to the repo's .gitignore: it holds the working copy, the cache and
-the build trees — all machine-local. Only loomworks.json is committed. (A
-personal global gitignore can hide this from whoever sets the project up, while
-every teammate and CI runner still sees it untracked.)]],
+`.lw/` holds the working copy, the cache and the build trees — all
+machine-local — and ignores itself: lw writes `.lw/.gitignore` (`*`), so no
+line in the repo's .gitignore is needed. Only loomworks.json is committed.]],
   workspace = [[lw workspace [rename <name>]   (alias: ws)
 
 Workspace-level settings, stored in the working copy.
@@ -13017,7 +13017,7 @@ Rules:
                      could change which option wins.
 
 It changes several workspace files as one operation, holding the workspace
-operation lock (.nvim/loomworks.op.lock): a second such operation fails
+operation lock (.lw/op.lock): a second such operation fails
 fast with "workspace busy". `--break-locks[=now]` recovers the lock from a
 hung holder (see `lw help unlock`).]],
   cache = [[lw help cache — compiler caching (ccache / sccache)   (also: sccache, ccache)
@@ -13152,7 +13152,7 @@ spawns a cache tool — usage statistics live behind
 
 `lw health` never reuses an earlier result: every run re-checks what it covers —
 the local checks, the environment inventory and the network update check.
-Inside a workspace it then saves the results to `.nvim/loomworks.health.json`
+Inside a workspace it then saves the results to `.lw/health.json`
 (an internal advisory cache, separate from the build cache) so the passive
 `N suggestions` count and the editor status page can show them without
 re-checking (they never probe and never touch the network). A run narrowed to
@@ -13187,7 +13187,7 @@ cached.
 LAUNCHER — in a repository with a version pin (lw.pin), health checks the
 committed launcher files: the pin's hashes, lw.sh / lw.cmd being current, the
 lw.sh exec bit and line endings in git, the .gitattributes rules and the
-.nvim/cache/ ignore rule. It reports and never fixes — see `lw help launcher`.
+launcher cache's ignore rule. It reports and never fixes — see `lw help launcher`.
 
 SUBMODULES — in a git repository with submodules, health adds informational
 notes on how they (recursively) stand against what the repository records:
@@ -13230,12 +13230,15 @@ and CI runner. It reports and never fixes; lines start with `launcher:`.
                    rules not committed yet, do not count)
   line endings     committed LF-only; in this checkout lw.sh / lw.pin LF and
                    lw.cmd CR LF (a CR LF lw.sh fails under sh)
-  .nvim/cache/     ignored by a committed .gitignore of the repository - a rule
-                   only in your personal gitignore, or in a .gitignore not
-                   committed yet, does not count (teammates and CI do not have
-                   it)
-  old binaries     cached lw binaries of other versions (removed by the next
-                   `lw bootstrap install`)
+  launcher cache   .lw/cache/ (a 0.2.0+ pin with current launchers) ignores
+                   itself (.lw/.gitignore); .nvim/cache/ (a pin below 0.2.0,
+                   or launchers of an earlier release) must be ignored by a
+                   committed .gitignore of the repository - a rule only in
+                   your personal gitignore, or in a .gitignore not committed
+                   yet, does not count (teammates and CI do not have it)
+  old binaries     cached lw binaries of other versions (removed from
+                   .lw/cache/ by the next `lw bootstrap install`; lw never
+                   removes anything from .nvim/cache/)
 
 In a pin-only repository (lw.pin without lw.sh / lw.cmd, written by `lw
 bootstrap install --pin-only`) the missing launchers are intended: only the
@@ -13331,7 +13334,7 @@ the editor produces on :w. This is the file you commit and that CI reads.
 
 Only items whose INTENT includes `shared` are written. Every item (project,
 configuration set, profile, configuration) carries an intent:
-  local          working copy only (.nvim/loomworks.user.json) — private
+  local          working copy only (.lw/user.json) — private
   local+shared   both files — the CLI default (`lw` authors the shared config)
   shared         loomworks.json only (rare; reference-only)
 In the CLI, `add`/`create` default to local+shared, so `lw publish` writes them.
@@ -13360,7 +13363,7 @@ it. To carry the whole configuration (local items too) to another machine,
 `lw export` here and `lw import` there.
 
 It changes several workspace files as one operation, holding the workspace
-operation lock (.nvim/loomworks.op.lock): a second such operation fails
+operation lock (.lw/op.lock): a second such operation fails
 fast with "workspace busy". `--break-locks[=now]` recovers the lock from a
 hung holder (see `lw help unlock`).]],
   export = [[lw export [--published] [--no-profiles] [-o <file>]
@@ -13379,7 +13382,7 @@ language-server options and debug-adapter choices stay on this machine.
   --no-profiles     leave profiles out: a profile pins toolchains found on THIS
                     machine; configuration sets + projects are the portable part
   -o, --output <f>  write to <f> instead of stdout (`-` = stdout). Refuses this
-                    workspace's own loomworks.json and anything under .nvim/.
+                    workspace's own loomworks.json and anything under .lw/.
 
 stdout carries only the JSON, so `lw export > config.json` works; the summary
 goes to stderr. Program settings (launch commands, environments, …) are
@@ -13390,7 +13393,7 @@ you review them — a loomworks.json copied there ignores them.
   lw export | ssh build-box 'cd src/app && lw import - --yes']],
   import = [[lw import <file> [--dry-run] [-y | --yes] [--take-name]   (`-` reads stdin)
 
-Replace this workspace's working configuration (.nvim/loomworks.user.json)
+Replace this workspace's working configuration (.lw/user.json)
 with one made by `lw export` (any loomworks.json works). Projects,
 configurations, configuration sets and profiles become exactly the imported
 ones. The workspace keeps its own name (the summary shows the export's when it
@@ -13419,20 +13422,20 @@ does not block an import: it is replaced unread — none of its settings is kept
   -y, --yes       don't ask (required with --no-input, and when reading stdin)
   --take-name     use the exported workspace name instead of keeping this one
 
-The previous working copy is saved as .nvim/loomworks.user.json.<time>.bak;
-copy it back over .nvim/loomworks.user.json to undo. A working copy
-(.nvim/loomworks.user.json) is not an export: on the same machine use
+The previous working copy is saved as .lw/user.json.<time>.bak;
+copy it back over .lw/user.json to undo. A working copy
+(.lw/user.json) is not an export: on the same machine use
 `lw pull`; from another machine run `lw export` there.
 
 It changes several workspace files as one operation, holding the workspace
-operation lock (.nvim/loomworks.op.lock): a second such operation fails
+operation lock (.lw/op.lock): a second such operation fails
 fast with "workspace busy". `--break-locks[=now]` recovers the lock from a
 hung holder (see `lw help unlock`).]],
   pull = [[lw pull [<source>] [--dry-run]
 
 Fold another checkout's working config into THIS checkout's working copy
-(.nvim/loomworks.user.json), so a fresh `git worktree` — which starts with no
-.nvim/ and therefore no profiles — inherits a ready-to-build configuration
+(.lw/user.json), so a fresh `git worktree` — which starts with no
+.lw/ and therefore no profiles — inherits a ready-to-build configuration
 without re-authoring it.
 
   <source>    A checkout/worktree directory to pull from. Omitted, the main
@@ -13451,7 +13454,7 @@ reference (set -> projects/configs, profile -> set) stays satisfied.
 
 What it does NOT pull: the ACTIVE PROFILE, the workspace NAME, and the per-machine
 DEVICE selection (each checkout keeps its own), plus all build/cache state (that
-lives in .nvim/loomworks.cache.json, never the working copy).
+lives in .lw/cache.json, never the working copy).
 
 Merge: a non-destructive, item-level union where the SOURCE wins on a name
 collision — items only here are kept, items in both take the source's version,
@@ -13465,7 +13468,7 @@ cannot read one copied from elsewhere: run `lw export > file.json` there and
 `lw import file.json` here.
 
 It changes several workspace files as one operation, holding the workspace
-operation lock (.nvim/loomworks.op.lock): a second such operation fails
+operation lock (.lw/op.lock): a second such operation fails
 fast with "workspace busy". `--break-locks[=now]` recovers the lock from a
 hung holder (see `lw help unlock`).]],
   worktree = [[lw worktree [list]
@@ -13476,7 +13479,7 @@ Inspect or create the git worktrees of the current repository.
   list  (also bare `lw worktree`)
         List every worktree and whether loomworks is initialised in each (a
         workspace file — loomworks.json or the working copy
-        .nvim/loomworks.user.json — is present). Read-only; works from a
+        .lw/user.json — is present). Read-only; works from a
         worktree that has no workspace of its own yet. Each row shows the
         worktree path, its branch (`[branch]`, `[detached <sha>]`, or `(bare)`),
         a `main` marker on the repository's main worktree, a `*` marker on the
@@ -13502,7 +13505,7 @@ is unavailable or the current directory is not a git repository, rather than
 degrading silently. An unknown subcommand is an error.]],
   project = [[lw project <add|remove|rename|list|show|set|unset|describe|publish>
 
-Manage the workspace's projects in the working copy (.nvim/loomworks.user.json);
+Manage the workspace's projects in the working copy (.lw/user.json);
 `lw publish` writes the shared ones to loomworks.json.
 
   add <path> [type] [name] [--shared|--local]
@@ -13557,7 +13560,7 @@ Examples:
   lw project unset App out_dir
 
 rename / remove / publish change several workspace files as one operation,
-holding the workspace operation lock (.nvim/loomworks.op.lock): a second such
+holding the workspace operation lock (.lw/op.lock): a second such
 operation fails fast with "workspace busy". `--break-locks[=now]` recovers
 the lock from a hung holder (see `lw help unlock`).]],
   config = [[lw config <list|add|show|get|set|unset|rename|describe|remove>   (aliases: configuration, cfg)
@@ -13625,7 +13628,7 @@ Examples:
   lw config rename App Debug Debug-asan
 
 rename / remove / publish change several workspace files as one operation,
-holding the workspace operation lock (.nvim/loomworks.op.lock): a second such
+holding the workspace operation lock (.lw/op.lock): a second such
 operation fails fast with "workspace busy". `--break-locks[=now]` recovers
 the lock from a hung holder (see `lw help unlock`).]],
   configset = [[lw configset <list|show|create|map|unmap|rename|describe|remove>   (aliases: configuration-set, cs)
@@ -13653,7 +13656,7 @@ Examples:
   lw configset rename Dev Development
 
 rename / remove / publish change several workspace files as one operation,
-holding the workspace operation lock (.nvim/loomworks.op.lock): a second such
+holding the workspace operation lock (.lw/op.lock): a second such
 operation fails fast with "workspace busy". `--break-locks[=now]` recovers
 the lock from a hung holder (see `lw help unlock`).]],
   describe = [[lw <project|config|configset|profile> describe <item> [text | flags]
@@ -13759,7 +13762,7 @@ the edition. A truncated selector never crosses a boundary (`…-1` never matche
 `…-18`), and a substring like `lw build clang-19` works when unambiguous.
 
 rename / remove / publish change several workspace files as one operation,
-holding the workspace operation lock (.nvim/loomworks.op.lock): a second such
+holding the workspace operation lock (.lw/op.lock): a second such
 operation fails fast with "workspace busy". `--break-locks[=now]` recovers
 the lock from a hung holder (see `lw help unlock`).]],
   settings = [[lw settings <list|get|set|unset> [key] [value]
@@ -13902,7 +13905,7 @@ command with --no-input (or LW_NO_INPUT=1 / the conventional CI env var); see
      .\lw.cmd --no-input build Debug:ninja-clang-18   cmd, PowerShell
    GitHub Actions on Windows: `shell: bash` runs ./lw.sh; `shell: pwsh` or
    `cmd` runs .\lw.cmd (keep the `.\`: a bare lw.cmd can pick up another one
-   on PATH). The first run downloads the lw binary into .nvim/cache/ (retrying
+   on PATH). The first run downloads the lw binary into .lw/cache/ (retrying
    a failed download) and the release bundle into the per-user data dir; cache
    them keyed on lw.pin to skip that. Move the pin with `./lw.sh bootstrap
    upgrade` and commit the result; `lw bootstrap --check` fails a job when the
@@ -13913,17 +13916,17 @@ command with --no-input (or LW_NO_INPUT=1 / the conventional CI env var); see
    pin for that setup.)
    Below, `lw` stands for ./lw.sh or .\lw.cmd.
 
-Gitignore `.nvim/`: it holds the working copy (loomworks.user.json), the cache,
-and the build trees — all machine-local. If it isn't in the repo's .gitignore,
-every teammate and CI runner sees it as untracked (a personal GLOBAL gitignore
-hides this from whoever set the project up). Only loomworks.json is committed.
+`.lw/` holds the working copy (user.json), the cache and the build trees —
+all machine-local — and ignores itself (`.lw/.gitignore`, written by lw and the
+launchers). Only loomworks.json is committed. (Releases before 0.2.0 kept this
+state in `.nvim/`; the first 0.2.0+ run copies the working copy over.)
 
 Dependency fetching / offline: lw is non-invasive — `lw build` runs your build
 system's own configure/build, so third-party fetching (cmake FetchContent,
 meson subprojects/wrap) is done by cmake/meson, NOT by lw. A first configure
 that pulls deps needs network; lw adds no separate download step, dependency
 cache, or offline mode of its own. Fetched deps land inside the build dir
-(e.g. cmake's _deps/), so caching .nvim/build/<project>/ between runs reuses
+(e.g. cmake's _deps/), so caching .lw/build/<project>/ between runs reuses
 both fetched sources and compiled objects.]],
 }
 
@@ -14048,7 +14051,7 @@ Usage: lw [command] [args]
   daemon <sub>      the workspace daemon: status | list | stop | kill | restart | run
                     (experimental, opt-in: runtime-mode)
   trust             review + re-sign the working copy (see `lw help trust`)
-  nuke              delete all build state (.nvim/build + caches)
+  nuke              delete all build state (.lw/build + caches)
   cleanup           list / remove what lw left outside the workspace (--yes, --all)
   test  [profile]   build a profile, then run its tests (real exit code)
   test-target <sub> saved test targets plain `lw test` also runs: list | add | remove | clear
@@ -14406,7 +14409,7 @@ local function main()
     ensured = M._ensure_daemon(root, M._routed_command(a))
   end
 
-  -- `trust` / `nuke` resolve a refused `.nvim` file; they never
+  -- `trust` / `nuke` resolve a refused `.lw` file; they never
   -- load the workspace (it would be refused).
   if command == "trust" then
     finish(M.cmd_trust(root, a))
@@ -14471,7 +14474,7 @@ local function main()
     finish(M.cmd_device(a[2], root, a))
   end
   -- `unlock --device <serial>` needs no workspace (device locks are per user),
-  -- nor does `unlock --workspace` (the operation lock is a file under .nvim/).
+  -- nor does `unlock --workspace` (the operation lock is a file under .lw/).
   if command == "unlock" and (vim.tbl_contains(a, "--device") or vim.tbl_contains(a, "--journal")
       or (vim.tbl_contains(a, "--workspace") and not vim.tbl_contains(a, "--all"))) then
     finish(M.cmd_unlock(nil, a, root))

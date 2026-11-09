@@ -113,7 +113,7 @@ function M.make_ws()
     M.capture(function() cli.cmd_profile_create(root, { "profile", "create", "Dev", "--activate" }) end)
     local ws = assert(cli._load_workspace(root, false))
     local unit = ws._profiles[1]:projects()[1]._config_unit
-    local dir = root .. "/.nvim/build/App/Debug"
+    local dir = root .. "/.lw/build/App/Debug"
     vim.fn.mkdir(dir, "p")
     unit.build_dir_value = dir
     unit.state_value = "built"

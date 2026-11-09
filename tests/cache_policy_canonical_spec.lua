@@ -53,7 +53,7 @@ describe("on-disk CLI stores the canonical cache policy", function()
     return root
   end
   local function user_json(root)
-    local f = assert(io.open(root .. "/.nvim/loomworks.user.json", "r"))
+    local f = assert(io.open(root .. "/.lw/user.json", "r"))
     local s = f:read("*a"); f:close()
     return s
   end

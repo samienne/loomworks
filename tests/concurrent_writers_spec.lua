@@ -1,5 +1,5 @@
 -- Concurrent writers (spec §2.7): the editor, the CLI and older loomworks
--- versions write the same `.nvim/` state files. A save must never blindly
+-- versions write the same `.lw/` state files. A save must never blindly
 -- overwrite a file another process changed since this one last read it:
 --   * build cache   — merged per entry (no lost build records);
 --   * working copy  — refused and reloaded ("redo the change");
@@ -91,7 +91,7 @@ end
 local function record_build(ws, state)
   local pp = ws._profiles[1]:projects()[1]
   local unit = assert(pp and pp._config_unit, "profile project has no config unit")
-  local dir = ws.root .. "/.nvim/build/App/Debug"
+  local dir = ws.root .. "/.lw/build/App/Debug"
   vim.fn.mkdir(dir, "p")
   unit.build_dir_value = dir
   unit.state_value = state or "built"

@@ -1189,7 +1189,7 @@ local function resolve_build_dir(project_name, config_name, config_info, workspa
         return dir
     end
 
-    local base = workspace_root .. "/.nvim/build/" .. sanitize_path_component(project_name)
+    local base = workspace_root .. "/.lw/build/" .. sanitize_path_component(project_name)
     -- Build-dir segment: when more than one tool is in the effective
     -- set (multi-language profile), use the sorted joined keys so a
     -- profile with different rust+cmake combos doesn't collide. With
@@ -4144,16 +4144,16 @@ end
 
 --- Loomworks-owned directory holding the generated compile_commands.json
 --- for a given build directory. Mirrors the build dir's subpath under
---- `.nvim/build/` into `.nvim/cache/cc/` so it is collision-free by
+--- `.lw/build/` into `.lw/cache/cc/` so it is collision-free by
 --- construction (build dirs are already unique per project/kit/config) and
 --- never writes into the project build tree. A build dir outside the
---- standard `.nvim/build/` root falls back to a sanitized copy of its path.
+--- standard `.lw/build/` root falls back to a sanitized copy of its path.
 --- @param workspace_root string
 --- @param build_dir string
 --- @return string
 local function generated_cc_dir(workspace_root, build_dir)
     local root = workspace_root:gsub("\\", "/"):gsub("/$", "")
-    local nb = root .. "/.nvim/build/"
+    local nb = root .. "/.lw/build/"
     local bd = build_dir:gsub("\\", "/")
     local tail
     if bd:sub(1, #nb):lower() == nb:lower() then
@@ -4163,10 +4163,10 @@ local function generated_cc_dir(workspace_root, build_dir)
     end
     -- Keep '/' (directory separators); scrub only path-illegal characters.
     tail = tail:gsub('[:<>"|?*]', "_")
-    return root .. "/.nvim/cache/" .. M.lsp_database_root .. "/" .. tail
+    return root .. "/.lw/cache/" .. M.lsp_database_root .. "/" .. tail
 end
 
---- The owned-database area under `<root>/.nvim/cache/`: core
+--- The owned-database area under `<root>/.lw/cache/`: core
 --- removes a build directory's mirror with it and the whole area on nuke.
 --- One plain path segment.
 M.lsp_database_root = "cc"

@@ -1,4 +1,4 @@
---- loomworks/daemon/handle.lua — the daemon handle `<root>/.nvim/loomworks.daemon-<S>.json`.
+--- loomworks/daemon/handle.lua — the daemon handle `<root>/.lw/daemon-<S>.json`.
 ---
 --- Discovery only: the runtime lock (loomworks.daemon.rlock) decides who the
 --- runtime is, the handshake whether a client may use it. The
@@ -55,7 +55,7 @@ function M.read_path(path)
     -- Windows: one open, as short as it can be (while a reader holds the
     -- file open, the daemon's rename over it fails — `write` retries).
     -- POSIX: never opened unless it is a regular file (a FIFO planted in a
-    -- shared `.nvim/` would block the open).
+    -- shared `.lw/` would block the open).
     local info, decoded, st = {}, nil, nil
     if package.config:sub(1, 1) ~= "\\" then
         st = uv().fs_stat(path)
@@ -127,7 +127,7 @@ function M.encode(rec)
 end
 
 --- Write the handle atomically: staged to `<handle>.tmp-<random>` created
---- exclusively (never through a file or link planted in a shared `.nvim/`),
+--- exclusively (never through a file or link planted in a shared `.lw/`),
 --- then renamed over the handle. On Windows the rename fails (EPERM/EACCES)
 --- while another process has the handle open — a client reading it, an
 --- indexer or a scanner: libuv opens files with FILE_SHARE_DELETE, but
