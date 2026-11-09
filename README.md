@@ -140,7 +140,7 @@ above.
 From the root of a repository:
 
 ```sh
-lw init                                  # create the workspace (.nvim/ holds machine-local state)
+lw init                                  # create the workspace (.lw/ holds machine-local state)
 lw project add path/to/app               # register a project; its type is detected
 lw configset create debug app=Debug      # map each project to a configuration
 lw tools                                 # list the toolchains found on this machine
@@ -149,9 +149,12 @@ lw build debug:ninja-gcc-14              # configure if needed, then build
 lw publish                               # write the shared loomworks.json
 ```
 
-Add `.nvim/` to the repository's `.gitignore`: it holds the working copy, the
-build cache and the default build trees, all machine-local. Only
-`loomworks.json` is shared.
+`.lw/` holds the working copy, the build cache and the default build trees,
+all machine-local, and ignores itself (lw writes `.lw/.gitignore`), so it
+needs no line in the repository's `.gitignore`. Only `loomworks.json` is
+shared. A workspace of a release before 0.2.0 keeps this state in `.nvim/`;
+the first 0.2.0 run copies the working copy into `.lw/` and leaves `.nvim/`
+as it was.
 
 Day to day:
 
@@ -189,7 +192,7 @@ lw bootstrap upgrade       # move the pin to the newest release
 `lw.pin` records a release version and the SHA-256 of every release
 executable, taken from that release's signed `SHA256SUMS`. `lw.sh` (Linux,
 macOS, Git Bash) and `lw.cmd` (Windows) download the pinned binary, check it
-against the pin, cache it under `.nvim/cache/` and run it:
+against the pin, cache it under `.lw/cache/` and run it:
 
 ```sh
 ./lw.sh --no-input build debug:ninja-gcc-14

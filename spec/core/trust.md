@@ -17,8 +17,8 @@ nothing runs from the current directory by accident): that invariant is about
 |--|--|--|
 | The project's own build description (the files a module's build system reads) | project | Yes — but only when the user **explicitly** configures, builds, cleans, tests or runs (§17.8) |
 | `loomworks.json` (shared snapshot, §2.1) | shared | **Never** (§17.6) |
-| `.nvim/loomworks.user.json` (working copy, §2.2) | local | Yes, when it carries a valid machine signature (§17.3) |
-| `.nvim/loomworks.cache.json` (§2.3), `.nvim/loomworks.health.json` (§16.31) | local state | Read only when it carries a valid machine signature; never the source of an executable path (§17.7) |
+| `.lw/user.json` (working copy, §2.2) | local | Yes, when it carries a valid machine signature (§17.3) |
+| `.lw/cache.json` (§2.3), `.lw/health.json` (§16.31) | local state | Read only when it carries a valid machine signature; never the source of an executable path (§17.7) |
 | Tool / SDK detection on this machine (§3.3, §10) | machine | Yes |
 
 Opening a workspace (loading it in the editor, `lw status`, completion, any
@@ -89,7 +89,7 @@ A file is, on read:
   file is used), so an attacker gains nothing by omitting the signature.
 - **Build cache invalid.** The workspace does not load and the cache is not
   overwritten; the host offers the **reset** (nuke) of the build cache: the
-  cache file, its backup, the health cache and the `.nvim/build/` tree are
+  cache file, its backup, the health cache and the `.lw/build/` tree are
   deleted under the deletion-safety rules (§15 invariant 3), then the
   workspace loads with no build state.
 - **Health cache.** It records probe results only (no build state, nothing
@@ -351,12 +351,12 @@ comes only from the staging manifest.
 Example messages:
 
 ```
-lw: .nvim/loomworks.user.json was modified outside loomworks (its signature does not match this machine).
+lw: .lw/user.json was modified outside loomworks (its signature does not match this machine).
   Review and trust it:  lw trust
   Or discard it:        lw trust --discard
 
-lw: .nvim/loomworks.cache.json was not written on this machine (its signature does not match).
-  Reset the build cache (deletes .nvim/build and the cache): lw nuke
+lw: .lw/cache.json was not written on this machine (its signature does not match).
+  Reset the build cache (deletes .lw/build and the cache): lw nuke
 ```
 
 ### 17.11 Display text from untrusted sources

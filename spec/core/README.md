@@ -106,12 +106,12 @@ belongs in the matching `spec/` file.
    proceeding. Paths resolving outside the workspace are refused with an
    error notification. A module-owned LSP database removed alongside its
    build directory is restricted to that module's area under
-   `root/.nvim/cache/`, is derived from the BuildDir rather than read from
+   `root/.lw/cache/`, is derived from the BuildDir rather than read from
    the cache, is removed only after the build directory's deletion
    succeeded and only when no remaining build directory maps to it, and
    never through a link or junction (§4.6 *Owned LSP database cleanup*). The nuke operation (`<C-n>`, `lw nuke`) is further
-   restricted to `root/.nvim/` and requires that `loomworks.json` or the
-   working copy (`.nvim/loomworks.user.json`) exists at the root.
+   restricted to `root/.lw/` and requires that `loomworks.json` or the
+   working copy (`.lw/user.json`) exists at the root.
 
 4. **Atomic writes**: All file writes (cache, user) use temp + fsync + rename
    with .bak recovery on read failure.
@@ -192,8 +192,8 @@ belongs in the matching `spec/` file.
     incompatible, setup refuses to load — the workspace stays nil, the cache
     file on disk is untouched, and the user is notified. The status page
     shows the normal "No workspace loaded" state. The user can press `<C-n>`
-    to nuke the cache and build artifacts, which deletes `.nvim/build/` and
-    `loomworks.cache.json`, then re-runs setup. This is the only way to
+    to nuke the cache and build artifacts, which deletes `.lw/build/` and
+    `.lw/cache.json`, then re-runs setup. This is the only way to
     resolve a version mismatch — the system never silently discards or
     overwrites an incompatible cache.
     A cache (or working copy) whose version is **newer** than the running
@@ -304,7 +304,7 @@ belongs in the matching `spec/` file.
     (`loomworks.json`) never names a program, adds arguments, sets a spawned
     environment or working directory, or places a deploy outside the
     workspace — such fields are ignored with a diagnostic and preserved on
-    publish (§17.6). The working copy and the caches under `.nvim/` are used
+    publish (§17.6). The working copy and the caches under `.lw/` are used
     only when they carry this machine's signature (§17.3–§17.4); cached tool
     data is never the source of an executable path (§17.7); opening a
     workspace executes nothing that unsigned or shared data names (§17.8); and
@@ -329,7 +329,7 @@ belongs in the matching `spec/` file.
 
 21. **Workspace state stays in the workspace**: What a workspace's own
     operations produce (its runtime log, temporary results and editor files)
-    is kept under its `.nvim/`. Outside the workspace only the bounded
+    is kept under its `.lw/` (§16.44). Outside the workspace only the bounded
     per-user state of §16.40 is kept, and a leftover of an interrupted process
     there is removed by the next run or by `lw cleanup` — only by exact name,
     never through a link, never while in use (§16.40).

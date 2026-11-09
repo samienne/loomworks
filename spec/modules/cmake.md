@@ -748,7 +748,7 @@ The module declares `lsp_database_root = "cc"` and implements
 `lsp_database_dir(ctx)` (core §8.4) returning the §12 owned directory for
 `ctx.build_dir`, so core removes it with the build directory (core §4.6
 *Owned LSP database cleanup*) and nuke removes the whole
-`.nvim/cache/cc/` area.
+`.lw/cache/cc/` area.
 
 ## 10. Debug integration
 
@@ -817,7 +817,7 @@ option-level `is_stale()` check.
 loomworks **owns** the clangd compilation database for every cmake
 configuration, regardless of generator. It reconstructs
 `compile_commands.json` from the CMake file-api and writes it into a
-loomworks-owned directory under `.nvim/cache/cc/`; `lsp_configs` points
+loomworks-owned directory under `.lw/cache/cc/`; `lsp_configs` points
 clangd at that directory. The project build directory's native
 `compile_commands.json` (which the Ninja and Makefile generators emit, and
 Visual Studio / Xcode do not) is **not** used for clangd by default.
