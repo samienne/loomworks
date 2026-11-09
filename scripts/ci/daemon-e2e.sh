@@ -57,7 +57,7 @@ LOCK=; HANDLE=
 lockf() { printf '%s/.lw/daemon-%s.lock' "$1" "$SLOT"; }
 learn_slot() {
   local found
-  found=$(ls -1 "$WS/.lw" 2>/dev/null | sed -n 's/^loomworks\.daemon-\([0-9a-f]\{16\}\)\.lock$/\1/p')
+  found=$(ls -1 "$WS/.lw" 2>/dev/null | sed -n 's/^daemon-\([0-9a-f]\{16\}\)\.lock$/\1/p')
   if [ "$(printf '%s\n' "$found" | grep -c .)" = 1 ]; then
     SLOT=$found; ok "one slot's runtime lock (slot $SLOT)"
   else
