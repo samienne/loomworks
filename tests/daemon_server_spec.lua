@@ -221,7 +221,8 @@ describe("daemon server (in-process)", function()
         assert.equals(srv.pid, st.pid)
         assert.is_true(vim.wait(15000, function() return handle.read(root).clients == 1 end, 10))
         local _, err = client.request(conn, { kind = "build" })
-        assert.truthy(tostring(err):find("unknown request kind", 1, true))
+        assert.equals("invalid_args", err.code)
+        assert.truthy(err.message:find("unknown request kind", 1, true))
         conn:close()
         -- (Generous: on a loaded Windows runner the named pipe's EOF can take
         -- seconds to reach the server's read.)
@@ -780,7 +781,7 @@ describe("version handshake (§19.9)", function()
         idle:close()
     end)
 
-    it("the policy compares describe's lw_version over transport 11, the challenge's before", function()
+    it("the policy compares describe's lw_version, the challenge's without an answer", function()
         local first = assert(client.session(srv.address))
         local match, v = ensure.policy(first)
         first:close()
@@ -802,14 +803,28 @@ describe("version handshake (§19.9)", function()
         conn:close()
         assert.is_false(match)
         assert.equals("0.0.1", v)
-        -- A protocol-10 daemon (no describe): the challenge's versions.
-        local fake = { transport = 10, challenge = { protocol = 10, lw_version = srv.identity,
+        -- No answer to describe (a connection that cannot call): the
+        -- challenge's versions.
+        local fake = { transport = 1, challenge = { protocol = 1, lw_version = "0.0.1",
             schemas = require("loomworks.daemon.version").schemas() } }
         match = ensure.policy(fake)
         assert.is_false(match)
         -- No transport overlap: a mismatch.
         match = ensure.policy({ challenge = { protocol = 12, protocol_min = 12, lw_version = srv.identity } })
         assert.is_false(match)
+        -- A pre-0.2.0 daemon (transport 10-11): no transport is agreed with
+        -- its challenge, a mismatch naming its version, and a request other
+        -- than the control subset is refused before it is sent.
+        local old = { protocol = 11, protocol_min = 10, lw_version = "0.1.43" }
+        local old_conn = { challenge = old, transport = client._agreed(old, {}) }
+        assert.is_nil(old_conn.transport)
+        match, v = ensure.policy(old_conn)
+        assert.is_false(match)
+        assert.equals("0.1.43", v)
+        local r = require("loomworks.daemon.calls").request_sync(old_conn, { kind = "query", name = "tools" })
+        assert.equals("refused", r.outcome)
+        assert.equals("no protocol version was agreed with the daemon (the daemon speaks transport 10-11); "
+            .. "it serves this lw only ping, status, stop and retire", r.message)
     end)
 
     it("a busy mismatched daemon is retired, never stopped; the command bypasses it", function()
@@ -976,7 +991,7 @@ describe("review hardening (§19.5, §19.7)", function()
         local conn = assert(client.session(srv.address))
         local reply, err = client.request(conn, { kind = "status" })
         assert.is_nil(reply)
-        assert.equals("internal error", err)
+        assert.same({ code = "internal", message = "internal error" }, err)
         assert.truthy(client.request(conn, { kind = "ping" }))
         conn:close()
         local real_touch = handle.touch

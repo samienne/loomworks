@@ -45,7 +45,7 @@ local function build_case(name)
     end
     return {
         name = name,
-        allow = { { kind = "task" }, { kind = "model_change" } },
+        allow = { { kind = "task" } },
         steps = {
             call(1, "/", "loomworks.Root", "subscribe", { object = "/tasks", iface = "loomworks.Tasks", v = 1 }, true),
             ok(1, { sub_id = { ["$bind"] = "sub" }, seq = 0 }),

@@ -36,6 +36,16 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
   there, which `lw health` now also suggests. A pin of an earlier release
   still has no build for these platforms (#155).
 
+### Changed
+
+- The workspace daemon protocol restarts at transport 1 for 0.2.0, and the
+  interface versioning policy is written down. Pre-0.2.0 pre-releases used
+  transport numbers up to 11 and are incompatible: an editor or `lw` of this
+  release treats such a daemon as incompatible, and the request kinds of
+  transport 10 are gone. The daemon refuses an interface call from a client
+  it shares no transport with (`no_transport`), and `lw` says plainly that
+  no protocol version was agreed (#161).
+
 ## 0.2.0 - 2026-11-08
 
 The first release of lw from samienne/loomworks, where `lw`, the workspace

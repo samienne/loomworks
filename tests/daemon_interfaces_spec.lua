@@ -1,8 +1,7 @@
--- Transport 11 and the root object (spec §19.8, §19.9, §19.20; step 5g.1):
+-- The transport and the root object (spec §19.8, §19.9, §19.20; step 5g.1):
 -- the transport range, `welcome.objects`, the envelope, `loomworks.Root/1`
 -- (describe, schema, subscribe, unsubscribe, objects_changed, retiring) over
--- the real socket and the loopback, and the v0 aliases of the protocol-10
--- request kinds through the dispatch table.
+-- the real socket and the loopback, and the dispatch table.
 
 _G.LOOMWORKS_CLI_NO_AUTORUN = true
 local uv = vim.uv or vim.loop
@@ -79,23 +78,32 @@ local function read_doc(rel)
 end
 
 describe("transport range (§19.8, §19.9)", function()
-    it("is 11 with protocol_min 10, and negotiates the highest common version", function()
-        assert.equals(11, version.PROTOCOL)
-        assert.equals(10, version.PROTOCOL_MIN)
-        assert.equals(11, version.negotiate(11, 10))
-        assert.equals(11, version.negotiate(12, 9))
-        assert.equals(10, version.negotiate(10))       -- a protocol-10 client states no minimum
-        assert.equals(11, version.negotiate(11))
-        assert.is_nil(version.negotiate(9))
-        assert.is_nil(version.negotiate(13, 12))
+    it("is 1 with protocol_min 1, and negotiates the highest common version", function()
+        assert.equals(1, version.PROTOCOL)
+        assert.equals(1, version.PROTOCOL_MIN)
+        assert.equals(1, version.negotiate(1, 1))
+        assert.equals(1, version.negotiate(1))         -- no minimum stated: [1, 1]
+        assert.equals(1, version.negotiate(3, 1))      -- a later client that still speaks 1
+        assert.is_nil(version.negotiate(3, 2))
         assert.is_nil(version.negotiate(nil))
+    end)
+
+    it("shares no version with the pre-0.2.0 transport numbers (up to 11)", function()
+        -- Those pre-releases stated [10, 11] or no minimum (10, and earlier).
+        assert.is_nil(version.negotiate(11, 10))
+        assert.is_nil(version.negotiate(10))
+        assert.is_nil(version.negotiate(11))
+        local me = version.schemas()
+        local ok, what = version.observer_compatible({ protocol = 11, protocol_min = 10, schemas = me })
+        assert.is_false(ok)
+        assert.equals("protocol", what)
     end)
 
     it("lets an editor observe a daemon whose range overlaps, not one whose range does not", function()
         local me = version.schemas()
-        assert.is_true((version.observer_compatible({ protocol = 10, schemas = me })))
-        assert.is_true((version.observer_compatible({ protocol = 12, protocol_min = 11, schemas = me })))
-        local ok, what = version.observer_compatible({ protocol = 13, protocol_min = 12, schemas = me })
+        assert.is_true((version.observer_compatible({ protocol = 1, schemas = me })))
+        assert.is_true((version.observer_compatible({ protocol = 2, protocol_min = 1, schemas = me })))
+        local ok, what = version.observer_compatible({ protocol = 3, protocol_min = 2, schemas = me })
         assert.is_false(ok)
         assert.equals("protocol", what)
     end)
@@ -123,8 +131,8 @@ describe("root object over the socket (§19.20)", function()
 
     it("announces the range in the challenge and the objects in welcome", function()
         local conn = assert(client.session(srv.address))
-        assert.equals(11, conn.challenge.protocol)
-        assert.equals(10, conn.challenge.protocol_min)
+        assert.equals(1, conn.challenge.protocol)
+        assert.equals(1, conn.challenge.protocol_min)
         local objs = conn.welcome.objects
         assert.equals(1, #objs)
         assert.equals("/", objs[1].path)
@@ -136,7 +144,7 @@ describe("root object over the socket (§19.20)", function()
         assert.equals(srv.pid, conn.welcome.header.pid)
         local sc
         for c in pairs(srv.conns) do sc = c end
-        assert.equals(11, sc.transport)
+        assert.equals(1, sc.transport)
         conn:close()
     end)
 
@@ -147,7 +155,7 @@ describe("root object over the socket (§19.20)", function()
         assert.equals(srv.identity, d.binary.lw_version)
         assert.equals("lua", d.binary.impl)
         assert.is_true(d.binary.dev) -- a source tree
-        assert.same({ min = 10, max = 11 }, d.transport)
+        assert.same({ min = 1, max = 1 }, d.transport)
         assert.equals(srv.generation, d.session_generation)
         assert.same({ "describe", "schema", "subscribe", "unsubscribe" }, d.root_methods)
         assert.equals("subscription", d.delivery)
@@ -324,17 +332,17 @@ describe("root object over the socket (§19.20)", function()
         conn:close()
     end)
 
-    it("the client records the agreed transport and refuses an interface call below 11 at once", function()
+    it("the client records the agreed transport and refuses an interface call without one at once", function()
         local conn = assert(client.session(srv.address))
-        assert.equals(11, conn.transport)
-        conn.transport = 10 -- as against a daemon of protocol 10
+        assert.equals(1, conn.transport)
+        conn.transport = nil -- as against a daemon whose range shares no version
         local _, e = client.call_sync(conn, ROOT, RIF, 1, "describe", {})
         assert.equals(client.ERR_TRANSPORT, e.code)
-        assert.truthy(e.message:find("need 11", 1, true), e.message)
+        assert.truthy(e.message:find("no protocol version was agreed", 1, true), e.message)
         conn:close()
     end)
 
-    it("objects_changed reaches every transport-11 connection on mount and unmount; welcome lists the object", function()
+    it("objects_changed reaches every connection on mount and unmount; welcome lists the object", function()
         local box = inbox()
         local conn = assert(client.session(srv.address, { on_message = box.on_message }))
         assert(srv.interfaces:mount("/echo", "core", "lwtest.Echo", 1, echo_impl()))
@@ -411,31 +419,23 @@ describe("root object over the socket (§19.20)", function()
         conn:close()
     end)
 
-    it("retire sends the root's retiring signal to transport-11 connections, v0 retiring to observers below 11", function()
-        local box, obox, o11 = inbox(), inbox(), inbox()
+    it("retire sends the root's retiring signal to every connection, observers too", function()
+        local box, o1 = inbox(), inbox()
         local conn = assert(client.session(srv.address, { on_message = box.on_message }))
         -- (Busy, so the daemon outlives the retirement during the test.)
         for c in pairs(srv.conns) do if c.authed then c.in_flight = { [99] = true } end end
-        local obs = assert(client.session(srv.address, { on_message = obox.on_message, role = "observer",
-            protocol = 10 }))
-        local obs11 = assert(client.session(srv.address, { on_message = o11.on_message, role = "observer" }))
+        local obs = assert(client.session(srv.address, { on_message = o1.on_message, role = "observer" }))
         assert(client.request(conn, { kind = "retire" }))
         assert.is_true(vim.wait(5000, function() return #box.signals("retiring") == 1 end, 10))
-        assert.is_true(vim.wait(5000, function() return #o11.signals("retiring") == 1 end, 10))
-        assert.is_true(vim.wait(5000, function()
-            for _, m in ipairs(obox.msgs) do if m.kind == "retiring" then return true end end
-            return false
-        end, 10))
-        -- Each connection gets only its form.
-        for _, m in ipairs(o11.msgs) do assert.not_equals("retiring", m.kind) end
-        for _, m in ipairs(obox.msgs) do assert.not_equals("signal", m.kind) end
-        obs11:close()
+        assert.is_true(vim.wait(5000, function() return #o1.signals("retiring") == 1 end, 10))
+        -- Only the signal: no bare `retiring` frame.
+        for _, m in ipairs(o1.msgs) do assert.not_equals("retiring", m.kind) end
         obs:close()
         conn:close()
     end)
 
-    it("a protocol-10 client is served at 10: v0 requests unchanged, no envelope signals", function()
-        -- A hand-rolled protocol-10 handshake (no protocol_min).
+    it("a pre-0.2.0 client (transport 10-11) shares no transport: only the control subset, no envelope", function()
+        -- A hand-rolled handshake as those pre-releases sent it.
         local key = assert(auth.key())
         local nc = assert(auth.nonce())
         local pipe = uv.new_pipe(false)
@@ -453,24 +453,42 @@ describe("root object over the socket (§19.20)", function()
                     end
                 end
             end)
-            pipe:write(protocol.encode({ kind = "hello", protocol = 10, lw_version = "0.1.43",
+            pipe:write(protocol.encode({ kind = "hello", protocol = 11, protocol_min = 10, lw_version = "0.1.43",
                 schemas = version.schemas(), client = "cli", nonce = nc }))
         end)
         local function has(kind)
             for _, m in ipairs(got) do if m.kind == kind then return m end end
         end
         assert.is_true(vim.wait(5000, function() return has("welcome") ~= nil end, 10))
+        assert.equals(1, has("challenge").protocol)
+        assert.equals(1, has("challenge").protocol_min)
         local sc
         for c in pairs(srv.conns) do sc = c end
-        assert.equals(10, sc.transport)
+        assert.is_nil(sc.transport)
         pipe:write(protocol.encode({ kind = "ping", req_id = 1 }))
         assert(srv.interfaces:mount("/echo", "core", "lwtest.Echo", 1, echo_impl()))
         pipe:write(protocol.encode({ kind = "build", req_id = 2 }))
-        assert.is_true(vim.wait(5000, function() return #got >= 4 end, 10))
+        -- A call — and so a subscription — is refused without a transport.
+        pipe:write(protocol.encode({ kind = "call", req_id = 3, object = "/echo", iface = "lwtest.Echo", v = 1,
+            method = "echo", args = { x = 1 } }))
+        pipe:write(protocol.encode({ kind = "call", req_id = 4, object = "/", iface = "loomworks.Root", v = 1,
+            method = "subscribe", args = { object = "/echo", iface = "lwtest.Echo", v = 1 } }))
+        assert.is_true(vim.wait(5000, function() return #got >= 6 end, 10))
         assert.equals("ok", got[3].kind)
         assert.equals(1, got[3].req_id)
         assert.equals("error", got[4].kind)
-        assert.equals("unknown request kind: build", got[4].error)
+        assert.equals("table", type(got[4].error))
+        assert.equals("unknown request kind: build", got[4].error.message)
+        for i, req_id in ipairs({ 3, 4 }) do
+            local m = got[4 + i]
+            assert.equals("error", m.kind)
+            assert.equals(req_id, m.req_id)
+            assert.equals("no_transport", m.error.code)
+            assert.equals("no protocol version agreed: the daemon speaks transport 1-1, this client 10-11",
+                m.error.message)
+            assert.same({ protocol = 1, protocol_min = 1 }, m.error.data)
+        end
+        assert.is_nil(next(srv.interfaces.subs or {}))
         for _, m in ipairs(got) do assert.not_equals("signal", m.kind) end
         pipe:close()
     end)
@@ -492,10 +510,10 @@ describe("root object over the loopback (§19.1, §19.20)", function()
     it("welcomes with the objects and serves describe, schema and subscribe", function()
         local box = inbox()
         local conn = assert(client.loopback_session(srv, { on_message = box.on_message }))
-        assert.equals(10, conn.challenge.protocol_min)
+        assert.equals(1, conn.challenge.protocol_min)
         assert.equals("/", conn.welcome.objects[1].path)
         local d = assert(client.call_sync(conn, ROOT, RIF, 1, "describe", {}))
-        assert.same({ min = 10, max = 11 }, d.transport)
+        assert.same({ min = 1, max = 1 }, d.transport)
         local doc = assert(client.call_sync(conn, ROOT, RIF, 1, "schema", { iface = RIF, v = 1 }))
         assert.equals(RIF, doc.interface)
         assert(srv.interfaces:mount("/echo", "core", "lwtest.Echo", 1, echo_impl()))
@@ -508,7 +526,7 @@ describe("root object over the loopback (§19.1, §19.20)", function()
     end)
 end)
 
-describe("v0 aliases through the dispatch table (§19.8)", function()
+describe("the dispatch table (§19.8)", function()
     local root, srv
     before_each(function()
         trust._set_key_path(H.tmp() .. "/trust.key")
@@ -521,51 +539,23 @@ describe("v0 aliases through the dispatch table (§19.8)", function()
         trust._set_key_path(nil)
     end)
 
-    it("names every protocol-10 request kind, each served by the build service's handler", function()
-        local want = { build = "on_build", test = "on_test", prepare_run = "on_run", clean = "on_clean",
-            reset = "on_reset", snapshot = "on_snapshot", query = "on_query" }
-        for kind, method in pairs(want) do
-            assert.equals(method, server_mod.DISPATCH[kind].v0, kind)
+    it("names only the control subset and the envelope's call", function()
+        local kinds = {}
+        for kind, entry in pairs(server_mod.DISPATCH) do
+            kinds[#kinds + 1] = kind
+            assert.is_function(entry.control, kind)
         end
-        for _, kind in ipairs({ "ping", "status", "stop", "retire", "call" }) do
-            assert.is_function(server_mod.DISPATCH[kind].control, kind)
-        end
+        table.sort(kinds)
+        assert.same({ "call", "ping", "retire", "status", "stop" }, kinds)
     end)
 
-    it("an old-style request gets the same reply as before", function()
-        local calls = {}
-        local svc = {}
-        for _, m in ipairs({ "on_build", "on_test", "on_run", "on_clean", "on_reset", "on_snapshot", "on_query" }) do
-            svc[m] = function(_, conn, msg)
-                calls[#calls + 1] = m
-                srv:_send(conn, { kind = "ok", req_id = msg.req_id, outcome = "declined", reason = m })
-            end
-        end
-        function svc.on_conn_closed() end
-        function svc.on_stopping() end
-        srv.service = svc
+    it("refuses the request kinds of the pre-0.2.0 transports with a structured error", function()
         local conn = assert(client.loopback_session(srv))
-        for _, kind in ipairs({ "build", "test", "prepare_run", "clean", "reset", "snapshot", "query" }) do
-            local r = assert(client.request(conn, { kind = kind, args = {} }))
-            assert.equals("ok", r.kind)
-            assert.equals("declined", r.outcome)
-            assert.is_nil(r.result) -- a v0 reply, not an envelope reply
+        for _, kind in ipairs({ "build", "test", "prepare_run", "clean", "reset", "snapshot", "query", "frobnicate" }) do
+            local _, err = client.request(conn, { kind = kind, args = {} })
+            assert.equals("invalid_args", err.code, kind)
+            assert.equals("unknown request kind: " .. kind, err.message)
         end
-        assert.same({ "on_build", "on_test", "on_run", "on_clean", "on_reset", "on_snapshot", "on_query" }, calls)
-        local _, err = client.request(conn, { kind = "frobnicate" })
-        assert.equals("unknown request kind: frobnicate", err)
-        -- A v0 handler that throws is the v0 string error.
-        svc.on_build = function() error("x") end
-        _, err = client.request(conn, { kind = "build" })
-        assert.equals("internal error", err)
-        conn:close()
-    end)
-
-    it("without a service the v0 kinds stay unknown", function()
-        srv.service = nil
-        local conn = assert(client.loopback_session(srv))
-        local _, err = client.request(conn, { kind = "snapshot" })
-        assert.equals("unknown request kind: snapshot", err)
         conn:close()
     end)
 end)
@@ -585,8 +575,8 @@ describe("Task:_observes matches the subscription's interface version (§19.15)"
         return setmetatable({ id = "t1", stream = { server = { interfaces = { subs = subs } } } },
             { __index = tasks_mod.Task })
     end
-    it("a transport-11 connection subscribed to loomworks.Tasks/1 observes; one on another version does not", function()
-        local conn = { transport = 11 }
+    it("a connection subscribed to loomworks.Tasks/1 observes; one on another version does not", function()
+        local conn = { transport = 1 }
         local function sub(v, args)
             return { s = { conn = conn, object = "/tasks", iface = "loomworks.Tasks", v = v, args = args } }
         end
@@ -597,7 +587,7 @@ describe("Task:_observes matches the subscription's interface version (§19.15)"
         assert.is_false(other:_observes(conn))
         local mine = task_with(sub(1, { task_id = "t1" }))
         assert.is_true(mine:_observes(conn))
-        -- Below transport 11 every connection observes (protocol 10).
-        assert.is_true(t2:_observes({ transport = 10 }))
+        -- One that subscribed to nothing observes nothing.
+        assert.is_false(t2:_observes({ transport = 1 }))
     end)
 end)

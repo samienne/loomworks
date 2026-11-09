@@ -635,7 +635,7 @@ local function task_method(service, op, run_fn)
         local task = service.tasks:create(ctx.conn)
         task.call = ctx.call
         ctx.task, ctx.ws = task, ws
-        ctx.reply({ outcome = "accepted", task_id = tasks_mod.wire_id(task, ctx.conn),
+        ctx.reply({ outcome = "accepted", task_id = task.id,
             profile_key = ctx.profile and ctx.profile.key or nil, pid = service.server.pid,
             notes = ctx.notes, note_roles = ctx.note_roles })
         local run = run_fn(service, ctx)
@@ -1023,7 +1023,7 @@ function M.device_log_method(service)
             local task = service.tasks:create(ctx.conn)
             task.call = ctx.call
             ctx.task, ctx.ws = task, ws
-            ctx.reply({ outcome = "accepted", task_id = tasks_mod.wire_id(task, ctx.conn),
+            ctx.reply({ outcome = "accepted", task_id = task.id,
                 profile_key = l.profile and l.profile.key or nil, pid = srv.pid })
             local run = run_device_log(service, ctx, l, command, log_options)
             srv:log("device log (task %s) of launch %s accepted", task.id, tostring(id))

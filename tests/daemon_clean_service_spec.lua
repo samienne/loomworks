@@ -96,7 +96,7 @@ local function request(srv, kind, args, opts)
     rec.conn = conn
     local env = envscope.capture()
     for k, v in pairs(opts.env or {}) do env[k] = v or nil end
-    conn:request({ kind = kind, args = args or { profile = "dev" }, interactive = false,
+    require("loomworks.daemon.calls").request(conn, { kind = kind, args = args or { profile = "dev" }, interactive = false,
         env = env, command = "lw " .. kind }, function(r, e) rec.reply = r or { error = e } end)
     function rec.wait_reply() return vim.wait(60000, function() return rec.reply ~= nil end, 10) end
     function rec.done()
@@ -265,8 +265,7 @@ describe("lw clean in the daemon's build service (§19.15 Clean)", function()
             return require("loomworks.future").create(function() end)
         end
         local seen = {}
-        local obs = assert(client.session(srv.address, { client = "editor", role = "observer", protocol = 10,
-            on_message = function(m) seen[#seen + 1] = m end }))
+        local obs = H.observer(srv.address, function(m) seen[#seen + 1] = m end)
         local r = request(srv, "clean")
         assert.is_true(vim.wait(30000, function() return pending ~= nil end, 10), r.lines())
         assert.equals(libdir:lower(), (pending.dir:gsub("\\", "/")):lower(), vim.inspect(r.events))

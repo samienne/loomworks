@@ -33,10 +33,8 @@
 --- once the queue drained below `OWNER_LOW`. The daemon's memory per build is
 --- therefore bounded.
 ---
---- Every other authenticated client below transport 11 OBSERVES the task (a
---- CLI build streams into the editor), as in protocol 10; a connection of
---- transport 11 observes only the tasks its `loomworks.Tasks/1` subscription
---- on `/tasks` matches. An observer gets at most `OBSERVER_CAP_BYTES` of a task's output,
+--- Another connection observes only the tasks its `loomworks.Tasks/1`
+--- subscription on `/tasks` matches (a CLI build streams into the editor). An observer gets at most `OBSERVER_CAP_BYTES` of a task's output,
 --- then one truncation notice; an observer whose connection queues more than
 --- `OBSERVER_QUEUE_MAX` bytes is dropped (it re-attaches by connecting again)
 --- unless it owns a running task itself — then it only misses what it
@@ -47,8 +45,8 @@ local bytes = require("loomworks.proto.bytes")
 
 local M = {}
 
---- The object and interface whose subscription observes tasks from transport
---- 11 (loomworks.daemon.core_interfaces TASKS).
+--- The object and interface whose subscription observes tasks
+--- (loomworks.daemon.core_interfaces TASKS).
 M.TASKS_PATH = "/tasks"
 M.TASKS_IFACE = "loomworks.Tasks"
 M.TASKS_V = 1
@@ -73,7 +71,7 @@ M._queued = queued
 
 --- @class loomworks.daemon.Task
 --- @field id string the opaque, session-scoped id (protocol.session_id)
---- @field n integer the per-session counter (a protocol-10 connection's task id)
+--- @field n integer the per-session counter (the order of `snapshot`)
 --- @field owner table the owning connection
 --- @field finished boolean
 --- @field exit_code integer|nil its `done` exit code, once finished
@@ -147,10 +145,9 @@ end
 
 --- The running (started, not finished) tasks as the `status` reply's `tasks`:
 --- `{ task_id, name, kind, profile, scope?, units, origin,
---- started_at, percent? }` each, in start order; each `task_id` as `conn`
---- takes it (M.wire_id). `with_steps`: also a target-scoped task's `steps`
+--- started_at, percent? }` each, in start order. `with_steps`: also a target-scoped task's `steps`
 --- (loomworks.Tasks/1's TaskInfo; `status.tasks` stays frozen without them).
---- @param conn? table the connection the rows are for (nil: the opaque id)
+--- @param conn? table the connection the rows are for (its `owned`)
 --- @param with_steps? boolean
 --- @return table[]
 function Stream:snapshot(conn, with_steps)
@@ -162,26 +159,6 @@ function Stream:snapshot(conn, with_steps)
     local out = {}
     for i, t in ipairs(list) do out[i] = t:info(conn, with_steps) end
     return out
-end
-
---- A task's id as `conn` takes it: the opaque, session-scoped string of
---- transport 11, or the integer of protocol 10 (v0: its task frames,
---- `accepted` replies and `status` rows keep their shape).
---- @param task loomworks.daemon.Task
---- @param conn? table nil: the opaque id
---- @return string|integer
-function M.wire_id(task, conn)
-    if conn == nil or protocol.opaque_ids(conn) then return task.id end
-    return task.n
-end
-
---- `msg` (a task frame of `task`) as `conn` takes it (M.wire_id).
-local function for_conn(task, msg, conn)
-    if protocol.opaque_ids(conn) then return msg end
-    local c = {}
-    for k, v in pairs(msg) do c[k] = v end
-    c.task_id = task.n
-    return c
 end
 
 --- The origin of a task owned by `conn`: its `hello.client`.
@@ -212,7 +189,7 @@ end
 function Task:_to_owner(msg)
     local o = self.owner
     if not o or o.closed then return end
-    self.stream.server:_send(o, for_conn(self, msg, o), self._drained)
+    self.stream.server:_send(o, msg, self._drained)
     if not self.paused and queued(o) > M.OWNER_HIGH then
         self.paused = true
         if self.flow then pcall(self.flow.pause, self.flow) end
@@ -249,8 +226,7 @@ function Task:_observer_ok(conn)
     return false
 end
 
---- Does `conn` observe this task? Below transport 11 every connection does
---- (protocol 10); from 11 only one subscribed to `loomworks.Tasks/1` on
+--- Does `conn` observe this task? Only one subscribed to `loomworks.Tasks/1` on
 --- `/tasks` for every task or for this one: the frames
 --- sent are this version's, so a subscription to another version (a later
 --- `/2` beside it) does not take them.
@@ -258,7 +234,6 @@ end
 --- @return boolean
 function Task:_observes(conn)
     local srv = self.stream.server
-    if type(conn.transport) ~= "number" or conn.transport < 11 then return true end
     local reg = srv.interfaces
     if not reg then return false end
     for _, s in pairs(reg.subs) do
@@ -290,7 +265,7 @@ function Task:_emit(msg, observe)
     if observe == false then return end
     local srv = self.stream.server
     for _, conn in ipairs(self:_observers()) do
-        if self:_observer_ok(conn) then srv:_send(conn, for_conn(self, msg, conn)) end
+        if self:_observer_ok(conn) then srv:_send(conn, msg) end
     end
 end
 
@@ -304,7 +279,7 @@ end
 --- @return table
 function Task:info(conn, with_steps)
     local m = self.meta or {}
-    return { task_id = M.wire_id(self, conn), name = m.name, kind = m.kind, profile = m.profile,
+    return { task_id = self.id, name = m.name, kind = m.kind, profile = m.profile,
         profile_id = m.profile_id, scope = m.scope, units = m.units, origin = m.origin, started_at = self.started_at,
         percent = (self.last_pct or -1) >= 0 and self.last_pct or nil,
         steps = (with_steps and self.steps) and vim.deepcopy(self.steps) or nil }
@@ -429,12 +404,12 @@ function Task:_send_output(stream, chunk)
         if not st.truncated and self:_observer_ok(conn) then
             if st.bytes + #chunk > M.OBSERVER_CAP_BYTES then
                 st.truncated = true
-                srv:_send(conn, { kind = protocol.KIND.task, task_id = M.wire_id(self, conn), phase = "output",
+                srv:_send(conn, { kind = protocol.KIND.task, task_id = self.id, phase = "output",
                     stream = "stderr", text = "[loomworks: task output truncated after "
                         .. math.floor(st.bytes / 1024) .. " KiB]\n" })
             else
                 st.bytes = st.bytes + #chunk
-                srv:_send(conn, for_conn(self, msg, conn))
+                srv:_send(conn, msg)
             end
         end
     end

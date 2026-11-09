@@ -1,7 +1,7 @@
 -- The editor's build scopes in the workspace daemon (spec §19.15 "Editor
 -- scopes and configure", §19.19 step 5k part B1): `loomworks.Build/1`'s
 -- `configure` method, `units` on build / configure / clean, `jobs`, and
--- `{ project, target }` target operands — called over transport 11 against
+-- `{ project, target }` target operands — called against
 -- an in-process server with the build service attached (the host is the
 -- CLI's own workspace load) and a real workspace whose `shell` projects run
 -- real processes: `app` (configure, build, a module clean) and `lib`
@@ -330,24 +330,6 @@ describe("Build/1 editor scopes in the daemon's build service (§19.15)", functi
         r.conn:close()
     end)
 
-    it("the CLI's protocol-10 build takes none of Build/1's new fields (units, jobs, { project, target })", function()
-        start()
-        for _, args in ipairs({
-            { units = { { project = "app", configuration = "Debug" } } },
-            { profile = "dev", jobs = 2 },
-            { profile = "dev", targets = { { project = "app", target = "x" } } },
-        }) do
-            local reply
-            local conn = client.session(srv.address, {})
-            conn:request({ kind = "build", args = args, interactive = false, env = envscope.capture(),
-                command = "lw build" }, function(r, e) reply = r or { error = e } end)
-            assert.is_true(vim.wait(60000, function() return reply ~= nil end, 10))
-            assert.equals("declined", reply.outcome, vim.inspect({ args, reply }))
-            assert.equals("malformed request", reply.reason)
-            conn:close()
-        end
-    end)
-
     it("verbose only where its API defines it (build, clean, test, prepare_run) and only a boolean", function()
         start()
         for _, req in ipairs({
@@ -358,10 +340,12 @@ describe("Build/1 editor scopes in the daemon's build service (§19.15)", functi
             local reply
             local conn = client.session(srv.address, {})
             req.interactive, req.env = false, envscope.capture()
-            conn:request(req, function(r, e) reply = r or { error = e } end)
+            require("loomworks.daemon.calls").request(conn, req, function(r, e) reply = r or { error = e } end)
             assert.is_true(vim.wait(60000, function() return reply ~= nil end, 10))
             assert.equals("declined", reply.outcome, vim.inspect({ req.kind, req.args, reply }))
-            assert.equals("malformed request", reply.reason)
+            -- (Refused by the method's params, or by the build service.)
+            assert.truthy(reply.reason == "malformed request" or reply.reason:find("invalid_args", 1, true),
+                reply.reason)
             conn:close()
         end
         -- (configure: a Build/1 method only, whose params have no `verbose`.)

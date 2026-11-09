@@ -29,11 +29,10 @@
 ---   /views       loomworks.view.Header/1, loomworks.view.ProjectsIndex/1, loomworks.view.Tests/1
 ---                                         get (update; loomworks.daemon.views)
 ---
---- Each method adapts the handler the protocol-10 request kind already uses
---- (loomworks.daemon.service), so the v0 alias and the interface method are
---- one implementation. None of them needs
+--- Each method adapts a handler of the build service
+--- (loomworks.daemon.service). None of them needs
 --- a loaded workspace at mount time — `header` reports the state, the others
---- load as their v0 requests do — so they are mounted when the service is
+--- load on demand — so they are mounted when the service is
 --- attached, before any load, and no `objects_changed` follows a load.
 ---
 --- T = task-streamed: the method
@@ -47,8 +46,7 @@
 --- (an id from a snapshot's index); an id is resolved against the live model
 --- in the request's model segment, and a stale one is the refused result.
 ---
---- Signals: `Workspace.changed` with every committed state-file write (beside
---- the protocol-10 `model_change` broadcast);
+--- Signals: `Workspace.changed` with every committed state-file write;
 --- `Workspace.header_changed` when the header's state, name, active profile
 --- or error changed (checked after every model segment and every write, and
 --- before the acknowledgement of a request answered inside its segment);
@@ -58,11 +56,8 @@
 --- `changed`, and whenever an owned LSP database was written (`lsp_check`);
 --- `Tasks.started` / `Tasks.ended` as a task starts and ends, to the
 --- subscribers of `/tasks` (filtered by the subscription's `task_id`). The
---- task frames themselves reach a connection of transport 11 only for a task
---- its `/tasks` subscription matches (or that it owns), and every
---- connection below 11 as in protocol 10 (loomworks.daemon.tasks). Likewise
---- the protocol-10 `model_change` and
---- `retiring` broadcasts reach only connections below transport 11.
+--- task frames themselves reach a connection only for a task its `/tasks`
+--- subscription matches (or that it owns; loomworks.daemon.tasks).
 
 local envelope = require("loomworks.proto.envelope")
 
@@ -437,7 +432,7 @@ function M.task_call(registry, where, method)
         end }
 end
 
---- An operation's wire args → the protocol-10 request's args: a reference
+--- An operation's wire args → the build service's args: a reference
 --- `profile` / `project` becomes its key (`{ key }`) or the id to resolve
 --- (`profile_id` / `project_id`, Service:_resolve_ids); `interactive` and
 --- `command` are the request's own fields.
@@ -866,7 +861,7 @@ end
 --- write the profile's device to the working copy as the
 --- in-process Profile:set_device / clear_device do; `set_device`'s device
 --- is one of the registry's (Devices/1.list), by id or serial. The write's
---- `model_change` (Workspace/1 `changed`) precedes the reply.
+--- `Workspace/1.changed` precedes the reply.
 --- @param service loomworks.daemon.BuildService
 --- @return loomworks.daemon.InterfaceImpl
 function M.profiles_impl(service)
@@ -1508,7 +1503,7 @@ end
 --- when none is). `set_adapter` is a command: in its model segment, after
 --- the tracker took in any pending file change, the working copy is written
 --- as the in-process Workspace:set_debug_adapter writes it; the committed
---- write's `model_change` (and `Workspace.changed`) precedes the reply. A
+--- write's `Workspace.changed` precedes the reply. A
 --- write that is refused or fails changes neither user.json nor the model:
 --- the refused result.
 --- @param service loomworks.daemon.BuildService
@@ -1555,8 +1550,8 @@ end
 --- `set_option` is a command like DebugConfig/1.set_adapter: in its model
 --- segment (loaded as for a query when none is), after the tracker took in
 --- any pending file change, the working copy is written as the in-process
---- Workspace:set_lsp_option writes it; the committed write's `model_change`
---- (and `Workspace.changed`, then this interface's `changed`) precedes the
+--- Workspace:set_lsp_option writes it; the committed write's `Workspace.changed`
+--- (then this interface's `changed`) precedes the
 --- reply. A refused or failed write (a stale or untrusted working copy, a
 --- refused load) changes neither user.json nor the model: the refused result.
 --- An unknown server or key or a mistyped value is `invalid_args`, before

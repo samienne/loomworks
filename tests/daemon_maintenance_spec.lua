@@ -77,7 +77,7 @@ local function session()
         end
     end
     function s.id(obj) return s.service().ids:id(obj) end
-    s.send({ kind = "hello", protocol = 11, client = "editor", lw_version = require("loomworks.daemon.version").identity() })
+    s.send({ kind = "hello", protocol = 1, client = "editor", lw_version = require("loomworks.daemon.version").identity() })
     s.wait(function(m) return m.kind == "welcome" end)
     function s.close()
         pcall(d.close)

@@ -191,7 +191,7 @@ describe("a process's end ends its output (§14.2, a task without step states)",
         local env = envscope.capture()
         env.LW_TEST_STDOUT_TAIL = "configure:e2"     -- configure ends with E2
         env.LW_TEST_STDOUT_HEAD = "build:82ac"       -- build starts with 82 AC
-        conn:request({ kind = "build", args = { profile = "dev" }, interactive = false, env = env,
+        require("loomworks.daemon.calls").request(conn, { kind = "build", args = { profile = "dev" }, interactive = false, env = env,
             command = "lw build" }, function(r, e) reply = r or { error = e } end)
         assert.is_true(vim.wait(60000, function()
             for _, m in ipairs(events) do if m.phase == "done" then return true end end

@@ -9193,8 +9193,7 @@ function M._delegate(op, root, args, ensured, opts)
       -- Its bytes: `text`, or `data` decoded.
       M._raw_write((m.stream == "stderr" or quiet) and 2 or 1, output_bytes(m))
     elseif m.phase == "done" then
-      -- An interface method's task carries its task result; a
-      -- protocol-10 task the same fields on the frame itself.
+      -- An interface method's task carries its task result.
       local res = type(m.result) == "table" and m.result or m
       done = { code = tonumber(res.exit_code) or 1, error = res.error, launch = res.launch,
         device = res.device == true, profile_key = profile_key }
@@ -9219,8 +9218,8 @@ function M._delegate(op, root, args, ensured, opts)
   on_exit(function() pcall(conn.close, conn) end)
   local ctrl_c_enabled = M._enable_console_ctrl_c()
   local reply, rerr
-  -- Over transport 11 the interface method (Build/1, Tests/1.run,
-  -- Launch/1.prepare_run), else the protocol-10 request (daemon/calls.lua).
+  -- Sent as the interface method (Build/1, Tests/1.run,
+  -- Launch/1.prepare_run; daemon/calls.lua).
   local msg = { kind = op == "run" and "prepare_run" or op, args = req, interactive = interactive(),
     command = "lw " .. op, env = require("loomworks.daemon.envscope").capture() }
   require("loomworks.daemon.calls").request(conn, msg, function(r, e)
@@ -9374,9 +9373,9 @@ end
 --- send `loomworks.Tasks/1.cancel` for the task `conn` started and keep
 --- waiting for it to end. Returns false — the Ctrl-C then ends lw and closes
 --- the connection, as a second one does — when the connection cannot carry
---- the call: a daemon of protocol 10 (no interface calls, an integer task
---- id). A daemon that turns out to have no `Tasks/1` (the call's error says
---- nothing ran) gets the same through `escalate`. Any other answer (the task
+--- the call (no agreed transport, no task id). A daemon that turns out to
+--- have no `Tasks/1` (the call's error says nothing ran) gets the same
+--- through `escalate`. Any other answer (the task
 --- already ended, the connection closed) leaves the wait to end as it does.
 --- @param conn table the client session
 --- @param task_id any the accepted reply's task id
@@ -9386,7 +9385,7 @@ function M._routed_cancel(conn, task_id, escalate)
   local calls = require("loomworks.daemon.calls")
   if type(task_id) ~= "string" or conn.closed or not calls.speaks_calls(conn) then return false end
   conn:call("/tasks", "loomworks.Tasks", 1, "cancel", { task_id = task_id }, function(_, err)
-    if type(err) == "table" and calls.RETRY_V0[err.code] then escalate() end
+    if type(err) == "table" and calls.ABSENT[err.code] then escalate() end
   end)
   return true
 end
@@ -9670,7 +9669,7 @@ function M._read_projection(root, opts)
   local function ask(msg, deadline_ms)
     if timed_out or conn.closed then return nil, "the connection closed" end
     local res
-    -- (Over transport 11: lw.internal.Snapshot/1.get, Toolchains/1.list,
+    -- (As lw.internal.Snapshot/1.get, Toolchains/1.list,
     -- Profiles/1.compiler_cache; daemon/calls.lua.)
     require("loomworks.daemon.calls").request(conn, msg, function(r, e) res = { r, e } end)
     local deadline = uv.now() + (test_deadline or deadline_ms or M.READ_DEADLINE_MS)

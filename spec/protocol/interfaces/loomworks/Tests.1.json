@@ -2,7 +2,7 @@
   "interface": "loomworks.Tests",
   "version": 1,
   "status": "draft",
-  "description": "Object /tests (API.md §10): the batch test run of lw test as a task-streamed method; the protocol-10 test request stays as its v0 alias. Step 5m (API.md §10.2) adds the editor's discover (part B1), run_cases, prepare_debug (task-streamed), collect and result (part B2) with their handlers; its results signal, which needs no handler, is declared here from part 0.",
+  "description": "Object /tests (API.md §10): the batch test run of lw test as a task-streamed method. Step 5m (API.md §10.2) adds the editor's discover (part B1), run_cases, prepare_debug (task-streamed), collect and result (part B2) with their handlers; its results signal, which needs no handler, is declared here from part 0.",
   "methods": {
     "run": {
       "description": "Build the profile (unless no_build), then run its registered tests (lw test [<profile>] [--no-build] [--junit <file>] [-- <args>]).",

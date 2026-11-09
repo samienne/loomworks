@@ -2,7 +2,7 @@
 -- §19.19 step 5d): an in-process server with the build service attached (the
 -- host is the CLI's own workspace load), a real authenticated client, a real
 -- workspace of two `shell` projects (`app`, `lib`). Covers `-y` (the task
--- lists, removes, clears the cache; its write-back's `model_change` precedes
+-- lists, removes, clears the cache; its write-back's `Workspace/1.changed` precedes
 -- `done`), the two-request confirmation (`confirm` takes no lock and changes
 -- nothing; the confirmed request prints no listing), a plan changed between
 -- listing and confirmation (refused before any side effect), nothing to reset
@@ -91,7 +91,7 @@ local function request(srv, kind, args, opts)
     rec.conn = conn
     local env = envscope.capture()
     for k, v in pairs(opts.env or {}) do env[k] = v or nil end
-    conn:request({ kind = kind, args = args, interactive = false, env = env, command = "lw " .. kind },
+    require("loomworks.daemon.calls").request(conn, { kind = kind, args = args, interactive = false, env = env, command = "lw " .. kind },
         function(r, e) rec.reply = r or { error = e } end)
     function rec.wait_reply() return vim.wait(60000, function() return rec.reply ~= nil end, 10) end
     function rec.done()
@@ -143,13 +143,12 @@ describe("lw reset in the daemon's build service (§19.15 Reset)", function()
         trust._set_key_path(nil)
     end)
 
-    it("-y: lists, removes every build directory, clears the cache; model_change precedes done", function()
+    it("-y: lists, removes every build directory, clears the cache; Workspace.changed precedes done", function()
         start()
         built()
         assert.equals("built", cached_state(root, "app"))
         local seen = {}
-        local obs = assert(client.session(srv.address, { client = "editor", role = "observer", protocol = 10,
-            on_message = function(m) seen[#seen + 1] = m end }))
+        local obs = H.observer(srv.address, function(m) seen[#seen + 1] = m end)
         local r = request(srv, "reset", { profile = "dev", yes = true })
         assert.is_true(r.wait_reply())
         assert.equals("accepted", r.reply.outcome, vim.inspect(r.reply))
@@ -180,11 +179,11 @@ describe("lw reset in the daemon's build service (§19.15 Reset)", function()
         assert.is_nil(cached_state(root, "app"))
         assert.is_nil(cached_state(root, "lib"))
         assert.is_nil(build_lock.read(dir("app")))
-        -- The write-back's model_change reached the observer before done.
+        -- The write-back's Workspace.changed reached the observer before done.
         local mc, dn
         assert.is_true(vim.wait(10000, function()
             for i, m in ipairs(seen) do
-                if m.kind == "model_change" and not mc then mc = i end
+                if m.kind == "signal" and m.object == "/workspace" and m.name == "changed" and not mc then mc = i end
                 if m.kind == "task" and m.phase == "done" then dn = i end
             end
             return dn ~= nil
@@ -375,8 +374,7 @@ describe("lw reset in the daemon's build service (§19.15 Reset)", function()
             return require("loomworks.future").create(function() end)
         end
         local seen = {}
-        local obs = assert(client.session(srv.address, { client = "editor", role = "observer", protocol = 10,
-            on_message = function(m) seen[#seen + 1] = m end }))
+        local obs = H.observer(srv.address, function(m) seen[#seen + 1] = m end)
         local r = request(srv, "reset", { profile = "dev", yes = true })
         assert.is_true(vim.wait(30000, function() return #pending > 0 end, 10), r.lines())
         local first = pending[1]

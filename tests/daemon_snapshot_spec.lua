@@ -58,7 +58,7 @@ describe("daemon snapshot and projection (§19.13, §19.14)", function()
         local conn = assert(client.loopback_session(srv, { on_message = function(m) events[#events + 1] = m end }))
         -- A build first, so the cache holds real build state.
         local done
-        local reply = client.request(conn, { kind = "build", args = { profile = "dev" }, interactive = false,
+        local reply = require("loomworks.daemon.calls").request_sync(conn, { kind = "build", args = { profile = "dev" }, interactive = false,
             env = envscope.capture(), command = "lw build" })
         assert.equals("accepted", reply and reply.outcome, vim.inspect(reply))
         assert.is_true(vim.wait(60000, function()
@@ -196,13 +196,8 @@ describe("daemon snapshot and projection (§19.13, §19.14)", function()
 
     it("refuses an unknown scope as malformed", function()
         local conn = assert(client.loopback_session(srv))
-        -- The protocol-10 request declines it ...
-        local reply = assert(client.request(conn, { kind = "snapshot", scope = "everything",
-            env = envscope.capture() }))
-        assert.equals("declined", reply.outcome)
-        assert.equals("malformed request", reply.reason)
-        -- ... and its interface form (lw.internal.Snapshot/1.get, which
-        -- snapshot.fetch calls over transport 11) refuses it as invalid_args.
+        -- lw.internal.Snapshot/1.get (which snapshot.fetch calls) refuses it
+        -- as invalid_args.
         local snap, err = snapshot.fetch(conn, { scope = "everything" })
         assert.is_nil(snap)
         assert.truthy(tostring(err):find("invalid_args", 1, true), tostring(err))
@@ -236,7 +231,7 @@ describe("daemon snapshot and projection (§19.13, §19.14)", function()
         local none, err = snapshot.query(conn, "nope")
         assert.is_nil(none)
         assert.equals("unknown query: nope", err)
-        local bad, berr = client.request(conn, { kind = "query", name = 7, env = envscope.capture() })
+        local bad, berr = require("loomworks.daemon.calls").request_sync(conn, { kind = "query", name = 7, env = envscope.capture() })
         assert.equals("declined", bad and bad.outcome)
         assert.is_nil(berr)
         conn:close()

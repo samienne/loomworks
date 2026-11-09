@@ -112,7 +112,7 @@ local function open(root, key, env_over)
         while guard(s._pull, s, 0) do end
         local keep = {}
         for _, f in ipairs(s.queue) do
-            if f.kind ~= "task" and f.kind ~= "model_change" and not (f.kind == "signal" and f.name ~= "results") then
+            if f.kind ~= "task" and not (f.kind == "signal" and f.name ~= "results") then
                 keep[#keep + 1] = f
             end
         end

@@ -1,7 +1,6 @@
 -- The CLI's requests as interface calls (spec §19.20, step 5g.2 part B,
--- loomworks.daemon.calls): over transport 11 the protocol-10 request kinds
--- go as their interface methods and their replies come back in the
--- protocol-10 shape; a connection of transport 10 still sends the kinds.
+-- loomworks.daemon.calls): the CLI's operation messages go as their
+-- interface methods and their replies come back flattened into that shape.
 -- An attached server with the build service, loopback client sessions.
 
 _G.LOOMWORKS_CLI_NO_AUTORUN = true
@@ -58,12 +57,9 @@ describe("calls error policy (§19.20)", function()
         end
     end)
 
-    it("maps each transport error code to retry, decline or fail", function()
-        for _, code in ipairs({ "unknown_object", "unknown_interface", "unknown_method", "unsupported_version" }) do
-            assert.equals("retry_v0", calls.on_error(code, true), code)
-            assert.equals("retry_v0", calls.on_error(code, false), code)
-        end
-        for _, code in ipairs({ "invalid_args", "same_build_required", "stopping", "retiring" }) do
+    it("maps each transport error code to decline or fail", function()
+        for _, code in ipairs({ "unknown_object", "unknown_interface", "unknown_method", "unsupported_version",
+            "invalid_args", "same_build_required", "stopping", "retiring" }) do
             assert.equals("declined", calls.on_error(code, true), code)
             assert.equals("declined", calls.on_error(code, false), code)
         end
@@ -73,10 +69,10 @@ describe("calls error policy (§19.20)", function()
         end
     end)
 
-    --- A transport-11 connection whose interface calls fail with `code`;
-    --- its protocol-10 requests are answered `accepted`.
+    --- A connection whose interface calls fail with `code`; any other
+    --- request is answered `accepted`.
     local function failing_conn(code)
-        local conn = { transport = 11, sent = {} }
+        local conn = { transport = 1, sent = {} }
         function conn.request(_, msg, cb)
             conn.sent[#conn.sent + 1] = msg.kind
             if msg.kind == "call" then return cb(nil, { code = code, message = "boom" }) end
@@ -91,17 +87,9 @@ describe("calls error policy (§19.20)", function()
         return got[1], got[2]
     end
 
-    it("sends the protocol-10 request when the daemon does not serve the interface", function()
-        for _, code in ipairs({ "unknown_object", "unknown_interface", "unknown_method", "unsupported_version" }) do
-            local conn = failing_conn(code)
-            local r = ask(conn, { kind = "build", args = { profile = "dev" } })
-            assert.equals("accepted", r.outcome, code)
-            assert.same({ "call", "build" }, conn.sent, code)
-        end
-    end)
-
     it("declines (runs in-process) when the call was not processed", function()
-        for _, code in ipairs({ "invalid_args", "same_build_required", "stopping", "retiring" }) do
+        for _, code in ipairs({ "unknown_object", "unknown_interface", "unknown_method", "unsupported_version",
+            "invalid_args", "same_build_required", "stopping", "retiring" }) do
             local conn = failing_conn(code)
             local r = ask(conn, { kind = "test", args = {} })
             assert.equals("declined", r.outcome, code)
@@ -134,7 +122,7 @@ describe("calls error policy (§19.20)", function()
     end)
 end)
 
-describe("the CLI's requests over transport 11 (§19.20)", function()
+describe("the CLI's requests (§19.20)", function()
     local root, srv
     before_each(function()
         trust._set_key_path(H.tmp() .. "/trust.key")
@@ -164,10 +152,10 @@ describe("the CLI's requests over transport 11 (§19.20)", function()
         return conn
     end
 
-    it("go as interface calls and answer in the protocol-10 shape, the task done with its result", function()
+    it("go as interface calls and answer flattened, the task done with its result", function()
         local events = {}
         local conn = session(events)
-        assert.equals(11, conn.transport)
+        assert.equals(1, conn.transport)
         local snap = assert(calls.request_sync(conn, { kind = "snapshot", scope = "config", env = envscope.capture() }))
         assert.equals("ok", snap.outcome)
         assert.equals("config", snap.scope)
@@ -199,47 +187,14 @@ describe("the CLI's requests over transport 11 (§19.20)", function()
         conn:close()
     end)
 
-    it("a daemon without the interface (step 5g.1) gets the protocol-10 request", function()
+    it("a daemon without the interface declines: nothing ran, the CLI runs in-process", function()
         srv.interfaces:unmount("/build")
-        local events = {}
-        local conn = session(events)
-        assert.equals(11, conn.transport)
+        local conn = session({})
         local r = assert(calls.request_sync(conn, { kind = "build", args = { profile = "dev" }, interactive = false,
             command = "lw build", env = envscope.capture() }))
-        assert.equals("accepted", r.outcome, vim.inspect(r))
-        assert.same({ "call", "build" }, conn.sent)
-        assert.is_true(vim.wait(60000, function()
-            for _, m in ipairs(events) do
-                if m.kind == "task" and m.task_id == r.task_id and m.phase == "done" then return true end
-            end
-            return false
-        end, 10))
-        conn:close()
-    end)
-
-    it("a connection of transport 10 sends the protocol-10 kinds, answered alike", function()
-        local events = {}
-        local conn = session(events)
-        conn.transport = 10
-        local snap = assert(calls.request_sync(conn, { kind = "snapshot", scope = "config", env = envscope.capture() }))
-        assert.equals("ok", snap.outcome)
-        assert.is_string(snap.index.profiles.dev)
-        local q = assert(calls.request_sync(conn, { kind = "query", name = "tools", args = {}, env = envscope.capture() }))
-        assert.is_table(q.result.tools)
-        local r = assert(calls.request_sync(conn, { kind = "build", args = { profile = "dev" }, interactive = false,
-            command = "lw build", env = envscope.capture() }))
-        assert.equals("accepted", r.outcome)
-        local done
-        assert.is_true(vim.wait(60000, function()
-            for _, m in ipairs(events) do
-                if m.kind == "task" and m.task_id == r.task_id and m.phase == "done" then done = m end
-            end
-            return done ~= nil
-        end, 10))
-        assert.equals(0, done.exit_code)
-        -- (A protocol-10 task's done frame carries no interface result.)
-        assert.is_nil(done.result)
-        assert.same({ "snapshot", "query", "build" }, conn.sent)
+        assert.equals("declined", r.outcome, vim.inspect(r))
+        assert.truthy(r.reason:find("unknown_object", 1, true), r.reason)
+        assert.same({ "call" }, conn.sent)
         conn:close()
     end)
 end)

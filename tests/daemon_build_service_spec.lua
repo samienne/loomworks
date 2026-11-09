@@ -42,7 +42,7 @@ local function build(srv, args, opts)
     rec.conn = conn
     local env = envscope.capture()
     for k, v in pairs(opts.env or {}) do env[k] = v or nil end
-    conn:request({ kind = "build", args = args or { profile = "dev" }, interactive = opts.interactive or false,
+    require("loomworks.daemon.calls").request(conn, { kind = "build", args = args or { profile = "dev" }, interactive = opts.interactive or false,
         env = env, command = "lw build" }, function(r, e) rec.reply = r or { error = e } end)
     function rec.wait_reply() return vim.wait(60000, function() return rec.reply ~= nil end, 10) end
     function rec.done()
@@ -97,58 +97,20 @@ describe("daemon build service (§19.15)", function()
         assert.is_false(srv.busy)
     end)
 
-    it("sends the cache write-back's model_change before the task's done, to the owner and an observer (§19.15 Same behaviour)", function()
-        local seen = {}
-        local obs = assert(client.session(srv.address, { client = "editor", role = "observer", protocol = 10,
-            on_message = function(m) seen[#seen + 1] = m end }))
-        local all = {}
-        -- (Protocol-10 clients: the v0 `model_change` broadcast; a transport-11
-        -- connection gets `Workspace/1.changed` by subscription instead.)
-        local conn = assert(client.session(srv.address, { protocol = 10,
-            on_message = function(m) all[#all + 1] = m end }))
-        local done
-        conn:request({ kind = "build", args = { profile = "dev" }, interactive = false,
-            env = envscope.capture(), command = "lw build" }, function() end)
-        assert.is_true(vim.wait(60000, function()
-            for _, m in ipairs(all) do if m.kind == "task" and m.phase == "done" then done = m; return true end end
-            return false
-        end, 10))
-        assert.equals(0, done.exit_code)
-        local function order(list)
-            local last_change, done_at, start
-            for i, m in ipairs(list) do
-                if m.kind == "model_change" then last_change = i end
-                if m.kind == "task" and m.phase == "done" then done_at = done_at or i end
-                if m.kind == "task" and m.phase == "start" then start = start or m end
-            end
-            return last_change, done_at, start
-        end
-        local c1, d1, s1 = order(all)
-        assert.is_not_nil(c1, "no model_change for the write-back")
-        assert.is_true(c1 < d1)
-        -- The start meta carries the owner's origin (protocol 7).
-        assert.equals("cli", s1.meta.origin)
-        assert.is_true(vim.wait(10000, function() local _, d = order(seen); return d ~= nil end, 10))
-        local c2, d2, s2 = order(seen)
-        assert.is_true(c2 ~= nil and c2 < d2)
-        assert.equals("cli", s2.meta.origin)
-        conn:close(); obs:close()
-    end)
-
-    it("transport 11: Workspace/1.changed of the write-back arrives before the task's done, to the owner and an observer subscribed to /workspace (§19.15 Same behaviour)", function()
+    it("Workspace/1.changed of the write-back arrives before the task's done, to the owner and an observer subscribed to /workspace (§19.15 Same behaviour)", function()
         local function sub(c, object, iface)
             assert(client.call_sync(c, "/", "loomworks.Root", 1, "subscribe", { object = object, iface = iface, v = 1 }))
         end
         local seen = {}
         local obs = assert(client.session(srv.address, { client = "editor", role = "observer",
             on_message = function(m) seen[#seen + 1] = m end }))
-        assert.equals(11, obs.transport)
+        assert.equals(1, obs.transport)
         sub(obs, "/tasks", "loomworks.Tasks")
         sub(obs, "/workspace", "loomworks.Workspace")
         local all = {}
         local conn = assert(client.session(srv.address, { on_message = function(m) all[#all + 1] = m end }))
         sub(conn, "/workspace", "loomworks.Workspace")
-        conn:request({ kind = "build", args = { profile = "dev" }, interactive = false,
+        require("loomworks.daemon.calls").request(conn, { kind = "build", args = { profile = "dev" }, interactive = false,
             env = envscope.capture(), command = "lw build" }, function() end)
         local function order(list)
             local last_change, done_at, v0
@@ -163,7 +125,7 @@ describe("daemon build service (§19.15)", function()
         local c1, d1, v01 = order(all)
         assert.is_not_nil(c1, "no Workspace.changed for the write-back")
         assert.is_true(c1 < d1)
-        assert.is_nil(v01) -- no v0 broadcast on transport 11
+        assert.is_nil(v01) -- no bare model_change frame
         assert.is_true(vim.wait(10000, function() local _, d = order(seen); return d ~= nil end, 10))
         local c2, d2, v02 = order(seen)
         assert.is_true(c2 ~= nil and c2 < d2)
@@ -185,8 +147,7 @@ describe("daemon build service (§19.15)", function()
         assert.equals("dev", t.name)
         assert.equals("cli", t.origin)
         assert.equals("app", t.units[1].project)
-        -- (An opaque string on this transport-11 session; a protocol-10
-        -- connection keeps its integer, §19.20.)
+        -- (An opaque string, §19.20.)
         assert.is_string(t.task_id)
         assert.is_true(math.abs(os.time() - t.started_at) < 120)
         -- `lw status` lists it under the Runtime row (§19.6): the handle shows

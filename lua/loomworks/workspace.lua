@@ -1099,7 +1099,7 @@ function Workspace:_record_written(kind, path, written)
     if written == nil and type(read_file) == "function" then written = read_file(path) end
     self._disk_baseline[kind] = { text = written }
     if self._tracker then self._tracker:mark_written(path, written) end
-    -- The workspace daemon tells its clients (`model_change`).
+    -- The workspace daemon tells its clients (`Workspace/1.changed`).
     local on_written = self._core._deps.on_written
     if on_written then pcall(on_written, kind, path) end
     self:_emit_written(kind)

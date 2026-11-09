@@ -1,7 +1,7 @@
 -- loomworks.Workspace/1 commands in the daemon (API.md §6, spec daemon.md
 -- §19.14 "As interfaces"; step 5o part B1): publish, publish_one,
 -- revert_one, revert_to_baseline, set_intent, set_description, trust_accept
--- and delete_user_prefs, called over transport 11 against an in-process
+-- and delete_user_prefs, called against an in-process
 -- server with the build service attached and a real `shell` workspace. Ids
 -- resolve to the live objects at the boundary; the write goes through
 -- loomworks.model_commands; a publish takes the workspace operation lock O.

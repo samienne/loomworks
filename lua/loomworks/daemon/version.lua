@@ -19,28 +19,20 @@
 
 local M = {}
 
---- The wire protocol version. 1 was unauthenticated; 2 adds the mutual
---- handshake and the frozen control subset; 3 the routed `build` request and
---- its task stream; 4 the observer role and the `model_change` / `retiring`
---- broadcasts; 5 the routed `test` request; 6 the `prepare_run` request; 7
---- `origin` in the task `start` meta and `tasks` in the `status` reply; 8 the
---- routed `clean` request; 9 the routed `reset` request and its `confirm`
---- outcome; 10 the `snapshot` and `query` requests and the model fields of
---- the `welcome` header; 11 the transport-only version: the message envelope
---- (`call` / `ok` / `error` / `signal` / `task`), the root object `/`
---- (`loomworks.Root/1`), `protocol_min` and `welcome.objects`. From 11 the
---- number versions the transport only; everything else is an interface with
---- its own version.
-M.PROTOCOL = 11
+--- The transport version (spec/protocol/PROTOCOL.md §6): the framing,
+--- authentication, the handshake, the message envelope and the root object;
+--- everything else is an interface with its own version. Pre-0.2.0
+--- pre-releases used transport numbers up to 11 and are incompatible: their
+--- ranges share no version with this one, so `negotiate` finds none.
+M.PROTOCOL = 1
 
---- The oldest transport this build still speaks: a daemon of
---- protocol 11 serves clients of 10, whose request kinds are v0 aliases.
-M.PROTOCOL_MIN = 10
+--- The oldest transport this build speaks.
+M.PROTOCOL_MIN = 1
 
 --- The transport version two ranges agree on: the highest in the overlap of
 --- `[min, max]` and ours, or nil when
---- they do not overlap. A peer that states no `protocol_min` (protocol 10 and
---- older) states the range `[max, max]`.
+--- they do not overlap. A peer that states no `protocol_min` states the range
+--- `[max, max]`.
 --- @param max integer|nil the peer's `protocol`
 --- @param min integer|nil the peer's `protocol_min`
 --- @return integer|nil
@@ -186,7 +178,7 @@ function M.matches(peer, opts)
     return true
 end
 
---- The CLI's policy from protocol 11: a CLI client drives a daemon of an
+--- The CLI's policy: a CLI client drives a daemon of an
 --- agreed transport (`transport`, `negotiate`) only when the daemon's
 --- `describe().binary.lw_version` and its schemas (the challenge's) equal
 --- its own — pin semantics
@@ -205,8 +197,8 @@ function M.cli_policy_matches(transport, lw_version, schemas)
 end
 
 --- May an editor OBSERVE a daemon with these announced versions?
---- Overlapping transport ranges (`negotiate`; before protocol 11
---- this was an equal protocol) and schemas no newer than ours; the host
+--- Overlapping transport ranges (`negotiate`)
+--- and schemas no newer than ours; the host
 --- version may differ. Returns false + what is wrong ("protocol" | "schemas").
 --- @param peer table
 --- @return boolean ok, string|nil what

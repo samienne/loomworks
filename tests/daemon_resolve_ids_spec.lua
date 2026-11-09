@@ -4,7 +4,7 @@
 -- again by its key. A key round-trip would put the key through the CLI's
 -- profile matcher (§16.9), which reads a bare integer as the positional
 -- index: a profile keyed `2` named by id would become the second profile in
--- key order. Called over transport 11 against an in-process server with the
+-- key order. Called against an in-process server with the
 -- build service attached and a real `shell` workspace.
 
 _G.LOOMWORKS_CLI_NO_AUTORUN = true

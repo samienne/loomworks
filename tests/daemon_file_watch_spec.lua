@@ -46,7 +46,7 @@ end
 local function snapshot(srv)
     local conn = assert(client.session(srv.address, {}))
     local reply
-    conn:request({ kind = "snapshot", scope = "all", env = envscope.capture() },
+    require("loomworks.daemon.calls").request(conn, { kind = "snapshot", scope = "all", env = envscope.capture() },
         function(r, e) reply = r or { error = e } end)
     vim.wait(60000, function() return reply ~= nil end, 10)
     pcall(conn.close, conn)

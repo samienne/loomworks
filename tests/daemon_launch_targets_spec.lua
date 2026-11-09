@@ -1,6 +1,6 @@
 -- loomworks.Launch/1 `targets`, loomworks.Profiles/1 `set_default_target`
 -- and `projects[].targets` of loomworks.view.Workspace/1 (API.md §9.6, §11,
--- §14.4; step 6b-α, WP-C), called over transport 11 against an in-process
+-- §14.4; step 6b-α, WP-C), called against an in-process
 -- server with the build service attached and a real `shell` workspace whose
 -- unit is given parsed build targets. References resolve at the boundary
 -- (an id, or a key); the default-target write goes through
