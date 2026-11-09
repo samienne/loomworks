@@ -326,7 +326,10 @@ function Core:_migrate_state(root)
     if not uv.fs_stat(root) then return nil end
     pcall(require("loomworks.state_dir").ensure_ignore, root)
     local sm = require("loomworks.state_migration")
-    if not sm.pending(root) then return nil end
+    if not sm.pending(root) then
+        sm.tidy(root)
+        return nil
+    end
     local status, msg = sm.run(root)
     if status == "refused" then
         local m = (tostring(msg):gsub("^lw: ", ""))

@@ -223,13 +223,93 @@ describe("state migration", function()
         assert.is_nil(sm.divergence(r))
     end)
 
-    it("a crash between copy and marker, legacy changed since: keeps .lw/user.json, reports it", function()
+    it("a .lw/user.json without a marker that differs from .nvim: refused, saying what to do", function()
         local r = legacy_root()
-        write(r .. "/.lw/user.json", "copied earlier")
-        assert.equals("completed", (sm.run(r)))
+        write(r .. "/.lw/user.json", "copied earlier") -- partial copy, or put there by hand
+        local status, msg = sm.run(r)
+        assert.equals("refused", status)
+        assert.truthy(msg:find("differs from .nvim/loomworks.user.json", 1, true), msg)
+        assert.truthy(msg:find("move .lw/user.json out of .lw/", 1, true), msg)
         assert.equals("copied earlier", read(r .. "/.lw/user.json"))
         assert.equals(LEGACY_BYTES, read(r .. "/.nvim/loomworks.user.json"))
-        assert.truthy(sm.divergence(r))
+        assert.is_false(exists(r .. "/.lw/migrated.json"))
+        -- Moved out of the way as told: the next run copies anew.
+        assert.is_true(uv.fs_rename(r .. "/.lw/user.json", r .. "/user.json.old"))
+        assert.equals("migrated", (sm.run(r)))
+        assert.equals(LEGACY_BYTES, read(r .. "/.lw/user.json"))
+    end)
+
+    it("without hard links the final name is created exclusively and verified", function()
+        local r = legacy_root()
+        local saved = uv.fs_link
+        uv.fs_link = function(from, to, ...)
+            if tostring(to):match("/%.lw/user%.json$") then
+                return nil, "ENOTSUP: operation not supported", "ENOTSUP"
+            end
+            return saved(from, to, ...)
+        end
+        local ok, status = pcall(sm.run, r)
+        uv.fs_link = saved
+        assert.is_true(ok, tostring(status))
+        assert.equals("migrated", status)
+        assert.equals(LEGACY_BYTES, read(r .. "/.lw/user.json"))
+        local _, m = sm.read_marker(r)
+        assert.equals(vim.fn.sha256(LEGACY_BYTES), m.source_sha256)
+        for _, n in ipairs(ls(r .. "/.lw")) do assert.is_nil(n:match(sm.TEMP_PATTERN), n) end
+    end)
+
+    it("a leftover temporary copy is removed on a later run after the migration too", function()
+        local r = legacy_root()
+        assert.equals("migrated", (sm.run(r)))
+        write(r .. "/.lw/user.json.migrate-0a1b2c", "left by a failed unlink")
+        write(r .. "/.lw/user.json.migrate-notes", "user file")
+        sm.tidy(r)
+        assert.is_false(exists(r .. "/.lw/user.json.migrate-0a1b2c"))
+        assert.equals("user file", read(r .. "/.lw/user.json.migrate-notes"))
+        assert.equals(LEGACY_BYTES, read(r .. "/.lw/user.json"))
+    end)
+
+    it("the legacy operation lock taken over by another process is not removed on release", function()
+        local r = legacy_root()
+        local other = lock_record.new("build")
+        other.lock_nonce = "another-process"
+        local body = vim.json.encode(other)
+        local saved = uv.fs_link
+        uv.fs_link = function(from, to, ...)
+            -- (the copy's link: between taking the legacy lock and releasing it)
+            if tostring(to):match("/%.lw/user%.json$") then
+                local f = assert(io.open(r .. "/.nvim/loomworks.op.lock", "wb")); f:write(body); f:close()
+            end
+            return saved(from, to, ...)
+        end
+        local ok, status = pcall(sm.run, r)
+        uv.fs_link = saved
+        assert.is_true(ok, tostring(status))
+        assert.equals("migrated", status)
+        assert.equals(body, read(r .. "/.nvim/loomworks.op.lock"))
+    end)
+
+    it(".lw that is a file, or a link or junction, is refused and nothing is written through it", function()
+        local r = legacy_root()
+        write(r .. "/.lw", "a file")
+        local status, msg = sm.run(r)
+        assert.equals("refused", status)
+        assert.truthy(msg:find(".lw", 1, true), msg)
+        assert.equals("a file", read(r .. "/.lw"))
+        assert.is_false(exists(r .. "/.lw/migrated.json"))
+        uv.fs_unlink(r .. "/.lw")
+
+        local target = r .. "/elsewhere"
+        vim.fn.mkdir(target, "p")
+        local linked = uv.fs_symlink(target, r .. "/.lw", { dir = true, junction = true })
+        if not linked then return end -- (no links on this system)
+        local ok2, status2, msg2 = pcall(sm.run, r)
+        pcall(uv.fs_unlink, r .. "/.lw")
+        pcall(uv.fs_rmdir, r .. "/.lw")
+        assert.is_true(ok2, tostring(status2))
+        assert.equals("refused", status2)
+        assert.truthy(msg2:find("not a real directory", 1, true), msg2)
+        assert.same({}, ls(target))
     end)
 
     it("a marker that is not a regular file stops the command, saying what to do", function()

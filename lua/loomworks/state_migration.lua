@@ -17,8 +17,10 @@
 ---
 --- Crash safety: the marker `.lw/migrated.json` is written last (the commit
 --- point). A run that finds `.lw/user.json` without a marker completes the
---- migration by writing the marker for that file's bytes; a copy is never
---- made over an existing `.lw/user.json`.
+--- migration only when that file is byte-identical (sha256) to the legacy
+--- working copy, else refuses saying what to do; a copy is never made over an
+--- existing `.lw/user.json`. A temporary copy left by a failed unlink is
+--- removed by a later run, or after the migration by `tidy`.
 
 local M = {}
 
@@ -41,6 +43,13 @@ M.TEMP_PATTERN = "^user%.json%.migrate%-%x+$"
 --- The one-line report of a completed migration.
 M.REPORT = "lw: this workspace's state is now in .lw/ (working copy copied from .nvim/, "
     .. "which is left as it was for older lw versions; builds now go to .lw/build/)"
+
+--- The refusal when `.lw/user.json` exists without a marker and is not
+--- byte-identical to `.nvim/loomworks.user.json`.
+M.UNFINISHED = "lw: .lw/user.json exists but differs from .nvim/loomworks.user.json and the copy "
+    .. "was never finished (no .lw/migrated.json): an interrupted copy, or a file put there by hand. "
+    .. "To copy .nvim/loomworks.user.json anew, move .lw/user.json out of .lw/ and retry; to keep "
+    .. ".lw/user.json instead, copy it over .nvim/loomworks.user.json and retry"
 
 local function lstat_type(p)
     local st = uv().fs_lstat(p)
@@ -99,6 +108,20 @@ local function remove_leftover_temps(root)
         if t == "file" and name:match(M.TEMP_PATTERN) then found[#found + 1] = name end
     end
     for _, n in ipairs(found) do remove_temp(root, n) end
+end
+
+--- After the migration (the marker present): remove a temporary copy a run
+--- could not unlink. Safe without a lock: a run writes temporary copies only
+--- before the marker exists and removes its own before writing the marker,
+--- so one found beside the marker belongs to no running migration. Same
+--- exact-name checks as during a run. Never raises.
+--- @param root string
+function M.tidy(root)
+    pcall(function()
+        root = norm(root)
+        if lstat_type(state_dir.path(root, state_dir.MARKER)) ~= "file" then return end
+        remove_leftover_temps(root)
+    end)
 end
 
 --- The marker's state: "absent", "file" (parsed table or false when it does
@@ -309,7 +332,10 @@ function M.run(root, opts)
     remove_leftover_temps(root)
 
     -- An interrupted run: `.lw/user.json` exists without a marker. Complete
-    -- it for that file's bytes; never copy over it.
+    -- it only when it is byte-identical to the legacy working copy (a copy
+    -- that was made in full); anything else — a partial copy of the
+    -- non-atomic fallback, or a file put there by hand — is refused, saying
+    -- what to do. Never copied over.
     local target = state_dir.path(root, "user.json")
     local tt = lstat_type(target)
     if tt then
@@ -318,7 +344,13 @@ function M.run(root, opts)
         end
         local bytes = read_bytes(target)
         if not bytes then return done("refused", "lw: cannot read .lw/user.json") end
-        local ok, err = write_marker(root, sha256(bytes), version())
+        local lbytes = read_bytes(legacy)
+        if not lbytes then return done("refused", "lw: cannot read " .. legacy) end
+        local have, want = sha256(bytes), sha256(lbytes)
+        if have ~= want then
+            return done("refused", M.UNFINISHED)
+        end
+        local ok, err = write_marker(root, have, version())
         if not ok then return done("refused", "lw: cannot write .lw/migrated.json (" .. tostring(err) .. ")") end
         return done("completed")
     end
@@ -346,11 +378,18 @@ function M.run(root, opts)
             return done("refused", "lw: .lw/user.json appeared while copying — retry")
         end
         -- No hard links here: an exclusive create of the final name.
+        -- Not atomic: a crash can leave a partial file, which the next run
+        -- refuses (it differs from the legacy copy) instead of accepting.
         local okc, cerr, ccode = io_mod.write_exclusive(target, bytes, 438)
         if not okc then
             remove_temp(root, tmp_name)
             if ccode == "EEXIST" then return done("refused", "lw: .lw/user.json appeared while copying — retry") end
             return done("refused", "lw: cannot write .lw/user.json (" .. tostring(cerr) .. ")")
+        end
+        local wrote = read_bytes(target)
+        if not wrote or sha256(wrote) ~= want then
+            remove_temp(root, tmp_name)
+            return done("refused", M.UNFINISHED)
         end
     end
     remove_temp(root, tmp_name)

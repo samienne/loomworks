@@ -4838,7 +4838,9 @@ migrates nothing.
    temporary name in `.lw/` (`user.json.migrate-<hex>`), flushed, its SHA-256
    compared with that of the bytes read, and given the name `user.json` only
    if that name is still absent (an atomic create-if-absent, as for lock files,
-   formats.md §6.1). The signature binds neither the path nor the workspace
+   formats.md §6.1). Where hard links are unavailable the final name is
+   created exclusively and written instead — not atomic — and its bytes are
+   verified again. The signature binds neither the path nor the workspace
    root (formats.md §2.2), so the copy is valid, unsigned or invalid exactly
    as the original was, and the ordinary trust handling (§17.4) applies to it
    in `.lw/`.
@@ -4857,12 +4859,20 @@ reconfigures into the existing directory (§17.4).
 
 **Crash safety.** Each step leaves a state the next run recognizes. Before
 step 4 completes, `.lw/` holds at most locks and a temporary copy, which is a
-leftover removed by its exact name. Between steps 4 and 5, `.lw/user.json`
-exists without a marker: the next run, under the locks of step 2, writes the
-marker with the SHA-256 of `.lw/user.json`'s bytes as `source_sha256` and
-finishes. It never copies over an existing `.lw/user.json`; when that file's
-bytes differ from the legacy working copy (an older lw saved it in between),
-the divergence report below applies. A marker path that exists but is not a
+leftover removed by its exact name (by the next run, or, when its removal
+failed after the copy, by any later load once the marker exists: a run makes
+temporary copies only before the marker and removes its own before writing
+it). Between steps 4 and 5, `.lw/user.json` exists without a marker: the next
+run, under the locks of step 2, finishes only when that file is
+byte-identical (SHA-256) to the legacy working copy, writing the marker with
+that hash as `source_sha256`. Otherwise — a partial file of the non-atomic
+fallback, an older lw that saved in between, or a file put there by hand —
+it never copies over it and the command fails: "lw: .lw/user.json exists
+but differs from .nvim/loomworks.user.json and the copy was never finished
+(no .lw/migrated.json): an interrupted copy, or a file put there by hand. To
+copy .nvim/loomworks.user.json anew, move .lw/user.json out of .lw/ and
+retry; to keep .lw/user.json instead, copy it over .nvim/loomworks.user.json
+and retry". A marker path that exists but is not a
 regular file (`lstat`) stops the command: "lw: .lw/migrated.json is not a
 regular file — remove it, then retry".
 
