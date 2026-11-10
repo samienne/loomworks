@@ -1016,7 +1016,7 @@ function M.run(svc, ctx)
 
         -- A run (headless §16.17 "Order", API Launch/1.prepare_run): the
         -- configure steps of the units that need one, the launch target
-        -- resolved (a missing named target after one reconfigure of its
+        -- resolved (a missing named target after one configure re-run of its
         -- project) — a refusal ends the task before any build — then the
         -- build of that target and its dependencies only
         -- (run_prep.build_picks), the locks held throughout.
@@ -1030,7 +1030,7 @@ function M.run(svc, ctx)
                 if tn then task:line("note", tn, tn_role) end
             end
             -- `configured`: a configure phase ran (and printed the lead);
-            -- `retried`: the one reconfigure of a missing named target ran.
+            -- `retried`: the one configure re-run (no wipe) for a missing named target ran.
             build_phase = function(configured, retried)
                 local rp = require("loomworks.run_prep")
                 -- Always refreshed: this daemon's units may have outlived a
