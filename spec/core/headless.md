@@ -1095,7 +1095,7 @@ run proceeds in this order:
 3. **build** the resolved target and its dependencies only: its project's
    build restricted to that build target through the module's target
    selection (§16.4 `--target`), plus the whole build of each project it
-   depends on (§8.6) that is in the profile. A project whose module cannot
+   depends on (§8.6), directly or transitively, that is in the profile. A project whose module cannot
    build a single target builds whole; a command launch configuration
    names no build target, so its run builds the whole profile;
 4. **deploy** and **launch**.

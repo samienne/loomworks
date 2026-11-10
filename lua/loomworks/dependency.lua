@@ -99,4 +99,30 @@ function M.toposort(pps)
     return sorted, nil
 end
 
+--- The transitive dependencies of `roots` over the `Project.depends_on` graph
+--- (the graph `toposort` orders), the roots excluded: each project reachable
+--- through one or more `depends_on` edges, in first-reached order. Cycles are
+--- guarded (each project is visited once; a root reached again is not
+--- re-added).
+--- @param roots loomworks.Project[]
+--- @return loomworks.Project[]
+function M.closure(roots)
+    local seen, out, stack = {}, {}, {}
+    for _, r in ipairs(roots) do seen[r] = true end
+    for i = #roots, 1, -1 do stack[#stack + 1] = roots[i] end
+    while #stack > 0 do
+        local p = table.remove(stack)
+        local deps = p.depends_on or {}
+        for i = #deps, 1, -1 do
+            local d = deps[i]
+            if not seen[d] then
+                seen[d] = true
+                out[#out + 1] = d
+                stack[#stack + 1] = d
+            end
+        end
+    end
+    return out
+end
+
 return M

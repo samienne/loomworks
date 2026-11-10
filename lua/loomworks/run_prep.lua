@@ -265,7 +265,8 @@ end
 --- What a run builds for its resolved launch target `lt` (headless §16.17
 --- "Order"), as `build_run.plan`'s `build_targets_for`: the target's own
 --- project for that one build target, and each project it depends on
---- (`build_dependencies`) that is in `profile`, whole. nil — the whole
+--- (`build_dependencies`, then their `depends_on` transitively —
+--- `dependency.closure`) that is in `profile`, whole. nil — the whole
 --- profile — for a launch that names no build target (a command launch
 --- configuration) or whose target does not resolve.
 --- @param profile loomworks.Profile
@@ -277,9 +278,16 @@ function M.build_picks(profile, lt)
     local project = lt._project
     if not (target and target.id and project) then return nil end
     local picks = { [project] = { target.id } }
+    local direct = {}
     for _, dep in ipairs(lt.build_dependencies and lt:build_dependencies() or {}) do
-        local p = dep.project
-        if p and not picks[p] and profile:project(p.key) then picks[p] = {} end
+        if dep.project then direct[#direct + 1] = dep.project end
+    end
+    -- The direct dependencies and everything they depend on in turn
+    -- (App -> Lib -> Core builds Core too); cycles are guarded.
+    local all = vim.list_extend(vim.list_extend({}, direct),
+        require("loomworks.dependency").closure(direct))
+    for _, p in ipairs(all) do
+        if not picks[p] and profile:project(p.key) then picks[p] = {} end
     end
     return picks
 end

@@ -33,17 +33,24 @@ local TOOL = { key = "ninja-gcc-13", data = {
 } }
 
 --- Two cmake projects App + Lib in profile `debug`, in a real temp root.
-local function make_core()
+--- `depends_on` ({ [key] = { dep keys } }) adds projects and their edges.
+local function make_core(depends_on)
     local root = (vim.fn.tempname():gsub("\\", "/"))
-    vim.fn.mkdir(root .. "/App", "p")
-    vim.fn.mkdir(root .. "/Lib", "p")
+    local projects, set = {}, {}
+    local keys = { "App", "Lib" }
+    for k in pairs(depends_on or {}) do
+        if k ~= "App" and k ~= "Lib" then keys[#keys + 1] = k end
+    end
+    for _, k in ipairs(keys) do
+        vim.fn.mkdir(root .. "/" .. k, "p")
+        projects[k] = { cmake = { configurations = { Debug = { variant = "Debug" } } },
+            depends_on = depends_on and depends_on[k] or nil }
+        set[k] = "Debug"
+    end
     local files = {
         ["loomworks.json"] = h.make_config_json({
-            projects = {
-                App = { cmake = { configurations = { Debug = { variant = "Debug" } } } },
-                Lib = { cmake = { configurations = { Debug = { variant = "Debug" } } } },
-            },
-            configuration_sets = { debug = { App = "Debug", Lib = "Debug" } },
+            projects = projects,
+            configuration_sets = { debug = set },
         }),
         ["user.json"] = h.make_user_json({ profiles = { debug = {
             configuration_set = "debug",
@@ -237,6 +244,40 @@ describe("lw run: the launch target resolves before the build (§16.17 Order)", 
     end)
 end)
 
+describe("lw run: the target's dependency projects are built", function()
+    local root
+    before_each(function()
+        cmake._cmake_version_cache = { ["/fake/cmake"] = { major = 3, minor = 28 } }
+        cpp.lookup_path = function() return nil end
+    end)
+    after_each(function()
+        cpp.lookup_path = orig_lookup
+        cmake._cmake_version_cache = {}
+        if root then vim.fn.delete(root, "rf"); root = nil end
+    end)
+
+    it("App -> Lib -> Core: Lib and Core are built whole, App for its target", function()
+        local ws, profile
+        ws, profile, root = make_core({ App = { "Lib" }, Lib = { "Core" }, Core = {} })
+        configured(unit_of(profile, "App"), { AppRunner = { type = "executable", artifact = "AppRunner" } })
+        configured(unit_of(profile, "Lib"), { LibA = { type = "static_library" } })
+        configured(unit_of(profile, "Core"), { CoreA = { type = "static_library" } })
+        local spawned, launched, code, stderr = run(ws, profile, "AppRunner")
+        assert.is_nil(code, stderr)
+        local by_unit = {}
+        for _, b in ipairs(of_kind(spawned, "build")) do by_unit[b.unit] = b end
+        local core_b, lib_b, app_b = by_unit[unit_of(profile, "Core")],
+            by_unit[unit_of(profile, "Lib")], by_unit[unit_of(profile, "App")]
+        assert.truthy(core_b, "Core (a transitive dependency) is built")
+        assert.truthy(lib_b, "Lib (a direct dependency) is built")
+        assert.truthy(app_b)
+        assert.is_false(has_seq(core_b.cmd, { "--target" }), table.concat(core_b.cmd, " "))
+        assert.is_true(has_seq(app_b.cmd, { "--target", "AppRunner" }), table.concat(app_b.cmd, " "))
+        assert.equals(3, #of_kind(spawned, "build"))
+        assert.truthy(launched)
+    end)
+end)
+
 describe("run_prep.build_picks", function()
     local rp = require("loomworks.run_prep")
     local App, Lib, Other = { key = "App" }, { key = "Lib" }, { key = "Other" }
@@ -246,6 +287,34 @@ describe("run_prep.build_picks", function()
         local lt = { _project = App, _target = { id = "AppRunner" },
             build_dependencies = function() return { { project = Lib }, { project = Other } } end }
         assert.same({ [App] = { "AppRunner" }, [Lib] = {} }, rp.build_picks(profile, lt))
+    end)
+
+    it("dependencies are transitive: App -> Lib -> Core builds Core too", function()
+        local Core = { key = "Core" }
+        local A, L = { key = "App" }, { key = "Lib", depends_on = { Core } }
+        A.depends_on = { L }
+        local prof = { project = function(_, key) return (key ~= "Other") and {} or nil end }
+        local lt = { _project = A, _target = { id = "AppRunner" },
+            build_dependencies = function() return { { project = L } } end }
+        assert.same({ [A] = { "AppRunner" }, [L] = {}, [Core] = {} }, rp.build_picks(prof, lt))
+    end)
+
+    it("a dependency cycle terminates, and the target's own project keeps its target", function()
+        local A, L = { key = "App" }, { key = "Lib" }
+        A.depends_on, L.depends_on = { L }, { A }
+        local prof = { project = function() return {} end }
+        local lt = { _project = A, _target = { id = "AppRunner" },
+            build_dependencies = function() return { { project = L } } end }
+        assert.same({ [A] = { "AppRunner" }, [L] = {} }, rp.build_picks(prof, lt))
+    end)
+
+    it("a transitive dependency outside the profile is not built", function()
+        local Ext = { key = "Other" }
+        local A, L = { key = "App" }, { key = "Lib", depends_on = { Ext } }
+        A.depends_on = { L }
+        local lt = { _project = A, _target = { id = "AppRunner" },
+            build_dependencies = function() return { { project = L } } end }
+        assert.same({ [A] = { "AppRunner" }, [L] = {} }, rp.build_picks(profile, lt))
     end)
 
     it("a target-backed launch configuration: its target", function()
