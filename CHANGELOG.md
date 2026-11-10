@@ -59,6 +59,15 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
   it shares no transport with (`no_transport`), and `lw` says plainly that
   no protocol version was agreed (#161).
 
+### Fixed
+
+- `lw run` resolves its launch target before it builds: it configures what
+  is not configured yet, then fails at once when there is nothing to launch
+  (no default target set, no such target) instead of after a full build,
+  and builds only the resolved target and the projects it depends on, not
+  the whole profile. A command launch configuration still builds the whole
+  profile (#164).
+
 ## 0.2.0 - 2026-11-08
 
 The first release of lw from samienne/loomworks, where `lw`, the workspace
