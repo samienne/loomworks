@@ -1044,6 +1044,8 @@ edit that saves a test target (§16.38).
 A headless **run** invocation resolves a profile (§16.3) and a **launch
 target**, then runs the editor's launch chain (§8.6, "Build flow"): build the
 target and its dependencies (§16.4), execute **deploy** steps (§8), and launch.
+The launch target is resolved **before** anything is built (see "Order"
+below), so a run that has nothing to launch fails without building.
 The launched process's exit status is the invocation's exit status. It runs
 **attached to the invoking terminal** — inherited standard input/output/error,
 and (on Windows) not hidden — so its output streams live, it can read input,
@@ -1079,6 +1081,28 @@ and a command launch configuration is an error until qualified. Selection is
 explicit throughout: with no named target and no default set, the invocation
 errors unless exactly one launchable target is in scope — the system never
 guesses.
+
+**Order.** Unless the dependency build is skipped (a host option, below), a
+run proceeds in this order:
+
+1. **configure** the profile's projects that are not configured yet (§16.4) —
+   configuring is what enumerates their build targets; nothing is built;
+2. **resolve** the launch target against the configured tree, as above — the
+   named target, else the default target, else the sole launchable one. When
+   none resolves (no such target, an ambiguous name, nothing to run, no
+   default set) the run fails here, **before any build**, with the same
+   message and hints;
+3. **build** the resolved target and its dependencies only: its project's
+   build restricted to that build target through the module's target
+   selection (§16.4 `--target`), plus the whole build of each project it
+   depends on (§8.6) that is in the profile. A project whose module cannot
+   build a single target builds whole; a command launch configuration
+   names no build target, so its run builds the whole profile;
+4. **deploy** and **launch**.
+
+A build target is known once its project is configured, so a named target
+resolves at step 2. A target a module only reports after a build is not
+guessed: the run fails at step 2, naming the targets it does know (§16.3).
 
 **Positional grammar.** Before any `--`, a run takes zero, one, or two
 positional operands:

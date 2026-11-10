@@ -631,15 +631,22 @@ foreign kit. An accepted request runs as a task
 (`meta.kind = run`) that does, and prints, what the CLI's run does before its
 `running …` line, in the same order:
 
-1. unless `no_build`, the profile's build: the build-directory locks taken as
-   for a build, the build steps of §8.2 (every gate and line), then the locks
-   **released** — they are held for the build only;
-2. the launch target resolved against the built tree (the named target, else the default target, else the
-   sole launchable one; the same messages for none, ambiguous and unset) and
-   its validity gate;
-3. unless `no_build`, the deploy steps, after the locks were
+1. unless `no_build`, the configure steps of §8.2 (every gate and line) of
+   the profile's units that need one, under the build-directory locks taken
+   as for a build — nothing is built yet;
+2. the launch target resolved against the configured tree (the named target,
+   else the default target, else the sole launchable one; the same messages
+   for none, ambiguous and unset) and its validity gate — a refusal here ends
+   the task **before any build step**;
+3. unless `no_build`, the build of the resolved target: the build steps of
+   §8.2 restricted to the target's own project, built for that one target
+   where its module selects targets, and to the projects it depends on that
+   are in the profile (a command launch configuration: the whole profile),
+   then the locks **released** — they are held for the configure and the
+   build only;
+4. unless `no_build`, the deploy steps, after the locks were
    released;
-4. the launch spec resolved — variables and `${VAR}` expanded in the
+5. the launch spec resolved — variables and `${VAR}` expanded in the
    client's environment (§5).
 
 `done` then carries `exit_code` 0 and `launch` (§4.4) — or a nonzero exit
