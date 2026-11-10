@@ -637,7 +637,10 @@ foreign kit. An accepted request runs as a task
 2. the launch target resolved against the configured tree (the named target,
    else the default target, else the sole launchable one; the same messages
    for none, ambiguous and unset) and its validity gate — a refusal here ends
-   the task **before any build step**;
+   the task **before any build step**. A named target that matches nothing
+   first has its project (the one it is scoped to, else every unit of the
+   profile) reconfigured once, as `Build/1` with `reconfigure`, and is
+   resolved again (headless §16.17 "Order");
 3. unless `no_build`, the build of the resolved target: the build steps of
    §8.2 restricted to the target's own project, built for that one target
    where its module selects targets, and to the projects it depends on that

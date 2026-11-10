@@ -432,6 +432,57 @@ describe("daemon run preparation (§19.15 Run)", function()
         assert.are.same({ "configure:app" }, spawned)
     end)
 
+    it("a named target missing from a configured tree: its project reconfigured once, then found", function()
+        local plans, spawned, sel = {}, {}, {}
+        local unit = { name = "app" }
+        with(run_prep, "reconfigure_units", function(_, name) return name == "NewTool" and { unit } or {} end)
+        step_plans(plans, spawned, {}, { { kind = "configure", name = "app", cmd = { "x" } } })
+        local lt = launch_target({ deploy_sync = function() return true end })
+        local done = run_op("run", lt, { target = "NewTool" }, { select = function(_, _, _, _, _, o)
+            sel[#sel + 1] = { spawned = #spawned, refresh = o and o.refresh }
+            if #spawned == 0 then return nil, "no launch target 'NewTool' ...", "missing" end
+            return lt
+        end })
+        assert.are.equal(0, done.code, done.err)
+        assert.are.same({ "configure:app", "build:build" }, spawned)
+        assert.is_true(#sel >= 2)
+        assert.are.equal(0, sel[1].spawned)
+        assert.are.equal(1, sel[2].spawned, "selected again after the reconfigure, before the build")
+        assert.is_true(sel[2].refresh)
+        local re
+        for _, o in ipairs(plans) do if o.configure_only then re = o end end
+        assert.truthy(re, "a reconfigure was planned")
+        assert.is_true(re.reconfigure)
+        assert.are.same({ unit }, re.units)
+    end)
+
+    it("a named target still missing after the reconfigure: refused, nothing built", function()
+        local plans, spawned, n = {}, {}, 0
+        with(run_prep, "reconfigure_units", function() return { { name = "app" } } end)
+        step_plans(plans, spawned, {}, { { kind = "configure", name = "app", cmd = { "x" } } })
+        local done = run_op("run", launch_target(), { target = "Nope" }, { select = function()
+            n = n + 1
+            return nil, "no launch target 'Nope'", "missing"
+        end })
+        assert.are.equal(1, done.code)
+        assert.are.equal("no launch target 'Nope'", done.err)
+        assert.are.equal(2, n, "selected once more after the one reconfigure")
+        assert.are.same({ "configure:app" }, spawned)
+    end)
+
+    it("no named target: a failed select is never retried with a reconfigure", function()
+        local plans, spawned, n = {}, {}, 0
+        with(run_prep, "reconfigure_units", function() error("not for the default case") end)
+        step_plans(plans, spawned, {})
+        local done = run_op("run", launch_target(), {}, { select = function()
+            n = n + 1
+            return nil, "no default target set", "missing"
+        end })
+        assert.are.equal(1, done.code)
+        assert.are.equal(1, n)
+        assert.are.same({}, spawned)
+    end)
+
     it("builds a module target's one target, and with no_build neither builds nor deploys", function()
         local overseer = require("loomworks.task_plan")
         local calls = {}

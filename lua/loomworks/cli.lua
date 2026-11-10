@@ -1214,7 +1214,7 @@ M._unknown_target_hint = unknown_target_hint
 
 --- Run a profile's build steps (configure + build), dying on any failure.
 --- Returns the number of steps run (0 = nothing buildable).
---- @param opts? table { for_test?: boolean, extra_args?: string[], build_targets?: string[], build_targets_for?: table, configure_pending?: boolean, force?: boolean, reconfigure?: boolean, quiet?: boolean, verbose?: boolean, defer_refused?: boolean, no_lead?: boolean }
+--- @param opts? table { for_test?: boolean, extra_args?: string[], build_targets?: string[], build_targets_for?: table, configure_pending?: boolean, configure_only?: boolean, units?: loomworks.ConfigUnit[], force?: boolean, reconfigure?: boolean, quiet?: boolean, verbose?: boolean, defer_refused?: boolean, no_lead?: boolean }
 ---   for_test skips building units whose native test runner rebuilds itself;
 ---   extra_args are forwarded to the build tool and build_targets select what
 ---   it builds — both handed to the module's build task, which
@@ -1226,7 +1226,8 @@ M._unknown_target_hint = unknown_target_hint
 ---   as a second value instead of dying on them, for a caller with more to
 ---   run first (`lw test` tests the others, then fails);
 ---   build_targets_for / configure_pending as for build_run.plan (a run's
----   two phases); no_lead omits the lead and trust lines (a second phase
+---   two phases); units + configure_only + reconfigure: a run's one
+---   reconfigure of the units its missing named target scopes to; no_lead omits the lead and trust lines (a second phase
 ---   after a first that printed them).
 local function run_build_steps(profile, ws, opts)
   opts = opts or {}
@@ -1235,6 +1236,8 @@ local function run_build_steps(profile, ws, opts)
   local build_run = require("loomworks.build_run")
   local steps, plan_err, refused = build_run.plan(profile, {
     for_test = opts.for_test,
+    units = opts.units,
+    configure_only = opts.configure_only,
     reconfigure = opts.reconfigure,
     extra_args = opts.extra_args,
     build_targets = opts.build_targets,
@@ -2680,9 +2683,19 @@ function M.cmd_run(ws, args)
   local profile, target_name
   profile, target_name, ws = M._run_selection(ws, r.positionals)
   local rp = require("loomworks.run_prep")
-  local function select(refresh)
-    local lt, serr = rp.select(ws, profile, target_name, r.proj_scope, r.kind,
+  local function select(refresh, reconfigure)
+    local lt, serr, why = rp.select(ws, profile, target_name, r.proj_scope, r.kind,
       refresh and { refresh = true } or nil)
+    -- A named target not in the configured tree may be new in the build
+    -- files: reconfigure its project once (as `lw build --reconfigure`),
+    -- then look again (headless §16.17 "Order").
+    if not lt and why == "missing" and reconfigure then
+      local units = rp.reconfigure_units(profile, target_name, r.proj_scope)
+      if #units > 0 then
+        reconfigure(units)
+        lt, serr = rp.select(ws, profile, target_name, r.proj_scope, r.kind, { refresh = true })
+      end
+    end
     if not lt then die(serr) end
     return lt
   end
@@ -2704,9 +2717,13 @@ function M.cmd_run(ws, args)
   with_build_locks(profile, "build", function()
     local configured = (M._run_build_steps(profile, ws, {
       quiet = quiet, verbose = r.verbose, configure_pending = true, defer_refused = true }) or 0) > 0
-    lt = select(configured)
+    local reconfigured = false
+    lt = select(configured, function(units)
+      reconfigured = (M._run_build_steps(profile, ws, { quiet = quiet, verbose = r.verbose,
+        units = units, configure_only = true, reconfigure = true, no_lead = configured }) or 0) > 0
+    end)
     M._run_build_steps(profile, ws, { quiet = quiet, verbose = r.verbose,
-      build_targets_for = rp.build_picks(profile, lt), no_lead = configured })
+      build_targets_for = rp.build_picks(profile, lt), no_lead = configured or reconfigured })
   end)
   return M._run_launch_target(lt, ws, M._run_target_opts(r))
 end

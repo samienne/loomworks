@@ -65,9 +65,11 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
   is not configured yet, then fails at once when there is nothing to launch
   (no default target set, no such target) instead of after a full build,
   and builds only the resolved target and the projects it depends on
-  (directly or transitively), not
-  the whole profile. A command launch configuration still builds the whole
-  profile (#164).
+  (directly or transitively), not the whole profile. A named target that is
+  not in the configured tree, such as one just added to the build files,
+  first has its project reconfigured once, as `lw build --reconfigure`
+  does. A command launch configuration still builds the whole profile
+  (#164).
 
 ## 0.2.0 - 2026-11-08
 

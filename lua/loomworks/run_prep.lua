@@ -223,6 +223,8 @@ end
 --- @param kind "target"|"launch"|nil `--target` / `--launch`
 --- @param opts? { refresh?: boolean }
 --- @return loomworks.LaunchTarget|nil lt, string|nil err
+--- @return "missing"|nil why `"missing"`: a named target matched nothing (the
+---   case a host retries once after reconfiguring `reconfigure_units`)
 function M.select(ws, profile, name, proj_scope, kind, opts)
     if opts and opts.refresh then
         for _, pp in ipairs(profile:projects()) do
@@ -236,7 +238,7 @@ function M.select(ws, profile, name, proj_scope, kind, opts)
             for _, c in ipairs(all) do labels[#labels + 1] = M.fmt_cand(c) end
             return nil, "no launch target '" .. name .. "' in profile '" .. profile.key .. "'.\n" ..
                 "  available: " .. (next(labels) and table.concat(labels, ", ") or "(none)") .. "\n" ..
-                "  a target on a different profile: lw run <profile> <target>"
+                "  a target on a different profile: lw run <profile> <target>", "missing"
         elseif #matches > 1 then
             local labels = {}
             for _, c in ipairs(matches) do labels[#labels + 1] = M.fmt_cand(c) end
@@ -260,6 +262,34 @@ function M.select(ws, profile, name, proj_scope, kind, opts)
         "  set one:      lw target set " .. profile.key .. " <target>\n" ..
         "  or name one:  lw run " .. profile.key .. " <target>\n" ..
         "  candidates:   " .. table.concat(labels, ", ")
+end
+
+--- The configuration units a run reconfigures once when its NAMED target is
+--- not in the configured tree (headless §16.17 "Order"): a target added to
+--- the build files since the last configure is known only once they are
+--- regenerated. The unit of the project the name is scoped to (`--project`,
+--- an interface call's Project, or `<project>:<name>`), else every unit of
+--- the profile. Module-neutral: the host reconfigures them through the
+--- module's normal configure step, as `lw build --reconfigure` does
+--- (`build_run.plan{ units, configure_only, reconfigure }`).
+--- @param profile loomworks.Profile
+--- @param name string the named target (as typed)
+--- @param proj_scope string|loomworks.Project|nil
+--- @return loomworks.ConfigUnit[]
+function M.reconfigure_units(profile, name, proj_scope)
+    local scope = proj_scope
+    if not scope then
+        local qproj = build_run().split_target_ref(profile, name)
+        if qproj then scope = qproj.key end
+    end
+    local units = {}
+    for _, pp in ipairs(profile:projects()) do
+        local p = pp._project
+        local in_scope = not scope or (type(scope) == "table" and p == scope)
+            or (type(scope) ~= "table" and p and p.key == scope)
+        if in_scope and pp._config_unit then units[#units + 1] = pp._config_unit end
+    end
+    return units
 end
 
 --- What a run builds for its resolved launch target `lt` (headless §16.17

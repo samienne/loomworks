@@ -1016,18 +1016,44 @@ function M.run(svc, ctx)
 
         -- A run (headless §16.17 "Order", API Launch/1.prepare_run): the
         -- configure steps of the units that need one, the launch target
-        -- resolved — a refusal ends the task before any build — then the
+        -- resolved (a missing named target after one reconfigure of its
+        -- project) — a refusal ends the task before any build — then the
         -- build of that target and its dependencies only
         -- (run_prep.build_picks), the locks held throughout.
         if running then
             local csteps_, cerr = build_run.plan(profile, { configure_pending = true })
             if not csteps_ then finish(1, cerr); return run end
-            local function build_phase(configured)
+            local build_phase
+            local function lead()
+                task:line(out_stream, build_run.lead_line("build", scope_line))
+                local tn, tn_role = build_run.trust_notice(ws, profile, units_scope)
+                if tn then task:line("note", tn, tn_role) end
+            end
+            -- `configured`: a configure phase ran (and printed the lead);
+            -- `retried`: the one reconfigure of a missing named target ran.
+            build_phase = function(configured, retried)
                 local rp = require("loomworks.run_prep")
                 -- Always refreshed: this daemon's units may have outlived a
                 -- build that changed their targets (run_prep.select).
-                local lt, serr = rp.select(ws, profile, args.target, args.project, args.kind,
+                local lt, serr, why = rp.select(ws, profile, args.target, args.project, args.kind,
                     { refresh = true })
+                if not lt and why == "missing" and args.target and not retried then
+                    -- A named target not in the configured tree may be new
+                    -- in the build files: reconfigure its project once, as
+                    -- `lw build --reconfigure` (headless §16.17 "Order").
+                    local units = rp.reconfigure_units(profile, args.target, args.project)
+                    if #units > 0 then
+                        local rsteps, rerr = build_run.plan(profile,
+                            { units = units, configure_only = true, reconfigure = true })
+                        if not rsteps then return finish(1, rerr) end
+                        if #rsteps > 0 then
+                            if not configured then lead() end
+                            steps, i = rsteps, 0
+                            after_configure = function() return build_phase(true, true) end
+                            return next_step()
+                        end
+                    end
+                end
                 if not lt then return finish(1, serr) end
                 local bsteps, berr, brefused = build_run.plan(profile,
                     { build_targets_for = rp.build_picks(profile, lt) })
@@ -1039,18 +1065,12 @@ function M.run(svc, ctx)
                     -- Nothing to build: a run goes on with what is there (as in-process).
                     return prepare()
                 end
-                if not configured then
-                    task:line(out_stream, build_run.lead_line("build", scope_line))
-                    local tn, tn_role = build_run.trust_notice(ws, profile, units_scope)
-                    if tn then task:line("note", tn, tn_role) end
-                end
+                if not configured then lead() end
                 steps, i = bsteps, 0
                 return next_step()
             end
             if #csteps_ == 0 then build_phase(false); return run end
-            task:line(out_stream, build_run.lead_line("build", scope_line))
-            local tn, tn_role = build_run.trust_notice(ws, profile, units_scope)
-            if tn then task:line("note", tn, tn_role) end
+            lead()
             steps, i = csteps_, 0
             after_configure = function() return build_phase(true) end
             next_step()

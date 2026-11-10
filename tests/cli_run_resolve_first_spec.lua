@@ -160,13 +160,56 @@ describe("lw run: the launch target resolves before the build (§16.17 Order)", 
         assert.is_nil(launched)
     end)
 
-    it("an unknown named target: refused before any build", function()
+    it("an unknown named target: reconfigured once, then refused before any build", function()
         both_known()
         local spawned, launched, code, stderr = run(ws, profile, "Nope")
         assert.equals(1, code)
         assert.truthy(stderr:find("no launch target 'Nope'", 1, true), stderr)
-        assert.equals(0, #spawned, "nothing was built")
+        assert.truthy(stderr:find("available:", 1, true), stderr)
+        assert.equals(0, #of_kind(spawned, "build"), "nothing was built")
+        -- One reconfigure of each project, no more.
+        assert.equals(2, #of_kind(spawned, "configure"))
         assert.is_nil(launched)
+    end)
+
+    it("a target newly added to a configured tree: reconfigured, then found and built", function()
+        both_known()
+        local lib = unit_of(profile, "Lib")
+        local spawned, launched, code, stderr = run(ws, profile, "NewTool", nil, function(step)
+            -- The reconfigure regenerates the build files: NewTool appears.
+            if step.kind == "configure" and step.unit == lib then
+                configured(lib, { LibTool = { type = "executable", artifact = "LibTool" },
+                    NewTool = { type = "executable", artifact = "NewTool" } })
+            end
+            return 0
+        end)
+        assert.is_nil(code, stderr)
+        local c = of_kind(spawned, "configure")
+        assert.is_true(#c >= 1)
+        for _, step in ipairs(c) do assert.truthy(step.reconfigure, "a full reconfigure, as --reconfigure") end
+        local b = of_kind(spawned, "build")
+        assert.equals(1, #b)
+        assert.equals(lib, b[1].unit)
+        assert.is_true(has_seq(b[1].cmd, { "--target", "NewTool" }), table.concat(b[1].cmd, " "))
+        assert.equals("build", spawned[#spawned].kind)
+        assert.truthy(launched)
+        assert.equals("NewTool", launched._target.id)
+    end)
+
+    it("a project-qualified unknown target reconfigures only that project", function()
+        both_known()
+        local spawned, _, code = run(ws, profile, "Lib:Nope")
+        assert.equals(1, code)
+        local c = of_kind(spawned, "configure")
+        assert.equals(1, #c)
+        assert.equals(unit_of(profile, "Lib"), c[1].unit)
+    end)
+
+    it("no name and no default: never reconfigured", function()
+        both_known()
+        local spawned, _, code = run(ws, profile, nil)
+        assert.equals(1, code)
+        assert.equals(0, #spawned)
     end)
 
     it("a named target builds that target in its project only", function()
