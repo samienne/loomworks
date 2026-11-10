@@ -368,6 +368,19 @@ describe("daemon run preparation (§19.15 Run)", function()
         assert.are.equal("/bin/app", done.fields.launch.cmd)
     end)
 
+    it("a run always refreshes the target lists before it selects, configured or not", function()
+        local plans, sel_opts = {}, {}
+        profile_plans(plans)
+        local lt = launch_target({ deploy_sync = function() return true end })
+        local done = run_op("run", lt, {}, { select = function(_, _, _, _, _, o)
+            sel_opts[#sel_opts + 1] = o or false
+            return lt
+        end })
+        assert.are.equal(0, done.code, done.err)
+        -- (The first select is the build phase's; the preparation selects again.)
+        assert.is_true(sel_opts[1] and sel_opts[1].refresh, "the daemon's units may have outlived a build")
+    end)
+
     it("builds a module target's one target, and with no_build neither builds nor deploys", function()
         local overseer = require("loomworks.task_plan")
         local calls = {}

@@ -1024,8 +1024,10 @@ function M.run(svc, ctx)
             if not csteps_ then finish(1, cerr); return run end
             local function build_phase(configured)
                 local rp = require("loomworks.run_prep")
+                -- Always refreshed: this daemon's units may have outlived a
+                -- build that changed their targets (run_prep.select).
                 local lt, serr = rp.select(ws, profile, args.target, args.project, args.kind,
-                    configured and { refresh = true } or nil)
+                    { refresh = true })
                 if not lt then return finish(1, serr) end
                 local bsteps, berr, brefused = build_run.plan(profile,
                     { build_targets_for = rp.build_picks(profile, lt) })
