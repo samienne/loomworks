@@ -381,6 +381,57 @@ describe("daemon run preparation (§19.15 Run)", function()
         assert.is_true(sel_opts[1] and sel_opts[1].refresh, "the daemon's units may have outlived a build")
     end)
 
+    --- Plans that hand out real steps (spawned through a stubbed
+    --- runner.spawn): the configure phase `configures`, a reconfigure
+    --- (`configure_only`) `reconfigures`, a build one build step; every
+    --- spawned step's kind lands in `spawned`, every plan's opts in `plans`.
+    local function step_plans(plans, spawned, configures, reconfigures, on_spawn)
+        with(build_run, "profile_build_dirs", function() return {} end)
+        with(build_run, "unit_build_dirs", function() return {} end)
+        with(build_run, "plan", function(_, o)
+            plans[#plans + 1] = o
+            if o.configure_pending then return configures or {} end
+            if o.configure_only then return reconfigures or {} end
+            return { { kind = "build", name = "build", cmd = { "x" } } }
+        end)
+        with(build_run, "spawn_spec", function() return { cmd = { "x" }, cwd = "/ws" } end)
+        with(build_run, "before_step", function() return true end)
+        with(build_run, "step_lines", function() return {} end)
+        with(build_run, "after_step", function() end)
+        local cur
+        with(build_run, "spawn_spec", function(step) cur = step; return { cmd = { "x" }, cwd = "/ws" } end)
+        with(runner, "spawn", function(_, sink)
+            spawned[#spawned + 1] = cur.kind .. ":" .. cur.name
+            if on_spawn then on_spawn(cur) end
+            sink.done(0)
+        end)
+    end
+
+    it("the configure phase runs its steps, then the select, then the target's build", function()
+        local plans, spawned = {}, {}
+        local selected_after = nil
+        step_plans(plans, spawned, { { kind = "configure", name = "app", cmd = { "x" } },
+            { kind = "configure", name = "lib", cmd = { "x" } } })
+        local lt = launch_target({ deploy_sync = function() return true end })
+        local done = run_op("run", lt, {}, { select = function()
+            selected_after = selected_after or #spawned
+            return lt
+        end })
+        assert.are.equal(0, done.code, done.err)
+        assert.are.equal(2, selected_after, "selected after both configures ran")
+        assert.are.same({ "configure:app", "configure:lib", "build:build" }, spawned)
+    end)
+
+    it("the configure phase runs, the select fails: no build step is spawned", function()
+        local plans, spawned = {}, {}
+        step_plans(plans, spawned, { { kind = "configure", name = "app", cmd = { "x" } } })
+        local done = run_op("run", launch_target(), {}, {
+            select = function() return nil, "no default target set for profile 'dbg'." end })
+        assert.are.equal(1, done.code)
+        assert.are.equal("no default target set for profile 'dbg'.", done.err)
+        assert.are.same({ "configure:app" }, spawned)
+    end)
+
     it("builds a module target's one target, and with no_build neither builds nor deploys", function()
         local overseer = require("loomworks.task_plan")
         local calls = {}
