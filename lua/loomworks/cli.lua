@@ -1214,7 +1214,7 @@ M._unknown_target_hint = unknown_target_hint
 
 --- Run a profile's build steps (configure + build), dying on any failure.
 --- Returns the number of steps run (0 = nothing buildable).
---- @param opts? table { for_test?: boolean, extra_args?: string[], build_targets?: string[], force?: boolean, reconfigure?: boolean, quiet?: boolean, verbose?: boolean, defer_refused?: boolean }
+--- @param opts? table { for_test?: boolean, extra_args?: string[], build_targets?: string[], build_targets_for?: table, configure_pending?: boolean, configure_only?: boolean, units?: loomworks.ConfigUnit[], force?: boolean, reconfigure?: boolean, quiet?: boolean, verbose?: boolean, defer_refused?: boolean, no_lead?: boolean }
 ---   for_test skips building units whose native test runner rebuilds itself;
 ---   extra_args are forwarded to the build tool and build_targets select what
 ---   it builds — both handed to the module's build task, which
@@ -1224,7 +1224,13 @@ M._unknown_target_hint = unknown_target_hint
 ---   verbose prints each step's command line + cwd (always logged);
 ---   defer_refused returns the ProfileProjects not run as invalid
 ---   as a second value instead of dying on them, for a caller with more to
----   run first (`lw test` tests the others, then fails).
+---   run first (`lw test` tests the others, then fails);
+---   build_targets_for / configure_pending as for build_run.plan (a run's
+---   two phases); units + configure_only: a run's one re-run of the normal
+---   configure step (no wipe) of the units its missing named target scopes
+---   to; no_lead omits the lead and trust lines (a second phase after a
+---   first that printed them).
+--- Returns the number of steps run, the refused lines and the steps.
 local function run_build_steps(profile, ws, opts)
   opts = opts or {}
   -- The plan/gate/record sequence lives in loomworks.build_run (host-neutral);
@@ -1232,9 +1238,13 @@ local function run_build_steps(profile, ws, opts)
   local build_run = require("loomworks.build_run")
   local steps, plan_err, refused = build_run.plan(profile, {
     for_test = opts.for_test,
+    units = opts.units,
+    configure_only = opts.configure_only,
     reconfigure = opts.reconfigure,
     extra_args = opts.extra_args,
     build_targets = opts.build_targets,
+    build_targets_for = opts.build_targets_for,
+    configure_pending = opts.configure_pending,
   })
   if not steps then die(plan_err) end
   -- Invalid ProfileProjects are not run: the others build first,
@@ -1247,10 +1257,12 @@ local function run_build_steps(profile, ws, opts)
   -- so a machine consumer like `lw run --print` captures only its report.
   local quiet = opts.quiet or false
   local log = quiet and note or out
-  log(build_run.lead_line("build", "profile: " .. profile.key))
-  -- Ignored loomworks.json program settings: one line, stderr.
-  local tn, tn_role = build_run.trust_notice(ws, profile)
-  if tn then note(tn, tn_role) end
+  if not opts.no_lead then
+    log(build_run.lead_line("build", "profile: " .. profile.key))
+    -- Ignored loomworks.json program settings: one line, stderr.
+    local tn, tn_role = build_run.trust_notice(ws, profile)
+    if tn then note(tn, tn_role) end
+  end
   for _, step in ipairs(steps) do
     -- Conflict gate + full-reconfigure reset. `--force` and `--no-input`
     -- alike just refuse with exit 1; force is the only bypass, never a prompt.
@@ -1269,7 +1281,7 @@ local function run_build_steps(profile, ws, opts)
     end
   end
   if refused and not opts.defer_refused then die(build_run.refused_message(refused), 1) end
-  return #steps, refused
+  return #steps, refused, steps
 end
 M._run_build_steps = run_build_steps  -- exported for tests
 
@@ -2510,7 +2522,7 @@ M._match_targets = match_targets
 ---                on it — a single operand is always a target, never a profile
 ---                selector;
 ---   2 operands → the named target on the named profile.
---- The named target is matched by the caller AFTER the build, so build targets
+--- The named target is matched by the caller once the profile is configured, so build targets
 --- are visible. `resolve_build_target` is injectable via `deps.resolve` for
 --- testing; production uses the module local. May die() when the profile can't
 --- be resolved. Returns (profile, target_name, ws) — ws may be a fresh
@@ -2668,26 +2680,57 @@ function M.cmd_run(ws, args)
   local r = M._parse_run_args(args, die, DEV.parse_device_opt)
 
   -- Determine (profile, target) from the operand count. The profile is
-  -- resolved here; a named target is matched AFTER the build below, so build
-  -- targets are enumerated.
+  -- resolved here; a named target is matched once the profile is configured
+  -- below, so build targets are enumerated.
   local profile, target_name
   profile, target_name, ws = M._run_selection(ws, r.positionals)
-
-  -- Build the profile first (configures + builds); dies on failure. Build
-  -- targets and the default target's artifact resolve against the built tree.
-  -- `--no-build` (and `--dry-run`, which implies it) skips build+deploy
-  -- (inspect/run what is already built). Under `--print` the build streams to
-  -- stderr (quiet) so our stdout carries only the report line. The build-dir
-  -- lock is held only for the build — released before the launch, which just
-  -- executes the artifact and may run indefinitely.
-  if not r.no_build then
-    with_build_locks(profile, "build", function()
-      M._run_build_steps(profile, ws, { quiet = r.print_mode ~= nil, verbose = r.verbose })
-    end)
+  local rp = require("loomworks.run_prep")
+  local reconfigure_skip
+  local function select(refresh, reconfigure)
+    local lt, serr, why = rp.select(ws, profile, target_name, r.proj_scope, r.kind,
+      refresh and { refresh = true } or nil)
+    -- A named target not in the configured tree may be new in the build
+    -- files: re-run its project's configure step once (no wipe; units the
+    -- configure phase just configured are skipped), then look again
+    -- (headless §16.17 "Order").
+    if not lt and why == "missing" and reconfigure then
+      local units = rp.reconfigure_units(profile, target_name, r.proj_scope, reconfigure_skip)
+      if #units > 0 then
+        reconfigure(units)
+        lt, serr = rp.select(ws, profile, target_name, r.proj_scope, r.kind, { refresh = true })
+      end
+    end
+    if not lt then die(serr) end
+    return lt
   end
 
-  local lt, serr = require("loomworks.run_prep").select(ws, profile, target_name, r.proj_scope, r.kind)
-  if not lt then die(serr) end
+  -- `--no-build` (and `--dry-run`, which implies it) skips build+deploy
+  -- (inspect/run what is already built).
+  if r.no_build then return M._run_launch_target(select(false), ws, M._run_target_opts(r)) end
+
+  -- Headless §16.17 "Order": configure what is not configured yet (that
+  -- enumerates the build targets), resolve the launch target — a run with
+  -- nothing to launch fails here, before any build — then build that target
+  -- and its dependencies only (run_prep.build_picks). Under `--print` the
+  -- build streams to stderr (quiet) so our stdout carries only the report
+  -- line. The build-dir locks are held for the configure and the build only —
+  -- released before the launch, which just executes the artifact and may run
+  -- indefinitely.
+  local quiet = r.print_mode ~= nil
+  local lt
+  with_build_locks(profile, "build", function()
+    local n_cfg, _, csteps = M._run_build_steps(profile, ws, {
+      quiet = quiet, verbose = r.verbose, configure_pending = true, defer_refused = true })
+    local configured = (n_cfg or 0) > 0
+    reconfigure_skip = rp.configured_units(csteps)
+    local reconfigured = false
+    lt = select(configured, function(units)
+      reconfigured = (M._run_build_steps(profile, ws, { quiet = quiet, verbose = r.verbose,
+        units = units, configure_only = true, no_lead = configured }) or 0) > 0
+    end)
+    M._run_build_steps(profile, ws, { quiet = quiet, verbose = r.verbose,
+      build_targets_for = rp.build_picks(profile, lt), no_lead = configured or reconfigured })
+  end)
   return M._run_launch_target(lt, ws, M._run_target_opts(r))
 end
 

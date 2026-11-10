@@ -203,7 +203,7 @@ describe("daemon run preparation (§19.15 Run)", function()
     --- task's `done` record and the lines it printed.
     local function run_op(op, lt, args, opts)
         opts = opts or {}
-        with(run_prep, "select", function() return lt end)
+        with(run_prep, "select", opts.select or function() return lt end)
         with(run_prep, "validity_error", function() return nil end)
         with(run_prep, "foreign_of", function(...)
             if type(opts.foreign) == "function" then return opts.foreign(...) end
@@ -318,6 +318,190 @@ describe("daemon run preparation (§19.15 Run)", function()
         assert.are.equal("/bin/app", done.fields.launch.cmd)
         assert.are.same({ "building launch target: app: hello", "building dependency: lib",
             "deploying (pre_build): 1 copy", "deploying (post_build): 1 copy" }, lines)
+    end)
+
+    -- ---- the profile build scope: resolve before the build (headless §16.17 "Order") ----
+
+    --- Stub the profile plans: the configure phase returns `configures`, the
+    --- build phase nothing; every plan's opts are recorded in `plans`.
+    local function profile_plans(plans, configures)
+        with(build_run, "profile_build_dirs", function() return {} end)
+        with(build_run, "plan", function(_, o)
+            plans[#plans + 1] = o
+            if o.configure_pending then return configures or {} end
+            return {}
+        end)
+    end
+
+    it("a run with no launch target is refused after the configure phase, before any build", function()
+        local plans = {}
+        profile_plans(plans)
+        local deploy = { deploy_sync = function() return true end }
+        local done = run_op("run", launch_target(deploy), {})
+        assert.are.equal(0, done.code, done.err)
+        done = run_op("run", launch_target(deploy), {}, {
+            select = function() return nil, "no default target set for profile 'dbg'." end })
+        assert.are.equal(1, done.code)
+        assert.are.equal("no default target set for profile 'dbg'.", done.err)
+        -- (The first run planned configure + build; the refused one only its configure.)
+        assert.are.equal(3, #plans)
+        assert.is_true(plans[3].configure_pending)
+    end)
+
+    it("a run builds only its resolved target and the projects it depends on", function()
+        local plans = {}
+        profile_plans(plans)
+        local App, Lib = { key = "app" }, { key = "lib" }
+        local lt = launch_target({ _project = App, _target = { id = "hello" },
+            deploy_sync = function() return true end,
+            build_dependencies = function() return { { project = Lib } } end })
+        -- (run_op's profile has every project.)
+        local orig_picks = run_prep.build_picks
+        with(run_prep, "build_picks", function(_, l)
+            return orig_picks({ project = function() return {} end }, l)
+        end)
+        local done = run_op("run", lt, {})
+        assert.are.equal(0, done.code, done.err)
+        assert.are.equal(2, #plans)
+        assert.is_true(plans[1].configure_pending)
+        assert.are.same({ [App] = { "hello" }, [Lib] = {} }, plans[2].build_targets_for)
+        assert.are.equal("/bin/app", done.fields.launch.cmd)
+    end)
+
+    it("a run always refreshes the target lists before it selects, configured or not", function()
+        local plans, sel_opts = {}, {}
+        profile_plans(plans)
+        local lt = launch_target({ deploy_sync = function() return true end })
+        local done = run_op("run", lt, {}, { select = function(_, _, _, _, _, o)
+            sel_opts[#sel_opts + 1] = o or false
+            return lt
+        end })
+        assert.are.equal(0, done.code, done.err)
+        -- (The first select is the build phase's; the preparation selects again.)
+        assert.is_true(sel_opts[1] and sel_opts[1].refresh, "the daemon's units may have outlived a build")
+    end)
+
+    --- Plans that hand out real steps (spawned through a stubbed
+    --- runner.spawn): the configure phase `configures`, a reconfigure
+    --- (`configure_only`) `reconfigures`, a build one build step; every
+    --- spawned step's kind lands in `spawned`, every plan's opts in `plans`.
+    local function step_plans(plans, spawned, configures, reconfigures, on_spawn)
+        with(build_run, "profile_build_dirs", function() return {} end)
+        with(build_run, "unit_build_dirs", function() return {} end)
+        with(build_run, "plan", function(_, o)
+            plans[#plans + 1] = o
+            if o.configure_pending then return configures or {} end
+            if o.configure_only then return reconfigures or {} end
+            return { { kind = "build", name = "build", cmd = { "x" } } }
+        end)
+        with(build_run, "spawn_spec", function() return { cmd = { "x" }, cwd = "/ws" } end)
+        with(build_run, "before_step", function() return true end)
+        with(build_run, "step_lines", function() return {} end)
+        with(build_run, "after_step", function() end)
+        local cur
+        with(build_run, "spawn_spec", function(step) cur = step; return { cmd = { "x" }, cwd = "/ws" } end)
+        with(runner, "spawn", function(_, sink)
+            spawned[#spawned + 1] = cur.kind .. ":" .. cur.name
+            if on_spawn then on_spawn(cur) end
+            sink.done(0)
+        end)
+    end
+
+    it("the configure phase runs its steps, then the select, then the target's build", function()
+        local plans, spawned = {}, {}
+        local selected_after = nil
+        step_plans(plans, spawned, { { kind = "configure", name = "app", cmd = { "x" } },
+            { kind = "configure", name = "lib", cmd = { "x" } } })
+        local lt = launch_target({ deploy_sync = function() return true end })
+        local done = run_op("run", lt, {}, { select = function()
+            selected_after = selected_after or #spawned
+            return lt
+        end })
+        assert.are.equal(0, done.code, done.err)
+        assert.are.equal(2, selected_after, "selected after both configures ran")
+        assert.are.same({ "configure:app", "configure:lib", "build:build" }, spawned)
+    end)
+
+    it("the configure phase runs, the select fails: no build step is spawned", function()
+        local plans, spawned = {}, {}
+        step_plans(plans, spawned, { { kind = "configure", name = "app", cmd = { "x" } } })
+        local done = run_op("run", launch_target(), {}, {
+            select = function() return nil, "no default target set for profile 'dbg'." end })
+        assert.are.equal(1, done.code)
+        assert.are.equal("no default target set for profile 'dbg'.", done.err)
+        assert.are.same({ "configure:app" }, spawned)
+    end)
+
+    it("a named target missing from a configured tree: its project reconfigured once, then found", function()
+        local plans, spawned, sel = {}, {}, {}
+        local unit = { name = "app" }
+        with(run_prep, "reconfigure_units", function(_, name) return name == "NewTool" and { unit } or {} end)
+        step_plans(plans, spawned, {}, { { kind = "configure", name = "app", cmd = { "x" } } })
+        local lt = launch_target({ deploy_sync = function() return true end })
+        local done = run_op("run", lt, { target = "NewTool" }, { select = function(_, _, _, _, _, o)
+            sel[#sel + 1] = { spawned = #spawned, refresh = o and o.refresh }
+            if #spawned == 0 then return nil, "no launch target 'NewTool' ...", "missing" end
+            return lt
+        end })
+        assert.are.equal(0, done.code, done.err)
+        assert.are.same({ "configure:app", "build:build" }, spawned)
+        assert.is_true(#sel >= 2)
+        assert.are.equal(0, sel[1].spawned)
+        assert.are.equal(1, sel[2].spawned, "selected again after the reconfigure, before the build")
+        assert.is_true(sel[2].refresh)
+        local re
+        for _, o in ipairs(plans) do if o.configure_only then re = o end end
+        assert.truthy(re, "a reconfigure was planned")
+        -- The module's normal configure step, never a full (destructive)
+        -- reconfigure (`lw build --reconfigure`).
+        assert.is_nil(re.reconfigure)
+        assert.are.same({ unit }, re.units)
+    end)
+
+    it("a missing named target: the units the configure phase configured are not reconfigured", function()
+        local plans, spawned = {}, {}
+        local app, lib = { name = "app" }, { name = "lib" }
+        local skipped
+        with(run_prep, "reconfigure_units", function(_, _, _, skip)
+            skipped = skip
+            return {}
+        end)
+        step_plans(plans, spawned, { { kind = "configure", name = "lib", unit = lib, cmd = { "x" } } })
+        local done = run_op("run", launch_target(), { target = "Nope" }, { select = function()
+            return nil, "no launch target 'Nope'", "missing"
+        end })
+        assert.are.equal(1, done.code)
+        assert.truthy(skipped, "the configure phase's units are passed as skipped")
+        assert.is_true(skipped[lib])
+        assert.is_nil(skipped[app])
+        assert.are.same({ "configure:lib" }, spawned)
+    end)
+
+    it("a named target still missing after the reconfigure: refused, nothing built", function()
+        local plans, spawned, n = {}, {}, 0
+        with(run_prep, "reconfigure_units", function() return { { name = "app" } } end)
+        step_plans(plans, spawned, {}, { { kind = "configure", name = "app", cmd = { "x" } } })
+        local done = run_op("run", launch_target(), { target = "Nope" }, { select = function()
+            n = n + 1
+            return nil, "no launch target 'Nope'", "missing"
+        end })
+        assert.are.equal(1, done.code)
+        assert.are.equal("no launch target 'Nope'", done.err)
+        assert.are.equal(2, n, "selected once more after the one reconfigure")
+        assert.are.same({ "configure:app" }, spawned)
+    end)
+
+    it("no named target: a failed select is never retried with a reconfigure", function()
+        local plans, spawned, n = {}, {}, 0
+        with(run_prep, "reconfigure_units", function() error("not for the default case") end)
+        step_plans(plans, spawned, {})
+        local done = run_op("run", launch_target(), {}, { select = function()
+            n = n + 1
+            return nil, "no default target set", "missing"
+        end })
+        assert.are.equal(1, done.code)
+        assert.are.equal(1, n)
+        assert.are.same({}, spawned)
     end)
 
     it("builds a module target's one target, and with no_build neither builds nor deploys", function()

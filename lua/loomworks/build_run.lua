@@ -637,11 +637,18 @@ end
 --- compatibility gate instead of the profile's buildability gate, and the
 --- units' own tasks (task_plan.plan_units_build).
 --- @param profile loomworks.Profile|nil (nil with `opts.units`)
---- @param opts? { for_test?: boolean, configure_only?: boolean, reconfigure?: boolean, extra_args?: string[], build_targets?: (string|{ project: string, target: string })[], jobs?: integer, units?: loomworks.ConfigUnit[] }
+--- @param opts? { for_test?: boolean, configure_only?: boolean, configure_pending?: boolean, reconfigure?: boolean, extra_args?: string[], build_targets?: (string|{ project: string, target: string })[], build_targets_for?: table<loomworks.Project, string[]>, jobs?: integer, units?: loomworks.ConfigUnit[] }
 ---   build_targets are the caller's `--target` operands, resolved per
 ---   project by `resolve_build_targets`; each build step carries the bare
----   names it builds as `step.build_targets`. configure_only: the configure
----   step of every unit and no build (`Build/1.configure`). jobs: the build
+---   names it builds as `step.build_targets`. build_targets_for: the
+---   targets already resolved per project (a run's launch target,
+---   run_prep.build_picks) — only the projects it names are built, each for
+---   its listed targets (none: the whole project); a module that does not
+---   select targets builds its project whole rather than refusing.
+---   configure_only: the configure
+---   step of every unit and no build (`Build/1.configure`). configure_pending:
+---   the configure steps of the units that need one and no build (a run's
+---   first phase, before its launch target resolves). jobs: the build
 ---   tool's parallelism, appended to each build step as the editor's
 ---   parallel-jobs option (task_plan.append_parallel_jobs).
 --- @return table[]|nil steps (possibly empty), string|nil err
@@ -668,8 +675,8 @@ function M.plan(profile, opts)
     -- `--target` operands resolve to (project, bare name) BEFORE anything
     -- runs: a refusal is lw's, never the build tool's; a project no
     -- operand selects is neither configured nor built.
-    local picks
-    if opts.build_targets and (opts.units or profile.projects) then
+    local picks = opts.build_targets_for
+    if not picks and opts.build_targets and (opts.units or profile.projects) then
         local perr
         picks, perr = M.resolve_build_targets(profile, opts.build_targets,
             { reconfigure = opts.reconfigure, units = opts.units })
@@ -695,6 +702,13 @@ function M.plan(profile, opts)
     end
     if plan_err then return nil, "cannot build: " .. tostring(plan_err) end
     steps = steps or {}
+    if opts.configure_pending then
+        local configures = {}
+        for _, step in ipairs(steps) do
+            if step.kind == "configure" then configures[#configures + 1] = step end
+        end
+        steps = configures
+    end
     for _, step in ipairs(steps) do
         if step.kind == "build" then
             -- The bare names this step builds (the failure hint's input).

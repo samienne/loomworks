@@ -2,7 +2,7 @@
 -- operand is ALWAYS a target on the resolved profile (never a profile selector);
 -- two operands name profile + target; none runs the default. `cli._run_selection`
 -- maps parsed operands → (profile, target) with an injectable resolve seam, and
--- the named target is matched AFTER the build via `cli._match_targets`. Separate
+-- the named target is matched once configured via `cli._match_targets`. Separate
 -- blocks cover cmd_run's `--` split + flag parsing and the shared matcher.
 
 _G.LOOMWORKS_CLI_NO_AUTORUN = true
@@ -117,7 +117,7 @@ end)
 
 describe("cli._match_targets (post-build target resolution)", function()
     -- `all` is injected here, modelling the candidate list `launchable_targets`
-    -- produces AFTER the build — so build targets (kind "target") are present.
+    -- produces once configured — so build targets (kind "target") are present.
     local BUILT = {
         { project = { key = "app" }, name = "myexe", kind = "target" },
         { project = { key = "app" }, name = "gui", kind = "launch" },

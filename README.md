@@ -162,7 +162,7 @@ Day to day:
 lw status                  # the workspace, its profiles and their build state
 lw profile select debug    # make a profile active (a unique substring works)
 lw build                   # build the active profile
-lw run                     # build, then run the profile's default target
+lw run                     # build the profile's default target, then run it
 lw run my-tool -- --flag   # run a named target with arguments
 lw test                    # build what the tests need, then run them
 lw clean                   # clean the profile's build directories

@@ -208,7 +208,8 @@ function M.match_targets(ws, profile, name, proj_scope, kind, all)
     return matches, all
 end
 
---- Resolve the launch target of a run against the built tree: the named
+--- Resolve the launch target of a run against the configured tree (a run
+--- resolves before it builds, headless §16.17 "Order"): the named
 --- target (`name`), else the profile's
 --- default target, else its sole launchable one. Returns the LaunchTarget, or
 --- nil + the refusal (no such target, ambiguous, nothing to run, no default
@@ -222,6 +223,8 @@ end
 --- @param kind "target"|"launch"|nil `--target` / `--launch`
 --- @param opts? { refresh?: boolean }
 --- @return loomworks.LaunchTarget|nil lt, string|nil err
+--- @return "missing"|nil why `"missing"`: a named target matched nothing (the
+---   case a host retries once after reconfiguring `reconfigure_units`)
 function M.select(ws, profile, name, proj_scope, kind, opts)
     if opts and opts.refresh then
         for _, pp in ipairs(profile:projects()) do
@@ -235,7 +238,7 @@ function M.select(ws, profile, name, proj_scope, kind, opts)
             for _, c in ipairs(all) do labels[#labels + 1] = M.fmt_cand(c) end
             return nil, "no launch target '" .. name .. "' in profile '" .. profile.key .. "'.\n" ..
                 "  available: " .. (next(labels) and table.concat(labels, ", ") or "(none)") .. "\n" ..
-                "  a target on a different profile: lw run <profile> <target>"
+                "  a target on a different profile: lw run <profile> <target>", "missing"
         elseif #matches > 1 then
             local labels = {}
             for _, c in ipairs(matches) do labels[#labels + 1] = M.fmt_cand(c) end
@@ -259,6 +262,79 @@ function M.select(ws, profile, name, proj_scope, kind, opts)
         "  set one:      lw target set " .. profile.key .. " <target>\n" ..
         "  or name one:  lw run " .. profile.key .. " <target>\n" ..
         "  candidates:   " .. table.concat(labels, ", ")
+end
+
+--- The configuration units a run reconfigures once when its NAMED target is
+--- not in the configured tree (headless §16.17 "Order"): a target added to
+--- the build files since the last configure is known only once they are
+--- regenerated. The unit of the project the name is scoped to (`--project`,
+--- an interface call's Project, or `<project>:<name>`), else every unit of
+--- the profile — less the units in `skip` (those the run's configure phase
+--- just configured: already fresh). Module-neutral: the host re-runs the
+--- module's normal configure step on them, never a full (wiping)
+--- reconfigure (`build_run.plan{ units, configure_only }`, no `reconfigure`).
+--- @param profile loomworks.Profile
+--- @param name string the named target (as typed)
+--- @param proj_scope string|loomworks.Project|nil
+--- @param skip? table<loomworks.ConfigUnit, true>
+--- @return loomworks.ConfigUnit[]
+function M.reconfigure_units(profile, name, proj_scope, skip)
+    local scope = proj_scope
+    if not scope then
+        local qproj = build_run().split_target_ref(profile, name)
+        if qproj then scope = qproj.key end
+    end
+    local units = {}
+    for _, pp in ipairs(profile:projects()) do
+        local p = pp._project
+        local in_scope = not scope or (type(scope) == "table" and p == scope)
+            or (type(scope) ~= "table" and p and p.key == scope)
+        local u = pp._config_unit
+        if in_scope and u and not (skip and skip[u]) then units[#units + 1] = u end
+    end
+    return units
+end
+
+--- The configuration units the configure steps of `steps` configure (a
+--- run's configure phase), as a set for `reconfigure_units`' `skip`.
+--- @param steps? table[] planned steps ({ kind, unit, ... })
+--- @return table<loomworks.ConfigUnit, true>
+function M.configured_units(steps)
+    local set = {}
+    for _, step in ipairs(steps or {}) do
+        if step.kind == "configure" and step.unit then set[step.unit] = true end
+    end
+    return set
+end
+
+--- What a run builds for its resolved launch target `lt` (headless §16.17
+--- "Order"), as `build_run.plan`'s `build_targets_for`: the target's own
+--- project for that one build target, and each project it depends on
+--- (`build_dependencies`, then their `depends_on` transitively —
+--- `dependency.closure`) that is in `profile`, whole. nil — the whole
+--- profile — for a launch that names no build target (a command launch
+--- configuration) or whose target does not resolve.
+--- @param profile loomworks.Profile
+--- @param lt loomworks.LaunchTarget
+--- @return table<loomworks.Project, string[]>|nil
+function M.build_picks(profile, lt)
+    if lt._launch and not lt._launch.target then return nil end
+    local target = lt._launch and lt._config_target or lt._target
+    local project = lt._project
+    if not (target and target.id and project) then return nil end
+    local picks = { [project] = { target.id } }
+    local direct = {}
+    for _, dep in ipairs(lt.build_dependencies and lt:build_dependencies() or {}) do
+        if dep.project then direct[#direct + 1] = dep.project end
+    end
+    -- The direct dependencies and everything they depend on in turn
+    -- (App -> Lib -> Core builds Core too); cycles are guarded.
+    local all = vim.list_extend(vim.list_extend({}, direct),
+        require("loomworks.dependency").closure(direct))
+    for _, p in ipairs(all) do
+        if not picks[p] and profile:project(p.key) then picks[p] = {} end
+    end
+    return picks
 end
 
 --- The validity gate of a launch target (stale descriptor, invalid profile or

@@ -129,4 +129,50 @@ describe("dependency", function()
             assert.equals("App", pps[1]._init_project_key)
         end)
     end)
+
+    describe("closure", function()
+        local function keys(ps)
+            return vim.tbl_map(function(p) return p.key end, ps)
+        end
+
+        it("follows a chain transitively, the roots excluded", function()
+            local core = h.make_mock_core()
+            local pCore = make_project(core, "Core", nil)
+            local pLib = make_project(core, "Lib", nil)
+            local pApp = make_project(core, "App", nil)
+            pApp.depends_on = { pLib }
+            pLib.depends_on = { pCore }
+            assert.same({ "Lib", "Core" }, keys(dependency.closure({ pApp })))
+            assert.same({ "Core" }, keys(dependency.closure({ pLib })))
+            assert.same({}, keys(dependency.closure({ pCore })))
+        end)
+
+        it("terminates on a cycle, each project once and never a root", function()
+            local core = h.make_mock_core()
+            local pA = make_project(core, "A", nil)
+            local pB = make_project(core, "B", nil)
+            local pC = make_project(core, "C", nil)
+            pA.depends_on = { pB }
+            pB.depends_on = { pC }
+            pC.depends_on = { pA, pB }
+            assert.same({ "B", "C" }, keys(dependency.closure({ pA })))
+        end)
+
+        it("walks through a project outside the profile to one inside it", function()
+            local core = h.make_mock_core()
+            local pCore = make_project(core, "Core", nil)
+            local pMid = make_project(core, "Mid", nil)
+            local pApp = make_project(core, "App", nil)
+            core._projects = { pApp, pMid, pCore }
+            pApp.depends_on = { pMid }
+            pMid.depends_on = { pCore }
+            -- Mid is not in the profile; App and Core are.
+            local profile = make_set_profile(core, { App = pApp, Core = pCore }, "Debug")
+            assert.is_nil(profile:project("Mid"))
+            assert.truthy(profile:project("Core"))
+            -- The closure is profile-agnostic: Core is reached through Mid
+            -- (the caller, run_prep.build_picks, keeps the in-profile ones).
+            assert.same({ "Mid", "Core" }, keys(dependency.closure({ pApp })))
+        end)
+    end)
 end)
