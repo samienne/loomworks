@@ -638,9 +638,10 @@ foreign kit. An accepted request runs as a task
    else the default target, else the sole launchable one; the same messages
    for none, ambiguous and unset) and its validity gate — a refusal here ends
    the task **before any build step**. A named target that matches nothing
-   first has its project (the one it is scoped to, else every unit of the
-   profile) reconfigured once, as `Build/1` with `reconfigure`, and is
-   resolved again (headless §16.17 "Order");
+   first has the configure step of its project (the one it is scoped to,
+   else every unit of the profile, less the units step 1 configured) re-run
+   once — the module's normal configure step, no wipe (`Build/1.configure`
+   without `reconfigure`) — and is resolved again (headless §16.17 "Order");
 3. unless `no_build`, the build of the resolved target: the build steps of
    §8.2 restricted to the target's own project, built for that one target
    where its module selects targets, and to the projects it depends on that
@@ -692,7 +693,8 @@ not exist yet.
 
 `prepare_run` and `prepare_debug` take an optional `build_scope`: `profile`
 (the default: steps 1 and 3 of §9.1, as `lw run` builds) or `target` — in
-place of steps 1 and 3, the launch's own phases: the
+place of steps 1 and 3 (no configure step, so a named target that matches
+nothing is refused without the retry of step 2), the launch's own phases: the
 launch's dependencies (explicit `depends_on` and deploy-source projects, a
 deploy source in the configuration it names), the pre-build deploy steps,
 the launch target's own unit, the post-build deploy steps. Each build in it

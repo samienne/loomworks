@@ -452,8 +452,29 @@ describe("daemon run preparation (§19.15 Run)", function()
         local re
         for _, o in ipairs(plans) do if o.configure_only then re = o end end
         assert.truthy(re, "a reconfigure was planned")
-        assert.is_true(re.reconfigure)
+        -- The module's normal configure step, never a full (destructive)
+        -- reconfigure (`lw build --reconfigure`).
+        assert.is_nil(re.reconfigure)
         assert.are.same({ unit }, re.units)
+    end)
+
+    it("a missing named target: the units the configure phase configured are not reconfigured", function()
+        local plans, spawned = {}, {}
+        local app, lib = { name = "app" }, { name = "lib" }
+        local skipped
+        with(run_prep, "reconfigure_units", function(_, _, _, skip)
+            skipped = skip
+            return {}
+        end)
+        step_plans(plans, spawned, { { kind = "configure", name = "lib", unit = lib, cmd = { "x" } } })
+        local done = run_op("run", launch_target(), { target = "Nope" }, { select = function()
+            return nil, "no launch target 'Nope'", "missing"
+        end })
+        assert.are.equal(1, done.code)
+        assert.truthy(skipped, "the configure phase's units are passed as skipped")
+        assert.is_true(skipped[lib])
+        assert.is_nil(skipped[app])
+        assert.are.same({ "configure:lib" }, spawned)
     end)
 
     it("a named target still missing after the reconfigure: refused, nothing built", function()

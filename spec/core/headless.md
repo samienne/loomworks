@@ -1103,13 +1103,17 @@ run proceeds in this order:
 A build target is known once its project is configured, so a named target
 resolves at step 2. A target added to the build files since its project was
 last configured is not known yet: when a **named** target matches nothing in
-an already-configured tree, the run reconfigures the target's project once —
-the project the name is scoped to (`--project`, `<project>:<name>`), else
-every project of the profile — through the module's normal configure step,
-as `lw build --reconfigure` does (§16.4), then resolves again; only then does
-it fail, with the same message and the targets it knows. A run naming no
-target is never reconfigured. A target a module only reports after a build
-is not guessed: the run fails at step 2, naming the targets it does know
+an already-configured tree, the run re-runs the configure step of the
+target's project once — the project the name is scoped to (`--project`,
+`<project>:<name>`), else every project of the profile, less those step 1
+just configured — the module's normal configure step, no wipe (not the full
+reconfigure of `lw build --reconfigure`, §16.4), then resolves again; only
+then does it fail, with the same message and the targets it knows. A run
+naming no target is never reconfigured. This retry is `lw run`'s and the
+daemon's `prepare_run` with the default `profile` build scope; an editor
+launch's `target` build scope (API.md §9.3) runs no configure step and
+resolves the target once. A target a module only reports after a build is
+not guessed: the run fails at step 2, naming the targets it does know
 (§16.3).
 
 **Positional grammar.** Before any `--`, a run takes zero, one, or two

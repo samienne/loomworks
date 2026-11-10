@@ -269,14 +269,16 @@ end
 --- the build files since the last configure is known only once they are
 --- regenerated. The unit of the project the name is scoped to (`--project`,
 --- an interface call's Project, or `<project>:<name>`), else every unit of
---- the profile. Module-neutral: the host reconfigures them through the
---- module's normal configure step, as `lw build --reconfigure` does
---- (`build_run.plan{ units, configure_only, reconfigure }`).
+--- the profile — less the units in `skip` (those the run's configure phase
+--- just configured: already fresh). Module-neutral: the host re-runs the
+--- module's normal configure step on them, never a full (wiping)
+--- reconfigure (`build_run.plan{ units, configure_only }`, no `reconfigure`).
 --- @param profile loomworks.Profile
 --- @param name string the named target (as typed)
 --- @param proj_scope string|loomworks.Project|nil
+--- @param skip? table<loomworks.ConfigUnit, true>
 --- @return loomworks.ConfigUnit[]
-function M.reconfigure_units(profile, name, proj_scope)
+function M.reconfigure_units(profile, name, proj_scope, skip)
     local scope = proj_scope
     if not scope then
         local qproj = build_run().split_target_ref(profile, name)
@@ -287,9 +289,22 @@ function M.reconfigure_units(profile, name, proj_scope)
         local p = pp._project
         local in_scope = not scope or (type(scope) == "table" and p == scope)
             or (type(scope) ~= "table" and p and p.key == scope)
-        if in_scope and pp._config_unit then units[#units + 1] = pp._config_unit end
+        local u = pp._config_unit
+        if in_scope and u and not (skip and skip[u]) then units[#units + 1] = u end
     end
     return units
+end
+
+--- The configuration units the configure steps of `steps` configure (a
+--- run's configure phase), as a set for `reconfigure_units`' `skip`.
+--- @param steps? table[] planned steps ({ kind, unit, ... })
+--- @return table<loomworks.ConfigUnit, true>
+function M.configured_units(steps)
+    local set = {}
+    for _, step in ipairs(steps or {}) do
+        if step.kind == "configure" and step.unit then set[step.unit] = true end
+    end
+    return set
 end
 
 --- What a run builds for its resolved launch target `lt` (headless §16.17

@@ -1226,9 +1226,11 @@ M._unknown_target_hint = unknown_target_hint
 ---   as a second value instead of dying on them, for a caller with more to
 ---   run first (`lw test` tests the others, then fails);
 ---   build_targets_for / configure_pending as for build_run.plan (a run's
----   two phases); units + configure_only + reconfigure: a run's one
----   reconfigure of the units its missing named target scopes to; no_lead omits the lead and trust lines (a second phase
----   after a first that printed them).
+---   two phases); units + configure_only: a run's one re-run of the normal
+---   configure step (no wipe) of the units its missing named target scopes
+---   to; no_lead omits the lead and trust lines (a second phase after a
+---   first that printed them).
+--- Returns the number of steps run, the refused lines and the steps.
 local function run_build_steps(profile, ws, opts)
   opts = opts or {}
   -- The plan/gate/record sequence lives in loomworks.build_run (host-neutral);
@@ -1279,7 +1281,7 @@ local function run_build_steps(profile, ws, opts)
     end
   end
   if refused and not opts.defer_refused then die(build_run.refused_message(refused), 1) end
-  return #steps, refused
+  return #steps, refused, steps
 end
 M._run_build_steps = run_build_steps  -- exported for tests
 
@@ -2683,14 +2685,16 @@ function M.cmd_run(ws, args)
   local profile, target_name
   profile, target_name, ws = M._run_selection(ws, r.positionals)
   local rp = require("loomworks.run_prep")
+  local reconfigure_skip
   local function select(refresh, reconfigure)
     local lt, serr, why = rp.select(ws, profile, target_name, r.proj_scope, r.kind,
       refresh and { refresh = true } or nil)
     -- A named target not in the configured tree may be new in the build
-    -- files: reconfigure its project once (as `lw build --reconfigure`),
-    -- then look again (headless §16.17 "Order").
+    -- files: re-run its project's configure step once (no wipe; units the
+    -- configure phase just configured are skipped), then look again
+    -- (headless §16.17 "Order").
     if not lt and why == "missing" and reconfigure then
-      local units = rp.reconfigure_units(profile, target_name, r.proj_scope)
+      local units = rp.reconfigure_units(profile, target_name, r.proj_scope, reconfigure_skip)
       if #units > 0 then
         reconfigure(units)
         lt, serr = rp.select(ws, profile, target_name, r.proj_scope, r.kind, { refresh = true })
@@ -2715,12 +2719,14 @@ function M.cmd_run(ws, args)
   local quiet = r.print_mode ~= nil
   local lt
   with_build_locks(profile, "build", function()
-    local configured = (M._run_build_steps(profile, ws, {
-      quiet = quiet, verbose = r.verbose, configure_pending = true, defer_refused = true }) or 0) > 0
+    local n_cfg, _, csteps = M._run_build_steps(profile, ws, {
+      quiet = quiet, verbose = r.verbose, configure_pending = true, defer_refused = true })
+    local configured = (n_cfg or 0) > 0
+    reconfigure_skip = rp.configured_units(csteps)
     local reconfigured = false
     lt = select(configured, function(units)
       reconfigured = (M._run_build_steps(profile, ws, { quiet = quiet, verbose = r.verbose,
-        units = units, configure_only = true, reconfigure = true, no_lead = configured }) or 0) > 0
+        units = units, configure_only = true, no_lead = configured }) or 0) > 0
     end)
     M._run_build_steps(profile, ws, { quiet = quiet, verbose = r.verbose,
       build_targets_for = rp.build_picks(profile, lt), no_lead = configured or reconfigured })

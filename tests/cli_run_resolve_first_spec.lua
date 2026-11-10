@@ -186,7 +186,13 @@ describe("lw run: the launch target resolves before the build (§16.17 Order)", 
         assert.is_nil(code, stderr)
         local c = of_kind(spawned, "configure")
         assert.is_true(#c >= 1)
-        for _, step in ipairs(c) do assert.truthy(step.reconfigure, "a full reconfigure, as --reconfigure") end
+        -- The module's normal configure step: never a full (destructive)
+        -- reconfigure — no `--fresh`, no cache reset.
+        for _, step in ipairs(c) do
+            assert.are_not.equal("full", step.reconfigure, table.concat(step.cmd, " "))
+            assert.is_false(has_seq(step.cmd, { "--fresh" }), table.concat(step.cmd, " "))
+            assert.is_nil(step.pre_configure_reset)
+        end
         local b = of_kind(spawned, "build")
         assert.equals(1, #b)
         assert.equals(lib, b[1].unit)
@@ -194,6 +200,29 @@ describe("lw run: the launch target resolves before the build (§16.17 Order)", 
         assert.equals("build", spawned[#spawned].kind)
         assert.truthy(launched)
         assert.equals("NewTool", launched._target.id)
+    end)
+
+    it("an unknown named target: a unit the configure phase just configured is not configured again", function()
+        -- App is configured; Lib is not, so the run's configure phase
+        -- configures it — the retry then re-runs App's configure only.
+        configured(unit_of(profile, "App"), { AppRunner = { type = "executable", artifact = "AppRunner" } })
+        local lib = unit_of(profile, "Lib")
+        local spawned, _, code, stderr = run(ws, profile, "Nope", nil, function(step)
+            if step.kind == "configure" and step.unit == lib then
+                configured(lib, { LibTool = { type = "executable", artifact = "LibTool" } })
+            end
+            return 0
+        end)
+        assert.equals(1, code)
+        assert.truthy(stderr:find("no launch target 'Nope'", 1, true), stderr)
+        local c = of_kind(spawned, "configure")
+        assert.equals(2, #c, "Lib once (configure phase), App once (the retry)")
+        assert.equals(lib, c[1].unit)
+        assert.equals(unit_of(profile, "App"), c[2].unit)
+        for _, step in ipairs(c) do
+            assert.is_false(has_seq(step.cmd, { "--fresh" }), table.concat(step.cmd, " "))
+        end
+        assert.equals(0, #of_kind(spawned, "build"))
     end)
 
     it("a project-qualified unknown target reconfigures only that project", function()

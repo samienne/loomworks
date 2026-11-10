@@ -1039,12 +1039,15 @@ function M.run(svc, ctx)
                     { refresh = true })
                 if not lt and why == "missing" and args.target and not retried then
                     -- A named target not in the configured tree may be new
-                    -- in the build files: reconfigure its project once, as
-                    -- `lw build --reconfigure` (headless §16.17 "Order").
-                    local units = rp.reconfigure_units(profile, args.target, args.project)
+                    -- in the build files: re-run its project's configure
+                    -- step once — the module's normal one, no wipe — less
+                    -- the units the configure phase just configured
+                    -- (headless §16.17 "Order").
+                    local units = rp.reconfigure_units(profile, args.target, args.project,
+                        rp.configured_units(csteps_))
                     if #units > 0 then
                         local rsteps, rerr = build_run.plan(profile,
-                            { units = units, configure_only = true, reconfigure = true })
+                            { units = units, configure_only = true })
                         if not rsteps then return finish(1, rerr) end
                         if #rsteps > 0 then
                             if not configured then lead() end
