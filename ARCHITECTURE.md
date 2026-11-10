@@ -251,7 +251,9 @@ Planning is separate from running:
 - [`test_plan.lua`](lua/loomworks/test_plan.lua) plans and runs `lw test`:
   which units, the build they need, the ordered test steps, JUnit output.
 - [`run_prep.lua`](lua/loomworks/run_prep.lua) prepares `lw run` and debug
-  launches: target selection, deploy steps, the resolved launch spec.
+  launches: target selection (after the pending configures, before the
+  build), what the build of that target covers (`build_picks`), deploy
+  steps, the resolved launch spec.
 - [`build_run.lua`](lua/loomworks/build_run.lua) executes a profile build
   step by step: lock every build directory, plan, run each step, update the
   unit state. It has no terminal I/O and no process exit, so both the CLI

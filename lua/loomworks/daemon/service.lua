@@ -50,7 +50,8 @@
 --- **`Launch/1.prepare_run`** (op `run`: `args = { profile?, target?, project?,
 --- kind?, cwd?, extra?, no_build?, quiet?, verbose? }`) — the same
 --- outcomes; also "declined" for a profile one of whose units builds with a
---- foreign kit (device runs stay in the client). The task builds, selects,
+--- foreign kit (device runs stay in the client). The task configures what
+--- needs it, selects (a refusal before any build), builds that target,
 --- deploys and resolves the launch; its `done` carries the resolved `launch`
 --- (or `device = true`) and the client executes the program.
 ---

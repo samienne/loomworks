@@ -208,7 +208,8 @@ function M.match_targets(ws, profile, name, proj_scope, kind, all)
     return matches, all
 end
 
---- Resolve the launch target of a run against the built tree: the named
+--- Resolve the launch target of a run against the configured tree (a run
+--- resolves before it builds, headless §16.17 "Order"): the named
 --- target (`name`), else the profile's
 --- default target, else its sole launchable one. Returns the LaunchTarget, or
 --- nil + the refusal (no such target, ambiguous, nothing to run, no default
@@ -259,6 +260,28 @@ function M.select(ws, profile, name, proj_scope, kind, opts)
         "  set one:      lw target set " .. profile.key .. " <target>\n" ..
         "  or name one:  lw run " .. profile.key .. " <target>\n" ..
         "  candidates:   " .. table.concat(labels, ", ")
+end
+
+--- What a run builds for its resolved launch target `lt` (headless §16.17
+--- "Order"), as `build_run.plan`'s `build_targets_for`: the target's own
+--- project for that one build target, and each project it depends on
+--- (`build_dependencies`) that is in `profile`, whole. nil — the whole
+--- profile — for a launch that names no build target (a command launch
+--- configuration) or whose target does not resolve.
+--- @param profile loomworks.Profile
+--- @param lt loomworks.LaunchTarget
+--- @return table<loomworks.Project, string[]>|nil
+function M.build_picks(profile, lt)
+    if lt._launch and not lt._launch.target then return nil end
+    local target = lt._launch and lt._config_target or lt._target
+    local project = lt._project
+    if not (target and target.id and project) then return nil end
+    local picks = { [project] = { target.id } }
+    for _, dep in ipairs(lt.build_dependencies and lt:build_dependencies() or {}) do
+        local p = dep.project
+        if p and not picks[p] and profile:project(p.key) then picks[p] = {} end
+    end
+    return picks
 end
 
 --- The validity gate of a launch target (stale descriptor, invalid profile or
