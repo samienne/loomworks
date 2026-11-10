@@ -41,5 +41,10 @@ echo "\`make install\` instead); it always runs its own embedded code, never an"
 echo "installed release bundle. It carries the release key, so"
 echo "\`lw bootstrap install --version <x.y.z>\` and \`lw bootstrap upgrade\` work against real releases."
 echo
+# The Windows lw.exe needs a native path, not the shell's /c/... form.
+lua_dir="$repo/lua"
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*) lua_dir="$(cygpath -m "$lua_dir")" ;;
+esac
 echo "Point --dev at this checkout (once):"
-echo "  lw settings set dev-lua $repo/lua"
+echo "  lw settings set dev-lua $lua_dir"
