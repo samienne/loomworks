@@ -103,7 +103,8 @@ end
 --- (the graph `toposort` orders), the roots excluded: each project reachable
 --- through one or more `depends_on` edges, in first-reached order. Cycles are
 --- guarded (each project is visited once; a root reached again is not
---- re-added).
+--- re-added). Profile-agnostic by intent: it walks through projects outside
+--- any profile, so an in-profile project reached only via one is still found.
 --- @param roots loomworks.Project[]
 --- @return loomworks.Project[]
 function M.closure(roots)
