@@ -1117,18 +1117,27 @@ not guessed: the run fails at step 2, naming the targets it does know
 (§16.3).
 
 **Positional grammar.** Before any `--`, a run takes zero, one, or two
-positional operands:
+positional operands. What a single operand names depends on whether the
+invocation is interactive (§16.3):
 
-- **none** — the resolved profile's default target. The profile is resolved
-  per §16.3 (the active profile in an interactive host; otherwise the sole
-  profile, or an error).
-- **one** `<target>` — the named target on the resolved profile (§16.3). A
-  single operand is always a target on the resolved profile, never a profile
-  selector; run a different profile's target with the two-operand form, or
-  select that profile first (§16.9).
-- **two** `<profile> <target>` — the named target on the named profile.
+- **none** — the resolved profile's default target. In an interactive host the
+  profile is resolved per §16.3 (the active profile, or the sole one). A
+  non-interactive invocation never resolves a profile implicitly — not even
+  the sole one (§16.3) — so it is an error that names both explicit forms,
+  `<profile>` (its default target) and `<profile> <target>`.
+- **one**, interactive: `<target>` — the named target on the resolved profile
+  (§16.3). The operand is a target, never a profile selector; run a different
+  profile's target with the two-operand form, or select that profile first
+  (§16.9).
+- **one**, non-interactive: `<profile>` — the named profile's default target.
+  The profile matches as for a build (§16.3; a unique substring works). A
+  profile with no default target is refused as for a bare run, when the
+  target is resolved — before anything is built (*Order*, above).
+- **two** `<profile> <target>` — the named target on the named profile, in
+  either mode.
 
-Operand count alone distinguishes the one- and two-operand forms.
+Operand count and the interactivity of the invocation alone distinguish the
+forms; a single operand is never matched against both profiles and targets.
 
 **Argument forwarding.** Positional arguments after a `--` separator are
 forwarded verbatim to the launched program (a command configuration's own
