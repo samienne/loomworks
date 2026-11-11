@@ -627,7 +627,10 @@ refuse a device target, after the validity gate and before deploy, with the
 target (a module-declared one) is refused there with the
 `--cwd does not apply to a device run …` line and exit code 2. The outcomes
 are those of `Build/1.build`; it is also `declined` for a profile with a
-foreign kit. An accepted request runs as a task
+foreign kit. A request with no `target` for a profile that has no default
+target set is `refused` with the CLI's message (exit code 1) before any task:
+nothing is configured or built (headless §16.17 "Order"). An accepted
+request runs as a task
 (`meta.kind = run`) that does, and prints, what the CLI's run does before its
 `running …` line, in the same order:
 
@@ -635,8 +638,8 @@ foreign kit. An accepted request runs as a task
    the profile's units that need one, under the build-directory locks taken
    as for a build — nothing is built yet;
 2. the launch target resolved against the configured tree (the named target,
-   else the default target, else the sole launchable one; the same messages
-   for none, ambiguous and unset) and its validity gate — a refusal here ends
+   else the default target; the same messages for none and ambiguous) and
+   its validity gate — a refusal here ends
    the task **before any build step**. A named target that matches nothing
    first has the configure step of its project (the one it is scoped to,
    else every unit of the profile, less the units step 1 configured) re-run
@@ -794,7 +797,8 @@ of a configured unit) or `device` (a module's device target);
 `project` the project's `{ id, key }`; `name` what a reference names
 (the launch configuration's name, the build target's id, the device
 target's id); `label` its display name; `description` a launch
-configuration's description; `default` true for the profile's default target.
+configuration's description; `default` true for the profile's default target
+(the stored choice: none is marked when no default is set).
 `incomplete` lists the keys of the profile's projects whose build
 targets are unknown because they are not configured (empty when the list is
 complete); `override` is true when the profile stores a default-target choice
