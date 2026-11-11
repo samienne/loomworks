@@ -267,7 +267,7 @@ if host_command == "bootstrap" then
   local host_version = running_code_version() or release_version
   if o.sub == nil then
     local st = bootstrap.status(start, { invoked = invoked, host_version = host_version,
-      self_version = require("boot.verify").RELEASE_VERSION, channel = o.channel, check = o.check })
+      self_version = require("boot.verify").RELEASE_VERSION, check = o.check })
     if o.json then
       io.write(require("boot.json").encode(st.doc) .. "\n")
     else
@@ -455,6 +455,11 @@ elseif host_command == "self-update" then
         io.stderr:write("    Releases are fetched from: " .. upd.DEFAULT_RELEASE_URL .. "\n" ..
           "    Point it elsewhere with `lw settings set release-url <url>` or\n" ..
           "    LOOMWORKS_RELEASE_URL (a local directory works as an offline mirror).\n")
+      end
+      -- No stable release on the default origin: the resolver names the
+      -- setting; this command also takes `--channel` (and saves it).
+      if tcode == upd.NO_RELEASE and not upd.url_override({}) then
+        io.stderr:write("    Or switch and update in one step: `lw self-update --channel unstable`.\n")
       end
       exit(1)
     end

@@ -371,10 +371,15 @@ function M.install(start, opts)
   if opts.version then
     version = opts.version
   elseif opts.latest then
-    local newest, err, channel = M.newest(opts)
+    local newest, err, channel, code = M.newest(opts)
     if not newest then
+      -- No stable release on the default origin: the resolver names the
+      -- setting; this command also takes `--channel` (with --latest/upgrade).
+      local hint = (code == update.NO_RELEASE and not update.url_override({}))
+        and ("; or pin the newest pre-release: `" .. cmd(opts.invoked, "bootstrap upgrade --channel unstable") .. "`")
+        or ""
       return nil, "could not resolve the newest release" ..
-        (channel and (" on the " .. channel .. " channel") or "") .. ": " .. tostring(err)
+        (channel and (" on the " .. channel .. " channel") or "") .. ": " .. tostring(err) .. hint
     end
     newest_note = "newest " .. channel .. " release: " .. newest
     if current and paths.version_gt(current.version, newest) then
@@ -572,10 +577,12 @@ function M.status(start, opts)
   elseif upd.reason == update.NO_RELEASE then
     -- On the default origin only `stable` can lack a release (unstable is read
     -- from the API); an override is a mirror the channel does not govern, and
-    -- the resolver's reason names it.
+    -- the resolver's reason names it. The status page takes no `--channel`:
+    -- the advice names the commands that do select the channel.
     row("release", update.url_override({}) and upd.detail
-      or ("no " .. channel .. " release yet - only pre-releases are published; use the unstable " ..
-        "channel: pass --channel unstable, or run `lw settings set channel unstable`"))
+      or ("no " .. channel .. " release yet - only pre-releases are published; pin the newest with `" ..
+        require("boot.launcher_check").cmd(invoked, "bootstrap upgrade --channel unstable") ..
+        "`, or follow them with `lw settings set channel unstable`"))
   else
     row("release", "not checked - " .. upd.detail)
   end

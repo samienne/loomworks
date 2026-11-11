@@ -1801,8 +1801,10 @@ A read-only report, ASCII (§16.7), in three parts.
    When the channel publishes no release at all (stable before its first
    stable release: no `SHA256SUMS`, §16.29) that is an answer, not a failure:
    the line reads "no stable release yet - only pre-releases are published"
-   and names the unstable channel (`--channel unstable`, or
-   `lw settings set channel unstable`); under a release-url override it is the
+   and names the commands that select the unstable channel (the status page
+   itself takes no `--channel`): `lw bootstrap upgrade --channel unstable` to
+   pin the newest pre-release, or `lw settings set channel unstable` to follow
+   pre-releases; under a release-url override it is the
    resolver's reason naming the override. Nothing is cached. A
    development-build host performs it too (to offer `--latest`).
 2. **Findings.** The checks' items, actionable first (`*`), then informational
@@ -2344,8 +2346,12 @@ default-channel selection under an override is no conflict and warns nothing.)
 
 When the default origin publishes **no full release** yet, stable resolution
 MUST fail with an error that says no stable release was found at the origin and
-names how to select the unstable channel (the `--channel unstable` option
-and the channel setting) — never a bare transfer error. "No release"
+names how to select the unstable channel — never a bare transfer error. The
+error names the channel setting (`lw settings set channel unstable`), the one
+selection every caller accepts (`lw health` and the `lw bootstrap` status page
+take no `--channel`); a command that takes `--channel` adds its own form
+(`lw self-update --channel unstable`; `lw bootstrap install --latest` /
+`upgrade` name `lw bootstrap upgrade --channel unstable`). "No release"
 means the origin's signed hash list does not exist (not found); any other
 failure (offline, server error, a list that does not verify) is reported as it
 occurred. A release-source override that publishes no release is reported as
@@ -2738,8 +2744,9 @@ as "up to date" when nothing was checked. A channel that publishes no release
 at all (stable before its first stable release, §16.29) is an answer, not a
 failure: the informational item reads "no stable release yet — only
 pre-releases are published" ("no release at the release-url override" under an
-override), its `detail` the resolver's whole reason, which names the unstable
-channel; the `update` JSON object is `status` `unknown` with `reason`
+override), its `detail` the resolver's reason kept whole (not shortened like a
+failure's, since the advice ends it), which names the channel setting; the
+`update` JSON object is `status` `unknown` with `reason`
 `no-release`. Like every network-tier item it is
 written to the cache (the health run's fresh result replaces the previous one,
 successful or not); the passive count still excludes it (informational).

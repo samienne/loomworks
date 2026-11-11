@@ -3368,14 +3368,25 @@ do
     -- no stable release yet (only pre-releases): not "offline", and the unstable channel is named
     local saved_override = update.url_override
     update.url_override = function() return nil end -- the default origin, whatever this run's env says
-    local nr = bootstrap.status(h, { resolve_newest = function()
-      return nil, "no stable release found at https://example.invalid - only pre-releases may be published yet", update.NO_RELEASE
-    end })
+    local function no_release() return nil, "no release found at https://mirror.invalid (it has no SHA256SUMS)", update.NO_RELEASE end
+    local nr = bootstrap.status(h, { resolve_newest = no_release })
     update.url_override = saved_override
     local t5 = table.concat(nr.lines, "\n")
     ok(t5:find("no stable release yet - only pre-releases are published", 1, true)
-      and t5:find("--channel unstable", 1, true) and not t5:find("offline", 1, true),
+      and not t5:find("offline", 1, true),
       "no stable release reads as such, not as offline  (" .. t5 .. ")")
+    -- the advice names only commands that take it: the status page and health have no --channel
+    ok(t5:find("`lw bootstrap upgrade --channel unstable`", 1, true)
+      and t5:find("`lw settings set channel unstable`", 1, true)
+      and not t5:find("pass --channel", 1, true),
+      "no-release advice names `bootstrap upgrade --channel unstable` and the channel setting")
+    -- under a release-url override the channel does not govern the source: the resolver's reason, no channel advice
+    update.url_override = function() return "https://mirror.invalid" end
+    local to = table.concat(bootstrap.status(h, { resolve_newest = no_release }).lines, "\n")
+    update.url_override = saved_override
+    ok(to:find("release     no release found at https://mirror.invalid", 1, true)
+      and not to:find("unstable", 1, true) and not to:find("offline", 1, true),
+      "an override with no release names the override, without channel advice  (" .. to .. ")")
     ok(nr.doc.update.status == "unknown" and nr.doc.update.reason == update.NO_RELEASE,
       "--json carries the no-release reason")
     local t6 = table.concat(bootstrap.status(h, { resolve_newest = function() return nil, "fetch SHA256SUMS: curl failed (6)" end }).lines, "\n")
@@ -4797,14 +4808,17 @@ do
   local v, e = update.resolve_newest_version({ channel = "stable" })
   ok(v == nil and has(e, "no stable release found at " .. sb .. "/no-stable-release"),
     "stable with no stable release says so" .. (e and (" — " .. e) or ""))
-  ok(has(e, "--channel unstable") and has(e, "lw settings set channel unstable"),
-    "and names the unstable channel's flag and setting")
+  -- One message for every caller (self-update, bootstrap, health): it names the
+  -- channel setting, which works everywhere, never a flag some callers lack.
+  ok(has(e, "`lw settings set channel unstable`") and not has(e, "--channel"),
+    "and names the unstable channel's setting, no flag" .. (e and (" — " .. e) or ""))
   local t, te = update.resolve_target({ channel = "stable" })
-  ok(t == nil and has(te, "no stable release found") and has(te, "--channel unstable"),
+  ok(t == nil and has(te, "no stable release found") and has(te, "lw settings set channel unstable"),
     "self-update's target resolution carries the hint")
   local _, be = require("boot.bootstrap").install(sb .. "/repo", { latest = true })
-  ok(has(be, "no stable release found") and has(be, "--channel unstable"),
-    "bootstrap install --latest carries the hint" .. (be and (" — " .. be) or ""))
+  ok(has(be, "no stable release found") and has(be, "lw settings set channel unstable")
+    and has(be, "`lw bootstrap upgrade --channel unstable`") and not has(be, "install --channel"),
+    "bootstrap install --latest carries the hint and its own upgrade advice" .. (be and (" — " .. be) or ""))
 
   -- Over HTTP the same is a 404 on SHA256SUMS; any other failure is unchanged.
   local saved_run, saved_delay = download._run, download.RETRY_DELAY_MS
@@ -4815,7 +4829,7 @@ do
   reply = { 22, "curl: (22) The requested URL returned error: 404" }
   v, e = update.resolve_newest_version({ channel = "stable" })
   ok(v == nil and has(e, "no stable release found at https://example.invalid/releases/latest/download")
-    and has(e, "--channel unstable"), "an HTTP 404 is the no-stable-release error" .. (e and (" — " .. e) or ""))
+    and has(e, "lw settings set channel unstable"), "an HTTP 404 is the no-stable-release error" .. (e and (" — " .. e) or ""))
   reply = { 28, "curl: (28) Connection timed out" }
   v, e = update.resolve_newest_version({ channel = "stable", fetch = { attempts = 1 } })
   ok(v == nil and has(e, "fetch SHA256SUMS: ") and not has(e, "no stable release"),

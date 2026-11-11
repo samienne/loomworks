@@ -389,16 +389,33 @@ describe("update-check suggestion provider", function()
         update.resolve_channel = function() return "stable" end
         update.url_override = function() return nil end
         local why = "no stable release found at https://example.invalid/releases/latest/download - only " ..
-            "pre-releases may be published yet; use the unstable channel: pass `--channel unstable`, or run " ..
+            "pre-releases are published yet; to follow them, use the unstable channel: " ..
             "`lw settings set channel unstable`"
         update.resolve_newest_version = function() return nil, why, "no-release" end
         local out = suggestions.update_check_provider({})
         assert.equals(1, #out)
         assert.equals("info", out[1].kind)
         assert.equals("no stable release yet — only pre-releases are published", out[1].title)
+        -- kept whole (not truncated at 160 like a failure reason): the advice is at its end
         assert.equals(why, out[1].detail)
         assert.same({ status = "unknown", reason = "no-release", channel = "stable", current = "0.1.0",
             detail = why }, suggestions.last_update_check())
+    end)
+
+    it("an override with no release names the override, not the channel", function()
+        _G.__loomworks_luaroot = "/data/loomworks/lua-0.1.0"
+        update.NO_RELEASE = "no-release"
+        update.resolve_channel = function() return "stable" end
+        update.url_override = function() return "https://mirror.invalid" end
+        local why = "no release found at https://mirror.invalid (it has no SHA256SUMS) - check " ..
+            "LOOMWORKS_RELEASE_URL / the `release-url` setting"
+        update.resolve_newest_version = function() return nil, why, "no-release" end
+        local out = suggestions.update_check_provider({})
+        assert.equals(1, #out)
+        assert.equals("info", out[1].kind)
+        assert.equals("no release at the release-url override", out[1].title)
+        assert.equals(why, out[1].detail)
+        assert.equals("no-release", suggestions.last_update_check().reason)
     end)
 
     it("uses the quick fetch limits (no long curl hang offline)", function()
