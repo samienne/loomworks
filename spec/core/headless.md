@@ -1599,6 +1599,36 @@ and exits 1 without starting anything (the editor then works without a daemon,
 [loomworks.nvim `spec/plugin.md` §19.16](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#1916-the-editor-as-a-client)); `reset` runs as the invoked host, without the workspace daemon, after
 one such line.
 
+**A pin older than the state layout.** Releases before 0.2.0-beta.7 keep
+workspace state in `.nvim/` (§16.44) and never read `.lw/`. In a repository
+whose pin names such a release, a command the invoked host would run itself
+(a configuration or profile edit, `lw init`, `lw pull`, the recovery
+commands `lw trust`, `lw nuke` and `lw unlock`, and likewise a read-only
+command that loads the workspace, such as `lw status` or `lw health`) MUST
+NOT load, migrate or create workspace state: before any state is read it
+refuses with one line on standard error and exits 1 — "lw: this repo pins
+lw `<version>`, which keeps its state in .nvim/; this lw keeps it in .lw/,
+which the pinned lw does not read — to use the pinned lw run
+`./lw.sh <command>` (`.\lw.cmd <command>` from cmd/PowerShell); to move the
+pin run `lw bootstrap upgrade` (`--no-pin` runs this lw anyway)", the
+commands spelled in the form that invoked the host (§16.24). Only the
+launchers present at the pin root are named; with neither, the first way
+out reads "to use the pinned lw `<version>` run this command with it".
+Nothing is written, and `.nvim/` is not migrated: the pinned release keeps
+working on it. Nor does the host write the workspace's runtime log or run
+housekeeping on the workspace (§16.40) for such a command, and shell
+completion offers no workspace candidates and prints nothing. `lw worktree
+add` (§16.27) creates the worktree but does not seed it: in place of the
+pull it prints one line naming the pinned launcher's `pull` and
+`lw bootstrap upgrade`, and succeeds. Host and management operations, which
+load no workspace (above), run as usual, `lw bootstrap upgrade` included. The escapes above (no-pin flag,
+environment override, development facility) clear the pin and with it the
+refusal; a pin of 0.2.0-beta.7 or later, and a pin naming the invoked host's
+own version, are unaffected. Before redirecting a workspace operation to such
+a release, a host that finds `<root>/.lw/user.json` (a working copy of a newer
+lw, which the pinned release ignores) adds one line on standard error saying
+so and naming `lw bootstrap upgrade` as the way to use it.
+
 **One daemon per pinned workspace.** Whoever starts it — the editor, which
 launches `lw daemon run` with the binary it selected ([loomworks.nvim `spec/plugin.md` §19.16](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#1916-the-editor-as-a-client)), a CLI command, a
 `daemon restart` — the daemon of a pinned workspace is the pinned release. For
@@ -2211,6 +2241,8 @@ then fails, the worktree is **kept** — undoing it would be a deletion — and 
 operation reports the partial success (worktree created, pull to be re-run by
 hand via §16.25) with a non-zero status so the incomplete state is visible. A
 mode that **skips the pull** and creates the worktree alone MAY be offered.
+In a repository that pins a release before the `.lw/` state layout the pull
+is skipped with one line (§16.23, *A pin older than the state layout*).
 
 ### 16.28 Output-artifact conflicts
 
@@ -4867,7 +4899,9 @@ holds a working copy (a regular file, `lstat`), migrates it before reading
 any state. `lw init` in such a workspace migrates (or refuses) the same way
 first and then reports the workspace as existing — it never creates a fresh
 working copy beside the legacy one. A command that loads no workspace
-(`lw bootstrap`, `lw help`) migrates nothing.
+(`lw bootstrap`, `lw help`) migrates nothing. In a repository that pins a release before
+0.2.0-beta.7 the host neither migrates nor loads: the command is refused
+(§16.23, *A pin older than the state layout*).
 
 1. **Older lw at work.** If a legacy runtime lock
    (`.nvim/loomworks.daemon-<S>.lock` of any slot, or the pre-slot

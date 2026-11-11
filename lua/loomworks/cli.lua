@@ -8777,7 +8777,9 @@ function M._ensure_daemon(root, routed)
   local ok, outcome = pcall(function()
     return require("loomworks.daemon.ensure").ensure(root, {
       config = read_config(), flag = M._no_daemon, note = note, routed = routed == true,
-      log = require("loomworks.daemon.rlog").writer(root),
+      -- (none under a pin before `.lw/`, §16.23: that log would create it)
+      log = require("loomworks.state_migration").legacy_pin_refusal() and function() end
+        or require("loomworks.daemon.rlog").writer(root),
       -- A repo that pins another lw: its daemon is the pinned lw's.
       foreign_pin = rawget(_G, "__loomworks_foreign_pin"),
     })
@@ -9533,7 +9535,10 @@ function M._meet_live(root, st, opts)
   if opts.meet then return opts.meet(root, st) end
   local ensure = require("loomworks.daemon.ensure")
   local ok, outcome = pcall(ensure.meet, root, st, {
-    note = note, log = require("loomworks.daemon.rlog").writer(root), no_launch = true,
+    note = note, no_launch = true,
+    -- (no runtime log under a pin before `.lw/`: it would create `.lw/`, §16.23)
+    log = require("loomworks.state_migration").legacy_pin_refusal() and function() end
+      or require("loomworks.daemon.rlog").writer(root),
     step_ms = ensure.step_ms(true),
   })
   if not ok then
@@ -11321,6 +11326,10 @@ function M.cmd_pull(args, opts)
       die("unexpected argument '" .. v .. "' — usage: lw pull [<source>] [--dry-run]", 2)
     end
   end
+  -- A repository that pins an lw before `.lw/` (§16.23): a working copy
+  -- written here the pinned lw would never read.
+  local legacy = require("loomworks.state_migration").legacy_pin_refusal()
+  if legacy then die(legacy) end
 
   local plan, err = M._plan_pull({ source = source, cwd = opts.cwd, git = opts.git })
   if not plan then die(err) end
@@ -11586,6 +11595,13 @@ function M.cmd_worktree_add(args, opts)
   -- Auto-pull: fold MAIN's working config into the fresh worktree (source =
   -- main, target = the new path). A main with NO working copy is "nothing to
   -- pull" — not a failure; the worktree stays and we succeed.
+  -- A repository that pins an lw before `.lw/` (§16.23): a working copy
+  -- seeded here the pinned lw would never read (like `lw pull`'s refusal).
+  local legacy_note = require("loomworks.state_migration").legacy_pin_pull_note()
+  if legacy_note then
+    out("  " .. legacy_note)
+    return 0
+  end
   local user = require("loomworks.user")
   if not uv.fs_stat(user.source_filepath(main)) then
     out("  pull skipped — " .. main .. " has no working config to pull")
@@ -11709,7 +11725,9 @@ end
 
 --- Load a workspace for completion — tolerant (nil on any problem) and quiet.
 local function comp_ws(root)
-  if not root then return nil end
+  -- Under a pin before `.lw/` the load would be refused (§16.23): no
+  -- workspace candidates, nothing printed.
+  if not root or require("loomworks.state_migration").legacy_pin_refusal() then return nil end
   return load_workspace(root, false)
 end
 
@@ -14385,8 +14403,12 @@ local function main()
   -- runs from elsewhere (the luvi host runs from the bundle dir).
   -- `root_info.submodule` is set when the root came from a superproject.
   local root, root_info = find_root(host_env.root())
+  -- A repository that pins an lw before `.lw/` (§16.23): nothing of this
+  -- workspace is written or removed here (the runtime log would create
+  -- `.lw/`; housekeeping would remove the pinned lw's `.nvim/` files).
+  local legacy_pin = require("loomworks.state_migration").legacy_pin_refusal()
   -- Every kill and forced unlock is recorded in the workspace's runtime log.
-  if root then
+  if root and not legacy_pin then
     pcall(function()
       require("loomworks.lock_break").log = require("loomworks.daemon.rlog").writer(root)
     end)
@@ -14408,7 +14430,7 @@ local function main()
   pcall(function()
     local hk = require("loomworks.housekeeping")
     hk.touch_running()
-    hk.startup(root)
+    hk.startup(not legacy_pin and root or nil)
   end)
 
   -- Bare `lw` and `lw status` → status (also fine outside a workspace).
@@ -14479,6 +14501,10 @@ local function main()
   if not M.NO_DAEMON_COMMANDS[command] and not M._read_only_command(a) then
     ensured = M._ensure_daemon(root, M._routed_command(a))
   end
+
+  -- The recovery commands read and lock `.lw/` directly: under a pin before
+  -- `.lw/` they are the pinned lw's (§16.23).
+  if legacy_pin and (command == "trust" or command == "nuke" or command == "unlock") then die(legacy_pin) end
 
   -- `trust` / `nuke` resolve a refused `.lw` file; they never
   -- load the workspace (it would be refused).

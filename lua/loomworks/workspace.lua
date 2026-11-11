@@ -150,6 +150,10 @@ function M.init_workspace(root, name, write_json)
     -- refuses with the migration's reason — never a fresh working copy
     -- beside it.
     local sm = require("loomworks.state_migration")
+    -- A repository that pins an lw before `.lw/` (§16.23): no working copy
+    -- the pinned lw would never read, and no migration.
+    local legacy = sm.legacy_pin_refusal()
+    if legacy then return false, legacy end
     local migrated
     if sm.pending(root) then
         local status, msg = sm.run(root)

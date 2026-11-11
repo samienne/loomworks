@@ -545,6 +545,101 @@ function M.foreign_pin(o)
   return o.pin.version
 end
 
+-- The first release that keeps workspace state in `.lw/` (§16.44): one
+-- before it reads and writes only `.nvim/`.
+M.STATE_DIR_SINCE = "0.2.0-beta.7"
+
+--- The pinned version when it predates the `.lw/` state layout and this host
+--- is not it and nothing bypasses the pin (`foreign_pin`), else nil. Such a
+--- host must not load, migrate or create workspace state for a command it
+--- runs itself: the pinned lw would never see it (§16.23). Pure.
+--- @param o { pin?, self_version?, pinned_sentinel?, no_pin?, lw_override?, dev? }
+--- @return string|nil
+function M.legacy_layout_pin(o)
+  local v = M.foreign_pin(o)
+  if type(v) ~= "string" then return nil end
+  if require("boot.paths").compare_versions(v, M.STATE_DIR_SINCE) >= 0 then return nil end
+  return v
+end
+
+--- One argument as a shell word: bare when it is plain, else single-quoted.
+local function shell_word(a)
+  a = tostring(a)
+  if a ~= "" and not a:find("[^%w%-%._/=:@,+%%]") then return a end
+  return "'" .. a:gsub("'", "'\\''") .. "'"
+end
+
+--- The pinned lw's command `rest` through the repository's launchers, in
+--- the invoked form ("run `./lw.sh <rest>`"); nil when the repository has
+--- neither launcher.
+--- @param invoked "lw.sh"|"lw.cmd"|"launcher"|"global"|nil
+--- @param rest string
+--- @param launchers { sh?: boolean, cmd?: boolean }|nil which of `<pin root>/lw.sh`, `lw.cmd` exist
+--- @return string|nil
+local function pinned_run(invoked, rest, launchers)
+  local lc = require("boot.launcher_check")
+  if invoked == "lw.sh" or invoked == "lw.cmd" then return lc.run(invoked, rest) end
+  launchers = launchers or {}
+  if launchers.sh and launchers.cmd then return lc.run("launcher", rest) end
+  if launchers.sh then return lc.run("lw.sh", rest) end
+  if launchers.cmd then return lc.run("lw.cmd", rest) end
+  return nil
+end
+
+--- `lw bootstrap upgrade` in the invoked form (a launcher-run host without a
+--- launcher in the repository: the installed lw's).
+local function upgrade_run(invoked, launchers)
+  if invoked == "launcher" then
+    return pinned_run(invoked, "bootstrap upgrade", launchers)
+      or require("boot.launcher_check").run("global", "bootstrap upgrade")
+  end
+  return require("boot.launcher_check").run(invoked, "bootstrap upgrade")
+end
+
+--- The one-line refusal of a command this host would run itself in a repo
+--- whose pin predates `.lw/` (§16.23): both ways out, the pinned lw through
+--- the launcher (the pinned lw by version when the repository has none) and
+--- the pin moved, spelled in the invoked form.
+--- @param version string the pinned version
+--- @param invoked "lw.sh"|"lw.cmd"|"launcher"|"global"|nil
+--- @param args string[] the command's arguments
+--- @param launchers { sh?: boolean, cmd?: boolean }|nil which launchers the pin root has
+--- @return string
+function M.legacy_layout_message(version, invoked, args, launchers)
+  local words = {}
+  for _, a in ipairs(args or {}) do words[#words + 1] = shell_word(a) end
+  local use = pinned_run(invoked, table.concat(words, " "), launchers)
+  return "lw: this repo pins lw " .. tostring(version) .. ", which keeps its state in .nvim/; this lw keeps it in" ..
+    " .lw/, which the pinned lw does not read - " ..
+    (use and ("to use the pinned lw " .. use)
+      or ("to use the pinned lw " .. tostring(version) .. " run this command with it")) ..
+    "; to move the pin " .. upgrade_run(invoked, launchers) .. " (`--no-pin` runs this lw anyway)"
+end
+
+--- The one line `lw worktree add` prints instead of seeding the new worktree
+--- in a repo whose pin predates `.lw/` (§16.25, §16.23).
+--- @param version string the pinned version
+--- @param invoked "lw.sh"|"lw.cmd"|"launcher"|"global"|nil
+--- @param launchers { sh?: boolean, cmd?: boolean }|nil
+--- @return string
+function M.legacy_layout_pull_note(version, invoked, launchers)
+  local use = pinned_run(invoked, "pull", launchers)
+  return "pull skipped - this repo pins lw " .. tostring(version) .. ", which keeps its state in .nvim/: to fold in" ..
+    " main's config " .. (use and (use .. " in the worktree") or ("run `pull` in the worktree with the pinned lw "
+      .. tostring(version))) .. "; to move the pin " .. upgrade_run(invoked, launchers)
+end
+
+--- The one line a host adds before redirecting to a release that predates
+--- `.lw/` when the workspace has a `.lw/user.json` (§16.23).
+--- @param version string
+--- @param invoked "lw.sh"|"lw.cmd"|"launcher"|"global"|nil
+--- @return string
+function M.legacy_layout_hint(version, invoked)
+  return "lw: the pinned lw " .. tostring(version) .. " keeps its state in .nvim/ and does not read .lw/user.json" ..
+    " (written by a newer lw); to use it, move the pin: " ..
+    require("boot.launcher_check").run(invoked, "bootstrap upgrade")
+end
+
 -- ---------------------------------------------------------------------------
 -- Pin management argument grammar. Pure.
 -- ---------------------------------------------------------------------------

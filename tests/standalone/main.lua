@@ -1351,6 +1351,69 @@ do
   end
 end
 
+print("boot.pin — a pin older than the state layout (§16.23, §16.44)")
+do
+  local pin = require("boot.pin")
+  local cmpv = require("boot.paths").compare_versions
+  eq(pin.STATE_DIR_SINCE, "0.2.0-beta.7", "the state layout arrived in 0.2.0-beta.7")
+  ok(cmpv("0.1.51", "0.2.0-beta.6") < 0 and cmpv("0.2.0-beta.6", "0.2.0-beta.7") < 0
+    and cmpv("0.2.0-beta.7", "0.2.0-beta.10") < 0 and cmpv("0.2.0-beta.10", "0.2.0") < 0,
+    "versions order 0.1.51 < beta.6 < beta.7 < beta.10 < 0.2.0")
+  local function L(v, extra)
+    local o = { pin = { version = v }, self_version = "0.2.0-beta.10" }
+    for k, x in pairs(extra or {}) do o[k] = x end
+    return pin.legacy_layout_pin(o)
+  end
+  eq(L("0.1.51"), "0.1.51", "legacy_layout_pin: a 0.1 pin keeps its state in .nvim/")
+  eq(L("0.2.0-beta.6"), "0.2.0-beta.6", "legacy_layout_pin: 0.2.0-beta.6 predates .lw/")
+  eq(L("0.2.0-beta.7"), nil, "legacy_layout_pin: 0.2.0-beta.7 reads .lw/")
+  eq(L("0.2.0-beta.10"), nil, "legacy_layout_pin: the host's own version")
+  eq(L("0.2.0-beta.9"), nil, "legacy_layout_pin: an older beta that reads .lw/")
+  eq(L("0.2.0"), nil, "legacy_layout_pin: 0.2.0")
+  eq(pin.legacy_layout_pin({ pin = { version = "0.1.51" }, self_version = "0.1.51" }), nil,
+    "legacy_layout_pin: a pin equal to the host")
+  eq(pin.legacy_layout_pin({ self_version = "0.2.0" }), nil, "legacy_layout_pin: no pin")
+  for _, k in ipairs({ "pinned_sentinel", "dev", "lw_override", "no_pin" }) do
+    eq(L("0.1.51", { [k] = k == "pinned_sentinel" and "0.1.51" or true }), nil,
+      "legacy_layout_pin: none under " .. k)
+  end
+  local both = { sh = true, cmd = true }
+  eq(pin.legacy_layout_message("0.1.51", "global", { "profile", "select", "Dev" }, both),
+    "lw: this repo pins lw 0.1.51, which keeps its state in .nvim/; this lw keeps it in .lw/, which the" ..
+    " pinned lw does not read - to use the pinned lw run `./lw.sh profile select Dev`" ..
+    " (`.\\lw.cmd profile select Dev` from cmd/PowerShell); to move the pin run `lw bootstrap upgrade`" ..
+    " (`--no-pin` runs this lw anyway)", "legacy_layout_message: both ways out, in the invoked form")
+  ok(pin.legacy_layout_message("0.1.51", "global", { "config", "set", "a b" }, both)
+      :find("`./lw.sh config set 'a b'`", 1, true),
+    "legacy_layout_message: an argument with a space is quoted")
+  -- Only the launchers the repository has are named.
+  local m_none = pin.legacy_layout_message("0.1.51", "global", { "status" }, {})
+  ok(m_none:find("to use the pinned lw 0.1.51 run this command with it;", 1, true)
+      and not m_none:find("lw.sh", 1, true) and not m_none:find("lw.cmd", 1, true)
+      and m_none:find("`lw bootstrap upgrade`", 1, true) and not m_none:find("\n", 1, true),
+    "legacy_layout_message: no launcher in the repository names the pinned lw  (" .. m_none .. ")")
+  local m_sh = pin.legacy_layout_message("0.1.51", "global", { "status" }, { sh = true })
+  ok(m_sh:find("run `./lw.sh status`;", 1, true) and not m_sh:find("lw.cmd", 1, true),
+    "legacy_layout_message: lw.sh only  (" .. m_sh .. ")")
+  local m_cmd = pin.legacy_layout_message("0.1.51", "global", { "status" }, { cmd = true })
+  ok(m_cmd:find("run `.\\lw.cmd status`;", 1, true) and not m_cmd:find("lw.sh", 1, true),
+    "legacy_layout_message: lw.cmd only  (" .. m_cmd .. ")")
+  ok(pin.legacy_layout_message("0.1.51", "lw.cmd", { "status" }, { cmd = true })
+      :find("run `.\\lw.cmd status`; to move the pin run `.\\lw.cmd bootstrap upgrade`", 1, true),
+    "legacy_layout_message: invoked through lw.cmd, both commands in that form")
+  local note = pin.legacy_layout_pull_note("0.1.51", "global", both)
+  ok(note:find("pull skipped", 1, true) and note:find("lw 0.1.51", 1, true)
+      and note:find("`./lw.sh pull`", 1, true) and note:find("`lw bootstrap upgrade`", 1, true)
+      and not note:find("\n", 1, true),
+    "legacy_layout_pull_note: the pinned launcher's pull and the upgrade, one line  (" .. note .. ")")
+  local note_none = pin.legacy_layout_pull_note("0.1.51", "global", {})
+  ok(note_none:find("the pinned lw 0.1.51", 1, true) and not note_none:find("lw.sh", 1, true),
+    "legacy_layout_pull_note: no launcher  (" .. note_none .. ")")
+  local hint = pin.legacy_layout_hint("0.1.51", "global")
+  ok(hint:find("lw 0.1.51", 1, true) and hint:find(".lw/user.json", 1, true)
+    and hint:find("`lw bootstrap upgrade`", 1, true), "legacy_layout_hint: names the file and the upgrade  (" .. hint .. ")")
+end
+
 print("boot.pin — a pin older than the command is never redirected to (§16.23)")
 do
   local pin = require("boot.pin")
@@ -1992,6 +2055,120 @@ os.exit(0)
     "a self-contained pin: redirected despite a lua-<ver> dir in the repository  (exit " .. tostring(code) .. ": "
       .. raw .. err .. ")")
   ok(uv.fs_stat(sc .. "/.nvim/cache/lua-9.9.9") ~= nil, "and that directory is kept")
+  -- A pin older than the state layout (0.2.0-beta.7, §16.23 / §16.44): a
+  -- command this host would run itself neither loads, migrates nor creates
+  -- workspace state; a redirect warns when a .lw/user.json would be ignored.
+  do
+    local lg = sb .. "/repo-legacy"
+    paths.mkdirp(lg)
+    writef(lg .. "/lw.pin", pinmod.serialize("0.1.51", { [asset] = dump_sha }))
+    local function refused(what, c, e)
+      ok(c == 1 and e:find("this repo pins lw 0.1.51, which keeps its state in .nvim/", 1, true)
+        and e:find("bootstrap upgrade", 1, true) and uv.fs_lstat(lg .. "/.lw") == nil,
+        "a 0.1.51 pin: `" .. what .. "` refused, no .lw/ created  (exit " .. tostring(c) .. ": " .. e .. ")")
+      if uv.fs_lstat(lg .. "/.lw") then
+        local names, h = {}, uv.fs_scandir(lg .. "/.lw")
+        while h do local n = uv.fs_scandir_next(h); if not n then break end; names[#names + 1] = n end
+        print("    .lw/ holds: " .. table.concat(names, ", "))
+      end
+    end
+    code, out, err = lw({ "--no-input", "init" }, fwd_env, lg)
+    refused("lw init", code, err)
+    ok(err:find("to use the pinned lw 0.1.51 run this command with it", 1, true) and not err:find("lw.sh", 1, true),
+      "without launchers the refusal names the pinned lw, not ./lw.sh  (" .. err .. ")")
+    writef(lg .. "/lw.sh", "#!/bin/sh\n")
+    writef(lg .. "/lw.cmd", "@echo off\r\n")
+    code, out, err = lw({ "--no-input", "init" }, fwd_env, lg)
+    refused("lw init", code, err)
+    ok(err:find("`./lw.sh --no-input init`", 1, true), "the refusal names the launcher form of the command  (" .. err .. ")")
+    -- A 0.1 workspace: never migrated by a command this host runs itself.
+    local legacy_bytes = '{"_meta":{"version":1},"profiles":{}}'
+    paths.mkdirp(lg .. "/.nvim")
+    writef(lg .. "/.nvim/loomworks.user.json", legacy_bytes)
+    code, out, err = lw({ "--no-input", "profile", "select", "Dev" }, fwd_env, lg)
+    refused("lw profile select", code, err)
+    code, out, err = lw({ "--no-input", "status" }, fwd_env, lg)
+    refused("lw status", code, err)
+    code, out, err = lw({ "--no-input", "health" }, fwd_env, lg)
+    refused("lw health", code, err)
+    -- The recovery commands read or lock .lw/ directly: refused as well.
+    code, out, err = lw({ "--no-input", "trust" }, fwd_env, lg)
+    refused("lw trust", code, err)
+    code, out, err = lw({ "--no-input", "nuke", "--yes" }, fwd_env, lg)
+    refused("lw nuke", code, err)
+    code, out, err = lw({ "--no-input", "unlock", "--workspace" }, fwd_env, lg)
+    refused("lw unlock --workspace", code, err)
+    code, out, err = lw({ "--no-input", "unlock", "--journal" }, fwd_env, lg)
+    refused("lw unlock --journal", code, err)
+    code, out, err = lw({ "--no-input", "unlock", "--all" }, fwd_env, lg)
+    refused("lw unlock --all", code, err)
+    -- Shell completion: no workspace candidates, and nothing on stderr.
+    code, out, err = lw({ "__complete", "3", "lw", "profile", "select", "" }, fwd_env, lg)
+    ok(code == 0 and err == "" and uv.fs_lstat(lg .. "/.lw") == nil,
+      "a 0.1.51 pin: completion is silent  (exit " .. tostring(code) .. ": " .. out .. err .. ")")
+    -- The daily housekeeping pass (forced due) leaves the pinned lw's .nvim/
+    -- daemon files alone and creates no .lw/.
+    do
+      local hk_tmp = sb .. "/hk-tmp"
+      paths.mkdirp(hk_tmp)
+      local old_log = lg .. "/.nvim/loomworks.daemon.log"
+      writef(old_log, "old\n")
+      local long_ago = os.time() - 40 * 86400
+      uv.fs_utime(old_log, long_ago, long_ago)
+      local stamp = home .. "/.housekeeping"
+      writef(stamp, "")
+      uv.fs_utime(stamp, long_ago, long_ago)
+      local hk_env = { LOOMWORKS_NO_HOUSEKEEPING = false, TEMP = hk_tmp, TMP = hk_tmp, TMPDIR = hk_tmp,
+        XDG_CACHE_HOME = hk_tmp, XDG_RUNTIME_DIR = hk_tmp }
+      for k, v in pairs(fwd_env) do if hk_env[k] == nil then hk_env[k] = v end end
+      code, out, err = lw({ "--no-input", "status" }, hk_env, lg)
+      refused("lw status (housekeeping due)", code, err)
+      local st = uv.fs_stat(stamp)
+      ok(st ~= nil and st.mtime.sec > long_ago + 86400, "the housekeeping pass ran (its stamp moved)")
+      ok(uv.fs_stat(old_log) ~= nil, "a 0.1.51 pin: housekeeping keeps the pinned lw's .nvim/ daemon log")
+      os.remove(old_log)
+    end
+    eq(slurp(lg .. "/.nvim/loomworks.user.json"), legacy_bytes, "a 0.1.51 pin: .nvim/ is left as it was")
+    eq(#dumped(), 0, "a 0.1.51 pin: nothing redirected for a command this host runs")
+    -- Pin management still runs as this host.
+    code, out, err = lw({ "--no-input", "bootstrap", "upgrade" }, { LOOMWORKS_RELEASE_URL = sb .. "/no-mirror" }, lg)
+    -- (it reaches the release lookup: no mirror here)
+    ok(not err:find("keeps its state in .nvim/", 1, true) and uv.fs_lstat(lg .. "/.lw") == nil
+      and (code == 0 or err:find("could not resolve the newest release", 1, true) ~= nil),
+      "a 0.1.51 pin: `lw bootstrap upgrade` runs, not refused  (exit " .. tostring(code) .. ": " .. out .. err .. ")")
+    -- A redirected build: no hint without a .lw/user.json …
+    code, out, err = lw({ "build" }, fwd_env, lg)
+    local recs, raw = dumped()
+    ok(code == 0 and (recs[1] or {}).PINNED == "0.1.51" and not err:find(".lw/user.json", 1, true),
+      "a 0.1.51 pin: a build is redirected, no hint without .lw/user.json  (exit " .. tostring(code) .. ": "
+        .. raw .. err .. ")")
+    -- … and one line naming the upgrade when one would be ignored.
+    paths.mkdirp(lg .. "/.lw")
+    writef(lg .. "/.lw/user.json", "{}")
+    code, out, err = lw({ "build" }, fwd_env, lg)
+    recs, raw = dumped()
+    local _, hints = err:gsub("does not read %.lw/user%.json", "")
+    ok(code == 0 and (recs[1] or {}).PINNED == "0.1.51" and hints == 1
+      and err:find("`lw bootstrap upgrade`", 1, true),
+      "a 0.1.51 pin: a redirected build warns once that .lw/user.json is ignored  (exit " .. tostring(code) .. ": "
+        .. raw .. err .. ")")
+    paths.rm_rf(lg .. "/.lw")
+    -- --no-pin: this lw anyway (it migrates .nvim/ as for an unpinned repo).
+    code, out, err = lw({ "--no-input", "--no-pin", "status" }, fwd_env, lg)
+    ok(not err:find("keeps its state in .nvim/", 1, true),
+      "a 0.1.51 pin under --no-pin: not refused  (exit " .. tostring(code) .. ": " .. err .. ")")
+    -- A pin from 0.2.0-beta.7 on reads .lw/: unaffected.
+    local b9 = sb .. "/repo-b9"
+    paths.mkdirp(b9)
+    writef(b9 .. "/lw.pin", pinmod.serialize("0.2.0-beta.9", { [asset] = dump_sha }))
+    code, out, err = lw({ "--no-input", "init" }, fwd_env, b9)
+    ok(code == 0 and uv.fs_stat(b9 .. "/.lw/user.json") ~= nil,
+      "a 0.2.0-beta.9 pin: `lw init` runs  (exit " .. tostring(code) .. ": " .. out .. err .. ")")
+    code, out, err = lw({ "build" }, fwd_env, b9)
+    recs, raw = dumped()
+    ok(code == 0 and (recs[1] or {}).PINNED == "0.2.0-beta.9" and not err:find(".lw/user.json", 1, true),
+      "a 0.2.0-beta.9 pin: redirected, no hint  (exit " .. tostring(code) .. ": " .. raw .. err .. ")")
+  end
   paths.rm_rf(sb)
 end
 

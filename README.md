@@ -205,7 +205,12 @@ against the pin, cache it under `.lw/cache/` and run it:
 ```
 
 An installed `lw` also honours the pin: in a pinned repository it runs the
-pinned release for workspace commands. `install` also sets the line-ending
+pinned release for workspace commands. In a repository pinned to a release before
+0.2.0-beta.7, which keeps its state in `.nvim/`, an installed newer `lw`
+refuses the commands it would run itself (`init`, edits, `status`, `trust`,
+`nuke`, `unlock`) rather than write `.lw/`, which the pinned release never
+reads, and `lw worktree add` creates the worktree without seeding it: run
+them with the launcher, or move the pin with `lw bootstrap upgrade`. `install` also sets the line-ending
 attributes of the launchers, the ignore rule for the cache and the executable
 bit of `lw.sh`; commit what it reports.
 
