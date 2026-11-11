@@ -2656,7 +2656,8 @@ function M._run_target_opts(r)
   }
 end
 
---- `lw run [<target>] [-- prog-args…]` / `lw run <profile> <target>` — resolve a
+--- `lw run [<target>] [-- prog-args…]` / `lw run <profile> <target>` /
+--- `lw --no-input run <profile>` (default target) — resolve a
 --- profile and a launch target, then build → deploy → execute. The pre-`--`
 --- operands: none → the resolved profile's default
 --- target; one → interactive, that target on the resolved profile (never a

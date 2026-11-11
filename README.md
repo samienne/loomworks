@@ -175,6 +175,7 @@ profile, so name the profile explicitly:
 
 ```sh
 lw --no-input build debug:ninja-gcc-14
+lw --no-input run debug:ninja-gcc-14   # the profile's default target
 lw --no-input test debug:ninja-gcc-14 --junit results.xml
 ```
 
