@@ -36,7 +36,7 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
   (`lw run <profile> <target>`, or `lw target set <profile> <target>`).
   Before, a profile with no default target was configured first and only then
   refused. A project with a single executable needs `lw target set` once.
-  The target listing marks only a stored default.
+  The target listing marks only a stored default (#169).
 
 ### Fixed
 
