@@ -232,9 +232,10 @@ end
 ---
 --- A base that publishes no release returns `nil, err, M.NO_RELEASE` (spec
 --- §16.29): on the default origin that is `stable` with no stable release yet,
---- and the error names the unstable channel's `--channel unstable` flag (every
---- command that resolves the newest release takes it) and `channel` setting;
---- an override is a mirror the channel does not govern, so it is pointed at.
+--- and the error names the unstable channel's `channel` setting - the one
+--- selection every caller accepts (`lw health` and the `lw bootstrap` status page
+--- take no `--channel`); a caller that takes `--channel` adds its own form.
+--- An override is a mirror the channel does not govern, so it is pointed at.
 --- @return string|nil version, string|nil err, string|nil code
 function M.resolve_newest_version(opts)
   opts = opts or {}
@@ -253,8 +254,8 @@ function M.resolve_newest_version(opts)
     return nil, "no release found at " .. base .. " (it has no SHA256SUMS) - check " ..
       "LOOMWORKS_RELEASE_URL / the `release-url` setting", code
   end
-  return nil, "no stable release found at " .. base .. " - only pre-releases may be " ..
-    "published yet; use the unstable channel: pass `--channel unstable`, or run " ..
+  return nil, "no stable release found at " .. base .. " - only pre-releases are " ..
+    "published yet; to follow them, use the unstable channel: " ..
     "`lw settings set channel unstable`", code
 end
 

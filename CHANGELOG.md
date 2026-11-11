@@ -42,6 +42,15 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
 
 ### Fixed
 
+- `lw bootstrap` and `lw health` no longer report a stable channel with only
+  pre-releases published as "offline or release server unreachable": they say
+  there is no stable release yet and name commands that select the unstable
+  channel (`lw settings set channel unstable`;
+  `lw bootstrap upgrade --channel unstable` from bootstrap,
+  `lw self-update --channel unstable` from self-update) instead of a `--channel` flag those commands do not
+  take. Their `--json` `update` object carries `reason: "no-release"`, and
+  any other failed release check in `lw bootstrap` shows its real reason
+  (#171).
 - `lw run <profile>` works in non-interactive mode (`--no-input`, CI): the
   one operand names the profile and runs its default target, matched as for
   `lw build` (a unique substring works). Before, no non-interactive form ran
