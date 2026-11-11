@@ -8777,7 +8777,9 @@ function M._ensure_daemon(root, routed)
   local ok, outcome = pcall(function()
     return require("loomworks.daemon.ensure").ensure(root, {
       config = read_config(), flag = M._no_daemon, note = note, routed = routed == true,
-      log = require("loomworks.daemon.rlog").writer(root),
+      -- (none under a pin before `.lw/`, §16.23: that log would create it)
+      log = require("loomworks.state_migration").legacy_pin_refusal() and function() end
+        or require("loomworks.daemon.rlog").writer(root),
       -- A repo that pins another lw: its daemon is the pinned lw's.
       foreign_pin = rawget(_G, "__loomworks_foreign_pin"),
     })
@@ -11321,6 +11323,10 @@ function M.cmd_pull(args, opts)
       die("unexpected argument '" .. v .. "' — usage: lw pull [<source>] [--dry-run]", 2)
     end
   end
+  -- A repository that pins an lw before `.lw/` (§16.23): a working copy
+  -- written here the pinned lw would never read.
+  local legacy = require("loomworks.state_migration").legacy_pin_refusal()
+  if legacy then die(legacy) end
 
   local plan, err = M._plan_pull({ source = source, cwd = opts.cwd, git = opts.git })
   if not plan then die(err) end

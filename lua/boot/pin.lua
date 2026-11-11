@@ -545,6 +545,59 @@ function M.foreign_pin(o)
   return o.pin.version
 end
 
+-- The first release that keeps workspace state in `.lw/` (§16.44): one
+-- before it reads and writes only `.nvim/`.
+M.STATE_DIR_SINCE = "0.2.0-beta.7"
+
+--- The pinned version when it predates the `.lw/` state layout and this host
+--- is not it and nothing bypasses the pin (`foreign_pin`), else nil. Such a
+--- host must not load, migrate or create workspace state for a command it
+--- runs itself: the pinned lw would never see it (§16.23). Pure.
+--- @param o { pin?, self_version?, pinned_sentinel?, no_pin?, lw_override?, dev? }
+--- @return string|nil
+function M.legacy_layout_pin(o)
+  local v = M.foreign_pin(o)
+  if type(v) ~= "string" then return nil end
+  if require("boot.paths").compare_versions(v, M.STATE_DIR_SINCE) >= 0 then return nil end
+  return v
+end
+
+--- One argument as a shell word: bare when it is plain, else single-quoted.
+local function shell_word(a)
+  a = tostring(a)
+  if a ~= "" and not a:find("[^%w%-%._/=:@,+%%]") then return a end
+  return "'" .. a:gsub("'", "'\\''") .. "'"
+end
+
+--- The one-line refusal of a command this host would run itself in a repo
+--- whose pin predates `.lw/` (§16.23): both ways out, the pinned lw through
+--- the launcher and the pin moved, spelled in the invoked form.
+--- @param version string the pinned version
+--- @param invoked "lw.sh"|"lw.cmd"|"launcher"|"global"|nil
+--- @param args string[] the command's arguments
+--- @return string
+function M.legacy_layout_message(version, invoked, args)
+  local words = {}
+  for _, a in ipairs(args or {}) do words[#words + 1] = shell_word(a) end
+  local lc = require("boot.launcher_check")
+  local pinned_form = (invoked == "lw.sh" or invoked == "lw.cmd") and invoked or "launcher"
+  return "lw: this repo pins lw " .. tostring(version) .. ", which keeps its state in .nvim/; this lw keeps it in" ..
+    " .lw/, which the pinned lw does not read - to use the pinned lw " ..
+    lc.run(pinned_form, table.concat(words, " ")) .. "; to move the pin " ..
+    lc.run(invoked, "bootstrap upgrade") .. " (`--no-pin` runs this lw anyway)"
+end
+
+--- The one line a host adds before redirecting to a release that predates
+--- `.lw/` when the workspace has a `.lw/user.json` (§16.23).
+--- @param version string
+--- @param invoked "lw.sh"|"lw.cmd"|"launcher"|"global"|nil
+--- @return string
+function M.legacy_layout_hint(version, invoked)
+  return "lw: the pinned lw " .. tostring(version) .. " keeps its state in .nvim/ and does not read .lw/user.json" ..
+    " (written by a newer lw); to use it, move the pin: " ..
+    require("boot.launcher_check").run(invoked, "bootstrap upgrade")
+end
+
 -- ---------------------------------------------------------------------------
 -- Pin management argument grammar. Pure.
 -- ---------------------------------------------------------------------------

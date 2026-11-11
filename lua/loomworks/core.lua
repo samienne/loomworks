@@ -321,6 +321,13 @@ end
 --- @param root string
 --- @return string|nil refusal
 function Core:_migrate_state(root)
+    -- The repository pins an lw before `.lw/` (§16.23): nothing is loaded,
+    -- migrated or created for it here — the pinned lw would never see it.
+    local legacy = require("loomworks.state_migration").legacy_pin_refusal()
+    if legacy then
+        if self._deps.on_lock_refused then self._deps.on_lock_refused(legacy) end
+        return legacy
+    end
     if require("loomworks.op_lock").locks(self._deps, root).fake then return nil end
     local uv = vim.uv or vim.loop
     if not uv.fs_stat(root) then return nil end

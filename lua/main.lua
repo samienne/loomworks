@@ -548,6 +548,14 @@ do
   -- leaves the workspace daemon to the pinned lw: the CLI's
   -- ensure step neither starts nor replaces one (loomworks.daemon.ensure).
   if action ~= "redirect" then _G.__loomworks_foreign_pin = pin.foreign_pin(decision) end
+  -- A pinned lw that predates `.lw/` reads only `.nvim/`: what this host
+  -- would load, migrate or write for a command it runs itself the pinned lw
+  -- never sees, so that command is refused where workspace state is first
+  -- touched (loomworks.state_migration.legacy_pin_refusal, §16.23).
+  local legacy = pin.legacy_layout_pin(decision)
+  if action ~= "redirect" and legacy then
+    _G.__loomworks_legacy_pin = pin.legacy_layout_message(legacy, invoked_form, forwarded)
+  end
   -- The pinned lw predates the command: never redirect to a host that would
   -- only say "unknown command".
   -- A daemon this host would start instead is the pinned lw's to start: refuse
@@ -607,6 +615,10 @@ do
     end
     -- Record its last use (`lw cleanup --all` prunes executables unused for long).
     exe_cache.touch(sha)
+    -- A working copy of a newer lw the pinned one ignores: say so once.
+    if legacy and uv.fs_stat(pin_root .. "/.lw/user.json") then
+      io.stderr:write(pin.legacy_layout_hint(legacy, invoked_form) .. "\n")
+    end
     -- Pass the sentinel + workspace root to the pinned lw explicitly (they
     -- were removed from our environment at startup, spec §16.22): set just
     -- before the exec, which is the only process this one starts from here

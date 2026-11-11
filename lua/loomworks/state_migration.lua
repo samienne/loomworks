@@ -146,6 +146,16 @@ function M.legacy_user(root)
     return lstat_type(p) == "file" and p or nil
 end
 
+--- The refusal (without the "lw: " prefix) of a host that must not load,
+--- migrate or create workspace state because the repository pins a release
+--- before `.lw/` (§16.23), set by main.lua; nil otherwise.
+--- @return string|nil
+function M.legacy_pin_refusal()
+    local m = rawget(_G, "__loomworks_legacy_pin")
+    if type(m) ~= "string" or m == "" then return nil end
+    return (m:gsub("^lw: ", ""))
+end
+
 --- Is a migration (or its completion) pending for `root`? No `.lw` working
 --- copy or marker, and a legacy working copy — or `.lw/user.json` without a
 --- marker beside a legacy working copy (an interrupted run).
