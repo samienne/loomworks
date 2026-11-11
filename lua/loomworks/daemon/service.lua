@@ -877,7 +877,8 @@ function Service:_accept(ctx)
         local err, action, code
         profile, err, action, code = build_run.resolve_target(ws, a.profile, { interactive = ctx.interactive,
             -- (No `lw configure`: a configure's refusal names `lw build`.)
-            usage = launching and "lw run <profile> <target>"
+            usage = ctx.op == "run" and build_run.run_usage(ctx.interactive)
+                or launching and "lw run <profile> <target>"
                 or ("lw " .. (ctx.op == "configure" and "build" or ctx.op) .. " <profile>") })
         if action == "onboard" then
             return ctx.reply({ outcome = "declined", reason = "no profile yet (interactive onboarding)" })
