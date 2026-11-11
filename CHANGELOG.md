@@ -28,6 +28,23 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
 
 ## Unreleased
 
+## 0.2.0 - 2026-11-08
+
+The first release of lw from samienne/loomworks, where `lw`, the workspace
+daemon and its protocol now live; loomworks.nvim is a client of the daemon.
+Each `lw` is one self-contained, signed executable for Linux (x86_64,
+arm64), macOS (arm64, x86_64) and Windows x86_64: install it as the README
+shows, and `lw self-update` replaces only that file. A workspace's state
+moves from `.nvim/` to `.lw/` on first use. Coming from 0.1.x, an `lw` of
+0.1.51 or later reaches 0.2 with `lw self-update`; an older one updates to
+0.1.51 first. Read the Breaking and Upgrade notes below before upgrading.
+
+### Breaking
+
+- `lw self-update --no-host` is a usage error (exit 2): self-update replaces
+  only the `lw` executable, so there is no separate bundle step to skip
+  (#135).
+
 ### Upgrade notes
 
 - lw now keeps a workspace's state in `.lw/` instead of `.nvim/`, with
@@ -40,56 +57,8 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
   binary in `.lw/cache/`; launchers of earlier releases keep working. If an
   older lw is still running in the workspace, the copy waits for you to stop
   it and retry (#162).
-
-### Added
-
-- `lw` is now built for Linux arm64 (`lw-linux-arm64`) and Intel macOS
-  (`lw-macos-x86_64`), from this release on. A repository's `lw.sh` written
-  by an earlier release does not select them: run `lw bootstrap upgrade`
-  there, which `lw health` now also suggests. A pin of an earlier release
-  still has no build for these platforms (#155).
-
-### Changed
-
-- The workspace daemon protocol restarts at transport 1 for 0.2.0, and the
-  interface versioning policy is written down. Pre-0.2.0 pre-releases used
-  transport numbers up to 11 and are incompatible: an editor or `lw` of this
-  release treats such a daemon as incompatible, and the request kinds of
-  transport 10 are gone. The daemon refuses an interface call from a client
-  it shares no transport with (`no_transport`), and `lw` says plainly that
-  no protocol version was agreed (#161).
-
-### Fixed
-
-- `lw run` resolves its launch target before it builds: it configures what
-  is not configured yet, then fails at once when there is nothing to launch
-  (no default target set, no such target) instead of after a full build,
-  and builds only the resolved target and the projects it depends on
-  (directly or transitively), not the whole profile. A named target that is
-  not in the configured tree, such as one just added to the build files,
-  first has its project's configure step re-run once (no wipe, unlike
-  `lw build --reconfigure`). A command launch configuration still builds the whole profile
-  (#164).
-
-## 0.2.0 - 2026-11-08
-
-The first release of lw from samienne/loomworks, where `lw`, the workspace
-daemon and its protocol now live; loomworks.nvim is a client of the daemon.
-Each `lw` is one self-contained, signed executable for Linux x86_64, macOS
-arm64 and Windows x86_64: install it as the README shows, and
-`lw self-update` replaces only that file. Coming from 0.1.x, an `lw` of
-0.1.51 or later reaches 0.2 with `lw self-update`; an older one updates to
-0.1.51 first.
-
-### Breaking
-
-- `lw self-update --no-host` is a usage error (exit 2): self-update replaces
-  only the `lw` executable, so there is no separate bundle step to skip
-  (#135).
-
-### Upgrade notes
-
-- The cache (`.nvim/loomworks.cache.json`) is now version 9. A version 8
+- The build cache (`.lw/cache.json`, formerly
+  `.nvim/loomworks.cache.json`) is now version 9. A version 8
   cache is migrated when it loads and written as version 9 by the next save;
   after that an older `lw` or editor (including a pinned one) refuses the
   workspace as a newer schema until it is updated. Each configuration of a
@@ -101,6 +70,11 @@ arm64 and Windows x86_64: install it as the README shows, and
 
 ### Added
 
+- `lw` is now built for Linux arm64 (`lw-linux-arm64`) and Intel macOS
+  (`lw-macos-x86_64`), from this release on. A repository's `lw.sh` written
+  by an earlier release does not select them: run `lw bootstrap upgrade`
+  there, which `lw health` now also suggests. A pin of an earlier release
+  still has no build for these platforms (#155).
 - `lw launch set` takes `--description <para>` (repeatable), like
   `lw launch add`; it replaces the whole description, and
   `--description ""` clears it. `--working-dir ""` clears the working
@@ -108,37 +82,28 @@ arm64 and Windows x86_64: install it as the README shows, and
 
 ### Changed
 
-- `lw module list | install | update` read the module index from
-  `modules.json` in samienne/loomworks instead of samienne/loomworks.nvim.
-  `lw settings set module-index` and `LOOMWORKS_MODULE_INDEX` still override
-  it (#144).
-
-- On a platform without an lw build, `lw self-update`, a pinned `lw` and the
-  `lw.sh` / `lw.cmd` launchers say `no lw build for <os>-<arch>` and name the
-  supported platforms (linux-x86_64, macos-arm64, windows-x86_64). `lw health`
-  reports older launchers as missing this (#147).
-
+- `lw`, the workspace daemon and its protocol moved here from loomworks.nvim,
+  which is now a client of the daemon. The history of the 0.1.x releases is in
+  the CHANGELOG of loomworks.nvim.
+- lw 0.2 and later is published in samienne/loomworks. `lw` now fetches a
+  release from the repository it was published in: 0.0.x/0.1.x from
+  samienne/loomworks.nvim, 0.2 and later from samienne/loomworks, in
+  `lw self-update`, `lw bootstrap install` / `upgrade`, pinned provisioning and
+  the `lw.sh` / `lw.cmd` launchers. The newest release (both channels) is
+  looked up in samienne/loomworks only. `LOOMWORKS_RELEASE_URL` /
+  `release-url` is still one mirror for all versions. `lw bootstrap` and
+  `lw health` report earlier launchers as broken only for a pin of 0.2 or
+  later (samienne/loomworks.nvim#389).
+- Release `lw` executables carry all of loomworks (the code, the release
+  notes and the protocol documents), so a freshly installed `lw` works
+  without downloading a release bundle, and `lw self-update` replaces only
+  the executable (#132).
 - An `lw` executable that embeds the loomworks code runs that code and
   nothing else: it never loads a release bundle installed beside it, and
   `lw version` reports its release and "self-contained", or "dev build". In
   a repository's pinned context it runs only as the pinned release and
   otherwise refuses with an error naming both versions, instead of
   provisioning another release (#131).
-
-- Release `lw` executables carry all of loomworks (the code, the release
-  notes and the protocol documents), so a freshly installed `lw` works
-  without downloading a release bundle, and `lw self-update` replaces only
-  the executable (#132).
-
-- A global `lw` in a repository that pins another release runs that
-  release's executable from a cache in the per-user data directory
-  (`exe/<sha256>/`), verified against the pin before every run, and no
-  longer downloads or unpacks a release bundle for it. A pin to a release
-  from before self-contained executables is still honoured: that release
-  provisions its own bundle. A pin to a release before 0.1.32, which loads
-  code from the repository, is refused, naming the version and
-  `lw bootstrap upgrade`; nothing is deleted (#133).
-
 - `lw self-update` replaces only the `lw` executable: it installs no release
   bundle and removes no installed one. The newest release is read from the
   `latest` signed `SHA256SUMS` (from its `lw-<version>-descriptor.json` entry;
@@ -153,7 +118,14 @@ arm64 and Windows x86_64: install it as the README shows, and
   executable cannot be replaced (an unwritable location, a missing asset) it
   exits non-zero. `lw install` installs only the executable; `--no-bundle` is
   accepted and ignored (#135).
-
+- A global `lw` in a repository that pins another release runs that
+  release's executable from a cache in the per-user data directory
+  (`exe/<sha256>/`), verified against the pin before every run, and no
+  longer downloads or unpacks a release bundle for it. A pin to a release
+  from before self-contained executables is still honoured: that release
+  provisions its own bundle. A pin to a release before 0.1.32, which loads
+  code from the repository, is refused, naming the version and
+  `lw bootstrap upgrade`; nothing is deleted (#133).
 - `lw bootstrap install` pins a self-contained release by its executables
   alone: the bundle's hash is written only while the release still publishes
   a bundle, and a pin without it is complete (`lw bootstrap` and `lw health`
@@ -163,25 +135,27 @@ arm64 and Windows x86_64: install it as the README shows, and
   descriptor, so another release's list is refused; an older release's list,
   which has no descriptor, is bound to it by its bundle entry, so pinning or
   repairing a pin to 0.1.4x keeps working (#134).
-
 - `LOOMWORKS_PINNED` and `LW_ROOT` no longer leak into what `lw` starts: a
   build, run or test step (and an `lw` it runs) no longer inherits the
   pinned context or the launcher's workspace root, so a nested `lw` resolves
   its own workspace and pin, and the daemon no longer receives them with a
   request's environment (#131).
-
-- `lw`, the workspace daemon and its protocol moved here from loomworks.nvim,
-  which is now a client of the daemon. The history of the 0.1.x releases is in
-  the CHANGELOG of loomworks.nvim.
-- lw 0.2 and later is published in samienne/loomworks. `lw` now fetches a
-  release from the repository it was published in: 0.0.x/0.1.x from
-  samienne/loomworks.nvim, 0.2 and later from samienne/loomworks, in
-  `lw self-update`, `lw bootstrap install` / `upgrade`, pinned provisioning and
-  the `lw.sh` / `lw.cmd` launchers. The newest release (both channels) is
-  looked up in samienne/loomworks only. `LOOMWORKS_RELEASE_URL` /
-  `release-url` is still one mirror for all versions. `lw bootstrap` and
-  `lw health` report earlier launchers as broken only for a pin of 0.2 or
-  later (samienne/loomworks.nvim#389).
+- The workspace daemon protocol restarts at transport 1 for 0.2.0, and the
+  interface versioning policy is written down. Pre-0.2.0 pre-releases used
+  transport numbers up to 11 and are incompatible: an editor or `lw` of this
+  release treats such a daemon as incompatible, and the request kinds of
+  transport 10 are gone. The daemon refuses an interface call from a client
+  it shares no transport with (`no_transport`), and `lw` says plainly that
+  no protocol version was agreed (#161).
+- `lw module list | install | update` read the module index from
+  `modules.json` in samienne/loomworks instead of samienne/loomworks.nvim.
+  `lw settings set module-index` and `LOOMWORKS_MODULE_INDEX` still override
+  it (#144).
+- On a platform without an lw build, such as Windows arm64, `lw self-update`,
+  a pinned `lw` and the `lw.sh` / `lw.cmd` launchers say
+  `no lw build for <os>-<arch>` and name the supported platforms
+  (linux-arm64, linux-x86_64, macos-arm64, macos-x86_64, windows-x86_64).
+  `lw health` reports older launchers as missing this (#147).
 - Every usage error now exits 2 (it was 1 for many of them): an unknown,
   repeated or misplaced option, a missing or malformed value (`--timeout 0`,
   an invalid launch name, an unknown `lw config set` parameter or health
@@ -216,6 +190,15 @@ arm64 and Windows x86_64: install it as the README shows, and
 
 ### Fixed
 
+- `lw run` resolves its launch target before it builds: it configures what
+  is not configured yet, then fails at once when there is nothing to launch
+  (no default target set, no such target) instead of after a full build,
+  and builds only the resolved target and the projects it depends on
+  (directly or transitively), not the whole profile. A named target that is
+  not in the configured tree, such as one just added to the build files,
+  first has its project's configure step re-run once (no wipe, unlike
+  `lw build --reconfigure`). A command launch configuration still builds the whole profile
+  (#164).
 - When the release origin has no stable release yet, `lw self-update`,
   `lw bootstrap install --latest` / `upgrade` and `lw release query` say that
   no stable release was found there and suggest `--channel unstable` (or
