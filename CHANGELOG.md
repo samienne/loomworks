@@ -75,7 +75,8 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
   `lw build` (a unique substring works). Before, no non-interactive form ran
   a profile's default target. In an interactive terminal one operand is
   still a target on the active profile. A bare non-interactive `lw run` now
-  names both forms, `lw run <profile>` and `lw run <profile> <target>`.
+  names both forms, `lw run <profile>` and `lw run <profile> <target>`
+  (#167).
 
 ## 0.2.0 - 2026-11-08
 
