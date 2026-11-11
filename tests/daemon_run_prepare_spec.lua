@@ -41,6 +41,26 @@ describe("daemon run preparation (§19.15 Run)", function()
             .. "device runs stay in this process" }, reply)
     end)
 
+    it("refuses a run naming no target on a profile with no default target, before any task", function()
+        local profile = { key = "Release:ninja", default_target = function() return nil end }
+        with(build_run, "resolve_target", function() return profile end)
+        with(run_prep, "kit_platform", function() return nil end)
+        local created = false
+        local svc = setmetatable({
+            live = function() return { root = "/ws" } end,
+            tasks = { create = function() created = true end },
+        }, service.Service)
+        local reply
+        svc:_accept({ op = "run", conn = { closed = false }, args = { profile = "Release" }, interactive = false,
+            reply = function(f) reply = f end })
+        assert.is_false(created, "nothing was configured or built")
+        assert.are.equal("refused", reply.outcome)
+        assert.are.equal(1, reply.exit_code)
+        assert.truthy(reply.message:find("no default target set for profile 'Release:ninja'", 1, true),
+            reply.message)
+        assert.truthy(reply.message:find("lw target set Release:ninja <target>", 1, true), reply.message)
+    end)
+
     it("does not decline a build of that profile (only a run is a device run)", function()
         local profile = { key = "ohos-debug" }
         with(build_run, "resolve_target", function() return profile end)

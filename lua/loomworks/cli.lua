@@ -2662,7 +2662,9 @@ end
 --- operands: none → the resolved profile's default
 --- target; one → interactive, that target on the resolved profile (never a
 --- profile selector), non-interactive, the named profile's default target;
---- two → the named target on the named profile. Args after `--` are forwarded to
+--- two → the named target on the named profile. No target named and no
+--- default target stored: refused before anything is configured or built
+--- (run_prep.no_default_refusal; no sole-target guess). Args after `--` are forwarded to
 --- the program. Returns its exit code. Routes through the editor's LaunchTarget
 --- seams (resolve_launch_spec / deploy_sync, via loomworks.run_prep — shared
 --- with the workspace daemon's `prepare_run`) so headless and editor
@@ -2694,6 +2696,12 @@ function M.cmd_run(ws, args)
   local profile, target_name
   profile, target_name, ws = M._run_selection(ws, r.positionals)
   local rp = require("loomworks.run_prep")
+  -- No target named and no default target stored: refused before anything
+  -- is configured or built (headless §16.17 "Order").
+  if not target_name then
+    local refusal = rp.no_default_refusal(profile)
+    if refusal then die(refusal) end
+  end
   local reconfigure_skip
   local function select(refresh, reconfigure)
     local lt, serr, why = rp.select(ws, profile, target_name, r.proj_scope, r.kind,
@@ -12710,6 +12718,9 @@ Operands (before `--`) — the count and the mode pick the form:
   <profile>            non-interactive (--no-input, CI): the named profile's
                        DEFAULT target (a unique substring works).
   <profile> <target>   the named target on the named profile.
+  With no target named, the profile must have a DEFAULT target
+  (`lw target set <profile> <target>`): none is ever guessed, not even a sole
+  executable, and the run is refused before anything is configured or built.
   --cwd <dir>  working directory for this run (absolute or workspace-root-
                relative, variable-expanded; alias --working-dir). Overrides the target's stored /
                default working dir just for this invocation. Default: the

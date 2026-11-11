@@ -170,8 +170,9 @@ describe("Launch/1.targets, Profiles/1.set_default_target, view projects[].targe
             assert.equals("ok", r.outcome, vim.inspect(r))
             assert.same({ "app" }, r.incomplete)
             assert.equals(1, #r.targets)
-            -- The sole launchable target is the default (spec §16.17).
-            assert.is_true(r.targets[1].default)
+            -- No default is stored: none is marked, not even the sole
+            -- launchable target (spec §16.17).
+            assert.is_false(r.targets[1].default)
         end)
         impl.parse_targets = orig
         assert(ok, err)

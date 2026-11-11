@@ -254,9 +254,20 @@ describe("lw run: the launch target resolves before the build (§16.17 Order)", 
         assert.equals("LibTool", launched._target.id)
     end)
 
-    it("the sole launchable target builds that target only", function()
+    it("a single launchable target and no default: refused, never guessed", function()
         configured(unit_of(profile, "App"), { AppRunner = { type = "executable", artifact = "AppRunner" } })
         configured(unit_of(profile, "Lib"), { Common = { type = "static_library" } })
+        local spawned, launched, code, stderr = run(ws, profile, nil)
+        assert.equals(1, code)
+        assert.truthy(stderr:find("no default target set for profile '" .. profile.key .. "'", 1, true), stderr)
+        assert.equals(0, #spawned, "nothing was configured or built")
+        assert.is_nil(launched)
+    end)
+
+    it("the stored default target builds that target only", function()
+        configured(unit_of(profile, "App"), { AppRunner = { type = "executable", artifact = "AppRunner" } })
+        configured(unit_of(profile, "Lib"), { Common = { type = "static_library" } })
+        profile._default_target_descriptor = { project = "App", target = "AppRunner" }
         local spawned, launched, code, stderr = run(ws, profile, nil)
         assert.is_nil(code, stderr)
         local b = of_kind(spawned, "build")
@@ -292,11 +303,11 @@ describe("lw run: the launch target resolves before the build (§16.17 Order)", 
         assert.truthy(launched)
     end)
 
-    it("an unconfigured profile without a default: configured, then refused before any build", function()
+    it("an unconfigured profile without a default: refused before anything is configured", function()
         local app, lib = unit_of(profile, "App"), unit_of(profile, "Lib")
         app.configure_reason = function() return "unconfigured" end
         lib.configure_reason = function() return "unconfigured" end
-        local spawned, _, code, stderr = run(ws, profile, nil, nil, function(step)
+        local spawned, launched, code, stderr = run(ws, profile, nil, nil, function(step)
             if step.kind == "configure" then
                 configured(step.unit, { [step.unit == app and "AppRunner" or "LibTool"] =
                     { type = "executable", artifact = "x" } })
@@ -304,8 +315,9 @@ describe("lw run: the launch target resolves before the build (§16.17 Order)", 
             return 0
         end)
         assert.equals(1, code)
-        assert.truthy(stderr:find("no default target set", 1, true), stderr)
-        assert.equals(0, #of_kind(spawned, "build"), "nothing was built")
+        assert.truthy(stderr:find("no default target set for profile '" .. profile.key .. "'", 1, true), stderr)
+        assert.equals(0, #spawned, "nothing was configured or built")
+        assert.is_nil(launched)
     end)
 
     -- `lw --no-input run <profile>`: the one operand names the profile and
@@ -323,6 +335,7 @@ describe("lw run: the launch target resolves before the build (§16.17 Order)", 
     it("--no-input run <profile>: the profile's default target is built and run", function()
         configured(unit_of(profile, "App"), { AppRunner = { type = "executable", artifact = "AppRunner" } })
         configured(unit_of(profile, "Lib"), { Common = { type = "static_library" } })
+        profile._default_target_descriptor = { project = "App", target = "AppRunner" }
         local spawned, launched, code, stderr = run_noinput({ "debug" })   -- a unique substring of debug:ninja-gcc-13
         assert.is_nil(code, stderr)
         local b = of_kind(spawned, "build")
@@ -338,6 +351,20 @@ describe("lw run: the launch target resolves before the build (§16.17 Order)", 
         assert.equals(1, code)
         assert.truthy(stderr:find("no default target set for profile '" .. profile.key .. "'", 1, true), stderr)
         assert.equals(0, #spawned, "nothing was built")
+        assert.is_nil(launched)
+    end)
+
+    it("--no-input run <profile>, unconfigured, no default: refused before configuring, naming both fixes", function()
+        local app, lib = unit_of(profile, "App"), unit_of(profile, "Lib")
+        app.configure_reason = function() return "unconfigured" end
+        lib.configure_reason = function() return "unconfigured" end
+        local spawned, launched, code, stderr = run_noinput({ "debug" })
+        assert.equals(1, code)
+        local key = profile.key
+        assert.truthy(stderr:find("no default target set for profile '" .. key .. "'", 1, true), stderr)
+        assert.truthy(stderr:find("lw run " .. key .. " <target>", 1, true), stderr)
+        assert.truthy(stderr:find("lw target set " .. key .. " <target>", 1, true), stderr)
+        assert.equals(0, #spawned, "nothing was configured or built")
         assert.is_nil(launched)
     end)
 
