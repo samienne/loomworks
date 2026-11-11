@@ -2518,9 +2518,10 @@ M._match_targets = match_targets
 --- Resolve the (profile, target_name) for a `lw run` invocation from its parsed
 --- operands:
 ---   0 operands → resolved profile + its default target (target = nil);
----   1 operand  → the SAME resolved profile + the operand as a target
----                on it — a single operand is always a target, never a profile
----                selector;
+---   1 operand  → interactive: the SAME resolved profile + the operand as a
+---                target on it (never a profile selector); non-interactive,
+---                where no profile is resolved implicitly: the operand is the
+---                profile, run on its default target (target = nil);
 ---   2 operands → the named target on the named profile.
 --- The named target is matched by the caller once the profile is configured, so build targets
 --- are visible. `resolve_build_target` is injectable via `deps.resolve` for
@@ -2532,15 +2533,21 @@ M._match_targets = match_targets
 function M._run_selection(ws, positionals, deps)
   deps = deps or {}
   local resolve = deps.resolve or resolve_build_target
-  -- A named profile needs the two-operand form (one operand is a target).
-  local usage = "lw run <profile> <target>"
+  local inter = interactive()
+  local usage = require("loomworks.build_run").run_usage(inter)
   local profile
   if #positionals >= 2 then
     profile, ws = resolve(ws, positionals[1], usage)
     return profile, positionals[2], ws
   elseif #positionals == 1 then
-    -- One operand is always a target on the resolved profile (the same profile
-    -- a bare `lw run` would pick), never a profile selector.
+    if not inter then
+      -- Non-interactive: no profile is ever resolved implicitly (§16.3), so
+      -- the one operand names the profile, run on its default target.
+      profile, ws = resolve(ws, positionals[1], usage)
+      return profile, nil, ws
+    end
+    -- Interactive: a target on the resolved profile (the same profile a bare
+    -- `lw run` would pick), never a profile selector.
     profile, ws = resolve(ws, nil, usage)
     return profile, positionals[1], ws
   end
@@ -2652,7 +2659,8 @@ end
 --- `lw run [<target>] [-- prog-args…]` / `lw run <profile> <target>` — resolve a
 --- profile and a launch target, then build → deploy → execute. The pre-`--`
 --- operands: none → the resolved profile's default
---- target; one → that target on the resolved profile (never a profile selector);
+--- target; one → interactive, that target on the resolved profile (never a
+--- profile selector), non-interactive, the named profile's default target;
 --- two → the named target on the named profile. Args after `--` are forwarded to
 --- the program. Returns its exit code. Routes through the editor's LaunchTarget
 --- seams (resolve_launch_spec / deploy_sync, via loomworks.run_prep — shared
@@ -9007,8 +9015,11 @@ function M._run_request(args)
     prefix = (r.prefix_tokens and #r.prefix_tokens > 0) or nil,
     verbose = r.verbose or nil,
   }
-  -- The operand grammar of `_run_selection`: one operand is a target.
-  if #pos >= 2 then req.profile, req.target = pos[1], pos[2] else req.target = pos[1] end
+  -- The operand grammar of `_run_selection`: one operand is a target, or —
+  -- non-interactive — the profile (run on its default target).
+  if #pos >= 2 then req.profile, req.target = pos[1], pos[2]
+  elseif interactive() then req.target = pos[1]
+  else req.profile = pos[1] end
   return req, r
 end
 
@@ -12679,6 +12690,7 @@ Without --force a lock whose holder is still running is left in place and
 named (exit 1). A removed lock of a killed configure leaves its units
 unconfigured, of a killed build step not built (configured).]],
   run = [[lw run [<target>] [-- prog-args…]   |   lw run <profile> <target> [-- …]
+lw --no-input run <profile> [-- …]   |   lw --no-input run <profile> <target> [-- …]
 
 Resolve a profile and a launch target, then build -> deploy -> execute.
 The target is EITHER a build target (its executable) OR a command
@@ -12686,12 +12698,16 @@ launch configuration declared with `lw launch add`; variables are expanded in
 the profile's context. The launched process's exit code becomes lw's exit
 code; output streams through.
 
-Operands (before `--`) — the count picks the form:
+Operands (before `--`) — the count and the mode pick the form:
   (none)               the resolved profile's DEFAULT target. The profile is
-                       the active one (interactive) or the sole one, else error.
-  <target>             that target on the resolved profile. A single operand is
-                       ALWAYS a target, never a profile — to run another
-                       profile use the two-operand form or `lw profile select`.
+                       the active one or the sole one (interactive only);
+                       non-interactive it is an error — name the profile.
+  <target>             interactive: that target on the resolved profile. A
+                       single operand is then a target, never a profile — to
+                       run another profile use the two-operand form or
+                       `lw profile select`.
+  <profile>            non-interactive (--no-input, CI): the named profile's
+                       DEFAULT target (a unique substring works).
   <profile> <target>   the named target on the named profile.
   --cwd <dir>  working directory for this run (absolute or workspace-root-
                relative, variable-expanded; alias --working-dir). Overrides the target's stored /

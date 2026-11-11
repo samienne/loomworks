@@ -272,7 +272,9 @@ describe("lw run through the workspace daemon (real processes)", function()
             local r = lw(root, { "--no-input", "--no-daemon", "target", "set", "dev", "go", "--launch" })
             assert.equals(0, r.code, r.stderr)
         end
-        for _, args in ipairs({ { "run" }, { "run", "--", "d1" }, { "run", "--print" } }) do
+        for _, args in ipairs({ { "run" }, { "run", "--", "d1" }, { "run", "--print" },
+            -- non-interactive: the one operand is the profile, run on its default target
+            { "--no-input", "run", "dev", "--", "d2" } }) do
             local full = { unpack(args) }
             local ra = lw(a, full, { LOOMWORKS_RUNTIME = "in-process" })
             local rb = lw(b, full)
@@ -281,6 +283,10 @@ describe("lw run through the workspace daemon (real processes)", function()
             assert.equals(norm(ra.stdout, a), norm(rb.stdout, b), what)
             assert.equals(norm(ra.stderr, a), drop_notice(norm(rb.stderr, b)), what)
             assert.truthy(rb.stderr:find(NOTICE, 1, true), what)
+            if args[1] == "--no-input" then
+                assert.equals(0, rb.code, rb.stderr)
+                assert.truthy(rb.stdout:find("d2", 1, true), rb.stdout)
+            end
         end
         -- The forms did what they say: the program's output, exit status,
         -- arguments, launch environment over the client's, working directory.
@@ -418,8 +424,15 @@ describe("the prepare_run request (§19.15 Run)", function()
         assert.same({ profile = "dev", target = "app", project = "p", kind = "launch", cwd = "${x}/d",
             extra = { "a", "--device" }, no_build = false, quiet = true }, req)
         assert.equals("json", r.print_mode)
+        -- One operand: a target in an interactive host, the profile otherwise
+        -- (§16.17 "Positional grammar").
+        cli._test_interactive = true
         req = cli._run_request({ "run", "app", "--dry-run", "--target" })
+        cli._test_interactive = false
+        local req_ni = cli._run_request({ "run", "dev" })
+        cli._test_interactive = nil
         assert.same({ target = "app", kind = "target", extra = {}, no_build = true, quiet = true }, req)
+        assert.same({ profile = "dev", extra = {}, no_build = false, quiet = false }, req_ni)
         req, r = cli._run_request({ "run", "--prefix", "valgrind -q" })
         assert.same({ extra = {}, no_build = false, quiet = false, prefix = true }, req)
         assert.same({ "valgrind", "-q" }, r.prefix_tokens)

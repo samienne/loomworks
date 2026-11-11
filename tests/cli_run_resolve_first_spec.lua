@@ -106,7 +106,8 @@ local function run(ws, profile, target, extra, on_spawn)
         spawned[#spawned + 1] = step
         return on_spawn and on_spawn(step) or 0
     end
-    cli._run_selection = function(w) return profile, target, w end
+    -- (`profile == false`: the real operand selection, operands in `extra`.)
+    if profile ~= false then cli._run_selection = function(w) return profile, target, w end end
     cli._run_launch_target = function(lt) launched = lt; return 0 end
     io.write = function() end
     io.stderr = { write = function(_, s) err_buf[#err_buf + 1] = s end }
@@ -305,6 +306,54 @@ describe("lw run: the launch target resolves before the build (§16.17 Order)", 
         assert.equals(1, code)
         assert.truthy(stderr:find("no default target set", 1, true), stderr)
         assert.equals(0, #of_kind(spawned, "build"), "nothing was built")
+    end)
+
+    -- `lw --no-input run <profile>`: the one operand names the profile and
+    -- runs its default target (§16.17 "Positional grammar"), through the
+    -- real operand selection.
+    local function run_noinput(operands)
+        local cli = require("loomworks.cli")
+        cli._test_interactive = false
+        local ok, spawned, launched, code, stderr = pcall(run, ws, false, nil, operands)
+        cli._test_interactive = nil
+        if not ok then error(spawned, 0) end
+        return spawned, launched, code, stderr
+    end
+
+    it("--no-input run <profile>: the profile's default target is built and run", function()
+        configured(unit_of(profile, "App"), { AppRunner = { type = "executable", artifact = "AppRunner" } })
+        configured(unit_of(profile, "Lib"), { Common = { type = "static_library" } })
+        local spawned, launched, code, stderr = run_noinput({ "debug" })   -- a unique substring of debug:ninja-gcc-13
+        assert.is_nil(code, stderr)
+        local b = of_kind(spawned, "build")
+        assert.equals(1, #b, "only App is built")
+        assert.equals(unit_of(profile, "App"), b[1].unit)
+        assert.is_true(has_seq(b[1].cmd, { "--target", "AppRunner" }), table.concat(b[1].cmd, " "))
+        assert.truthy(launched)
+    end)
+
+    it("--no-input run <profile> with no default target: refused before any build", function()
+        both_known()
+        local spawned, launched, code, stderr = run_noinput({ "debug" })
+        assert.equals(1, code)
+        assert.truthy(stderr:find("no default target set for profile '" .. profile.key .. "'", 1, true), stderr)
+        assert.equals(0, #spawned, "nothing was built")
+        assert.is_nil(launched)
+    end)
+
+    it("an interactive run <name>: the one operand is still a target", function()
+        both_known()
+        local cli = require("loomworks.cli")
+        cli._test_interactive = true
+        local ok, spawned, launched, code, stderr = pcall(run, ws, false, nil, { "LibTool" })
+        cli._test_interactive = nil
+        if not ok then error(spawned, 0) end
+        assert.is_nil(code, stderr)
+        local b = of_kind(spawned, "build")
+        assert.equals(1, #b)
+        assert.equals(unit_of(profile, "Lib"), b[1].unit)
+        assert.is_true(has_seq(b[1].cmd, { "--target", "LibTool" }), table.concat(b[1].cmd, " "))
+        assert.truthy(launched)
     end)
 
     it("--no-build runs nothing and still resolves the target", function()

@@ -58,15 +58,17 @@ describe("non-interactive no-profile refusal names the invoked command", functio
     assert.is_falsy(err:find("lw build <profile>", 1, true), err)
   end)
 
-  it("lw run → lw run <profile> <target> (one operand is always a target)", function()
+  it("lw run → both explicit run forms", function()
     local err = refusal(function() cli.cmd_run(ws2(), { "run" }) end)
+    assert.is_truthy(err:find("lw run <profile>  (its default target)", 1, true), err)
     assert.is_truthy(err:find("lw run <profile> <target>", 1, true), err)
     assert.is_falsy(err:find("lw build <profile>", 1, true), err)
   end)
 
-  it("lw run <target> → same run hint", function()
-    local err = refusal(function() cli._run_selection(ws2(), { "app" }) end)
-    assert.is_truthy(err:find("lw run <profile> <target>", 1, true), err)
+  it("lw run <name> → the name is the profile (non-interactive), so no refusal of this kind", function()
+    local r = capture(function() cli._run_selection(ws2(), { "app" }) end)
+    assert.is_falsy(r.ok)
+    assert.is_truthy(r.stderr:find("no profile matching 'app'", 1, true), r.stderr)
   end)
 
   it("resolve_profile quotes the caller-supplied usage (target set/clear)", function()
