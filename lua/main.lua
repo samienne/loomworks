@@ -554,7 +554,13 @@ do
   -- touched (loomworks.state_migration.legacy_pin_refusal, §16.23).
   local legacy = pin.legacy_layout_pin(decision)
   if action ~= "redirect" and legacy then
-    _G.__loomworks_legacy_pin = pin.legacy_layout_message(legacy, invoked_form, forwarded)
+    local function has(name)
+      local st = uv.fs_stat(pin_root .. "/" .. name)
+      return st ~= nil and st.type == "file"
+    end
+    local launchers = { sh = has("lw.sh"), cmd = has("lw.cmd") }
+    _G.__loomworks_legacy_pin = pin.legacy_layout_message(legacy, invoked_form, forwarded, launchers)
+    _G.__loomworks_legacy_pin_pull = pin.legacy_layout_pull_note(legacy, invoked_form, launchers)
   end
   -- The pinned lw predates the command: never redirect to a host that would
   -- only say "unknown command".

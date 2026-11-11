@@ -1377,13 +1377,38 @@ do
     eq(L("0.1.51", { [k] = k == "pinned_sentinel" and "0.1.51" or true }), nil,
       "legacy_layout_pin: none under " .. k)
   end
-  eq(pin.legacy_layout_message("0.1.51", "global", { "profile", "select", "Dev" }),
+  local both = { sh = true, cmd = true }
+  eq(pin.legacy_layout_message("0.1.51", "global", { "profile", "select", "Dev" }, both),
     "lw: this repo pins lw 0.1.51, which keeps its state in .nvim/; this lw keeps it in .lw/, which the" ..
     " pinned lw does not read - to use the pinned lw run `./lw.sh profile select Dev`" ..
     " (`.\\lw.cmd profile select Dev` from cmd/PowerShell); to move the pin run `lw bootstrap upgrade`" ..
     " (`--no-pin` runs this lw anyway)", "legacy_layout_message: both ways out, in the invoked form")
-  ok(pin.legacy_layout_message("0.1.51", "global", { "config", "set", "a b" }):find("`./lw.sh config set 'a b'`", 1, true),
+  ok(pin.legacy_layout_message("0.1.51", "global", { "config", "set", "a b" }, both)
+      :find("`./lw.sh config set 'a b'`", 1, true),
     "legacy_layout_message: an argument with a space is quoted")
+  -- Only the launchers the repository has are named.
+  local m_none = pin.legacy_layout_message("0.1.51", "global", { "status" }, {})
+  ok(m_none:find("to use the pinned lw 0.1.51 run this command with it;", 1, true)
+      and not m_none:find("lw.sh", 1, true) and not m_none:find("lw.cmd", 1, true)
+      and m_none:find("`lw bootstrap upgrade`", 1, true) and not m_none:find("\n", 1, true),
+    "legacy_layout_message: no launcher in the repository names the pinned lw  (" .. m_none .. ")")
+  local m_sh = pin.legacy_layout_message("0.1.51", "global", { "status" }, { sh = true })
+  ok(m_sh:find("run `./lw.sh status`;", 1, true) and not m_sh:find("lw.cmd", 1, true),
+    "legacy_layout_message: lw.sh only  (" .. m_sh .. ")")
+  local m_cmd = pin.legacy_layout_message("0.1.51", "global", { "status" }, { cmd = true })
+  ok(m_cmd:find("run `.\\lw.cmd status`;", 1, true) and not m_cmd:find("lw.sh", 1, true),
+    "legacy_layout_message: lw.cmd only  (" .. m_cmd .. ")")
+  ok(pin.legacy_layout_message("0.1.51", "lw.cmd", { "status" }, { cmd = true })
+      :find("run `.\\lw.cmd status`; to move the pin run `.\\lw.cmd bootstrap upgrade`", 1, true),
+    "legacy_layout_message: invoked through lw.cmd, both commands in that form")
+  local note = pin.legacy_layout_pull_note("0.1.51", "global", both)
+  ok(note:find("pull skipped", 1, true) and note:find("lw 0.1.51", 1, true)
+      and note:find("`./lw.sh pull`", 1, true) and note:find("`lw bootstrap upgrade`", 1, true)
+      and not note:find("\n", 1, true),
+    "legacy_layout_pull_note: the pinned launcher's pull and the upgrade, one line  (" .. note .. ")")
+  local note_none = pin.legacy_layout_pull_note("0.1.51", "global", {})
+  ok(note_none:find("the pinned lw 0.1.51", 1, true) and not note_none:find("lw.sh", 1, true),
+    "legacy_layout_pull_note: no launcher  (" .. note_none .. ")")
   local hint = pin.legacy_layout_hint("0.1.51", "global")
   ok(hint:find("lw 0.1.51", 1, true) and hint:find(".lw/user.json", 1, true)
     and hint:find("`lw bootstrap upgrade`", 1, true), "legacy_layout_hint: names the file and the upgrade  (" .. hint .. ")")
@@ -2049,6 +2074,12 @@ os.exit(0)
     end
     code, out, err = lw({ "--no-input", "init" }, fwd_env, lg)
     refused("lw init", code, err)
+    ok(err:find("to use the pinned lw 0.1.51 run this command with it", 1, true) and not err:find("lw.sh", 1, true),
+      "without launchers the refusal names the pinned lw, not ./lw.sh  (" .. err .. ")")
+    writef(lg .. "/lw.sh", "#!/bin/sh\n")
+    writef(lg .. "/lw.cmd", "@echo off\r\n")
+    code, out, err = lw({ "--no-input", "init" }, fwd_env, lg)
+    refused("lw init", code, err)
     ok(err:find("`./lw.sh --no-input init`", 1, true), "the refusal names the launcher form of the command  (" .. err .. ")")
     -- A 0.1 workspace: never migrated by a command this host runs itself.
     local legacy_bytes = '{"_meta":{"version":1},"profiles":{}}'
@@ -2060,6 +2091,43 @@ os.exit(0)
     refused("lw status", code, err)
     code, out, err = lw({ "--no-input", "health" }, fwd_env, lg)
     refused("lw health", code, err)
+    -- The recovery commands read or lock .lw/ directly: refused as well.
+    code, out, err = lw({ "--no-input", "trust" }, fwd_env, lg)
+    refused("lw trust", code, err)
+    code, out, err = lw({ "--no-input", "nuke", "--yes" }, fwd_env, lg)
+    refused("lw nuke", code, err)
+    code, out, err = lw({ "--no-input", "unlock", "--workspace" }, fwd_env, lg)
+    refused("lw unlock --workspace", code, err)
+    code, out, err = lw({ "--no-input", "unlock", "--journal" }, fwd_env, lg)
+    refused("lw unlock --journal", code, err)
+    code, out, err = lw({ "--no-input", "unlock", "--all" }, fwd_env, lg)
+    refused("lw unlock --all", code, err)
+    -- Shell completion: no workspace candidates, and nothing on stderr.
+    code, out, err = lw({ "__complete", "3", "lw", "profile", "select", "" }, fwd_env, lg)
+    ok(code == 0 and err == "" and uv.fs_lstat(lg .. "/.lw") == nil,
+      "a 0.1.51 pin: completion is silent  (exit " .. tostring(code) .. ": " .. out .. err .. ")")
+    -- The daily housekeeping pass (forced due) leaves the pinned lw's .nvim/
+    -- daemon files alone and creates no .lw/.
+    do
+      local hk_tmp = sb .. "/hk-tmp"
+      paths.mkdirp(hk_tmp)
+      local old_log = lg .. "/.nvim/loomworks.daemon.log"
+      writef(old_log, "old\n")
+      local long_ago = os.time() - 40 * 86400
+      uv.fs_utime(old_log, long_ago, long_ago)
+      local stamp = home .. "/.housekeeping"
+      writef(stamp, "")
+      uv.fs_utime(stamp, long_ago, long_ago)
+      local hk_env = { LOOMWORKS_NO_HOUSEKEEPING = false, TEMP = hk_tmp, TMP = hk_tmp, TMPDIR = hk_tmp,
+        XDG_CACHE_HOME = hk_tmp, XDG_RUNTIME_DIR = hk_tmp }
+      for k, v in pairs(fwd_env) do if hk_env[k] == nil then hk_env[k] = v end end
+      code, out, err = lw({ "--no-input", "status" }, hk_env, lg)
+      refused("lw status (housekeeping due)", code, err)
+      local st = uv.fs_stat(stamp)
+      ok(st ~= nil and st.mtime.sec > long_ago + 86400, "the housekeeping pass ran (its stamp moved)")
+      ok(uv.fs_stat(old_log) ~= nil, "a 0.1.51 pin: housekeeping keeps the pinned lw's .nvim/ daemon log")
+      os.remove(old_log)
+    end
     eq(slurp(lg .. "/.nvim/loomworks.user.json"), legacy_bytes, "a 0.1.51 pin: .nvim/ is left as it was")
     eq(#dumped(), 0, "a 0.1.51 pin: nothing redirected for a command this host runs")
     -- Pin management still runs as this host.

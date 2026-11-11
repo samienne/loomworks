@@ -259,6 +259,28 @@ describe("cli.cmd_worktree_add (real git worktrees)", function()
         assert.is_truthy(res.stdout:find("--no-pull", 1, true))
     end)
 
+    it("a pin older than .lw/: creates the worktree, seeds nothing, one note", function()
+        if not git_ok then pending("git not available"); return end
+        local main = make_main(base, false)
+        -- The pinned lw's working copy, in .nvim/.
+        assert(uv.fs_mkdir(main .. "/.nvim", 448))
+        local f = assert(io.open(main .. "/.nvim/loomworks.user.json", "wb"))
+        f:write(vim.json.encode(sample_source())); f:close()
+        _G.__loomworks_legacy_pin = "lw: this repo pins lw 0.1.51, which keeps its state in .nvim/; REFUSAL"
+        _G.__loomworks_legacy_pin_pull = "pull skipped - LEGACY-PULL-NOTE"
+        local res = run({ "worktree", "add", "legacy" }, main)
+        _G.__loomworks_legacy_pin = nil
+        _G.__loomworks_legacy_pin_pull = nil
+        assert.is_true(res.ok, res.stderr)
+        assert.equals(0, res.ret)
+        local path = main .. "/.worktrees/legacy"
+        assert.is_not_nil(uv.fs_stat(path), "worktree dir not created")
+        assert.is_nil(uv.fs_lstat(path .. "/.lw"), "no .lw/ seeded under a pin older than .lw/")
+        assert.is_nil(uv.fs_lstat(main .. "/.lw"), "no .lw/ in main either")
+        assert.is_truthy(res.stdout:find("LEGACY-PULL-NOTE", 1, true), res.stdout)
+        assert.is_nil(res.stderr:find("REFUSAL", 1, true), res.stderr)
+    end)
+
     it("a main with no working config is 'nothing to pull', not a failure", function()
         if not git_ok then pending("git not available"); return end
         local main = make_main(base, false) -- no user.json in main

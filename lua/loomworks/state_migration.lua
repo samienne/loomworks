@@ -156,6 +156,16 @@ function M.legacy_pin_refusal()
     return (m:gsub("^lw: ", ""))
 end
 
+--- The one line `lw worktree add` prints instead of seeding the new worktree
+--- under such a pin (set by main.lua), or nil when there is no such pin.
+--- @return string|nil
+function M.legacy_pin_pull_note()
+    if not M.legacy_pin_refusal() then return nil end
+    local m = rawget(_G, "__loomworks_legacy_pin_pull")
+    if type(m) == "string" and m ~= "" then return m end
+    return "pull skipped - the pinned lw keeps its state in .nvim/, which this lw does not write"
+end
+
 --- Is a migration (or its completion) pending for `root`? No `.lw` working
 --- copy or marker, and a legacy working copy — or `.lw/user.json` without a
 --- marker beside a legacy working copy (an interrupted run).
