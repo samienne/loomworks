@@ -49,6 +49,15 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
   still a target on the active profile. A bare non-interactive `lw run` now
   names both forms, `lw run <profile>` and `lw run <profile> <target>`
   (#168).
+- In a repository whose `lw.pin` names a release before 0.2.0-beta.7
+  (which keeps its state in `.nvim/`), a newer `lw` no longer creates or
+  migrates `.lw/` for the commands it runs itself (`lw init`, profile and
+  config edits, `lw status`, `lw health`, `lw pull`): it refuses with one
+  line naming the launcher form (`./lw.sh <command>`) and
+  `lw bootstrap upgrade`. Before, the pinned lw never saw those changes, and
+  following its "lw init" hint looped. A build redirected to such a release
+  while `.lw/user.json` exists says once that the pinned lw ignores it.
+  `--no-pin` still runs the newer lw (#170).
 
 ## 0.2.0 - 2026-11-08
 
