@@ -111,9 +111,8 @@ end
 --- A profile's launchable targets as the target listing shows them: every
 --- launch configuration, executable build target
 --- and device target, the profile's default target marked — the stored
---- choice, else (none stored) the sole launch configuration or build target
---- — and the projects whose build targets are unknown because they
---- are not configured. Parses targets a unit does not know yet, never
+--- choice only, never guessed — and the projects whose build targets are
+--- unknown because they are not configured. Parses targets a unit does not know yet, never
 --- builds; with `opts.parse == false` (a long-lived daemon, which parses off
 --- its model queue first: M.stale_target_units) only the known targets.
 --- @param ws loomworks.Workspace
@@ -140,9 +139,8 @@ function M.target_listing(ws, profile, opts)
     end
     table.sort(incomplete)
     local desc = profile._default_target_descriptor
-    local sole = desc == nil and #runnable == 1 and runnable[1] or nil
     for _, c in ipairs(targets) do
-        c.default = (desc ~= nil and M.is_stored_default(desc, c)) or c == sole
+        c.default = desc ~= nil and M.is_stored_default(desc, c)
     end
     return { targets = targets, incomplete = incomplete, override = desc ~= nil }
 end
@@ -211,10 +209,10 @@ end
 --- Resolve the launch target of a run against the configured tree (a run
 --- resolves before it builds, headless §16.17 "Order"): the named
 --- target (`name`), else the profile's
---- default target, else its sole launchable one. Returns the LaunchTarget, or
---- nil + the refusal (no such target, ambiguous, nothing to run, no default
---- set). `opts.refresh` re-reads every unit's targets first (a long-lived
---- daemon whose units outlived a build).
+--- stored default target (M.no_default_refusal). Returns the LaunchTarget, or
+--- nil + the refusal (no such target, ambiguous, no default set).
+--- `opts.refresh` re-reads every unit's targets first (a long-lived daemon
+--- whose units outlived a build).
 --- @param ws loomworks.Workspace
 --- @param profile loomworks.Profile
 --- @param name string|nil
@@ -247,21 +245,28 @@ function M.select(ws, profile, name, proj_scope, kind, opts)
         end
         return M.candidate_launch_target(ws, profile, matches[1])
     end
-    -- No name → the profile's default target.
+    -- No name → the profile's stored default target; none is never guessed
+    -- (not even a sole launchable target, headless §16.17).
+    local refusal = M.no_default_refusal(profile)
+    if refusal then return nil, refusal end
     for _, pp in ipairs(profile:projects()) do build_run().ensure_unit_targets(ws, pp._config_unit) end
-    local lt = profile:default_target()
-    if lt then return lt end
-    local cands = M.launchable_targets(ws, profile)
-    if #cands == 1 then return M.candidate_launch_target(ws, profile, cands[1]) end
-    if #cands == 0 then
-        return nil, "nothing to run in profile '" .. profile.key .. "' — no launch configs or executable targets."
-    end
-    local labels = {}
-    for _, c in ipairs(cands) do labels[#labels + 1] = M.fmt_cand(c) end
-    return nil, "no default target set for profile '" .. profile.key .. "'.\n" ..
-        "  set one:      lw target set " .. profile.key .. " <target>\n" ..
-        "  or name one:  lw run " .. profile.key .. " <target>\n" ..
-        "  candidates:   " .. table.concat(labels, ", ")
+    return profile:default_target()
+end
+
+--- The refusal of a run naming no target on a profile with no default
+--- target set, else nil. The stored default is known without configuring
+--- (Profile:default_target reads the descriptor only), so both hosts check
+--- it before a run's configure phase (headless §16.17 "Order"): nothing is
+--- configured or built. The message names both fixes.
+--- @param profile loomworks.Profile
+--- @return string|nil
+function M.no_default_refusal(profile)
+    if profile:default_target() then return nil end
+    local key = profile.key
+    return "no default target set for profile '" .. key .. "'.\n" ..
+        "  name one:     lw run " .. key .. " <target>\n" ..
+        "  or set one:   lw target set " .. key .. " <target>\n" ..
+        "  list them:    lw target list " .. key
 end
 
 --- The configuration units a run reconfigures once when its NAMED target is

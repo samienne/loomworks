@@ -232,7 +232,6 @@ describe("lw run through the workspace daemon (real processes)", function()
             { { "run", "--target", "prog", "--cwd", "sub", "--", unpack(prog_args("t3")) }, nil, true, "app" },
             { { "run", "prog" }, nil, true },
             { { "run", "nosuch" }, nil, true },
-            { { "run" }, nil, true },
             -- reports
             { { "run", "--print", "go", "--", "p" }, nil, true },
             { { "run", "--print=json", "go" }, nil, true },
@@ -245,6 +244,8 @@ describe("lw run through the workspace daemon (real processes)", function()
             -- refused before anything is prepared
             { { "--no-input", "run", "zzz", "go" }, nil, false },
             { { "--no-input", "run", "go" }, nil, false },
+            -- no target named, no default target set (§16.17 "Order")
+            { { "run" }, nil, false },
             { { "run", "--print", "--prefix", "x", "go" }, nil, false },
         }
         for _, c in ipairs(cases) do

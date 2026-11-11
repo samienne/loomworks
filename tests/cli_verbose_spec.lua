@@ -213,7 +213,8 @@ end)
 
 describe("-v reaches the dependency build of lw run and lw test", function()
   local saved = {}
-  local profile = { key = "p", projects = function() return {} end }
+  -- (A stored default target: a run naming none is refused without one.)
+  local profile = { key = "p", projects = function() return {} end, default_target = function() return {} end }
   before_each(function()
     saved.plan, saved.spawn = overseer.plan_profile_build, cli._run_spec
     saved.sel, saved.build, saved.named = cli._run_selection, cli._run_build_steps, cli._run_named_tests

@@ -1079,19 +1079,23 @@ Project qualification (`project:target`) disambiguates a bare name that is
 present in more than one project. A bare name matching **both** a build target
 and a command launch configuration is an error until qualified. Selection is
 explicit throughout: with no named target and no default set, the invocation
-errors unless exactly one launchable target is in scope — the system never
-guesses.
+errors — even when a single launchable target is in scope; the system never
+guesses. The stored default is known without configuring (§8.6, "Default
+target storage"), so this error comes before anything is configured or built
+(*Order*, below), and it names both fixes: name a target
+(`<profile> <target>`), or set the profile's default target (below).
 
-**Order.** Unless the dependency build is skipped (a host option, below), a
-run proceeds in this order:
+**Order.** A run naming no target whose profile has no default target set is
+refused first, before step 1: nothing is configured, built or deployed. Unless
+the dependency build is skipped (a host option, below), a run proceeds in this
+order:
 
 1. **configure** the profile's projects that are not configured yet (§16.4) —
    configuring is what enumerates their build targets; nothing is built;
 2. **resolve** the launch target against the configured tree, as above — the
-   named target, else the default target, else the sole launchable one. When
-   none resolves (no such target, an ambiguous name, nothing to run, no
-   default set) the run fails here, **before any build**, with the same
-   message and hints;
+   named target, else the default target. When none resolves (no such
+   target, an ambiguous name) the run fails here, **before any build**, with
+   the same message and hints;
 3. **build** the resolved target and its dependencies only: its project's
    build restricted to that build target through the module's target
    selection (§16.4 `--target`), plus the whole build of each project it
@@ -1131,8 +1135,8 @@ invocation is interactive (§16.3):
   (§16.9).
 - **one**, non-interactive: `<profile>` — the named profile's default target.
   The profile matches as for a build (§16.3; a unique substring works). A
-  profile with no default target is refused as for a bare run, when the
-  target is resolved — before anything is built (*Order*, above).
+  profile with no default target is refused as for a bare run — before
+  anything is configured or built (*Order*, above).
 - **two** `<profile> <target>` — the named target on the named profile, in
   either mode.
 

@@ -918,6 +918,17 @@ function Service:_accept(ctx)
         return ctx.reply({ outcome = "declined", reason = "profile '" .. profile.key .. "' builds for "
             .. platform .. "; device runs stay in this process" })
     end
+    -- A run, debug launch or launch target build naming no target on a
+    -- profile with no default target set: refused before any task, so
+    -- nothing is configured or built (headless §16.17 "Order"; API.md §9.1,
+    -- §9.2, §9.4), with the in-process message.
+    if launching and profile and a.target == nil then
+        local refusal = require("loomworks.run_prep").no_default_refusal(profile)
+        if refusal then
+            return ctx.reply({ outcome = "refused", message = refusal, exit_code = 1,
+                notes = ctx.notes, note_roles = ctx.note_roles })
+        end
+    end
     -- Nothing to clean (no configured build directory on disk, or no module
     -- clean): refused with the in-process line, before any lock — on stdout,
     -- an ordinary result: the editor's rebuild goes on to
