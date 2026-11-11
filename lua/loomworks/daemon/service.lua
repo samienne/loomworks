@@ -918,10 +918,11 @@ function Service:_accept(ctx)
         return ctx.reply({ outcome = "declined", reason = "profile '" .. profile.key .. "' builds for "
             .. platform .. "; device runs stay in this process" })
     end
-    -- A run naming no target on a profile with no default target set:
-    -- refused before any task, so nothing is configured or built (headless
-    -- §16.17 "Order"), with the in-process message.
-    if ctx.op == "run" and profile and a.target == nil then
+    -- A run, debug launch or launch target build naming no target on a
+    -- profile with no default target set: refused before any task, so
+    -- nothing is configured or built (headless §16.17 "Order"; API.md §9.1,
+    -- §9.2, §9.4), with the in-process message.
+    if launching and profile and a.target == nil then
         local refusal = require("loomworks.run_prep").no_default_refusal(profile)
         if refusal then
             return ctx.reply({ outcome = "refused", message = refusal, exit_code = 1,
