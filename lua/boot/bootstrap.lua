@@ -340,15 +340,15 @@ end
 
 --- The newest release on the resolved channel. `opts.resolve_newest`
 --- is a test seam; `opts.fetch` bounds the probe (the status page).
---- @return string|nil version, string|nil err, string|nil channel
+--- @return string|nil version, string|nil err, string|nil channel, string|nil code `update.NO_RELEASE` when the channel publishes no release
 function M.newest(opts)
   opts = opts or {}
   local channel, cerr = update.resolve_channel({ channel = opts.channel })
   if not channel then return nil, cerr end
   local resolve = opts.resolve_newest or update.resolve_newest_version
-  local v, err = resolve({ channel = channel, fetch = opts.fetch })
+  local v, err, code = resolve({ channel = channel, fetch = opts.fetch })
   if v and not pin.valid_version(v) then return nil, "unsafe release version '" .. tostring(v) .. "'", channel end
-  return v, err, channel
+  return v, err, channel, code
 end
 
 --- `lw bootstrap install` — converge the repository to a correct pin (+
@@ -498,12 +498,12 @@ function M.status(start, opts)
   -- ---- release probe (the only network operation) ------------------------------
   local compare = r.version or (r.mode == "none" and opts.host_version) or nil
   local upd = {}
-  local newest, nerr, channel
+  local newest, nerr, channel, ncode
   if opts.offline then
     nerr = "offline"
     channel = update.resolve_channel({ channel = opts.channel })
   else
-    newest, nerr, channel = M.newest({ channel = opts.channel, fetch = M.STATUS_FETCH,
+    newest, nerr, channel, ncode = M.newest({ channel = opts.channel, fetch = M.STATUS_FETCH,
       resolve_newest = opts.resolve_newest })
   end
   channel = channel or opts.channel or update.DEFAULT_CHANNEL
@@ -526,6 +526,9 @@ function M.status(start, opts)
     upd.status = "unknown"
     local why = tostring(nerr or "no version"):match("^[^\n]*"):gsub("%s+$", "")
     upd.detail = why
+    -- The channel publishes no release at all (stable before the first stable
+    -- release): an answer from the server, not a failed check.
+    if ncode == update.NO_RELEASE then upd.reason = update.NO_RELEASE end
   end
 
   -- ---- state -------------------------------------------------------------------
@@ -566,8 +569,15 @@ function M.status(start, opts)
       row("release", compare and (compare .. " is the newest on the " .. channel .. " channel")
         or (newest .. " is the newest on the " .. channel .. " channel"))
     end
+  elseif upd.reason == update.NO_RELEASE then
+    -- On the default origin only `stable` can lack a release (unstable is read
+    -- from the API); an override is a mirror the channel does not govern, and
+    -- the resolver's reason names it.
+    row("release", update.url_override({}) and upd.detail
+      or ("no " .. channel .. " release yet - only pre-releases are published; use the unstable " ..
+        "channel: pass --channel unstable, or run `lw settings set channel unstable`"))
   else
-    row("release", "not checked - offline or release server unreachable")
+    row("release", "not checked - " .. upd.detail)
   end
   if r.mode == "none" then
     row("launchers", "none")

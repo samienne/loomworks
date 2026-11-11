@@ -13235,7 +13235,9 @@ only here — never on the passive count) and notes
 when a release-url override is superseding a non-default channel. The check is
 bounded (5 s to connect, 10 s in all, no retry), so an unreachable network
 costs seconds; a failed/offline check prints an informational "update check
-skipped — offline or release server unreachable" (not counted). Health never
+skipped — offline or release server unreachable" (not counted), and a stable
+channel with only pre-releases published says so and names the unstable
+channel. Health never
 spawns a cache tool — usage statistics live behind
 `lw status --cache-stats`.
 

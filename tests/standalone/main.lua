@@ -3365,6 +3365,21 @@ do
     -- offline: not checked, never a failure
     local t3 = table.concat(bootstrap.status(h, { resolve_newest = function() return nil, "offline" end }).lines, "\n")
     ok(t3:find("not checked - offline", 1, true), "a failed release check reads 'not checked'")
+    -- no stable release yet (only pre-releases): not "offline", and the unstable channel is named
+    local saved_override = update.url_override
+    update.url_override = function() return nil end -- the default origin, whatever this run's env says
+    local nr = bootstrap.status(h, { resolve_newest = function()
+      return nil, "no stable release found at https://example.invalid - only pre-releases may be published yet", update.NO_RELEASE
+    end })
+    update.url_override = saved_override
+    local t5 = table.concat(nr.lines, "\n")
+    ok(t5:find("no stable release yet - only pre-releases are published", 1, true)
+      and t5:find("--channel unstable", 1, true) and not t5:find("offline", 1, true),
+      "no stable release reads as such, not as offline  (" .. t5 .. ")")
+    ok(nr.doc.update.status == "unknown" and nr.doc.update.reason == update.NO_RELEASE,
+      "--json carries the no-release reason")
+    local t6 = table.concat(bootstrap.status(h, { resolve_newest = function() return nil, "fetch SHA256SUMS: curl failed (6)" end }).lines, "\n")
+    ok(t6:find("not checked - fetch SHA256SUMS: curl failed (6)", 1, true), "any other failure names its reason")
     -- json
     local doc = bootstrap.status(h, { resolve_newest = newest_is(V2) }).doc
     local enc = json.encode(doc)

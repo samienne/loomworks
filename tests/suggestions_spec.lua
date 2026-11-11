@@ -383,6 +383,24 @@ describe("update-check suggestion provider", function()
             detail = "fetch manifest: curl failed (28)" }, suggestions.last_update_check())
     end)
 
+    it("no stable release yet (pre-releases only) is not reported as offline", function()
+        _G.__loomworks_luaroot = "/data/loomworks/lua-0.1.0"
+        update.NO_RELEASE = "no-release"
+        update.resolve_channel = function() return "stable" end
+        update.url_override = function() return nil end
+        local why = "no stable release found at https://example.invalid/releases/latest/download - only " ..
+            "pre-releases may be published yet; use the unstable channel: pass `--channel unstable`, or run " ..
+            "`lw settings set channel unstable`"
+        update.resolve_newest_version = function() return nil, why, "no-release" end
+        local out = suggestions.update_check_provider({})
+        assert.equals(1, #out)
+        assert.equals("info", out[1].kind)
+        assert.equals("no stable release yet — only pre-releases are published", out[1].title)
+        assert.equals(why, out[1].detail)
+        assert.same({ status = "unknown", reason = "no-release", channel = "stable", current = "0.1.0",
+            detail = why }, suggestions.last_update_check())
+    end)
+
     it("uses the quick fetch limits (no long curl hang offline)", function()
         _G.__loomworks_luaroot = "/data/loomworks/lua-0.1.0"
         update.resolve_channel = function() return "stable" end

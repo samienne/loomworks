@@ -1072,7 +1072,21 @@ function M.update_check_provider(_workspace)
     local channel = update.resolve_channel({})
     if not channel then return {} end -- unknown channel → stay silent
 
-    local newest, err = update.resolve_newest_version({ fetch = M.UPDATE_CHECK_FETCH })
+    local newest, err, code = update.resolve_newest_version({ fetch = M.UPDATE_CHECK_FETCH })
+    if not newest and code ~= nil and code == update.NO_RELEASE then
+        -- The channel publishes no release (stable before the first stable
+        -- release): an answer, not a failed check. The reason names the
+        -- unstable channel (or the override that has no release); kept whole.
+        local why = tostring(err or "no release"):match("^[^\n]*"):gsub("%s+$", "")
+        local override = type(update.url_override) == "function" and update.url_override({})
+        M._update_check = { status = "unknown", reason = code, channel = channel, current = current, detail = why }
+        return { {
+            kind = "info",
+            title = override and "no release at the release-url override"
+                or ("no " .. channel .. " release yet — only pre-releases are published"),
+            detail = why,
+        } }
+    end
     if not newest or err then
         local why = tostring(err or "no version"):match("^[^\n]*"):gsub("%s+$", "")
         if #why > 160 then why = why:sub(1, 157) .. "..." end

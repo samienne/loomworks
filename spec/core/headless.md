@@ -1797,7 +1797,13 @@ A read-only report, ASCII (§16.7), in three parts.
    channel's newest and the newest unstable): it uses the health
    update check's bounded, no-retry probe (§16.31 provider #2: 5 s connect,
    10 s total, never an executable download) and on failure reads "not checked -
-   offline or release server unreachable"; nothing is cached. A
+   <reason>" (the first line of the failure, "offline" under `--offline`).
+   When the channel publishes no release at all (stable before its first
+   stable release: no `SHA256SUMS`, §16.29) that is an answer, not a failure:
+   the line reads "no stable release yet - only pre-releases are published"
+   and names the unstable channel (`--channel unstable`, or
+   `lw settings set channel unstable`); under a release-url override it is the
+   resolver's reason naming the override. Nothing is cached. A
    development-build host performs it too (to offer `--latest`).
 2. **Findings.** The checks' items, actionable first (`*`), then informational
    (`-`), as in the health report (§16.31), each with its detail and, for an
@@ -1861,7 +1867,8 @@ health `update` shape `{ status, channel, current, newest?, detail? }` (`current
 being the pinned version, or the one an install would pin) with `status`
 `available` | `current` | `ahead` (the pin is newer than the channel's newest) |
 `unknown`, plus `newest_unstable` when the pin is ahead and the unstable channel
-was probed; each finding is the
+was probed, and `reason` `no-release` when `unknown` because the channel
+publishes no release; each finding is the
 health suggestion shape `{ kind, title, detail?, remedy? }` without the
 `launcher:` prefix; each action is `{ command, why }` in displayed order; and
 `summary` is `{ actionable }`.
@@ -2727,7 +2734,13 @@ unaffected. When the check **fails** (offline, server unreachable, HTTP/API
 error, malformed answer), health emits one **informational** item "update check
 skipped — offline or release server unreachable", its `detail` the first line of
 the failure reason — never an error, never counted, so the report does not read
-as "up to date" when nothing was checked. Like every network-tier item it is
+as "up to date" when nothing was checked. A channel that publishes no release
+at all (stable before its first stable release, §16.29) is an answer, not a
+failure: the informational item reads "no stable release yet — only
+pre-releases are published" ("no release at the release-url override" under an
+override), its `detail` the resolver's whole reason, which names the unstable
+channel; the `update` JSON object is `status` `unknown` with `reason`
+`no-release`. Like every network-tier item it is
 written to the cache (the health run's fresh result replaces the previous one,
 successful or not); the passive count still excludes it (informational).
 
