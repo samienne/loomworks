@@ -1,6 +1,7 @@
 -- `lw run` operand resolution (spec §16.17 "Positional grammar"). A single
--- operand is ALWAYS a target on the resolved profile (never a profile selector);
--- two operands name profile + target; none runs the default. `cli._run_selection`
+-- operand is a target on the resolved profile in an interactive host (never a
+-- profile selector) and the profile (its default target) in a non-interactive
+-- one; two operands name profile + target; none runs the default. `cli._run_selection`
 -- maps parsed operands → (profile, target) with an injectable resolve seam, and
 -- the named target is matched once configured via `cli._match_targets`. Separate
 -- blocks cover cmd_run's `--` split + flag parsing and the shared matcher.
@@ -53,6 +54,11 @@ end
 -- ---------------------------------------------------------------------------
 
 describe("cli._run_selection", function()
+    -- An interactive host unless a test says otherwise: what one operand
+    -- names depends on it (§16.17 "Positional grammar").
+    before_each(function() cli._test_interactive = true end)
+    after_each(function() cli._test_interactive = nil end)
+
     it("zero operands → resolve(nil), no target", function()
         local deps, log = resolver(prof("only"))
         local profile, target = cli._run_selection({}, {}, deps)
@@ -95,19 +101,59 @@ describe("cli._run_selection", function()
         assert.equals("Debug", profile.key)
     end)
 
-    it("headless + multiple profiles + one operand errors (profile undeterminable)", function()
-        -- No resolve seam → the REAL resolve_build_target(ws, nil) runs. Under
-        -- `nvim --headless` stdin is not a tty, so it takes the non-interactive
-        -- path (§16.3): with several profiles and no name it dies, listing them.
-        -- The one operand is a target, so it can NEVER stand in as the profile.
+    it("non-interactive: one operand is the PROFILE, run on its default target", function()
+        cli._test_interactive = false
+        local deps, log = resolver(prof("Debug"))
+        local profile, target = cli._run_selection({}, { "Deb" }, deps)
+
+        assert.same({ "Deb" }, log.resolve)         -- profile resolved BY NAME
+        assert.equals("Debug", profile.key)
+        assert.is_nil(target)                       -- …its default target
+    end)
+
+    it("non-interactive: one operand matches a profile by unique substring (real resolve)", function()
+        cli._test_interactive = false
+        local ws = { _profiles = { prof("Debug:gcc-13"), prof("Release:gcc-13") } }
+        local profile, target = cli._run_selection(ws, { "Release" })
+
+        assert.equals("Release:gcc-13", profile.key)
+        assert.is_nil(target)
+    end)
+
+    it("non-interactive: two operands are unchanged (profile, target)", function()
+        cli._test_interactive = false
+        local deps, log = resolver(prof("Debug"))
+        local profile, target = cli._run_selection({}, { "Debug", "app" }, deps)
+
+        assert.same({ "Debug" }, log.resolve)
+        assert.equals("Debug", profile.key)
+        assert.equals("app", target)
+    end)
+
+    it("non-interactive + no operand: refused, naming both explicit forms", function()
+        -- No resolve seam → the REAL resolve_build_target(ws, nil) runs, on
+        -- the non-interactive path (§16.3): it never infers a profile, not
+        -- even the sole one, and lists the profiles.
+        cli._test_interactive = false
         local ws = { _profiles = { prof("Debug"), prof("Release") } }
-        local res = capture(function() return cli._run_selection(ws, { "app" }) end)
+        local res = capture(function() return cli._run_selection(ws, {}) end)
 
         assert.is_false(res.ok)
         assert.equals(2, res.exit_code)
         assert.is_truthy(res.stderr:find("no profile specified", 1, true))
+        assert.is_truthy(res.stderr:find("lw run <profile>  (its default target)", 1, true), res.stderr)
+        assert.is_truthy(res.stderr:find("lw run <profile> <target>", 1, true), res.stderr)
         assert.is_truthy(res.stderr:find("Debug", 1, true))
         assert.is_truthy(res.stderr:find("Release", 1, true))
+    end)
+
+    it("non-interactive + one operand naming no profile: refused, never taken as a target", function()
+        cli._test_interactive = false
+        local ws = { _profiles = { prof("Debug"), prof("Release") } }
+        local res = capture(function() return cli._run_selection(ws, { "app" }) end)
+
+        assert.is_false(res.ok)
+        assert.is_truthy(res.stderr:find("no profile matching 'app'", 1, true), res.stderr)
     end)
 end)
 

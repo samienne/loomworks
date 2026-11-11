@@ -61,6 +61,17 @@ function M.match_profile(ws, name, opts)
     return nil
 end
 
+--- The explicit forms of `lw run` a refusal quotes (headless §16.17
+--- "Positional grammar"): interactive, one operand is a target, so naming a
+--- profile takes two; non-interactive, one operand is the profile (its
+--- default target).
+--- @param interactive boolean|nil
+--- @return string
+function M.run_usage(interactive)
+    if interactive then return "lw run <profile> <target>" end
+    return "lw run <profile>  (its default target), or lw run <profile> <target>"
+end
+
 --- Resolve the profile a command operates on: the named one, else — only when
 --- interactive — the active profile, else the only one. Non-interactive mode
 --- never uses the active profile nor infers one (a deterministic CI result).
