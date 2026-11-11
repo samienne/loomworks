@@ -673,8 +673,10 @@ hands the result to its debugger, which starts the program — the program is
 never the server's. `prepare_debug` takes the arguments of `prepare_run`
 except `quiet` and `prefix` (no report, no wrapper), has the outcomes of
 `Build/1.build`, and runs as a task (`meta.kind = debug`) doing steps 1–4 of
-§9.1 in the same order, with the same gates and lines. `done` then carries
-`exit_code` 0 and `debug` (§4.4).
+§9.1 in the same order, with the same gates and lines. Like `prepare_run`, a
+request with no `target` for a profile that has no default target set is
+`refused` with the CLI's message (exit code 1) before any task: nothing is
+configured or built. `done` then carries `exit_code` 0 and `debug` (§4.4).
 
 Whether an adapter is installed in the client's debugger, its install hint,
 and the adapter-specific request shape
@@ -722,8 +724,9 @@ task (`meta.kind = build`)
 with the outcomes of `Build/1.build`: the launch target is resolved as
 `prepare_run` resolves it; a resolution or validity refusal (including the
 abstract-configuration gate), or an error while planning the steps, ends the
-task nonzero with no steps, before any build (there is no `refused` reply);
-then the launch's dependencies (explicit `depends_on` and deploy-source
+task nonzero with no steps, before any build; the one `refused` reply is
+that of a request with no `target` for a profile that has no default target
+set, refused as `prepare_run` refuses it, before any task (§9.1); then the launch's dependencies (explicit `depends_on` and deploy-source
 projects, a deploy source in the configuration it names), the pre-build
 deploy steps, and the launch target's own unit (its one target where the
 module builds single targets) run in that order — the phases of the `target`
