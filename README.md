@@ -179,6 +179,10 @@ lw --no-input run debug:ninja-gcc-14   # the profile's default target
 lw --no-input test debug:ninja-gcc-14 --junit results.xml
 ```
 
+A run that names no target needs the profile's default target, set once with
+`lw target set <profile> <target>`; without one, `lw run` refuses before it
+configures or builds anything.
+
 ## Repo-local launcher (`lw bootstrap`)
 
 For a project where every contributor and CI runner should use the same `lw`,

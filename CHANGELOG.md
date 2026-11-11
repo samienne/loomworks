@@ -28,6 +28,16 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
 
 ## Unreleased
 
+### Changed
+
+- `lw run` with no target named needs the profile's default target and no
+  longer falls back to its only launchable target: without a stored default
+  it refuses before configuring or building anything, naming both fixes
+  (`lw run <profile> <target>`, or `lw target set <profile> <target>`).
+  Before, a profile with no default target was configured first and only then
+  refused. A project with a single executable needs `lw target set` once.
+  The target listing marks only a stored default.
+
 ### Fixed
 
 - `lw run <profile>` works in non-interactive mode (`--no-input`, CI): the
