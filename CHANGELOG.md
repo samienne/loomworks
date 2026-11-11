@@ -52,10 +52,14 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
 - In a repository whose `lw.pin` names a release before 0.2.0-beta.7
   (which keeps its state in `.nvim/`), a newer `lw` no longer creates or
   migrates `.lw/` for the commands it runs itself (`lw init`, profile and
-  config edits, `lw status`, `lw health`, `lw pull`): it refuses with one
-  line naming the launcher form (`./lw.sh <command>`) and
-  `lw bootstrap upgrade`. Before, the pinned lw never saw those changes, and
-  following its "lw init" hint looped. A build redirected to such a release
+  config edits, `lw status`, `lw health`, `lw pull`, `lw trust`, `lw nuke`,
+  `lw unlock`): it refuses with one line naming the launcher form
+  (`./lw.sh <command>`, or the pinned version when the repository has no
+  launcher) and `lw bootstrap upgrade`. `lw worktree add` creates the
+  worktree but does not seed it, shell completion stays silent, and the
+  daily housekeeping leaves the pinned lw's `.nvim/` files alone. Before,
+  the pinned lw never saw those changes, and following its "lw init" hint
+  looped. A build redirected to such a release
   while `.lw/user.json` exists says once that the pinned lw ignores it.
   `--no-pin` still runs the newer lw (#170).
 
