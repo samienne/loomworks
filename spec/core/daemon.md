@@ -58,10 +58,12 @@ A command runs its operation in one of two ways:
 
 Attached is selected, in this precedence: the `--no-daemon` flag; the
 environment variable `LOOMWORKS_NO_DAEMON` (`1` selects attached, `0` selects
-shared even in CI); `CI=true` in the environment; the host setting
-`runtime-mode` (`no-daemon`); and, at run time, a failed background launch
-(§19.10) — also the launch step itself failing with an error. Otherwise the command runs shared. An invalid configured value is
-reported and ignored (falls through to the next source).
+shared even in CI); `CI=true` in the environment; and, at run time, a failed
+background launch (§19.10) — also the launch step itself failing with an error. Otherwise the command runs shared. An invalid configured value is
+reported and ignored (falls through to the next source). There is no
+`no-daemon` setting: during the transition `runtime-mode` takes only
+`in-process` or `daemon` (below), and `in-process` uses no daemon at all
+rather than selecting attached.
 
 From step 6b-β the editor has one mode: it is a client of the workspace daemon
 ([loomworks.nvim `spec/plugin.md` §19.16](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#1916-the-editor-as-a-client)). It never loads the workspace or runs an operation itself.
@@ -81,12 +83,12 @@ workspace command ensures the daemon is running (launching it if absent)
 — except read-only commands (§19.14), which never launch, stop or restart a
 daemon; they use a live compatible one or read in-process — and routes the
 operations that have moved (§19.19); all other operations run on the
-in-process path. When the default flips, `in-process` is accepted as a
-synonym of `no-daemon`.
+in-process path. When the default flips, `in-process` stays accepted and then
+selects attached, like `--no-daemon`.
 
 **Loopback during the transition (§19.19 step 5e).** In `daemon` mode, an
-attached selection — `--no-daemon`, `LOOMWORKS_NO_DAEMON`, `CI=true`, the
-`no-daemon` setting, or a failed background launch — runs the routed
+attached selection — `--no-daemon`, `LOOMWORKS_NO_DAEMON`, `CI=true`, or a
+failed background launch — runs the routed
 operations (`lw build`, `lw test`, the preparation of `lw run`, `lw clean`,
 `lw reset`; §19.15) attached: the client starts the daemon's server and build
 service in its own process, holds the runtime lock in `attached` mode for the
@@ -2165,8 +2167,8 @@ error before its output — `lw: building through the workspace daemon (pid N)`
 — which is removed when the default flips; a refusal prints neither.
 
 *(Step 5e:)* in `runtime-mode daemon`, the attached selections
-above (`--no-daemon`, `LOOMWORKS_NO_DAEMON`, `CI`, the `no-daemon` setting, a
-failed background launch) — `--break-locks` given with one of them included —
+above (`--no-daemon`, `LOOMWORKS_NO_DAEMON`, `CI`, a failed background
+launch) — `--break-locks` given with one of them included —
 no longer run the routed operations in-process: they run them attached, over
 the loopback transport (§19.1 "Loopback during the transition"), with the same arguments, refusals
 and output. An attached operation prints no `… through the workspace daemon
