@@ -84,7 +84,7 @@ workspace command ensures the daemon is running (launching it if absent)
 daemon; they use a live compatible one or read in-process — and routes the
 operations that have moved (§19.19); all other operations run on the
 in-process path. When the default flips, `in-process` is accepted as a
-synonym of `no-daemon`.
+selects attached, like `--no-daemon`.
 
 **Loopback during the transition (§19.19 step 5e).** In `daemon` mode, an
 attached selection — `--no-daemon`, `LOOMWORKS_NO_DAEMON`, `CI=true`, or a
