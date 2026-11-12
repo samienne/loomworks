@@ -83,7 +83,7 @@ workspace command ensures the daemon is running (launching it if absent)
 — except read-only commands (§19.14), which never launch, stop or restart a
 daemon; they use a live compatible one or read in-process — and routes the
 operations that have moved (§19.19); all other operations run on the
-in-process path. When the default flips, `in-process` is accepted as a
+in-process path. When the default flips, `in-process` stays accepted and then
 selects attached, like `--no-daemon`.
 
 **Loopback during the transition (§19.19 step 5e).** In `daemon` mode, an
