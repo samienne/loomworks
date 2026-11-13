@@ -558,8 +558,12 @@ do
     lw_override = lw_override,
     dev = dev_opt_in,
     ignored = pin_ignored,
+    state_reset = pin.is_state_reset(forwarded),
   }
   local action, _, since = pin.decide(decision)
+  -- Whether this workspace pins an lw: the newer-schema refusal names `lw pin
+  -- ignore` / `lw bootstrap upgrade` only then (three-file-model §2.7).
+  _G.__loomworks_has_pin = p ~= nil
   -- An ignored pin: this host runs every command itself. The `Pin` line of
   -- `lw status`, health and the relay's `welcome` (daemon §19.8 `relay.pin`)
   -- read this — also in a relay forwarded here with --no-pin.
@@ -613,6 +617,8 @@ do
     end
     local launchers = { sh = has("lw.sh"), cmd = has("lw.cmd") }
     _G.__loomworks_legacy_pin = pin.legacy_layout_message(legacy, invoked_form, forwarded, launchers)
+    -- (`lw reset --state` deletes that release's caches under their legacy names, §16.30.)
+    _G.__loomworks_legacy_pin_version = legacy
     _G.__loomworks_legacy_pin_pull = pin.legacy_layout_pull_note(legacy, invoked_form, launchers)
   end
   -- The pinned lw predates the command: never redirect to a host that would
@@ -674,8 +680,14 @@ do
     end
     -- Record its last use (`lw cleanup --all` prunes executables unused for long).
     exe_cache.touch(sha)
-    -- A working copy of a newer lw the pinned one ignores: say so once.
-    if legacy and uv.fs_stat(pin_root .. "/.lw/user.json") then
+    -- State the pinned release cannot read (headless §16.23): its own
+    -- refusal names neither `lw pin ignore` nor `lw reset --state`, so say it
+    -- first. It replaces the hint about a newer working copy it ignores.
+    local outgrown = pin.state_outgrown_hint(pin_root, p.version, self_version, invoked_form)
+    if outgrown then
+      io.stderr:write(outgrown .. "\n")
+    elseif legacy and uv.fs_stat(pin_root .. "/.lw/user.json") then
+      -- A working copy of a newer lw the pinned one ignores: say so once.
       io.stderr:write(pin.legacy_layout_hint(legacy, invoked_form) .. "\n")
     end
     -- A redirect to a release older than the working copy's last writer

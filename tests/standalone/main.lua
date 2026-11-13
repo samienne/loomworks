@@ -1618,6 +1618,52 @@ do
   paths.rm_rf(wb)
 end
 
+print("pin — reset --state is never redirected; state the pinned release cannot read (§16.23, §16.30)")
+do
+  local pin = require("boot.pin")
+  ok(pin.is_state_reset({ "reset", "--state" }) and pin.is_state_reset({ "--no-color", "reset", "--state", "-y" })
+    and not pin.is_state_reset({ "reset", "Dev" }) and not pin.is_state_reset({ "build", "--state" })
+    and not pin.is_state_reset({ "reset", "--", "--state" }), "is_state_reset: only `reset --state`, before --")
+  local P = { version = "0.1.43" }
+  eq((pin.decide({ command = "reset", pin = P, self_version = "0.2.0", state_reset = true })), "in-process",
+    "decide: reset --state runs here under a pin")
+  eq((pin.decide({ command = "reset", pin = P, self_version = "0.2.0" })), "redirect",
+    "decide: a profile reset is still redirected")
+  eq(pin.state_schema("cache", "0.1.43"), 8, "state_schema: cache 8 before 0.1.50-beta.1")
+  eq(pin.state_schema("cache", "0.1.50-beta.1"), 9, "state_schema: cache 9 from 0.1.50-beta.1")
+  eq(pin.state_schema("user", "0.2.0"), 2, "state_schema: working copy 2")
+  local sb = paths.norm(root .. "/tests/.tmp-outgrown"); paths.rm_rf(sb)
+  paths.mkdirp(sb .. "/.nvim"); paths.mkdirp(sb .. "/.lw")
+  local function put(rel, v, w)
+    local f = assert(io.open(sb .. "/" .. rel, "wb"))
+    f:write('{"_meta":{"version":' .. v .. (w and (',"written_by":"' .. w .. '"') or "") .. '}}')
+    f:close()
+  end
+  eq(pin.state_outgrown_hint(sb, "0.1.43", "0.2.0", "global"), nil, "outgrown: no state")
+  put(".nvim/loomworks.cache.json", 8, "0.1.43")
+  eq(pin.state_outgrown_hint(sb, "0.1.43", "0.2.0", "global"), nil, "outgrown: the schema it reads")
+  put(".nvim/loomworks.cache.json", 9, "0.1.49+dev")
+  eq(pin.state_outgrown_hint(sb, "0.1.43", "0.2.0", "global"),
+    "lw: .nvim/loomworks.cache.json was written by lw 0.1.49+dev (schema 9), newer than the pinned lw 0.1.43" ..
+    " reads (schema 8), so it will refuse it - to run this lw here: lw pin ignore; to move the pin: lw" ..
+    " bootstrap upgrade; to discard the build cache (builds are kept): lw reset --state",
+    "outgrown: the spec's line for a legacy cache")
+  eq(pin.state_outgrown_hint(sb, "0.1.50", "0.2.0", "global"), nil,
+    "outgrown: .lw/ for a release that reads it (no .lw/cache.json)")
+  eq(pin.state_outgrown_hint(sb, "0.3.0", "0.2.0", "global"), nil, "outgrown: a pin newer than the host")
+  put(".lw/cache.json", 10, nil)
+  local l = pin.state_outgrown_hint(sb, "0.2.0-beta.9", "0.2.0", "lw.sh")
+  ok(l and l:find("lw: .lw/cache.json was written by a newer lw (schema 10), newer than the pinned lw" ..
+    " 0.2.0-beta.9 reads (schema 9)", 1, true) and l:find("./lw.sh pin ignore", 1, true)
+    and l:find("./lw.sh reset --state", 1, true), "outgrown: .lw/ layout, invoked form  (" .. tostring(l) .. ")")
+  put(".lw/user.json", 3, "0.3.0")
+  l = pin.state_outgrown_hint(sb, "0.2.0-beta.9", "0.2.0", "global")
+  ok(l and l:find(".lw/user.json was written by lw 0.3.0 (schema 3)", 1, true)
+    and l:find("lw bootstrap upgrade", 1, true) and not l:find("reset", 1, true),
+    "outgrown: a working copy names no reset  (" .. tostring(l) .. ")")
+  paths.rm_rf(sb)
+end
+
 print("host — lw pin, an ignored pin, the relay forward (§16.23, §16.24)")
 do
   local sb = paths.norm(root .. "/tests/.tmp-pinignore"); paths.rm_rf(sb)

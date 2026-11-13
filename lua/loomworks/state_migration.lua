@@ -156,6 +156,16 @@ function M.legacy_pin_refusal()
     return (m:gsub("^lw: ", ""))
 end
 
+--- The pinned release before `.lw/` whose refusal `legacy_pin_refusal` is
+--- (set by main.lua alongside it), or nil. `lw reset --state` deletes that
+--- release's caches under their legacy names (§16.30, §16.44 *Deletion*).
+--- @return string|nil
+function M.legacy_pin_version()
+    if not M.legacy_pin_refusal() then return nil end
+    local v = rawget(_G, "__loomworks_legacy_pin_version")
+    return type(v) == "string" and v ~= "" and v or nil
+end
+
 --- The one line `lw worktree add` prints instead of seeding the new worktree
 --- under such a pin (set by main.lua), or nil when there is no such pin.
 --- @return string|nil

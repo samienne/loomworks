@@ -666,13 +666,104 @@ function M.redirect_older_line(pin_root, version, invoked)
   return M.older_lw_line(version, w, rel, invoked)
 end
 
+--- Is `args` (the forwarded argv) `lw reset --state …`? `--state` among the
+--- command's own arguments (before a `--`).
+--- @param args string[]
+--- @return boolean
+function M.is_state_reset(args)
+  local cmd = M.command_words(args)
+  if cmd ~= "reset" then return false end
+  for i = 1, #args do
+    if args[i] == "--" then break end
+    if args[i] == "--state" then return true end
+  end
+  return false
+end
+
+-- The schema (`_meta.version`) each release reads, per state file: the first
+-- release of each schema, newest first (headless §16.23 "State the pinned
+-- release cannot read"). A release older than every entry reads the last
+-- entry's schema.
+M.STATE_SCHEMAS = {
+  cache = { { since = "0.1.50-beta.1", schema = 9 }, { since = "0.0.0", schema = 8 } },
+  user = { { since = "0.0.0", schema = 2 } },
+}
+
+--- The schema of `file` ("cache"|"user") that release `version` reads.
+--- @param file "cache"|"user"
+--- @param version string
+--- @return integer
+function M.state_schema(file, version)
+  local cmp = require("boot.paths").compare_versions
+  local list = M.STATE_SCHEMAS[file]
+  for _, e in ipairs(list) do
+    if cmp(version, e.since) >= 0 then return e.schema end
+  end
+  return list[#list].schema
+end
+
+--- The `_meta` of the JSON file at `path` (signed or plain: only the JSON
+--- object is decoded), or nil.
+local function read_meta(path)
+  local f = io.open(path, "rb")
+  if not f then return nil end
+  local s = f:read("*a"); f:close()
+  local ok, doc = pcall(require("boot.json").decode, s)
+  if not ok or type(doc) ~= "table" or type(doc._meta) ~= "table" then return nil end
+  return doc._meta
+end
+
+--- The line a newer host prints before redirecting to the pinned release
+--- `version` when a state file that release reads (the working copy, then
+--- the build cache; under the legacy names before STATE_DIR_SINCE) has a
+--- schema newer than it reads — its refusal names neither `lw pin ignore`
+--- nor `lw reset --state` (headless §16.23). Nil when none is, or when the
+--- pinned release is newer than `self_version` (not checked). Reads only
+--- each file's `_meta`; writes nothing.
+--- @param pin_root string
+--- @param version string the pinned version
+--- @param self_version string|nil this host's version
+--- @param invoked "lw.sh"|"lw.cmd"|"launcher"|"global"|nil
+--- @return string|nil
+function M.state_outgrown_hint(pin_root, version, self_version, invoked)
+  local cmp = require("boot.paths").compare_versions
+  if type(self_version) == "string" and self_version:match("^%d+%.%d+%.%d+")
+      and cmp(version, self_version) > 0 then
+    return nil
+  end
+  local legacy = cmp(version, M.STATE_DIR_SINCE) < 0
+  local files = {
+    { file = "user", rel = legacy and ".nvim/loomworks.user.json" or ".lw/user.json" },
+    { file = "cache", rel = legacy and ".nvim/loomworks.cache.json" or ".lw/cache.json" },
+  }
+  local lc = require("boot.launcher_check")
+  for _, f in ipairs(files) do
+    local meta = read_meta(pin_root .. "/" .. f.rel)
+    local reads = M.state_schema(f.file, version)
+    if meta and type(meta.version) == "number" and meta.version > reads then
+      local by = (type(meta.written_by) == "string" and meta.written_by ~= "")
+        and ("lw " .. meta.written_by) or "a newer lw"
+      local line = "lw: " .. f.rel .. " was written by " .. by .. " (schema " .. tostring(meta.version) ..
+        "), newer than the pinned lw " .. version .. " reads (schema " .. tostring(reads) ..
+        "), so it will refuse it - to run this lw here: " .. lc.cmd(invoked, "pin ignore") ..
+        "; to move the pin: " .. lc.cmd(invoked, "bootstrap upgrade")
+      if f.file == "cache" then
+        line = line .. "; to discard the build cache (builds are kept): " .. lc.cmd(invoked, "reset --state")
+      end
+      return line
+    end
+  end
+  return nil
+end
+
 --- Decide what a global host should do about a pin. Pure — all inputs explicit.
 --- "unsupported": the pinned release predates the command (REDIRECT_SINCE);
 --- the third value is the release that introduced it. The caller does not
 --- redirect, and leaves the workspace daemon to the pinned lw.
 --- `ignored`: the checkout ignores its pin (`.lw/local`, which the caller
 --- reads only outside the pinned context) — the no-pin flag made persistent.
---- @param o { command?, sub?, stdio?, pin?, self_version?, pinned_sentinel?, no_pin?, lw_override?, dev?, ignored? }
+--- `state_reset`: the command is `lw reset --state` (never redirected).
+--- @param o { command?, sub?, stdio?, pin?, self_version?, pinned_sentinel?, no_pin?, lw_override?, dev?, ignored?, state_reset? }
 --- @return "in-process"|"redirect"|"bypass"|"no-pin"|"unsupported" action, string reason, string|nil since
 function M.decide(o)
   if o.pinned_sentinel then return "in-process", "already running as the pinned host" end
@@ -683,6 +774,9 @@ function M.decide(o)
   if not M.is_redirect_command(o.command, o.sub) then
     return "in-process", "not a workspace operation"
   end
+  -- `lw reset --state` is a recovery command (headless §16.30): it repairs
+  -- what the pinned release cannot read, so it is never redirected.
+  if o.state_reset then return "in-process", "recovery command (reset --state)" end
   if not o.pin then return "no-pin", "no pin in this workspace" end
   if o.self_version and o.pin.version == o.self_version then
     return "in-process", "pinned version == self"

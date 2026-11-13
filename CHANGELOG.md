@@ -42,9 +42,23 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
   again, or a redirect to a pinned release older than the working copy's
   last writer) prints a one-line warning: an older lw may drop settings it
   does not know (#159).
+- `lw reset --state` deletes only the build cache and the health cache,
+  without loading the workspace: the way out when the build cache was
+  written by a newer lw. It keeps your working copy, `.lw/local`, the pin and
+  the build directories (the next build configures them again in place),
+  lists what it deletes and keeps, and confirms first (`-y` in CI). Under a
+  pin of a release before 0.2.0-beta.7 it deletes that release's
+  `.nvim/loomworks.cache.json` and `.nvim/loomworks.health.json`.
+  `--builds` also deletes the build state, listed per profile; `lw nuke` is
+  now its alias (#159).
 
 ### Changed
 
+- A working copy or build cache written by a newer lw now names the fixes:
+  `lw pin ignore` and `lw bootstrap upgrade` in a pinned repository (else
+  "update lw"), and for the build cache `lw reset --state`. A newer lw about
+  to redirect to a pinned release that cannot read the state prints them
+  first (#159).
 - `lw run` with no target named needs the profile's default target and no
   longer falls back to its only launchable target: without a stored default
   it refuses before configuring or building anything, naming both fixes
