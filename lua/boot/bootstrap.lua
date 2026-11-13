@@ -496,6 +496,10 @@ function M.status(start, opts)
     exists = function(p) return uv.fs_stat(p) ~= nil end,
     stale = function(rt, v, rel) return repo_meta.stale_cache(rt, v, assets, pin.valid_version, rel) end,
     invoked = invoked,
+    running = { exe = (function()
+      local okx, e = pcall(uv.exepath)
+      return okx and e and (e:gsub("\\", "/")) or nil
+    end)(), version = opts.host_version or "(dev build)" },
   })
   if not has_pin then r.mode = "none" end
   local top = r.git and r.git.top or (has_pin and nil or check.toplevel(root, git))
@@ -555,7 +559,8 @@ function M.status(start, opts)
       and ("hashes for " .. n .. " platforms" ..
         (r.pin.hashes[pin.bundle_asset(r.version)] and " + bundle" or ""))
       or ("no hash for " .. table.concat(r.missing_hashes, ", "))
-    row("pin", "lw.pin -> lw " .. r.version .. "; " .. cover)
+    row("pin", "lw.pin -> lw " .. r.version .. "; " .. cover ..
+      (r.pin_mode == "ignore" and ("; ignored here (" .. cmd("pin follow") .. " to follow it)") or ""))
   end
   local function is_pre(v) return v and v:find("-", 1, true) ~= nil end
   if newest then

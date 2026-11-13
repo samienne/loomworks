@@ -75,6 +75,12 @@ function M.report(start)
             return repo_meta.stale_cache(rt, version, assets, pin.valid_version, rel)
         end,
         invoked = check.invoked(),
+        running = (function()
+            local okr, pm = pcall(require, "loomworks.pin_mode")
+            if not okr then return nil end
+            local exe, v = pm.running()
+            return { exe = exe, version = v }
+        end)(),
     })
     local items = {}
     for _, f in ipairs(r.findings) do

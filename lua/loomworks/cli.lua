@@ -8697,6 +8697,25 @@ function M._runtime_row(root)
   return ok and row or nil
 end
 
+--- The `Pin` row of `lw status` (daemon §19.6 "Pin line"): with the pin
+--- ignored here (`.lw/local`, which the host read: main.lua), the pinned
+--- version and the lw that runs; nil when the pin is followed or there is
+--- none. Local reads only.
+--- @return string|nil
+function M._pin_row()
+  local pi = rawget(_G, "__loomworks_pin_ignored")
+  if type(pi) ~= "table" or type(pi.version) ~= "string" then return nil end
+  -- The setter is this host's main.lua, so boot.pin has ignored_text; guarded
+  -- all the same (an older host never sets the global).
+  local okp, bpin = pcall(require, "boot.pin")
+  if not okp or type(bpin) ~= "table" or type(bpin.ignored_text) ~= "function" then return nil end
+  local ok, text = pcall(function()
+    local exe, v = require("loomworks.pin_mode").running()
+    return bpin.ignored_text(pi.version, exe, v)
+  end)
+  return ok and text or nil
+end
+
 --- Workspace commands that never start or contact the daemon (besides the
 --- ones dispatched before the workspace guard: status, health, pull, worktree,
 --- settings, help, daemon …).
@@ -10060,6 +10079,9 @@ function M.cmd_status(root, opts)
   do
     local row = M._runtime_row(root)
     if row then out(pal.title("Runtime") .. string.rep(" ", 10) .. pal.dim(row)) end
+    -- With the pin ignored (headless §16.23), the `Pin` line (daemon §19.6).
+    local pin_row = M._pin_row()
+    if pin_row then out(pal.title("Pin") .. string.rep(" ", 14) .. pal.dim(pin_row)) end
     local ok, lines, reply = pcall(function() return require("loomworks.daemon.running").lines(root) end)
     if ok then
       for _, l in ipairs(lines) do out(pal.dim(l)) end
@@ -11807,7 +11829,7 @@ local COMP_COMMANDS = {
   "status", "init", "project", "config", "configset",
   "profile", "tools", "build", "clean", "reset", "test", "run", "target", "launch", "publish",
   "export", "import", "pull", "worktree", "unlock", "settings", "completion", "version", "install", "self-update", "help",
-  "sdk", "migrate", "health", "module", "bootstrap", "trust", "nuke", "device", "release-notes", "daemon",
+  "sdk", "migrate", "health", "module", "bootstrap", "pin", "trust", "nuke", "device", "release-notes", "daemon",
   "cleanup", "release",
   "test-target",
   "--no-input", "--no-color", "--color=auto", "--color=always", "--color=never",
@@ -11870,6 +11892,9 @@ function M.cmd_complete(cword, words)
     if n == 1 then emit({ "query" }); return 0 end
     if a[n] == "--channel" then emit({ "stable", "unstable" }); return 0 end
     emit({ "--channel", "--json", "--timeout" })
+    return 0
+  elseif cmd == "pin" then
+    if n == 1 then emit({ "ignore", "follow" }) end
     return 0
   elseif cmd == "bootstrap" then
     if n == 1 then emit({ "install", "upgrade", "--json", "--check" }); return 0 end
@@ -14030,7 +14055,7 @@ both fetched sources and compiled objects.]],
 ;(function()
   local ok, bh = pcall(require, "boot.help")
   local topics = ok and type(bh) == "table" and type(bh.TOPICS) == "table" and bh.TOPICS or {}
-  for _, k in ipairs({ "version", "install", "self-update", "bootstrap", "release" }) do
+  for _, k in ipairs({ "version", "install", "self-update", "bootstrap", "pin", "release" }) do
     HELP[k] = topics[k]
       or ("lw " .. k .. ": this lw binary (host) is too old to document this command.\n"
         .. "Install the current lw binary as in the README's \"Installing lw\"; "
@@ -14169,6 +14194,7 @@ Usage: lw [command] [args]
   release-notes     what changed in each release (--since <version>, --all)
   release query     the newest verified release on a channel (--channel, --json)
   bootstrap [install|upgrade]  repo-local launcher + version pin: status / write / bump
+  pin [ignore|follow]          whether this checkout follows lw.pin: status / ignore / follow
   help  [command]   this help, or details for a command
 
 Quickstart (empty dir -> first build -> shared config):
@@ -14382,7 +14408,7 @@ local function main()
   -- interactive run after an update nobody was told about. Never fails a command.
   if command ~= "version" and command ~= "--version" and command ~= "-v"
       and command ~= "self-update" and command ~= "install"
-      and command ~= "bootstrap" then
+      and command ~= "bootstrap" and command ~= "pin" then
     pcall(M._release_notice, a, force_noninteractive)
   end
   -- `module` acquires third-party modules — no workspace needed.
@@ -14395,7 +14421,7 @@ local function main()
   -- fallback, where they don't apply.
   if command == "version" or command == "--version" or command == "-v"
       or command == "self-update" or command == "install"
-      or command == "bootstrap" then
+      or command == "bootstrap" or command == "pin" then
     errw("lw: `" .. command .. "` is provided by the standalone lw " ..
       "binary; it is not available in the nvim-hosted fallback.\n")
     finish(1)

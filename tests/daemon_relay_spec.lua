@@ -214,6 +214,25 @@ describe("relay welcome (§19.8 \"Relay handshake\" step 4)", function()
         assert.is_string(w.relay.lw_version)
     end)
 
+    it("adds relay.pin only with the pin ignored (headless §16.23, daemon §19.8)", function()
+        local saved = rawget(_G, "__loomworks_pin_ignored")
+        local function relay_of()
+            local frame = relay.welcome_frame('{"kind":"welcome"}', ch, { pid = 42 })
+            return vim.json.decode(frame:match("\n(.*)$")).relay
+        end
+        _G.__loomworks_pin_ignored = nil
+        assert.is_nil(relay_of().pin, "followed or no pin: no field")
+        _G.__loomworks_pin_ignored = { version = "0.1.43" }
+        local p = relay_of().pin
+        assert.equals("0.1.43", p.version)
+        assert.equals("ignore", p.mode)
+        assert.equals((uv.exepath():gsub("\\", "/")), p.exe)
+        assert.is_nil(p.no_path_lw)
+        _G.__loomworks_pin_ignored = { version = "0.1.43", no_path_lw = true }
+        assert.is_true(relay_of().pin.no_path_lw, "no lw on the search path")
+        _G.__loomworks_pin_ignored = saved
+    end)
+
     it("leaves start_time and exe out when the handle has none", function()
         local frame = relay.welcome_frame('{"kind":"welcome"}', ch, { pid = 42 })
         local w = vim.json.decode(frame:match("\n(.*)$"))

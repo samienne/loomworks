@@ -28,6 +28,21 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
 
 ## Unreleased
 
+### Added
+
+- `lw pin ignore` makes one checkout of a pinned repository run the lw you
+  invoke (a newer release, or a development build) instead of the pinned
+  release, as `--no-pin` would on every command; `lw pin follow` follows the
+  pin again and `lw pin` shows the mode. The setting is `.lw/local`, never
+  committed. With the pin ignored, the editor's daemon relay runs the lw on
+  your search path, so the editor and the shell run one binary; `lw status`
+  shows a `Pin` line and `lw health` and `lw bootstrap` report it. Switching
+  stops an idle workspace daemon of the previous build, or asks a busy one to
+  restart when idle. Moving a checkout to an older lw (following the pin
+  again, or a redirect to a pinned release older than the working copy's
+  last writer) prints a one-line warning: an older lw may drop settings it
+  does not know (#159).
+
 ### Changed
 
 - `lw run` with no target named needs the profile's default target and no
