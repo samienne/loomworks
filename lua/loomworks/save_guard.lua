@@ -125,19 +125,51 @@ function M.newer_writer_warning(path, label, meta)
         .. own .. " — update loomworks"
 end
 
---- The refusal message for a file whose schema is newer than this version's.
+--- Does this process run for a repository with a version pin? main.lua's
+--- verdict (`__loomworks_has_pin`) when there is one, else false.
+--- @return boolean
+local function has_pin()
+    return rawget(_G, "__loomworks_has_pin") == true
+end
+
+--- The refusal message for a file whose schema is newer than this version's
+--- (three-file-model §2.7 "Reading a newer file"): the file, its writer and
+--- schema, this lw's limit, then the fixes in the invoked form (headless
+--- §16.24) — `lw pin ignore` and `lw bootstrap upgrade` under a pin ("update
+--- lw" without one), and for the build cache only `lw reset --state` (the
+--- working copy is valid, only newer: no reset is offered for it).
 --- @param label string how the message names the file
 --- @param meta table the file's `_meta`
 --- @param own_schema number this version's schema for the file
+--- @param opts? { pinned?: boolean, invoked?: string }
 --- @return string
-function M.newer_schema_message(label, meta, own_schema)
+function M.newer_schema_message(label, meta, own_schema, opts)
+    opts = opts or {}
     local by = type(meta.written_by) == "string" and meta.written_by or nil
     local own = M.version()
+    local okl, lc = pcall(require, "boot.launcher_check")
+    if not okl or type(lc) ~= "table" then
+        lc = { invoked = function() return "global" end, cmd = function(_, rest) return "lw " .. rest end }
+    end
+    local invoked = opts.invoked or lc.invoked()
+    local pinned = opts.pinned
+    if pinned == nil then pinned = has_pin() end
+    local fixes
+    if pinned then
+        fixes = "to run a newer lw here: " .. lc.cmd(invoked, "pin ignore")
+            .. "; to move the pin: " .. lc.cmd(invoked, "bootstrap upgrade")
+    else
+        fixes = "update lw"
+    end
+    if tostring(label):find("cache%.json$") then
+        fixes = fixes .. "; to discard the build cache (builds are kept): "
+            .. lc.cmd(invoked, "reset --state")
+    end
     return label .. " was written by "
         .. (by and ("loomworks " .. by) or "a newer loomworks")
         .. " (schema " .. tostring(meta.version) .. "), newer than this loomworks"
-        .. (own and (" " .. own) or "") .. " (schema " .. tostring(own_schema)
-        .. ") — update loomworks; the file was left unchanged"
+        .. (own and (" " .. own) or "") .. " reads (schema " .. tostring(own_schema)
+        .. "); the file was left unchanged — " .. fixes
 end
 
 --- Is a file's schema (`_meta.version`) newer than `own_schema`?

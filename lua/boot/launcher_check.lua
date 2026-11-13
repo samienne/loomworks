@@ -10,6 +10,8 @@
 --   env.read(path)     -> bytes|nil       (default: io.open)
 --   env.exists(path)   -> boolean         (default: io.open)
 --   env.stale(root, version) -> n, bytes  (stale cached binaries; default none)
+--   env.pin_mode(root) -> "ignore"|nil    (.lw/local; default boot.pin.read_local)
+--   env.running        { exe?, version? } the lw that runs (the ignored-pin item)
 --   env.invoked        how lw was run, so remedies are spelled in that form:
 --                      "lw.sh" | "lw.cmd" (the launcher named itself),
 --                      "launcher" (pinned context, launcher unknown), "global"
@@ -457,6 +459,24 @@ function M.run_checks(root, env)
     end
   end
 
+  -- ---- pin mode (.lw/local, headless §16.23 "Ignored pin") -----------------
+  -- The setting is per checkout: committed, it would ignore the pin in every
+  -- clone, so a tracked `.lw/local` is actionable.
+  local pin_mode = env.pin_mode or pin.read_local
+  res.pin_mode = (pin_mode(root) == "ignore") and "ignore" or "follow"
+  local ignored_item
+  if res.pin_mode == "ignore" and p then
+    local c, tracked = git(root, { "ls-files", "--", pin.LOCAL_FILE })
+    if c == 0 and type(tracked) == "string" and tracked:match("%S") then
+      nag("pin-local-tracked", pin.LOCAL_FILE .. " is committed - it ignores the pin in every clone",
+        "run `git rm --cached " .. pin.LOCAL_FILE .. "` and commit; the setting is per checkout")
+    end
+    local running = env.running or {}
+    ignored_item = { id = "pin-ignored", kind = "info",
+      title = pin.ignored_text(p.version, running.exe, running.version) .. " - " ..
+        M.cmd(invoked, "pin follow") .. " to follow it again" }
+  end
+
   if #findings == 0 then
     res.healthy = true
     if pin_only then
@@ -466,6 +486,7 @@ function M.run_checks(root, env)
     end
   end
   if no_bundle then findings[#findings + 1] = no_bundle end
+  if ignored_item then findings[#findings + 1] = ignored_item end
   -- actionable first, then informational (stable within each kind)
   local sorted = {}
   for _, f in ipairs(findings) do if f.kind == "suggestion" then sorted[#sorted + 1] = f end end

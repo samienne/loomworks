@@ -42,12 +42,17 @@ end
 
 --- Resolve `name` (a bare program name) to an absolute path, or nil + err.
 --- An absolute `name` is returned when it exists; a relative path is refused.
+--- `opts.exts` replaces the extensions tried (Windows: PATHEXT), e.g.
+--- `{ ".exe" }` to find only an executable file of that name.
 --- @param name string
+--- @param opts? { exts?: string[] }
 --- @return string|nil path, string|nil err
-function M.resolve(name)
+function M.resolve(name, opts)
   if type(name) ~= "string" or name == "" then return nil, "empty command" end
   local exts = { "" }
-  if M.is_windows then
+  if opts and opts.exts then
+    exts = opts.exts
+  elseif M.is_windows then
     exts = {}
     if name:match("%.[^./\\]+$") then exts[1] = "" end
     for e in (getenv("PATHEXT") or ".COM;.EXE;.BAT;.CMD"):gmatch("[^;]+") do

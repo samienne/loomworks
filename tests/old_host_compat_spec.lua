@@ -186,7 +186,7 @@ local BOOT_API = {
     },
     ["boot.verify"] = { since = "0.1.0" }, -- RELEASE_VERSION (0.1.29) is a value, nil-safe
     ["boot.modules"] = { since = "0.1.4" },
-    ["boot.pin"] = { since = "0.1.6" },
+    ["boot.pin"] = { since = "0.1.6", fns = { ignored_text = "0.2.1" } },
     ["boot.host_update"] = { since = "0.1.29" },
     ["boot.help"] = { since = "0.1.34" },
     ["boot.repo_meta"] = { since = "0.1.36" },
@@ -198,6 +198,10 @@ local BOOT_API = {
 local DIRECT_OK = {
     -- host_item: only when _host_facts found host_update.decide (facts.self_update).
     ["lua/loomworks/suggestions.lua|boot.host_update"] = true,
+    -- `lw pin` is dispatched by the host's own main.lua (the host that has
+    -- the command has these modules); never reached from an older host.
+    ["lua/loomworks/pin_mode.lua|boot.pin"] = true,
+    ["lua/loomworks/pin_mode.lua|boot.launcher_check"] = true,
 }
 
 local function version_gt(a, b)

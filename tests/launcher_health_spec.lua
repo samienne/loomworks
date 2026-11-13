@@ -100,6 +100,41 @@ describe("launcher health (§16.31 provider #4)", function()
         vim.fn.delete(r, "rf")
     end)
 
+    it("an ignored pin is one informational item; a committed .lw/local is actionable (§16.23)", function()
+        if not git_ok then pending("git not available") return end
+        local r = repo_with_files()
+        write(r .. "/.gitattributes", "lw.sh text eol=lf\nlw.cmd text eol=crlf\nlw.pin text eol=lf\n")
+        write(r .. "/.gitignore", ".nvim/\n")
+        git(r, "add", "--chmod=+x", "lw.sh")
+        git(r, "add", "lw.cmd", "lw.pin", ".gitattributes", ".gitignore")
+        git(r, "commit", "-q", "-m", "x")
+        write(r .. "/.lw/.gitignore", "*\n")
+        write(r .. "/.lw/local", pin.LOCAL_IGNORE_TEXT)
+        local items = lh.provider({ root = r })
+        assert.equals(2, #items, titles(items))
+        assert.matches("launcher: lw 1.2.3 pinned;", items[1].title, 1, true)
+        local ig = find(items, "pin ignored")
+        assert.equals("info", ig.kind)
+        local exe, v = require("loomworks.pin_mode").running()
+        assert.equals("launcher: pin ignored: pinned 1.2.3, running " .. exe .. " " .. v ..
+            " - lw pin follow to follow it again", ig.title)
+        -- committed: it would ignore the pin in every clone
+        git(r, "add", "-f", ".lw/local")
+        items = lh.provider({ root = r })
+        local tr = find(items, ".lw/local is committed")
+        assert.truthy(tr, titles(items))
+        assert.equals("suggestion", tr.kind)
+        assert.matches("git rm --cached .lw/local", tr.remedy, 1, true)
+        assert.truthy(find(items, "pin ignored"))
+        -- following: neither item
+        git(r, "rm", "-q", "--cached", ".lw/local")
+        os.remove(r .. "/.lw/local")
+        items = lh.provider({ root = r })
+        assert.is_nil(find(items, "pin ignored"), titles(items))
+        assert.is_nil(find(items, ".lw/local"), titles(items))
+        vim.fn.delete(r, "rf")
+    end)
+
     it("reports the reactive-style first-use problems, each with a remedy", function()
         if not git_ok then pending("git not available") return end
         -- A lw.cmd from a known generation with a defect that breaks runs.

@@ -550,12 +550,26 @@ function Relay:_wait_for_daemon()
     end
 end
 
+--- `relay.pin` (daemon §19.8): with the pin ignored (main.lua sets
+--- `__loomworks_pin_ignored`), the pinned version, the mode, this relay's
+--- executable and whether it found no lw on the search path; nil when the
+--- pin is followed or there is none.
+--- @return { version: string, mode: "ignore", exe: string|nil, no_path_lw: true|nil }|nil
+function M.pin_field()
+    local pi = rawget(_G, "__loomworks_pin_ignored")
+    if type(pi) ~= "table" or type(pi.version) ~= "string" then return nil end
+    local uv = vim.uv or vim.loop
+    local okx, exe = pcall(uv.exepath)
+    return { version = pi.version, mode = "ignore", exe = okx and exe and (exe:gsub("\\", "/")) or nil,
+        no_path_lw = pi.no_path_lw == true or nil }
+end
+
 --- The `welcome` the client gets: the daemon's, with `daemon`, `via` and
 --- `relay` added — spliced into its raw payload, so every field the daemon
 --- sent reaches the client byte for byte. `relay` is this relay's own code
 --- identity, the identity of the daemon it would
 --- launch: a relay redirected to a repository pin (main.lua) runs the pinned
---- release, so it names that release.
+--- release, so it names that release; with the pin ignored it adds `pin`.
 --- @param payload string the daemon's `welcome` payload
 --- @param challenge table the verified challenge
 --- @param h table|nil the handle connected through
@@ -567,7 +581,7 @@ function M.welcome_frame(payload, challenge, h)
         session_generation = challenge.session_generation, pid = h.pid,
         start_time = type(h.start_time) == "string" and h.start_time or nil,
         exe = type(h.exe) == "string" and h.exe or nil }
-    local relay = { lw_version = require("loomworks.daemon.version").identity() }
+    local relay = { lw_version = require("loomworks.daemon.version").identity(), pin = M.pin_field() }
     local extra = '"daemon":' .. vim.json.encode(daemon) .. ',"via":"relay","relay":' .. vim.json.encode(relay)
     local body = payload:gsub("%s+$", "")
     local head = body:sub(1, -2):gsub("%s+$", "")

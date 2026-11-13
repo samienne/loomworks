@@ -1721,10 +1721,10 @@ function M.cmd_trust(root, args)
   return 0
 end
 
---- `lw nuke [-y]` — reset the build cache: delete `.lw/build/`, the cache
---- and the health cache. The remedy for a cache this machine did
---- not write; destructive, so it confirms (and `-y` is mandatory when
---- non-interactive, like `lw reset`).
+--- `lw nuke [-y]` — the alias of `lw reset --state --builds` (headless
+--- §16.30): delete `.lw/build/`, the build cache and the health cache. The
+--- remedy for a cache this machine did not write; destructive, so it confirms
+--- (and `-y` is mandatory when non-interactive, like `lw reset`).
 --- @param root string
 --- @param args string[]
 --- @return integer
@@ -1735,15 +1735,368 @@ function M.cmd_nuke(root, args)
     if v == "-y" or v == "--yes" then yes = true
     else die("unknown argument '" .. v .. "' — usage: lw nuke [-y]", 2) end
   end
+  return M.cmd_reset_state(root, { "reset", "--state", "--builds", yes and "-y" or nil })
+end
+
+-- (`lw reset --state` helpers in one table: this chunk is near its 200-locals limit.)
+local sr = { win = package.config:sub(1, 1) == "\\" }
+
+--- The path `p` as listed: relative to `root` when below it.
+function sr.rel_to(root, p)
+  local r = (tostring(root):gsub("\\", "/"):gsub("/+$", ""))
+  local q = tostring(p):gsub("\\", "/")
+  local a, b = r, q
+  if sr.win then a, b = r:lower(), q:lower() end
+  if b:sub(1, #a + 1) == a .. "/" then return q:sub(#r + 2) end
+  return q
+end
+
+--- The real path of `p` as a comparison key (case-folded on Windows), or nil.
+function sr.real_key(p)
+  local r = (vim.uv or vim.loop).fs_realpath(p)
+  if not r then return nil end
+  r = r:gsub("\\", "/"):gsub("/+$", "")
+  if sr.win then r = r:lower() end
+  return r
+end
+
+--- The state directory `lw reset --state` deletes in: `<root>/<name>` when it
+--- is a real directory of the root (lstat: no link or junction; its real path
+--- is the root's real path + "/<name>"), else nil.
+--- @param root string
+--- @param name ".lw"|".nvim"
+--- @return string|nil
+function M._state_reset_dir(root, name)
+  local uv = vim.uv or vim.loop
+  local d = (tostring(root):gsub("\\", "/"):gsub("/+$", "")) .. "/" .. name
+  local st = uv.fs_lstat(d)
+  if not st or st.type ~= "directory" then return nil end
+  local rr, rd = sr.real_key(root), sr.real_key(d)
+  if not rr or not rd or rd ~= rr .. "/" .. (sr.win and name:lower() or name) then
+    return nil
+  end
+  return d
+end
+
+--- What `lw reset --state` deletes and keeps (headless §16.30), as an
+--- allowlist of exact names: the build cache and the health cache (and their
+--- `.bak` backups, which a load would otherwise restore, loomworks.io
+--- read_json) — `.lw/cache.json`, `.lw/health.json`, or under a followed pin
+--- of a release before `.lw/` (`legacy`) `.nvim/loomworks.cache.json`,
+--- `.nvim/loomworks.health.json` (§16.44 *Deletion*). Each only as a regular
+--- file (lstat) directly in a state directory that is a real directory of the
+--- root; anything else at those names is `skipped` (listed as not removed).
+--- `keep`: what is kept, of what exists (relative).
+--- @param root string
+--- @param legacy string|nil
+--- @return { delete: string[], skipped: string[], keep: string[], dir: string|nil, base: string }
+function M._state_reset_plan(root, legacy)
+  local uv = vim.uv or vim.loop
+  root = (tostring(root):gsub("\\", "/"):gsub("/+$", ""))
+  local base = legacy and ".nvim" or ".lw"
+  local names = legacy
+    and { "loomworks.cache.json", "loomworks.cache.json.bak", "loomworks.health.json", "loomworks.health.json.bak" }
+    or { "cache.json", "cache.json.bak", "health.json", "health.json.bak" }
+  local dir = M._state_reset_dir(root, base)
+  local plan = { delete = {}, skipped = {}, keep = {}, dir = dir, base = base }
+  for _, n in ipairs(names) do
+    local p = root .. "/" .. base .. "/" .. n
+    local st = uv.fs_lstat(p)
+    if st then
+      if dir and st.type == "file" then plan.delete[#plan.delete + 1] = p
+      else plan.skipped[#plan.skipped + 1] = p end
+    end
+  end
+  local keep = legacy
+    and { ".nvim/loomworks.user.json", ".nvim/loomworks.user.json.bak", ".lw/local", "lw.pin", "loomworks.json",
+      ".nvim/build/" }
+    or { ".lw/user.json", ".lw/user.json.bak", ".lw/local", "lw.pin", "loomworks.json", ".lw/build/" }
+  for _, k in ipairs(keep) do
+    if uv.fs_lstat(root .. "/" .. (k:gsub("/$", ""))) then plan.keep[#plan.keep + 1] = k end
+  end
+  return plan
+end
+
+--- The pending commit journal `lw reset --state` refuses on, relative, or nil.
+function sr.state_reset_journal(root, legacy)
+  local rel = legacy and ".nvim/loomworks.txn.json" or ".lw/txn.json"
+  if (vim.uv or vim.loop).fs_lstat(root .. "/" .. rel) then return rel end
+  return nil
+end
+
+--- The workspace daemon before `lw reset --state`: it would rewrite the build
+--- cache from memory. Returns nil + the refusal (a busy daemon, or one that
+--- does not answer), or the state of an idle daemon to stop (nil when none).
+--- A daemon of any version, through the frozen control subset. Under a pin
+--- before `.lw/` the pinned release's daemon (its lock in `.nvim/`) is that
+--- release's: the reset refuses while it runs, naming `lw daemon stop`.
+--- @param root string
+--- @param legacy string|nil
+--- @return table|nil idle, string|nil refusal
+function M._state_reset_daemon(root, legacy)
+  if legacy then
+    local info = require("loomworks.daemon.legacy").live_daemon(root)
+    if info then
+      return nil, "refusing to reset the state: the workspace daemon of the pinned lw " .. legacy
+        .. " (pid " .. tostring(info.pid) .. ") is running and would rewrite the build cache — stop it with "
+        .. "`lw daemon stop`, then reset"
+    end
+    return nil
+  end
+  local st = require("loomworks.daemon.inspect").state(root)
+  local lk = st.lock or {}
+  if st.kind == "starting" or st.kind == "hung" then
+    return nil, "refusing to reset the state: the workspace daemon (pid " .. tostring(lk.pid)
+      .. ") does not answer — stop it with `lw daemon stop`, then reset"
+  end
+  if st.kind ~= "live" then return nil end
+  local reply, err = require("loomworks.daemon.command").query(st, 2000)
+  if type(reply) ~= "table" then
+    return nil, "refusing to reset the state: the workspace daemon (pid " .. tostring(lk.pid)
+      .. ") does not answer (" .. tostring(err) .. ") — stop it with `lw daemon stop`, then reset"
+  end
+  if require("loomworks.daemon.protocol").status_busy(reply) then
+    return nil, "refusing to reset the state: the workspace daemon (pid " .. tostring(lk.pid) .. ", lw "
+      .. tostring(reply.lw_version or "?") .. ") is busy — wait for its tasks to end (lw status), then reset"
+  end
+  return st
+end
+
+--- Stop the idle daemon `_state_reset_daemon` found (`lw daemon stop`).
+--- Dies when it cannot.
+function sr.state_reset_stop_daemon(root, st)
+  local failed
+  local host = {
+    out = function() end,
+    die = function(msg) failed = tostring(msg); error(failed, 0) end,
+  }
+  local ok, perr = pcall(M._state_reset_stop, root, host, {})
+  if not ok then
+    die("refusing to reset the state: could not stop the workspace daemon: " .. tostring(failed or perr)
+      .. " — stop it with `lw daemon stop`, then reset")
+  end
+  note("lw: stopped the idle workspace daemon (pid " .. tostring(st.lock and st.lock.pid)
+    .. ") — it would rewrite the build cache")
+end
+
+--- The stop `lw reset --state` uses (`lw daemon stop`; replaceable in tests).
+function M._state_reset_stop(root, host, o)
+  return require("loomworks.daemon.command").stop(root, host, o)
+end
+
+--- The build state `--builds` deletes, listed per profile (headless §16.30):
+--- each profile's build directories as computed from the working copy
+--- WITHOUT the build cache (a read-only projection, never saved), then the
+--- other entries of `.lw/build/` — or, when the working copy cannot be read,
+--- per entry of `.lw/build/`. Display only: the removal is the nuke's.
+--- @param root string
+--- @return string[] lines (indented, relative to the root)
+function M._state_reset_build_lines(root)
+  local uv = vim.uv or vim.loop
+  root = (tostring(root):gsub("\\", "/"):gsub("/+$", ""))
+  local build = root .. "/.lw/build"
+  local function scan(dir)
+    local entries = {}
+    local req = uv.fs_scandir(dir)
+    while req do
+      local name, t = uv.fs_scandir_next(req)
+      if not name then break end
+      entries[#entries + 1] = { name = name, dir = t == "directory" }
+    end
+    table.sort(entries, function(a, b) return a.name < b.name end)
+    return entries
+  end
+  if #scan(build) == 0 then return {} end
+
+  local per_profile = {}
+  local ok_proj = pcall(function()
+    local io_mod = require("loomworks.io")
+    local ws_mod = require("loomworks.workspace")
+    local deps = require("loomworks.app").core()._deps
+    local cfg = io_mod.read_file(root .. "/loomworks.json")
+    local user = io_mod.read_file(require("loomworks.user").filepath(root))
+    if not user and not cfg then return end
+    local data = ws_mod.assemble(root, cfg, user, nil, { trust = deps.trust, modules = deps.modules })
+    if not data or data.user_newer then return end
+    if user and data.user_trust ~= "valid" then return end
+    local tc = read_tool_cache()
+    local tools = tc and tc.tools_by_type or {}
+    local noop = function() end
+    local core = require("loomworks.core").new({
+      events = { on = noop, off = noop, emit = noop },
+      notify = noop,
+      on_written = false,
+      on_save_refused = noop,
+      scan_targets = false,
+      manual_file_tracking = true,
+      detect_tools_async = function(_, _, cb) cb(vim.deepcopy(tools)) end,
+    })
+    local ws = ws_mod.Workspace.new(core, data)
+    ws._no_write = "lw reset --state lists the build directories only"
+    ws._projection = true
+    ws._tools_by_type = tools
+    core._workspace = ws
+    ws:remerge(data.config, data.cache, data.user)
+    ws._tool_state = "scanned"
+    local profiles = {}
+    for _, p in ipairs(ws._profiles or {}) do profiles[#profiles + 1] = p end
+    table.sort(profiles, function(a, b) return tostring(a.key) < tostring(b.key) end)
+    for _, p in ipairs(profiles) do
+      for _, pp in ipairs(p:projects() or {}) do
+        local bd = pp:build_dir()
+        if bd then
+          per_profile[#per_profile + 1] = { profile = p.key, dir = (bd:gsub("\\", "/"):gsub("/+$", "")) }
+        end
+      end
+    end
+    pcall(ws.teardown, ws)
+  end)
+  if not ok_proj then per_profile = {} end
+
+  local function key(p) return sr.win and p:lower() or p end
+  -- Each profile's directories on disk below `.lw/build/`, then every other
+  -- entry of `.lw/build/` (descending only into a directory that holds a
+  -- listed one).
+  local lines, claimed, ancestors = {}, {}, {}
+  for _, e in ipairs(per_profile) do
+    local r = sr.rel_to(build, e.dir)
+    if r ~= e.dir and not claimed[key(r)] and uv.fs_lstat(e.dir) then
+      claimed[key(r)] = true
+      lines[#lines + 1] = "    .lw/build/" .. r .. "/  (profile " .. e.profile .. ")"
+      local a = r:match("^(.*)/[^/]+$")
+      while a do
+        ancestors[key(a)] = true
+        a = a:match("^(.*)/[^/]+$")
+      end
+    end
+  end
+  local function others(rel)
+    for _, en in ipairs(scan(rel == "" and build or (build .. "/" .. rel))) do
+      local r = rel == "" and en.name or (rel .. "/" .. en.name)
+      if not claimed[key(r)] then
+        if en.dir and ancestors[key(r)] then others(r)
+        else lines[#lines + 1] = "    .lw/build/" .. r .. (en.dir and "/" or "") end
+      end
+    end
+  end
+  others("")
+  return lines
+end
+
+--- `lw reset --state [--builds] [-y]` (headless §16.30): reset the derived
+--- caches WITHOUT loading the workspace — the build cache and the health
+--- cache, never the working copy — listing what it deletes and keeps; with
+--- `--builds` also the build state, as `lw nuke` (its alias). A recovery
+--- command: never redirected to a pinned release, never routed to the
+--- daemon. Under a followed pin of a release before `.lw/` it deletes that
+--- release's caches under their legacy names, and refuses `--builds`.
+--- @param root string
+--- @param args string[]
+--- @return integer
+function M.cmd_reset_state(root, args)
+  local usage = "usage: lw reset --state [--builds] [-y]"
+  local yes, builds = false, false
+  for i = 2, #args do
+    local v = args[i]
+    if v == "-y" or v == "--yes" then yes = true
+    elseif v == "--state" then -- the form itself
+    elseif v == "--builds" then builds = true
+    elseif v == "--all" then
+      die("`lw reset --state` resets the workspace's derived state and takes no --all — " .. usage, 2)
+    elseif v:sub(1, 1) == "-" then
+      die("unknown flag '" .. v .. "' — " .. usage, 2)
+    else
+      die("`lw reset --state` takes no profile ('" .. v .. "'; `lw reset " .. v .. "` resets one) — " .. usage, 2)
+    end
+  end
+  root = (tostring(root):gsub("\\", "/"):gsub("/+$", ""))
+  local sm = require("loomworks.state_migration")
+  local legacy = sm.legacy_pin_version()
+  -- Under a pin before `.lw/` the build trees are the pinned release's.
+  if legacy and builds then die(sm.legacy_pin_refusal()) end
+
+  local journal = sr.state_reset_journal(root, legacy)
+  if journal then
+    die("refusing to reset the state: " .. journal .. " records an interrupted commit — the next load by the lw "
+      .. "that wrote it completes it (or `lw unlock --journal` discards it)")
+  end
+  local idle, refusal = M._state_reset_daemon(root, legacy)
+  if refusal then die(refusal) end
+
+  if builds then return M._state_reset_builds(root, yes, idle) end
+
+  local plan = M._state_reset_plan(root, legacy)
+  local function list_skipped()
+    for _, p in ipairs(plan.skipped) do
+      out("Not removed (not a regular file in a real " .. plan.base .. "/): " .. sr.rel_to(root, p), "plain")
+    end
+  end
+  if #plan.delete == 0 then
+    list_skipped()
+    out("Nothing to delete: there is no build or health cache.", "plain")
+    return 0
+  end
+  out("Will delete:", "plain")
+  for _, p in ipairs(plan.delete) do out("  " .. sr.rel_to(root, p), "plain") end
+  out("Will keep:", "plain")
+  for _, k in ipairs(plan.keep) do out("  " .. k, "plain") end
+  out("  (and the trust store, logs and daemon files)", "plain")
+  list_skipped()
+  if not yes then
+    if not interactive() then
+      die("refusing to delete the build and health caches without confirmation.\n  Re-run with -y.")
+    end
+    local answer = (prompt_line("Reset the derived state? [y/N]") or ""):lower()
+    if answer ~= "y" and answer ~= "yes" then die("aborted — nothing was deleted") end
+  end
+  if idle then sr.state_reset_stop_daemon(root, idle) end
+
+  -- Locks: the workspace operation lock and the build cache's file-save
+  -- lock. Not under a pin before `.lw/`: the operation lock would create
+  -- `.lw/`, and a lock file in `.nvim/` is not one this lw may remove.
+  local op_lock = require("loomworks.op_lock")
+  local sg = require("loomworks.save_guard")
+  local tok, slock
+  if not legacy then
+    local lmsg
+    tok, lmsg = op_lock.acquire(root, "reset")
+    if not tok then die("cannot reset the state: " .. tostring(lmsg)) end
+    slock = sg.lock(require("loomworks.cache").filepath(root))
+  end
+  local failed = {}
+  for _, p in ipairs(plan.delete) do
+    -- Re-checked right before the removal: still a regular file directly in
+    -- the verified state directory.
+    local st = (vim.uv or vim.loop).fs_lstat(p)
+    if st and st.type == "file" and M._state_reset_dir(root, plan.base) == plan.dir then
+      local ok, err = os.remove(p)
+      if not ok then failed[#failed + 1] = sr.rel_to(root, p) .. ": " .. tostring(err) end
+    end
+  end
+  if slock then sg.unlock(slock) end
+  if tok then op_lock.release(tok) end
+  if #failed > 0 then die("reset --state failed:\n  " .. table.concat(failed, "\n  ")) end
+  out("RESET: the build and health caches were removed — the next build configures again in place.", "ok")
+  return 0
+end
+
+--- `lw reset --state --builds` / `lw nuke`: the nuke, under its listing.
+--- @param root string
+--- @param yes boolean
+--- @param idle table|nil the idle daemon to stop first
+--- @return integer
+function M._state_reset_builds(root, yes, idle)
   local core = require("loomworks.app").core()
   -- The locks first, BEFORE the list of what would go and any
   -- prompt: a refused nuke prints only its refusal. With -y they are held
-  -- from here to the deletion. Otherwise they are only checked here (taken
+  -- from here to the deletion (the idle daemon stopped first: it would
+  -- rewrite the cache). Otherwise they are only checked here (taken
   -- and released: a lock held across a blocking prompt stops heartbeating)
   -- and taken again once confirmed; the check never breaks a holder —
   -- `--break-locks` acts only on the confirmed nuke.
   local st, why
   if yes then
+    if idle then sr.state_reset_stop_daemon(root, idle); idle = nil end
     st, why = core:_nuke_begin(root)
     if not st then die(M._nuke_message(why)) end
   else
@@ -1760,15 +2113,25 @@ function M.cmd_nuke(root, args)
   local areas, area_err
   if st then areas = st.areas else areas, area_err = core:_nuke_lsp_db_areas(core._deps.normalize(root)) end
   if not areas then die("nuke refused: " .. tostring(area_err)) end
-  local targets = core:nuke_targets(root, areas)
+  local plan = M._state_reset_plan(root, nil)
   out("Will delete (build state only; your configuration is kept):", "plain")
-  for _, p in ipairs(targets) do out("  " .. p, "plain") end
+  out("  " .. sr.rel_to(root, core._deps.cache.filepath(root)), "plain")
+  out("  .lw/health.json", "plain")
+  out("  .lw/build/", "plain")
+  for _, l in ipairs(M._state_reset_build_lines(root)) do out(l, "plain") end
+  for _, a in ipairs(areas) do out("  " .. sr.rel_to(root, a) .. "/", "plain") end
+  out("Will keep:", "plain")
+  for _, k in ipairs(plan.keep) do
+    if k ~= ".lw/build/" then out("  " .. k, "plain") end
+  end
+  out("  (and the trust store, logs and daemon files)", "plain")
   if not yes then
     if not interactive() then
       die("refusing to delete build state without confirmation.\n  Re-run with -y.")
     end
     local answer = (prompt_line("Reset the build cache? [y/N]") or ""):lower()
     if answer ~= "y" and answer ~= "yes" then die("aborted — nothing was deleted") end
+    if idle then sr.state_reset_stop_daemon(root, idle) end
     st, why = core:_nuke_begin(root)
     if not st then die(M._nuke_message(why)) end
   end
@@ -8697,10 +9060,42 @@ function M._runtime_row(root)
   return ok and row or nil
 end
 
+--- The `Pin` row of `lw status` (daemon §19.6 "Pin line"): with the pin
+--- ignored here (`.lw/local`, which the host read: main.lua), the pinned
+--- version and the lw that runs; nil when the pin is followed or there is
+--- none. Local reads only.
+--- @return string|nil
+function M._pin_row()
+  local pi = rawget(_G, "__loomworks_pin_ignored")
+  if type(pi) ~= "table" or type(pi.version) ~= "string" then return nil end
+  -- The setter is this host's main.lua, so boot.pin has ignored_text; guarded
+  -- all the same (an older host never sets the global).
+  local okp, bpin = pcall(require, "boot.pin")
+  if not okp or type(bpin) ~= "table" or type(bpin.ignored_text) ~= "function" then return nil end
+  local ok, text = pcall(function()
+    local exe, v = require("loomworks.pin_mode").running()
+    return bpin.ignored_text(pi.version, exe, v)
+  end)
+  return ok and text or nil
+end
+
 --- Workspace commands that never start or contact the daemon (besides the
 --- ones dispatched before the workspace guard: status, health, pull, worktree,
 --- settings, help, daemon …).
 M.NO_DAEMON_COMMANDS = { trust = true, nuke = true, unlock = true }
+
+--- Is argv `args` `lw reset --state …` (headless §16.30)? Like the
+--- NO_DAEMON_COMMANDS a recovery command: no ensure step, never routed.
+--- @param args string[]
+--- @return boolean
+function M._is_state_reset(args)
+  if args[1] ~= "reset" then return false end
+  for i = 2, #args do
+    if args[i] == "--" then return false end
+    if args[i] == "--state" then return true end
+  end
+  return false
+end
 
 --- The read-only sub-commands of each command (`lw
 --- status` is dispatched before the guard): they read a live compatible
@@ -10060,6 +10455,9 @@ function M.cmd_status(root, opts)
   do
     local row = M._runtime_row(root)
     if row then out(pal.title("Runtime") .. string.rep(" ", 10) .. pal.dim(row)) end
+    -- With the pin ignored (headless §16.23), the `Pin` line (daemon §19.6).
+    local pin_row = M._pin_row()
+    if pin_row then out(pal.title("Pin") .. string.rep(" ", 14) .. pal.dim(pin_row)) end
     local ok, lines, reply = pcall(function() return require("loomworks.daemon.running").lines(root) end)
     if ok then
       for _, l in ipairs(lines) do out(pal.dim(l)) end
@@ -11807,7 +12205,7 @@ local COMP_COMMANDS = {
   "status", "init", "project", "config", "configset",
   "profile", "tools", "build", "clean", "reset", "test", "run", "target", "launch", "publish",
   "export", "import", "pull", "worktree", "unlock", "settings", "completion", "version", "install", "self-update", "help",
-  "sdk", "migrate", "health", "module", "bootstrap", "trust", "nuke", "device", "release-notes", "daemon",
+  "sdk", "migrate", "health", "module", "bootstrap", "pin", "trust", "nuke", "device", "release-notes", "daemon",
   "cleanup", "release",
   "test-target",
   "--no-input", "--no-color", "--color=auto", "--color=always", "--color=never",
@@ -11870,6 +12268,9 @@ function M.cmd_complete(cword, words)
     if n == 1 then emit({ "query" }); return 0 end
     if a[n] == "--channel" then emit({ "stable", "unstable" }); return 0 end
     emit({ "--channel", "--json", "--timeout" })
+    return 0
+  elseif cmd == "pin" then
+    if n == 1 then emit({ "ignore", "follow" }) end
     return 0
   elseif cmd == "bootstrap" then
     if n == 1 then emit({ "install", "upgrade", "--json", "--check" }); return 0 end
@@ -12435,6 +12836,7 @@ just its artifacts — a hard reset to unconfigured — use `lw reset`.
   -v, --verbose  print each clean command and the directory it runs in (or
                  `remove <dir>` for a build directory lw wipes itself).]],
   reset = [[lw reset [profile | --all] [-y] [--break-locks]
+       lw reset --state [--builds] [-y]
 
 HARD-reset build state: remove the build directories (rm -rf, NOT the build
 system's artifact clean of `lw clean`) and drop the affected configurations back
@@ -12461,7 +12863,18 @@ exits 0.
 Reset is exclusive (like clean/delete): it holds each build directory's lock
 so it cannot race a concurrent build. A build directory still
 referenced by another profile not being reset is kept on disk (its state cleared
-only for the reset). Non-zero exit on any failure.]],
+only for the reset). Non-zero exit on any failure.
+
+--state resets the derived caches WITHOUT loading the workspace: the remedy when
+the build cache cannot be loaded (e.g. written by a newer lw). It deletes only
+the build cache and the health cache (.lw/cache.json, .lw/health.json; under a
+pin of a release before 0.2.0-beta.7 their .nvim/loomworks.*.json names) and
+keeps the working copy, .lw/local, lw.pin, loomworks.json and the build
+directories. It lists what it deletes and keeps, then confirms like reset. A
+workspace daemon is stopped first when idle; a busy one, or an interrupted
+commit (.lw/txn.json), makes it refuse. The next build reconfigures in place.
+  --builds  also delete the build state, as `lw nuke` (listed per profile).
+  --state takes no profile and no --all.]],
   trust = [[lw trust [--yes | -y] [--discard]
 
 Workspace trust. A repository can come from anywhere, so loomworks decides what
@@ -12516,8 +12929,8 @@ refused from every configuration, even a trusted one.
 copy and its backup; `--break-locks[=now]` recovers it from a hung holder.]],
   nuke = [[lw nuke [-y | --yes]
 
-Delete the workspace's build state: .lw/build/, .lw/cache.json
-and .lw/health.json. Your configuration (loomworks.json and the
+The alias of `lw reset --state --builds` (see `lw help reset`). Delete the
+workspace's build state: .lw/build/, .lw/cache.json and .lw/health.json. Your configuration (loomworks.json and the
 working copy) is kept; the next `lw build` reconfigures from scratch.
 
 This is the remedy when the build cache was not written on this machine (it is
@@ -12621,7 +13034,8 @@ LOOMWORKS_RUNTIME environment variable (wins). `lw status` shows it on its
 `Runtime` row, read from the files below only.
 
 In `daemon` mode every workspace command (not `lw status`, `health`, `help`,
-`settings`, `pull`, `worktree`, `trust`, `nuke`, `unlock`, `daemon …`) first
+`settings`, `pull`, `worktree`, `pin`, `trust`, `nuke`, `reset --state`, `unlock`,
+`daemon …`) first
 makes sure the daemon runs: it connects (and pings it, waiting about a second
 at most; `lw build`, which the daemon runs, waits up to about 5 seconds for a
 slow one) or starts one in the background, then runs exactly as before, except
@@ -14030,7 +14444,7 @@ both fetched sources and compiled objects.]],
 ;(function()
   local ok, bh = pcall(require, "boot.help")
   local topics = ok and type(bh) == "table" and type(bh.TOPICS) == "table" and bh.TOPICS or {}
-  for _, k in ipairs({ "version", "install", "self-update", "bootstrap", "release" }) do
+  for _, k in ipairs({ "version", "install", "self-update", "bootstrap", "pin", "release" }) do
     HELP[k] = topics[k]
       or ("lw " .. k .. ": this lw binary (host) is too old to document this command.\n"
         .. "Install the current lw binary as in the README's \"Installing lw\"; "
@@ -14137,12 +14551,13 @@ Usage: lw [command] [args]
   sdk <sub>         declare toolchain installations (types|detect|list|add|remove)
   build [profile]   build a profile (configure if needed, then build)
   clean [profile]   build-system clean (remove artifacts, keep configuration)
-  reset [profile]   hard reset: rm the build dirs, back to unconfigured (--all)
+  reset [profile]   hard reset: rm the build dirs, back to unconfigured (--all);
+                    --state: delete only the build + health caches, no load
   unlock <profile>  clear a stuck build-dir lock (--all, --force, --device <serial>)
   daemon <sub>      the workspace daemon: status | list | stop | kill | restart | run
                     (experimental, opt-in: runtime-mode)
   trust             review + re-sign the working copy (see `lw help trust`)
-  nuke              delete all build state (.lw/build + caches)
+  nuke              delete all build state (= reset --state --builds)
   cleanup           list / remove what lw left outside the workspace (--yes, --all)
   test  [profile]   build a profile, then run its tests (real exit code)
   test-target <sub> saved test targets plain `lw test` also runs: list | add | remove | clear
@@ -14169,6 +14584,7 @@ Usage: lw [command] [args]
   release-notes     what changed in each release (--since <version>, --all)
   release query     the newest verified release on a channel (--channel, --json)
   bootstrap [install|upgrade]  repo-local launcher + version pin: status / write / bump
+  pin [ignore|follow]          whether this checkout follows lw.pin: status / ignore / follow
   help  [command]   this help, or details for a command
 
 Quickstart (empty dir -> first build -> shared config):
@@ -14382,7 +14798,7 @@ local function main()
   -- interactive run after an update nobody was told about. Never fails a command.
   if command ~= "version" and command ~= "--version" and command ~= "-v"
       and command ~= "self-update" and command ~= "install"
-      and command ~= "bootstrap" then
+      and command ~= "bootstrap" and command ~= "pin" then
     pcall(M._release_notice, a, force_noninteractive)
   end
   -- `module` acquires third-party modules — no workspace needed.
@@ -14395,7 +14811,7 @@ local function main()
   -- fallback, where they don't apply.
   if command == "version" or command == "--version" or command == "-v"
       or command == "self-update" or command == "install"
-      or command == "bootstrap" then
+      or command == "bootstrap" or command == "pin" then
     errw("lw: `" .. command .. "` is provided by the standalone lw " ..
       "binary; it is not available in the nvim-hosted fallback.\n")
     finish(1)
@@ -14500,7 +14916,7 @@ local function main()
   -- daemon. Nor the read-only commands: like `lw status` they read a live
   -- compatible daemon or in-process and never launch one.
   local ensured
-  if not M.NO_DAEMON_COMMANDS[command] and not M._read_only_command(a) then
+  if not M.NO_DAEMON_COMMANDS[command] and not M._read_only_command(a) and not M._is_state_reset(a) then
     ensured = M._ensure_daemon(root, M._routed_command(a))
   end
 
@@ -14515,6 +14931,13 @@ local function main()
   end
   if command == "nuke" then
     finish(M.cmd_nuke(root, a))
+  end
+  -- `reset --state` (headless §16.30): a recovery command like nuke — never
+  -- routed to the daemon, never loading the workspace (a cache it cannot
+  -- read is what it repairs). Allowed under a pin before `.lw/` (it then
+  -- deletes that release's caches under their legacy names; not --builds).
+  if M._is_state_reset(a) then
+    finish(M.cmd_reset_state(root, a))
   end
 
   -- `-m <para>` on an item-creating verb describes the new item.
