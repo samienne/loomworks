@@ -746,7 +746,9 @@ cache).
 - **Same schema, newer writer** — `written_by` newer than the running version:
   the file is loaded and saved normally, and a warning is shown **once per
   process per file**: `… was written by loomworks X, newer than this loomworks
-  Y — update loomworks`. This is safe by rule: a change that adds data an older
+  Y — to run a newer lw here: lw pin ignore; to move the pin: lw bootstrap
+  upgrade` (the newer-schema fixes in the invoked form; without a pin "update
+  lw"; never a reset, as the file loads). This is safe by rule: a change that adds data an older
   version would drop on rewrite, where the loss matters, **must** bump the
   file's schema version; fields that may be absent without harm (e.g. the
   cache's `artifacts`, §2.3) do not.

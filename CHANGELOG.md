@@ -59,6 +59,10 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
   "update lw"), and for the build cache `lw reset --state`. A newer lw about
   to redirect to a pinned release that cannot read the state prints them
   first (#173).
+- The warning for a working copy or build cache last saved by a newer lw
+  (which still loads) names the same fixes instead of "update loomworks":
+  `lw pin ignore` and `lw bootstrap upgrade` in a pinned repository, else
+  "update lw" (#TBD).
 - `lw run` with no target named needs the profile's default target and no
   longer falls back to its only launchable target: without a stored default
   it refuses before configuring or building anything, naming both fixes
