@@ -81,7 +81,8 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
   reached; it says "The update channel was not changed." The channel is saved
   once the update completes (replaced, already up to date, or left in place
   by design) (#175).
-
+- Bare `lw` in a repository pinned to a release before `.lw/` names the
+  pinned launcher without a stray space (`./lw.sh`, not `./lw.sh `) (#TBD).
 - `lw bootstrap` and `lw health` no longer report a stable channel with only
   pre-releases published as "offline or release server unreachable": they say
   there is no stable release yet and name commands that select the unstable

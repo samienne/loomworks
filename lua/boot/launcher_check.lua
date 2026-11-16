@@ -108,17 +108,22 @@ end
 --- The command prefix of an invoked form.
 M.PREFIX = { ["lw.sh"] = "./lw.sh", ["lw.cmd"] = ".\\lw.cmd", launcher = "./lw.sh", global = "lw" }
 
+--- `rest` after a separating space; nothing for no arguments (bare `lw`).
+local function args_part(rest)
+  return (rest and rest ~= "") and (" " .. rest) or ""
+end
+
 --- A command spelled in the invoked form.
 --- @param invoked "lw.sh"|"lw.cmd"|"launcher"|"global"|nil
 function M.cmd(invoked, rest)
-  return (M.PREFIX[invoked or "global"] or "lw") .. " " .. rest
+  return (M.PREFIX[invoked or "global"] or "lw") .. args_part(rest)
 end
 
 --- The one-line "run it" advice; for a launcher that did not name itself, the
 --- Windows launcher form is added.
 function M.run(invoked, rest)
   if invoked == "launcher" then
-    return "run `./lw.sh " .. rest .. "` (`.\\lw.cmd " .. rest .. "` from cmd/PowerShell)"
+    return "run `./lw.sh" .. args_part(rest) .. "` (`.\\lw.cmd" .. args_part(rest) .. "` from cmd/PowerShell)"
   end
   return "run `" .. M.cmd(invoked, rest) .. "`"
 end

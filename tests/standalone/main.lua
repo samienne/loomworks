@@ -1398,6 +1398,13 @@ do
   local m_cmd = pin.legacy_layout_message("0.1.51", "global", { "status" }, { cmd = true })
   ok(m_cmd:find("run `.\\lw.cmd status`;", 1, true) and not m_cmd:find("lw.sh", 1, true),
     "legacy_layout_message: lw.cmd only  (" .. m_cmd .. ")")
+  -- Bare `lw` (no arguments): the launcher spelled without a trailing space.
+  local m_bare = pin.legacy_layout_message("0.1.51", "global", {}, both)
+  ok(m_bare:find("run `./lw.sh` (`.\\lw.cmd` from cmd/PowerShell);", 1, true)
+      and not m_bare:find("lw%.sh `") and not m_bare:find("lw%.cmd `"),
+    "legacy_layout_message: bare lw, no trailing space  (" .. m_bare .. ")")
+  ok(pin.legacy_layout_message("0.1.51", "lw.cmd", {}, both):find("run `.\\lw.cmd`;", 1, true),
+    "legacy_layout_message: bare lw.cmd, no trailing space")
   ok(pin.legacy_layout_message("0.1.51", "lw.cmd", { "status" }, { cmd = true })
       :find("run `.\\lw.cmd status`; to move the pin run `.\\lw.cmd bootstrap upgrade`", 1, true),
     "legacy_layout_message: invoked through lw.cmd, both commands in that form")
