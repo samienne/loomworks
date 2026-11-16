@@ -51,6 +51,11 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
   `.nvim/loomworks.cache.json` and `.nvim/loomworks.health.json`.
   `--builds` also deletes the build state, listed per profile; `lw nuke` is
   now its alias (#173).
+- After the move to `.lw/`, `lw status` shows an `Old state` line naming the
+  files an earlier lw left in `.nvim/` that are no longer used (such as
+  `.nvim/build/` and `.nvim/loomworks.user.json`), and `lw health` lists
+  them all (it reported only `.nvim/build/` before). lw never deletes them:
+  delete them by hand once no older lw is pinned in the repository (#TBD).
 
 ### Changed
 

@@ -10476,6 +10476,15 @@ function M.cmd_status(root, opts)
   -- present one is signed on this machine.
   out(pal.title("Trust") .. string.rep(" ", 12) .. pal.dim(M._trust_row(ws, root)))
 
+  -- Old state row: files a release before 0.2.0 left in .nvim/ that lw no
+  -- longer uses (headless §16.44 *After migration*). A nag only: lw never
+  -- deletes them.
+  do
+    local sm = require("loomworks.state_migration")
+    local ok, line = pcall(function() return sm.leftovers_text(sm.leftovers(ws.root or root)) end)
+    if ok and line then out(pal.title("Old state") .. string.rep(" ", 8) .. pal.dim(line)) end
+  end
+
   -- Diagnostics section — right after the active-profile block, before Targets.
   -- Renders nothing when there are none.
   render_diagnostics(pal, diags)

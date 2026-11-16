@@ -431,6 +431,54 @@ function M.run(root, opts)
     return done("migrated", M.REPORT)
 end
 
+--- The files a release before 0.2.0 left in `<root>/.nvim/` that 0.2.0+ no
+--- longer uses (headless §16.44 *After migration*): the directories `build/`,
+--- `build.nuke-<hex>/` and `tmp/`, and the regular files named `loomworks.*`
+--- (the legacy names of the §16.44 layout). `cache/` is never listed: an
+--- earlier launcher generation may still cache its binary there (§16.44
+--- *Launchers*). Directories first, then files, each sorted; directory
+--- names end in `/`. Reads only (lstat; a `.nvim` that is not a real
+--- directory lists nothing).
+--- @param root string
+--- @return string[]
+function M.leftovers(root)
+    local dir = norm(root) .. "/.nvim"
+    if lstat_type(dir) ~= "directory" then return {} end
+    local dirs, files = {}, {}
+    local fs = uv().fs_scandir(dir)
+    while fs do
+        local name = uv().fs_scandir_next(fs)
+        if not name then break end
+        local t = lstat_type(dir .. "/" .. name)
+        if t == "directory" and (name == "build" or name == "tmp" or name:match("^build%.nuke%-%x+$")) then
+            dirs[#dirs + 1] = name
+        elseif t == "file" and name:match("^loomworks%..") then
+            files[#files + 1] = name
+        end
+    end
+    table.sort(dirs)
+    table.sort(files)
+    local out = {}
+    for _, d in ipairs(dirs) do out[#out + 1] = d .. "/" end
+    for _, f in ipairs(files) do out[#out + 1] = f end
+    return out
+end
+
+--- The one-line hint naming `leftovers` (status, health), or nil when there
+--- are none: at most `max` (default 3) names, then a count of the rest.
+--- @param names string[]
+--- @param max? integer
+--- @return string|nil
+function M.leftovers_text(names, max)
+    if type(names) ~= "table" or #names == 0 then return nil end
+    max = max or 3
+    local shown = {}
+    for i = 1, math.min(#names, max) do shown[i] = names[i] end
+    local more = #names > max and (" (+" .. (#names - max) .. " more)") or ""
+    return ".nvim/ holds files lw 0.2.0 and later no longer use: " .. table.concat(shown, ", ") .. more
+        .. " — delete them by hand once no older lw is pinned here"
+end
+
 --- The divergence (health): the legacy working copy changed after it was
 --- copied. Returns the finding's message, or nil.
 --- @param root string
