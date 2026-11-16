@@ -107,14 +107,47 @@ local _warned = {}
 --- Reset the warn-once record (tests).
 function M._reset_warnings() _warned = {} end
 
+--- Does this process run for a repository with a version pin? main.lua's
+--- verdict (`__loomworks_has_pin`) when there is one, else false.
+--- @return boolean
+local function has_pin()
+    return rawget(_G, "__loomworks_has_pin") == true
+end
+
+--- The ways to a newer lw (three-file-model §2.7), in the invoked form
+--- (headless §16.24): `lw pin ignore` and `lw bootstrap upgrade` under a
+--- pin, "update lw" without one.
+--- @param opts? { pinned?: boolean, invoked?: string }
+--- @return string fixes
+--- @return table lc boot.launcher_check (or its stand-in)
+--- @return string invoked
+local function newer_lw_fixes(opts)
+    opts = opts or {}
+    local okl, lc = pcall(require, "boot.launcher_check")
+    if not okl or type(lc) ~= "table" then
+        lc = { invoked = function() return "global" end, cmd = function(_, rest) return "lw " .. rest end }
+    end
+    local invoked = opts.invoked or lc.invoked()
+    local pinned = opts.pinned
+    if pinned == nil then pinned = has_pin() end
+    if pinned then
+        return "to run a newer lw here: " .. lc.cmd(invoked, "pin ignore")
+            .. "; to move the pin: " .. lc.cmd(invoked, "bootstrap upgrade"), lc, invoked
+    end
+    return "update lw", lc, invoked
+end
+
 --- The one-time "written by a newer loomworks" warning for a file whose
 --- schema this version understands, or nil (not newer, unknown, or already
---- warned in this process for this file and version).
+--- warned in this process for this file and version). It names the ways to
+--- a newer lw as the newer-schema refusal does, never a reset: the file
+--- loads and saves normally (three-file-model §2.7).
 --- @param path string the file (identifies it in the warn-once record)
 --- @param label string how the message names the file
 --- @param meta table|nil the file's `_meta`
+--- @param opts? { pinned?: boolean, invoked?: string }
 --- @return string|nil
-function M.newer_writer_warning(path, label, meta)
+function M.newer_writer_warning(path, label, meta, opts)
     local by = type(meta) == "table" and meta.written_by or nil
     local own = M.version()
     if not M.is_newer(by, own) then return nil end
@@ -122,14 +155,7 @@ function M.newer_writer_warning(path, label, meta)
     if _warned[key] then return nil end
     _warned[key] = true
     return label .. " was written by loomworks " .. by .. ", newer than this loomworks "
-        .. own .. " — update loomworks"
-end
-
---- Does this process run for a repository with a version pin? main.lua's
---- verdict (`__loomworks_has_pin`) when there is one, else false.
---- @return boolean
-local function has_pin()
-    return rawget(_G, "__loomworks_has_pin") == true
+        .. own .. " — " .. (newer_lw_fixes(opts))
 end
 
 --- The refusal message for a file whose schema is newer than this version's
@@ -144,23 +170,9 @@ end
 --- @param opts? { pinned?: boolean, invoked?: string }
 --- @return string
 function M.newer_schema_message(label, meta, own_schema, opts)
-    opts = opts or {}
     local by = type(meta.written_by) == "string" and meta.written_by or nil
     local own = M.version()
-    local okl, lc = pcall(require, "boot.launcher_check")
-    if not okl or type(lc) ~= "table" then
-        lc = { invoked = function() return "global" end, cmd = function(_, rest) return "lw " .. rest end }
-    end
-    local invoked = opts.invoked or lc.invoked()
-    local pinned = opts.pinned
-    if pinned == nil then pinned = has_pin() end
-    local fixes
-    if pinned then
-        fixes = "to run a newer lw here: " .. lc.cmd(invoked, "pin ignore")
-            .. "; to move the pin: " .. lc.cmd(invoked, "bootstrap upgrade")
-    else
-        fixes = "update lw"
-    end
+    local fixes, lc, invoked = newer_lw_fixes(opts)
     if tostring(label):find("cache%.json$") then
         fixes = fixes .. "; to discard the build cache (builds are kept): "
             .. lc.cmd(invoked, "reset --state")

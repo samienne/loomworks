@@ -354,8 +354,27 @@ describe("state migration", function()
         local kinds = {}
         for _, it in ipairs(items) do kinds[it.kind] = it.title end
         assert.truthy(kinds.suggestion and kinds.suggestion:find("changed after it was copied", 1, true))
-        -- the legacy build trees: informational
-        assert.truthy(kinds.info and kinds.info:find(".nvim/build/", 1, true))
+        -- the legacy files and build trees: informational
+        assert.truthy(kinds.info and kinds.info:find(".nvim/ holds files lw 0.2.0 and later no longer use: "
+            .. "build/, loomworks.cache.json, loomworks.user.json", 1, true), kinds.info)
+    end)
+
+    it("leftovers lists only known files of lw before 0.2.0, never cache/ or the editor's files", function()
+        local r = legacy_root()
+        write(r .. "/.nvim/tmp/x", "x")
+        write(r .. "/.nvim/build.nuke-ab12/x", "x")
+        write(r .. "/.nvim/loomworks.log", "x")
+        write(r .. "/.nvim/loomworks.user.json.20260101-000000.bak", "x")
+        write(r .. "/.nvim/init.lua", "x")
+        write(r .. "/.nvim/loomworks", "x") -- not a known name
+        vim.fn.mkdir(r .. "/.nvim/loomworks.d", "p") -- a directory with a file prefix: not lw's
+        assert.same({ "build/", "build.nuke-ab12/", "tmp/", "loomworks.cache.json", "loomworks.log",
+            "loomworks.user.json", "loomworks.user.json.20260101-000000.bak" }, sm.leftovers(r))
+        local line = sm.leftovers_text(sm.leftovers(r))
+        assert.equals(".nvim/ holds files lw 0.2.0 and later no longer use: build/, build.nuke-ab12/, "
+            .. "tmp/ (+4 more) — delete them by hand once no older lw is pinned here", line)
+        assert.same({}, sm.leftovers(new_root()))
+        assert.is_nil(sm.leftovers_text({}))
     end)
 
     it("a source checkout not yet migrated is read from .nvim without migrating it", function()
@@ -422,6 +441,22 @@ describe("state migration through lw (Core:setup)", function()
         local code2, out2 = run(r, "project", "list")
         assert.equals(0, code2, out2)
         assert.is_nil(out2:find("state is now in .lw/", 1, true), out2)
+    end)
+
+    it("lw status names the old files left in .nvim/ and deletes nothing", function()
+        local r = legacy_workspace()
+        write(r .. "/.nvim/build/app/Debug/CMakeCache.txt", "x")
+        local before = snapshot(r .. "/.nvim")
+        local code, out = run(r, "status")
+        assert.equals(0, code, out)
+        assert.truthy(out:find("\nOld state        .nvim/ holds files lw 0.2.0 and later no longer use: "
+            .. "build/, loomworks.user.json — delete them by hand once no older lw is pinned here\n", 1, true), out)
+        assert.same(before, snapshot(r .. "/.nvim"))
+        -- Once they are gone, so is the line.
+        vim.fn.delete(r .. "/.nvim", "rf")
+        local code2, out2 = run(r, "status")
+        assert.equals(0, code2, out2)
+        assert.is_nil(out2:find("Old state", 1, true), out2)
     end)
 
     it("an older lw at work: the command fails, saying to stop it and retry", function()

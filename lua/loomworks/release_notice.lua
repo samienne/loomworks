@@ -31,12 +31,15 @@ end
 
 --- The notes text: `CHANGELOG.md` beside this file (a release bundle carries
 --- it as `loomworks/CHANGELOG.md`), else at the source tree's root
---- (`<root>/lua/loomworks/` -> `<root>/CHANGELOG.md`), else inside a fused
---- bundle. nil when this build carries none.
---- @param dir string|nil override of source_dir() (tests)
+--- (`<root>/lua/loomworks/` -> `<root>/CHANGELOG.md`), else inside a luvi
+--- bundle: `loomworks/CHANGELOG.md` (a fused executable embeds it), else
+--- `../CHANGELOG.md` (the source tree's root when `bin/lw` runs `luvi .` from
+--- `lua/`). nil when this build carries none.
+--- @param dir string|false|nil override of source_dir(); false: loaded from a bundle (tests)
+--- @param bundle table|nil override of luvi's bundle (tests)
 --- @return string|nil text, string|nil path
-function M.read_text(dir)
-  dir = dir or M.source_dir()
+function M.read_text(dir, bundle)
+  if dir == nil then dir = M.source_dir() end
   if dir then
     for _, p in ipairs({ dir .. "/CHANGELOG.md", dir .. "/../../CHANGELOG.md" }) do
       local s = read_file(p)
@@ -44,10 +47,15 @@ function M.read_text(dir)
     end
     return nil
   end
-  local ok, luvi = pcall(require, "luvi")
-  if ok and type(luvi) == "table" and luvi.bundle and luvi.bundle.readfile then
-    local okr, s = pcall(luvi.bundle.readfile, "loomworks/CHANGELOG.md")
-    if okr and type(s) == "string" then return s, "bundle:loomworks/CHANGELOG.md" end
+  if not bundle then
+    local ok, luvi = pcall(require, "luvi")
+    bundle = ok and type(luvi) == "table" and luvi.bundle or nil
+  end
+  if type(bundle) == "table" and bundle.readfile then
+    for _, p in ipairs({ "loomworks/CHANGELOG.md", "../CHANGELOG.md" }) do
+      local okr, s = pcall(bundle.readfile, p)
+      if okr and type(s) == "string" then return s, "bundle:" .. p end
+    end
   end
   return nil
 end

@@ -383,6 +383,19 @@ describe("release notice (last-seen and the one-line notice)", function()
     assert.equals(SAMPLE, (notice.read_text(b .. "/loomworks")))
     vim.fn.delete(b, "rf")
   end)
+
+  it("finds CHANGELOG.md from a bundle: embedded, else the source tree (`luvi .` from lua/)", function()
+    local function bundle(files)
+      return { readfile = function(p) return files[p] end }
+    end
+    local text, where = notice.read_text(false, bundle({ ["loomworks/CHANGELOG.md"] = SAMPLE, ["../CHANGELOG.md"] = "x" }))
+    assert.equals(SAMPLE, text)
+    assert.equals("bundle:loomworks/CHANGELOG.md", where)
+    text, where = notice.read_text(false, bundle({ ["../CHANGELOG.md"] = SAMPLE }))
+    assert.equals(SAMPLE, text)
+    assert.equals("bundle:../CHANGELOG.md", where)
+    assert.is_nil(notice.read_text(false, bundle({})))
+  end)
 end)
 
 describe("`lw release-notes`", function()

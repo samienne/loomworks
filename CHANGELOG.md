@@ -51,6 +51,11 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
   `.nvim/loomworks.cache.json` and `.nvim/loomworks.health.json`.
   `--builds` also deletes the build state, listed per profile; `lw nuke` is
   now its alias (#173).
+- After the move to `.lw/`, `lw status` shows an `Old state` line naming the
+  files an earlier lw left in `.nvim/` that are no longer used (such as
+  `.nvim/build/` and `.nvim/loomworks.user.json`), and `lw health` lists
+  them all (it reported only `.nvim/build/` before). lw never deletes them:
+  delete them by hand once no older lw is pinned in the repository (#176).
 
 ### Changed
 
@@ -59,6 +64,10 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
   "update lw"), and for the build cache `lw reset --state`. A newer lw about
   to redirect to a pinned release that cannot read the state prints them
   first (#173).
+- The warning for a working copy or build cache last saved by a newer lw
+  (which still loads) names the same fixes instead of "update loomworks":
+  `lw pin ignore` and `lw bootstrap upgrade` in a pinned repository, else
+  "update lw" (#176).
 - `lw run` with no target named needs the profile's default target and no
   longer falls back to its only launchable target: without a stored default
   it refuses before configuring or building anything, naming both fixes
@@ -77,7 +86,8 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
   reached; it says "The update channel was not changed." The channel is saved
   once the update completes (replaced, already up to date, or left in place
   by design) (#175).
-
+- Bare `lw` in a repository pinned to a release before `.lw/` names the
+  pinned launcher without a stray space (`./lw.sh`, not `./lw.sh `) (#176).
 - `lw bootstrap` and `lw health` no longer report a stable channel with only
   pre-releases published as "offline or release server unreachable": they say
   there is no stable release yet and name commands that select the unstable

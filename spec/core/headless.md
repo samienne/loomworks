@@ -1323,6 +1323,10 @@ origin, elapsed, percent) — §19.6. Asking the daemon is bounded, never
 launches it, and never fails or changes the overview: a failed query is one
 line.
 
+After the `Trust` line, an `Old state` line names the files an earlier release
+left in `.nvim/` that lw no longer uses (§16.44 *Leftovers*), when there are
+any; it is advisory and never changes the exit status.
+
 The overview also renders the **suggestions** count line ([loomworks.nvim `spec/plugin.md` Part II](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#part-ii-ui) §1.1) when
 the suggestion framework has findings — a one-line advisory pointing at
 `lw health` (§16.31). Suggestions are advisory: they never change the overview's
@@ -5201,9 +5205,21 @@ working copy, without migrating the source; the target is always written in
 its absolute location and cannot be relocated — nor deleted, since a pin moved
 back to a release before 0.2.0 still uses them. The first build of a
 configuration after migration configures and builds it afresh under
-`.lw/build/`. Health reports the legacy tree (informational): "`.nvim/build/`
-holds build trees lw 0.2.0 and later no longer use — remove it by hand once
-no older lw is pinned here". `lw nuke` removes `.lw/build/` only (§19.3).
+`.lw/build/`. `lw nuke` removes `.lw/build/` only (§19.3).
+
+**Leftovers.** The files an earlier release left in `.nvim/` that lw no
+longer uses are the **leftovers**: the directories `build/`,
+`build.nuke-<hex>/` and `tmp/`, and the regular files named `loomworks.*`
+(the legacy names of the layout above), each directly in a `.nvim` that is a
+real directory (`lstat`). `.nvim/cache/` is never one: launchers of an earlier
+generation may still cache there (*Launchers*, above). lw never deletes them
+(*Deletion*, below); it nags. `lw status` (§16.18) shows an `Old state` line
+and health an informational item (beside the divergence above), both reading
+"`.nvim/ holds files lw 0.2.0 and later no longer use: build/,
+loomworks.cache.json, loomworks.user.json (+N more) — delete them by hand
+once no older lw is pinned here`": at most three names, directories first,
+then a count of the rest (the verbose health report lists them all). The
+line disappears once they are gone.
 
 **Deletion.** No 0.2.0+ host deletes anything under `.nvim/`, with exactly two
 exceptions: the stale pre-slot daemon files of §16.40 *Legacy locations*, and

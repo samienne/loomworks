@@ -1237,8 +1237,8 @@ M.register_health(M.daemon_count_provider, { persist = false, area = "lw" })
 -- ---------------------------------------------------------------------------
 -- Provider #6 — the `.nvim/` state of releases before 0.2.0 (HEALTH-ONLY,
 -- REPORT-ONLY, §16.44): a legacy working copy changed after it was copied to
--- `.lw/` (actionable), and legacy build trees lw no longer uses
--- (informational). Reads only; never removes anything.
+-- `.lw/` (actionable), and the legacy files and build trees lw no longer
+-- uses (informational). Reads only; never removes anything.
 -- ---------------------------------------------------------------------------
 
 --- Health provider: the legacy `.nvim/` state.
@@ -1257,12 +1257,14 @@ function M.legacy_state_provider(workspace)
                 .. "move .lw/user.json and .lw/migrated.json out of .lw/, and run lw again",
         }
     end
-    local st = (vim.uv or vim.loop).fs_lstat(root .. "/.nvim/build")
-    if st and st.type == "directory" then
+    local okl, names = pcall(function() return require("loomworks.state_migration").leftovers(root) end)
+    if okl and type(names) == "table" and #names > 0 then
         out[#out + 1] = {
             kind = "info",
-            title = "state: .nvim/build/ holds build trees lw 0.2.0 and later no longer use — "
-                .. "remove it by hand once no older lw is pinned here",
+            title = "state: " .. require("loomworks.state_migration").leftovers_text(names),
+            -- every name, in the verbose report (the title shows three)
+            detail = #names > 3 and table.concat(names, "\n    ") or nil,
+            detail_verbose = #names > 3 or nil,
         }
     end
     return out
