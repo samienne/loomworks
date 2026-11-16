@@ -4919,7 +4919,7 @@ do
   paths.rm_rf(sb)
 end
 
-print("host — `lw self-update --channel unstable` saves it; `lw version` then shows it")
+print("host — `lw self-update --channel unstable` saves it once the update completes; `lw version` then shows it")
 do
   local sb = root .. "/tests/.tmp-channel-e2e"; paths.rm_rf(sb); paths.mkdirp(sb)
   local env = {}
@@ -4952,20 +4952,36 @@ do
     local cfg = body and json.decode(body)
     return type(cfg) == "table" and cfg.channel or nil
   end
-  local code, out = host({ "self-update", "--channel", "unstable" })
+  -- A self-update that fails (here: the mirror has no release) saves nothing:
+  -- the user is never recorded on a channel the update did not reach.
+  local fcode, fout = host({ "self-update", "--channel", "unstable" })
+  eq(fcode, 1, "a failed self-update exits 1  (" .. fout .. ")")
+  ok(not fout:find("update channel set to", 1, true),
+    "a failed self-update does not claim to set the channel  (got " .. fout .. ")")
+  ok(fout:find("The update channel was not changed.", 1, true) ~= nil,
+    "a failed self-update says the channel was not changed  (got " .. fout .. ")")
+  eq(saved_channel(), nil, "a failed self-update leaves the channel setting unsaved")
+  -- A self-update that completes (here: an exact --version on a source run,
+  -- which is left in place by design) saves the channel.
+  local code, out = host({ "self-update", "--channel", "unstable", "--version", "0.0.1" })
+  eq(code, 0, "a completed self-update exits 0  (" .. out .. ")")
   ok(out:find("update channel set to unstable", 1, true) ~= nil,
     "self-update --channel says the channel was set  (exit " .. tostring(code) .. ": " .. out .. ")")
-  eq(saved_channel(), "unstable", "the channel is in the settings even though the fetch failed")
+  eq(saved_channel(), "unstable", "the channel is saved once the self-update completed")
   local _, vout = host({ "version" })
   ok(vout:find("channel: unstable", 1, true) ~= nil, "lw version shows the saved channel  (got " .. vout .. ")")
-  local _, again = host({ "self-update", "--channel", "unstable" })
+  local _, again = host({ "self-update", "--channel", "unstable", "--version", "0.0.1" })
   ok(again:find("update channel is already unstable", 1, true) ~= nil, "re-running says it is already set")
+  local _, failed_switch = host({ "self-update", "--channel=stable" })
+  ok(not failed_switch:find("update channel set to", 1, true), "a failed switch to stable saves nothing")
+  eq(saved_channel(), "unstable", "a failed switch keeps the previously saved channel")
   local bcode, bout = host({ "self-update", "--channel", "bogus" })
   ok(bcode == 2 and bout:find("unknown update channel", 1, true) ~= nil,
     "an unknown channel is a usage error (exit 2)  (got " .. tostring(bcode) .. ")")
   eq(saved_channel(), "unstable", "a refused channel leaves the setting")
-  local _, sout = host({ "self-update", "--channel=stable" })
+  local _, sout = host({ "self-update", "--channel=stable", "--version=0.0.1" })
   ok(sout:find("update channel set to stable", 1, true) ~= nil, "--channel=stable switches back")
+  eq(saved_channel(), "stable", "the switch back is saved")
   -- Usage errors are exit 2 under the development facility too: the flags are
   -- checked before "self-update does not apply to a development source" (exit 1).
   env[#env + 1] = "LOOMWORKS_LUA=" .. root .. "/lua"

@@ -128,7 +128,8 @@ host never replaces itself.
   --force              replace even with an equal or older release
   --channel <name>     `stable` (default) or `unstable`; SAVED as your update
                        channel for later runs too (the same setting as
-                       `lw settings set channel <name>`)
+                       `lw settings set channel <name>`) once the update
+                       completes - a failed update leaves it unchanged
 
 Update channel: `stable` follows the newest full release;
 `unstable` includes pre-releases, for testing ahead of a stable cut. Both are

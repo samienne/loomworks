@@ -433,13 +433,25 @@ elseif host_command == "self-update" then
     exit(1)
   end
   local upd = require("boot.update")
-  -- `--channel <c>` is persisted: it becomes the update channel
-  -- for later runs too, exactly like `lw settings set channel <c>`.
+  -- An unknown channel is a usage error that saves nothing (checked before
+  -- any network access).
   if channel then
+    local _, cerr = upd.resolve_channel({ channel = channel })
+    if cerr then
+      io.stderr:write("lw: " .. tostring(cerr) .. "\n")
+      exit(2)
+    end
+  end
+  -- `--channel <c>` is persisted: it becomes the update channel for later runs
+  -- too, exactly like `lw settings set channel <c>` - but only once the update
+  -- completed (replaced, already current, or left in place by design), so a
+  -- failed update never records a channel it did not reach (spec §16.29).
+  local function save_channel()
+    if not channel then return end
     local saved, serr = upd.persist_channel(channel)
     if not saved then
       io.stderr:write("lw: " .. tostring(serr) .. "\n")
-      exit(2)
+      exit(1)
     end
     io.write(saved.changed
       and ("lw: update channel set to " .. channel .. " (saved in your lw settings; later runs follow it)\n")
@@ -449,6 +461,9 @@ elseif host_command == "self-update" then
       io.write("lw: note: LOOMWORKS_CHANNEL=" .. env_channel .. " overrides the saved channel " ..
         "in any run where it is set\n")
     end
+  end
+  local function channel_unchanged()
+    if channel then io.stderr:write("    The update channel was not changed.\n") end
   end
   io.write("lw: checking for updates...\n")
   -- The target: the exact `--version`, else the channel's newest release.
@@ -467,10 +482,11 @@ elseif host_command == "self-update" then
           "    LOOMWORKS_RELEASE_URL (a local directory works as an offline mirror).\n")
       end
       -- No stable release on the default origin: the resolver names the
-      -- setting; this command also takes `--channel` (and saves it).
+      -- setting; this command also takes `--channel` (saved once the update completes).
       if tcode == upd.NO_RELEASE and not upd.url_override({}) then
         io.stderr:write("    Or switch and update in one step: `lw self-update --channel unstable`.\n")
       end
+      channel_unchanged()
       exit(1)
     end
     if t.channel_overridden then
@@ -496,17 +512,21 @@ elseif host_command == "self-update" then
     io.write("lw: updated lw " .. (h.from or "(unknown version)") .. " -> " ..
       h.to .. " (" .. h.exe .. ")\n")
     if h.hint then io.write("lw: note: " .. h.hint .. "\n") end
+    save_channel()
     exit(0)
   elseif h.status == "current" then
     io.write("lw: already up to date (" .. target .. ")\n")
+    save_channel()
     exit(0)
   elseif h.status == "skipped" then
     io.write("lw: not replaced: " .. h.message .. "\n")
+    save_channel()
     exit(0)
   end
   io.stderr:write("lw: self-update failed: " .. tostring(h.message) .. "\n")
   if h.manual then io.stderr:write("    To update it manually, " .. h.manual .. ".\n") end
   io.stderr:write("    The installed lw was not changed.\n")
+  channel_unchanged()
   exit(1)
 elseif host_command == "install" then
   local opts = { dry_run = false, no_modify_path = false }

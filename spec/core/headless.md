@@ -2450,7 +2450,13 @@ channel **on self-update** (§16.32) also **saves** it into the host
 configuration — the same setting the settings command writes — and says so, so
 later self-updates and the version report follow it; re-selecting the saved
 channel says it is already set, and an unknown channel is a usage error that
-saves nothing. The environment override (`LOOMWORKS_CHANNEL`) still overrides
+saves nothing. The channel is saved only once the self-update **completes** —
+the executable was replaced, is already the target, or is left in place by
+design (no downgrade, a pinned or development host); a self-update that fails
+(the channel's release cannot be resolved, obtained or verified, or the
+replacement fails) saves nothing, leaves the saved channel as it was and says
+the channel was not changed, so a user is never recorded on a channel the
+update did not reach. The environment override (`LOOMWORKS_CHANNEL`) still overrides
 the saved channel for any run where it is set; when it differs from the channel
 just saved, self-update notes that. Other operations that take a channel for
 one resolution (pin management's newest-release pin, §16.24) do not save it.
