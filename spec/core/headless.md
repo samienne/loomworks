@@ -1621,13 +1621,56 @@ completion offers no workspace candidates and prints nothing. `lw worktree
 add` (§16.27) creates the worktree but does not seed it: in place of the
 pull it prints one line naming the pinned launcher's `pull` and
 `lw bootstrap upgrade`, and succeeds. Host and management operations, which
-load no workspace (above), run as usual, `lw bootstrap upgrade` included. The escapes above (no-pin flag,
-environment override, development facility) clear the pin and with it the
+load no workspace (above), run as usual, `lw bootstrap upgrade` included. The escapes below (no-pin flag,
+environment override, development facility, an ignored pin) clear the pin and with it the
 refusal; a pin of 0.2.0-beta.7 or later, and a pin naming the invoked host's
-own version, are unaffected. Before redirecting a workspace operation to such
+own version, are unaffected. `lw reset --state` (§16.30) runs under such a
+pin too: it is the one command that deletes the pinned release's `.nvim/`
+state, and only its derived caches (§16.44 *Deletion*). Before redirecting a
+workspace operation to such
 a release, a host that finds `<root>/.lw/user.json` (a working copy of a newer
 lw, which the pinned release ignores) adds one line on standard error saying
-so and naming `lw bootstrap upgrade` as the way to use it.
+so and naming `lw bootstrap upgrade` as the way to use it — unless the
+outgrown-state line below applies, which replaces it.
+
+**State the pinned release cannot read.** A pinned release can only say what
+it knew when it was released: its refusal of a newer file names neither
+`lw pin ignore` nor `lw reset --state`. So before redirecting a workspace
+operation, the redirecting host checks the files the pinned release will
+read — the working copy and the build cache, under the legacy names of
+§16.44 for a release before 0.2.0-beta.7 and under `.lw/` otherwise. When a
+file's `_meta.version` ([formats.md](../formats.md) §1.3) is newer than the
+schema that release reads (the host carries each file's schema per release;
+a pinned release newer than the host is not checked), it prints one line on
+standard error and then redirects as usual (the pinned release then refuses
+with its own message):
+
+```
+lw: .nvim/loomworks.cache.json was written by lw 0.1.49+dev (schema 9), newer than the pinned lw 0.1.43 reads (schema 8), so it will refuse it — to run this lw here: lw pin ignore; to move the pin: lw bootstrap upgrade; to discard the build cache (builds are kept): lw reset --state
+```
+
+**Moving to an older lw.** Moving between versions is normally forward; a
+move back to an older lw is allowed and may lose data. An older lw rewrites
+the working copy from what it knows and drops settings it does not
+([three-file-model §2.7](three-file-model.md) "Same schema, newer writer"),
+and its state may be incompatible. No backup or conversion is made; the host
+warns, without asking for confirmation, when it moves the effective lw to an
+older one: a pin switch landing on an older lw (§16.24), and a redirect to a
+pinned release older than the
+
+working copy's last writer (its `_meta.written_by`, so the warning stops once
+the pinned release has saved it). One line on standard error:
+
+```
+lw: moving this checkout to the older lw 0.1.43 (from 0.2.0+dev): it may drop settings it does not know when it saves .lw/user.json, and may refuse state a newer lw wrote (lw reset --state discards the build cache)
+```
+
+For the working copy the line names no reset (§16.30 never deletes it). The
+
+commands are spelled in the invoked form (§16.24). Nothing is read beyond
+each file's `_meta`, and nothing is written. A launcher run (`./lw.sh`,
+`.\lw.cmd`) execs the pinned release directly and prints only that release's
+own message.
 
 **One daemon per pinned workspace.** Whoever starts it — the editor, which
 launches `lw daemon run` with the binary it selected ([loomworks.nvim `spec/plugin.md` §19.16](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#1916-the-editor-as-a-client)), a CLI command, a
@@ -1660,9 +1703,74 @@ carried across the exec, above).
 The redirect has explicit **escapes**, all caller-owned: a *no-pin* flag runs
 the invoked host with no redirect; an environment override naming a host binary
 runs that binary and bypasses the pin entirely (the development / test-at-head
-path); and the development facility (§16.11) likewise bypasses. The first
+path); the development facility (§16.11) likewise bypasses; and an
+**ignored pin** (below) is the no-pin flag made persistent for one checkout.
+The first
 redirect or acquisition of an invocation emits a one-line notice rather than
 stalling silently.
+
+**Ignored pin (`.lw/local`).** A user who works in a pinned repository with
+another lw — a newer release, or a development or self-built one whose
+version means nothing — can have lw ignore the pin **in that checkout only**:
+`lw pin ignore` (§16.24) writes `<pin root>/.lw/local` holding `pin = ignore`
+([formats.md](../formats.md) §11), and `lw pin follow` deletes it. The file
+lies inside `.lw/`, so it is never committed (§16.44 *Self-ignore*); its
+absence means **follow the pin**, so deleting `.lw/` restores following.
+There is no machine-wide or per-user form and no environment value.
+
+- **Who reads it.** A host reads it at the pin root before the redirect
+  decision, together with the other escapes. An ignored pin makes every
+  command run as the invoked host, exactly as the no-pin flag would: no
+  redirect, no "pin older than the command" or "pin older than the state
+  layout" refusal, and the ensure step manages the workspace daemon as in a
+  repository without a pin (the foreign-pin rule above does not apply). A
+  host in pinned context (the pinned-context marker, §16.22) never reads it:
+  the launchers exec the pinned release, which runs itself. A release that
+  predates the file ignores it and follows the pin. A file that does not
+  parse, names an unknown value, or is not a regular file (`lstat`) means
+  follow, with one warning line on standard error.
+- **The editor runs the user's lw.** The editor launches the daemon through
+  the `--stdio` relay form of `daemon run` (every variant, `--no-launch`
+  included) from the binary it selected — possibly its own managed copy
+  ([loomworks.nvim `spec/plugin.md` §19.16](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#1916-the-editor-as-a-client)) — while the shell runs the user's
+  lw. So that both run one binary, a host invoked in the relay form with the
+  pin ignored **forwards** to the `lw` on the search path instead of running
+  itself; the editor reads nothing and needs no change for it:
+  1. It looks for `lw` on the search path the way the editor does: absolute
+     entries only, in order, never the current directory; on Windows the file
+     `lw.exe` only.
+  2. When there is none, it runs itself, and its `welcome` says so (§19.8
+     `relay.pin`).
+  3. When the one found is **this executable** — the same resolved path, the
+     executable identity of §19.9, so a link or a differently cased name is
+     the same file — it runs itself.
+  4. Otherwise it runs that `lw` in its place under the child-process rules
+     of the redirect above (shared streams, its exit status, interrupts left
+     to it), with the same arguments preceded by the no-pin flag and the
+     forwarding environment carrying only the workspace root (no
+     pinned-context marker). The no-pin flag makes the target run itself
+     whatever its release, one that predates `.lw/local` included, and stops
+     any further forward: the chain is at most one hop. A target that cannot
+     be started is an error naming it (exit 1); a target too old for the
+     relay form fails as that release does, and the editor reports it.
+
+  Only the relay form forwards; every other command runs as the invoked
+  host. The `LOOMWORKS_LW` override (an escape, above) disables the forward,
+  so a binary named through it runs as is.
+- **Visibility.** `lw status` shows a `Pin` line under `Runtime` (§19.6),
+  `lw health` reports it (§16.31 provider #4), `lw bootstrap` shows it on its
+  pin line, and a relay tells its client (§19.8 `relay.pin`):
+  `pin ignored: pinned 0.1.43, running /usr/local/bin/lw 0.2.0+dev`, with
+  `(no lw on the search path)` added when a relay found none. The path and
+  version are those of the lw that runs.
+- **Switching** retires a daemon of the previous effective build (§16.24,
+  §19.9 "Pin mode switch").
+- **State.** While the pin is ignored, the running lw may write state the
+  pinned release cannot read (a newer build-cache schema). That is never
+  resolved automatically: following the pin again, the pinned release refuses
+  the file with the remedies of
+  [three-file-model §2.7](three-file-model.md) "Reading a newer file", and
+  `lw reset --state` (§16.30) discards the derived caches when asked.
 
 The rule is the same when a launcher runs the host (pinned context, §16.22):
 `./lw.sh bootstrap …` (and the removed `./lw.sh update`'s pointer) are management
@@ -1722,6 +1830,29 @@ sub-command, a positional operand, or an install-only flag (`--version`,
 "`lw bootstrap` only reports; to pin a release run `lw bootstrap install
 --version 0.1.36`"). `--version` together with `--latest` is likewise a usage
 error.
+
+**Pin mode: `lw pin`.** A second host command reports and switches whether
+this checkout follows its pin (§16.23 "Ignored pin"):
+
+| Invocation | What it does |
+|---|---|
+| `lw pin` | Reports the pin root, the pinned version, the mode (`follow` or `ignore`) and, ignored, the lw that runs (path and version). Writes nothing. |
+| `lw pin ignore` | Writes `<pin root>/.lw/local` with `pin = ignore` (creating `.lw/` and its self-ignore file, §16.44), then applies the switch below. |
+| `lw pin follow` | Deletes `<pin root>/.lw/local` (a regular file, `lstat`; anything else there is refused, naming it), then applies the switch. Without the file it reports "already following" and succeeds. |
+
+`lw pin` is a management operation like `bootstrap`: it never redirects,
+loads no workspace and needs no daemon. Without a pin, `lw pin ignore`
+refuses ("no lw.pin here — nothing to ignore", exit 1) and writes nothing.
+The file is written atomically (a temporary file in `.lw/` renamed over it).
+**The switch:** when the effective build of a workspace operation changes —
+the pinned release against the invoked lw, equal when the pin names the
+invoked lw's own version — and a workspace daemon of the previous build runs,
+`lw pin` retires it as §19.9 "Pin mode switch" specifies; otherwise it does
+nothing more. A switch whose new effective lw is older than the previous one
+(typically `lw pin follow` landing on an older pinned release) prints the
+warning of §16.23 "Moving to an older lw"; it asks for no confirmation. Each invocation prints one line of what changed, e.g. `lw: pin
+ignored here — this checkout now runs /usr/local/bin/lw 0.2.0+dev (pinned
+0.1.43); lw pin follow undoes it`.
 
 **Which directory.** Every form first looks for an existing pin by the upward
 pin-root discovery of the redirect (§16.23), seeded from the launcher-passed
@@ -2425,6 +2556,52 @@ answer refuses instead of removing directories the user was not shown. The
 editor and `lw status` show the running reset like any task the daemon runs
 ([loomworks.nvim `spec/plugin.md` §19.16](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#1916-the-editor-as-a-client), §16.18).
 
+**State reset (`lw reset --state [--builds] [-y]`).** A workspace whose
+derived state cannot be loaded — typically a build cache of a newer schema
+(three-file-model §2.7) under a pinned or older lw — cannot be reset by
+profile, since resolving profiles loads that state. `--state` resets the
+**derived caches** without loading the workspace:
+
+- It is a **recovery command** like `lw nuke`: never redirected (§16.23),
+  never routed to the daemon (§19.15), and it parses neither the working copy
+  nor the build cache, whatever their schema. `--state` with a profile or
+  `--all` is a usage error (exit 2).
+- **What it deletes** is an allowlist of exact names, never a pattern over
+  `.lw/`: the build cache and the health cache — `.lw/cache.json` and
+  `.lw/health.json`, or, under a followed pin of a release before
+  0.2.0-beta.7 (§16.23), `.nvim/loomworks.cache.json` and
+  `.nvim/loomworks.health.json` (§16.44 *Deletion*). Each only as a regular
+  file (`lstat`) directly in a state directory that is a real directory of
+  the root; anything else is listed as not removed.
+- **What it keeps** it lists too: the working copy (`user.json` and its
+  backups), `.lw/local`, `lw.pin`, `loomworks.json`, the build directories
+  (unless `--builds`), the trust store, logs and daemon files.
+- **Listing and confirmation** as for reset above: `Will delete:` then `Will
+  keep:`, one path per line; an interactive host prompts, `-y`/`--yes` skips
+  the prompt, and a non-interactive host without it refuses, naming the
+  flag. Nothing to delete reports so and succeeds.
+- **Locks and the daemon.** It takes the workspace operation lock (§19.3)
+  and the file-save lock of the build cache. A workspace daemon would rewrite
+  the cache from memory, so an idle one is stopped first (§19.11) and a busy
+  one makes the reset refuse, naming it (a daemon of any version, through the
+  frozen control subset). A commit journal (`txn.json`) present makes it
+  refuse, naming the file: an interrupted commit is completed by the next
+  load of the lw that wrote it.
+- **After it**, the next load starts from an empty build cache: every unit is
+  unconfigured, and a build directory a profile still computes is configured
+  again in place by the next build; the health cache is recomputed.
+- **`--builds`** also deletes the build state exactly as `lw nuke` does
+  (§19.3: `.lw/build/` under every build lock, and each module's owned
+  database area), listed per profile — each profile's build directory as
+  computed from the working copy without the cache, then the other
+  directories under `.lw/build/` — or, when the working copy cannot be read,
+  per directory under `.lw/build/`. Under a followed pin of a release before
+  0.2.0-beta.7 `--builds` is refused: those build trees are the pinned
+  release's (its own `nuke`).
+- **`lw nuke`** is an alias of `lw reset --state --builds`: same flags,
+  listing, locks and exit codes, and refused under such a pin as before
+  (§16.23).
+
 **Concurrent editor.** Reset is designed to run while an editor host is live on
 the same workspace, and coexistence rests on the same three-file/cache
 reconciliation and the same per-build-directory lock the rest of the system
@@ -2847,7 +3024,10 @@ keeps the pin (§16.24; `lw bootstrap install --pin-only` in a pin-only
 repository) — spelled in the invoked form (§16.24: the launcher form when health
 itself runs through a launcher, else the global form). It is **pin-scoped**: it
 runs whenever a pin root is found, with or without a workspace, and is silent
-when none is.
+when none is. With the pin ignored (§16.23) it adds one informational item,
+`launcher: pin ignored: pinned 0.1.43, running /usr/local/bin/lw 0.2.0+dev —
+lw pin follow to follow it again`; a `.lw/local` that is tracked by git is
+actionable (`git rm --cached .lw/local`), since the setting is per checkout.
 
 These checks are **shared with the pin-management status page** (`lw
 bootstrap`, §16.24): one implementation produces the findings, their wording
@@ -4866,7 +5046,7 @@ already says whose they are. The syntax of the normative files is
 | `cache/` | launcher cache (§16.22) and module-owned areas such as the language-server database (§4.6) | `cache/` |
 | `tmp/` | per-run files (§16.40) | `tmp/` |
 | `migrated.json` | migration marker (below) | — |
-| `local` | **reserved** for the local run-mode setting ([#159](https://github.com/samienne/loomworks/issues/159)) | — |
+| `local` | per-checkout pin mode, `pin = ignore` (§16.23 "Ignored pin", [formats.md](../formats.md) §11) | — |
 | `.gitignore` | the self-ignore file (below) | — |
 
 Per-run files that a test unit writes inside a **build directory** move the
@@ -5019,13 +5199,17 @@ configuration after migration configures and builds it afresh under
 holds build trees lw 0.2.0 and later no longer use — remove it by hand once
 no older lw is pinned here". `lw nuke` removes `.lw/build/` only (§19.3).
 
-**Deletion.** No 0.2.0+ host deletes anything under `.nvim/`, with exactly one
-exception: the stale pre-slot daemon files of §16.40 *Legacy locations*, by
-their exact names, under the rules stated there (a regular file directly in a
+**Deletion.** No 0.2.0+ host deletes anything under `.nvim/`, with exactly two
+exceptions: the stale pre-slot daemon files of §16.40 *Legacy locations*, and
+`lw reset --state` under a followed pin of a release before 0.2.0-beta.7
+(§16.30) deleting the derived caches `loomworks.cache.json` and
+`loomworks.health.json` on request, each by their exact names, under the
+rules stated there (a regular file directly in a
 `.nvim` that is a real directory of the root, `lstat`, never through a link
 or junction, paths compared separator-bounded as in §15 invariant 3). In
 particular the legacy working copy and its backups, the legacy build and
-health caches, the slot daemon files, `.nvim/build/`, `.nvim/cache/` and
+health caches (but for that reset), the slot daemon files
+, `.nvim/build/`, `.nvim/cache/` and
 `.nvim/tmp/` are never removed by lw; nor is a temporary migration copy left
 in `.nvim/` (none is made there). Every deletion scope that named `.nvim/`
 before 0.2.0 — nuke and its `build.nuke-<hex>` leftover, housekeeping's

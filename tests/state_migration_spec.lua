@@ -464,4 +464,39 @@ describe("state migration through lw (Core:setup)", function()
         assert.equals(0, code2, out2)
         assert.truthy(out2:find("state is now in .lw/", 1, true), out2)
     end)
+
+    it("lw reset --state under a pin before .lw/: only .nvim/loomworks.{cache,health}.json; --builds refused", function()
+        local r, bytes = legacy_workspace()
+        write(r .. "/.nvim/loomworks.cache.json", '{"_meta":{"version":9,"written_by":"0.1.49+dev"}}')
+        write(r .. "/.nvim/loomworks.cache.json.bak", "{}")
+        write(r .. "/.nvim/loomworks.health.json", "{}")
+        write(r .. "/.nvim/loomworks.user.json.bak", bytes)
+        write(r .. "/.nvim/loomworks.daemon.log", "log")
+        write(r .. "/.nvim/build/app/Debug/CMakeCache.txt", "x")
+        local before = snapshot(r .. "/.nvim")
+        _G.__loomworks_legacy_pin = "lw: this repo pins lw 0.1.43, which keeps its state in .nvim/; LEGACY-PIN-TEST"
+        _G.__loomworks_legacy_pin_version = "0.1.43"
+        local ok1, c1, o1 = pcall(run, r, "reset", "--state", "--builds", "-y")
+        local ok2, c2, o2 = pcall(run, r, "nuke", "-y")
+        local ok3, c3, o3 = pcall(run, r, "reset", "--state", "-y")
+        _G.__loomworks_legacy_pin, _G.__loomworks_legacy_pin_version = nil, nil
+        assert.is_true(ok1, c1); assert.is_true(ok2, c2); assert.is_true(ok3, c3)
+        assert.are_not.equal(0, c1); assert.truthy(o1:find("LEGACY-PIN-TEST", 1, true), o1)
+        assert.are_not.equal(0, c2); assert.truthy(o2:find("LEGACY-PIN-TEST", 1, true), o2)
+        assert.equals(0, c3, o3)
+        assert.truthy(o3:find("Will delete:\n  .nvim/loomworks.cache.json\n  .nvim/loomworks.cache.json.bak\n"
+            .. "  .nvim/loomworks.health.json\n", 1, true), o3)
+        assert.truthy(o3:find("  .nvim/loomworks.user.json\n", 1, true), o3)
+        local after = snapshot(r .. "/.nvim")
+        for name, content in pairs(before) do
+            if name == "loomworks.cache.json" or name == "loomworks.cache.json.bak"
+                    or name == "loomworks.health.json" then
+                assert.is_nil(after[name], name .. " deleted")
+            else
+                assert.equals(content, after[name], name .. " untouched")
+            end
+        end
+        for name in pairs(after) do assert.is_not_nil(before[name], name .. " created") end
+        assert.is_false(exists(r .. "/.lw"), "nothing created in .lw/")
+    end)
 end)

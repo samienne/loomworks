@@ -130,7 +130,7 @@ M.COMMANDS = {
     valued = concat({ "--junit", "--target", "--cwd", "--working-dir" }, DEVICE_VALUED),
     eq = BREAK_EQ }),
   clean = spec({ flags = concat(BREAK, { "--verbose", "-v" }), eq = BREAK_EQ }),
-  reset = spec({ flags = { "--all", "-y", "--yes", "--break-locks" }, eq = BREAK_EQ }),
+  reset = spec({ flags = { "--all", "-y", "--yes", "--break-locks", "--state", "--builds" }, eq = BREAK_EQ }),
   unlock = spec({ flags = { "--all", "--force", "--workspace", "--journal" }, valued = { "--device" } }),
   profiles = NONE,
   publish = spec({ flags = BREAK, eq = BREAK_EQ }),

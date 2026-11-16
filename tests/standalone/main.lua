@@ -1501,6 +1501,333 @@ do
   paths.rm_rf(sb)
 end
 
+print("boot.pin — .lw/local: the pin mode (formats §11, headless §16.23 \"Ignored pin\")")
+do
+  local pin = require("boot.pin")
+  eq(pin.parse_local("pin = ignore\n"), "ignore", "parse_local: pin = ignore")
+  eq(pin.parse_local("# c\n\n  pin=ignore  \nfuture = x\n"), "ignore",
+    "parse_local: comments, blank lines and unknown keys are ignored")
+  local m, why = pin.parse_local("pin = follow\n")
+  ok(m == nil and why:find("unknown pin mode 'follow'", 1, true), "parse_local: another value means follow  (" ..
+    tostring(why) .. ")")
+  m, why = pin.parse_local("other = 1\n")
+  ok(m == nil and why:find("no 'pin'", 1, true), "parse_local: no pin key means follow")
+  m, why = pin.parse_local("garbage\n")
+  ok(m == nil and why:find("malformed", 1, true), "parse_local: a line that does not parse means follow")
+  eq(pin.parse_local(pin.LOCAL_IGNORE_TEXT), "ignore", "parse_local: what lw pin ignore writes")
+
+  local sb = paths.norm(root .. "/tests/.tmp-pinlocal"); paths.rm_rf(sb); paths.mkdirp(sb .. "/.lw")
+  local function put(text)
+    local f = assert(io.open(sb .. "/.lw/local", "wb")); f:write(text); f:close()
+  end
+  local mode, warn = pin.read_local(sb)
+  ok(mode == nil and warn == nil, "read_local: no file -> follow, silently")
+  put("pin = ignore\n")
+  mode, warn = pin.read_local(sb)
+  ok(mode == "ignore" and warn == nil, "read_local: pin = ignore")
+  put("pin = sometimes\n")
+  mode, warn = pin.read_local(sb)
+  ok(mode == nil and warn and warn:find("^lw: ") and warn:find("following lw.pin", 1, true)
+    and not warn:find("\n", 1, true), "read_local: unknown value -> follow with one warning line  (" ..
+    tostring(warn) .. ")")
+  os.remove(sb .. "/.lw/local"); paths.mkdirp(sb .. "/.lw/local")
+  mode, warn = pin.read_local(sb)
+  ok(mode == nil and warn and warn:find("not a regular file", 1, true),
+    "read_local: a directory -> follow with a warning")
+  eq((pin.read_local(nil)), nil, "read_local: no pin root")
+  paths.rm_rf(sb)
+
+  -- decide: an ignored pin is the no-pin flag made persistent.
+  local P = { version = "0.1.43", hashes = {} }
+  local function act(o) return (pin.decide(o)) end
+  eq(act({ command = "build", pin = P, self_version = "0.2.0", ignored = true }), "bypass",
+    "decide: an ignored pin bypasses the redirect")
+  local _, reason = pin.decide({ command = "build", pin = P, ignored = true })
+  ok(reason:find(".lw/local", 1, true), "decide: names the file  (" .. reason .. ")")
+  eq(act({ command = "daemon", sub = "run", stdio = true, pin = { version = "0.1.43-beta.10", hashes = {} },
+    self_version = "0.2.0", ignored = true }), "bypass", "decide: no 'pin older than the command' refusal")
+  eq(act({ command = "build", pin = P, pinned_sentinel = "0.1.43", ignored = true }), "in-process",
+    "decide: the pinned context wins (it never reads the file)")
+  eq(act({ command = "build", pin = P, self_version = "0.2.0" }), "redirect", "decide: followed -> redirect")
+  eq(pin.foreign_pin({ pin = P, self_version = "0.2.0", ignored = true }), nil,
+    "foreign_pin: none under an ignored pin (the ensure step manages the daemon)")
+  eq(pin.legacy_layout_pin({ pin = P, self_version = "0.2.0", ignored = true }), nil,
+    "legacy_layout_pin: no 'older than the state layout' refusal under an ignored pin")
+
+  -- forward_kind: where the relay form runs under an ignored pin.
+  local function rp(map) return function(p) return map[p] or p end end
+  eq(pin.forward_kind(nil, "/usr/bin/lw", rp({}), false), "none", "forward_kind: no lw on the search path")
+  eq(pin.forward_kind("/usr/bin/lw", "/usr/bin/lw", rp({}), false), "self", "forward_kind: the same path")
+  eq(pin.forward_kind("/usr/local/bin/lw", "/opt/lw/lw", rp({ ["/usr/local/bin/lw"] = "/opt/lw/lw" }), false),
+    "self", "forward_kind: a link to this executable")
+  eq(pin.forward_kind("C:\\Tools\\LW.EXE", "c:/tools/lw.exe", rp({}), true), "self",
+    "forward_kind: a differently cased name on Windows")
+  eq(pin.forward_kind("/usr/bin/LW", "/usr/bin/lw", rp({}), false), "forward",
+    "forward_kind: case matters on POSIX")
+  eq(pin.forward_kind("/usr/local/bin/lw", "/home/u/.cache/lw", rp({}), false), "forward",
+    "forward_kind: another lw")
+
+  eq(pin.ignored_text("0.1.43", "/usr/local/bin/lw", "0.2.0+dev"),
+    "pin ignored: pinned 0.1.43, running /usr/local/bin/lw 0.2.0+dev", "ignored_text")
+  eq(pin.ignored_text("0.1.43", "/x/lw", "0.2.0", true),
+    "pin ignored: pinned 0.1.43, running /x/lw 0.2.0 (no lw on the search path)", "ignored_text: no_path_lw")
+
+  -- parse_pin_args
+  eq(pin.parse_pin_args({ "pin" }).sub, nil, "parse_pin_args: report")
+  eq(pin.parse_pin_args({ "pin", "ignore" }).sub, "ignore", "parse_pin_args: ignore")
+  eq(pin.parse_pin_args({ "--no-input", "pin", "follow" }).sub, "follow", "parse_pin_args: a global flag")
+  local po, perr = pin.parse_pin_args({ "pin", "off" })
+  ok(po == nil and perr:find("(ignore, follow)", 1, true), "parse_pin_args: unknown sub-command")
+  po, perr = pin.parse_pin_args({ "pin", "--force" })
+  ok(po == nil and perr:find("unknown option '--force'", 1, true), "parse_pin_args: unknown option")
+
+  -- Moving to an older lw (headless §16.23).
+  ok(pin.older("0.1.43", "0.2.0+dev") and not pin.older("0.2.0", "0.2.0+dev")
+    and not pin.older("0.2.0", "0.1.43") and not pin.older("0.1.43", "dev build"),
+    "older: precedence, +dev ignored, a non-version is never older")
+  eq(pin.older_lw_line("0.1.43", "0.2.0+dev", ".lw/user.json", "global"),
+    "lw: moving this checkout to the older lw 0.1.43 (from 0.2.0+dev): it may drop settings it does not know" ..
+    " when it saves .lw/user.json, and may refuse state a newer lw wrote (lw reset --state discards the" ..
+    " build cache)", "older_lw_line: the spec's line")
+  ok(pin.older_lw_line("0.1.43", "0.2.0", ".lw/user.json", "lw.sh"):find("./lw.sh reset --state", 1, true),
+    "older_lw_line: the reset in the invoked form")
+  eq(pin.working_copy_rel("0.1.43"), ".nvim/loomworks.user.json", "working_copy_rel: a release before .lw/")
+  eq(pin.working_copy_rel("0.2.0-beta.7"), ".lw/user.json", "working_copy_rel: .lw/")
+  local wb = paths.norm(root .. "/tests/.tmp-older"); paths.rm_rf(wb)
+  paths.mkdirp(wb .. "/.nvim"); paths.mkdirp(wb .. "/.lw")
+  local function wc(rel, w)
+    local f = assert(io.open(wb .. "/" .. rel, "wb"))
+    f:write('{"_meta":{"version":2' .. (w and (',"written_by":"' .. w .. '"') or "") .. '},"profiles":{}}')
+    f:close()
+  end
+  eq(pin.redirect_older_line(wb, "0.1.43", "global"), nil, "redirect_older_line: no working copy")
+  wc(".nvim/loomworks.user.json", "0.1.43")
+  eq(pin.redirect_older_line(wb, "0.1.43", "global"), nil, "redirect_older_line: written by the pinned lw")
+  wc(".nvim/loomworks.user.json", nil)
+  eq(pin.redirect_older_line(wb, "0.1.43", "global"), nil, "redirect_older_line: no written_by")
+  wc(".nvim/loomworks.user.json", "0.1.49+dev")
+  local line = pin.redirect_older_line(wb, "0.1.43", "global")
+  ok(line and line:find("older lw 0.1.43 (from 0.1.49+dev)", 1, true)
+    and line:find(".nvim/loomworks.user.json", 1, true),
+    "redirect_older_line: a newer writer of the legacy working copy  (" .. tostring(line) .. ")")
+  wc(".lw/user.json", "0.2.0")
+  eq(pin.redirect_older_line(wb, "0.2.0-beta.9", "global"),
+    pin.older_lw_line("0.2.0-beta.9", "0.2.0", ".lw/user.json", "global"),
+    "redirect_older_line: .lw/user.json for a release that reads it")
+  eq(pin.redirect_older_line(wb, "0.2.1", "global"), nil, "redirect_older_line: a newer pin")
+  paths.rm_rf(wb)
+end
+
+print("pin — reset --state is never redirected; state the pinned release cannot read (§16.23, §16.30)")
+do
+  local pin = require("boot.pin")
+  ok(pin.is_state_reset({ "reset", "--state" }) and pin.is_state_reset({ "--no-color", "reset", "--state", "-y" })
+    and not pin.is_state_reset({ "reset", "Dev" }) and not pin.is_state_reset({ "build", "--state" })
+    and not pin.is_state_reset({ "reset", "--", "--state" }), "is_state_reset: only `reset --state`, before --")
+  local P = { version = "0.1.43" }
+  eq((pin.decide({ command = "reset", pin = P, self_version = "0.2.0", state_reset = true })), "in-process",
+    "decide: reset --state runs here under a pin")
+  eq((pin.decide({ command = "reset", pin = P, self_version = "0.2.0" })), "redirect",
+    "decide: a profile reset is still redirected")
+  eq(pin.state_schema("cache", "0.1.43"), 8, "state_schema: cache 8 before 0.1.50-beta.1")
+  eq(pin.state_schema("cache", "0.1.50-beta.1"), 9, "state_schema: cache 9 from 0.1.50-beta.1")
+  eq(pin.state_schema("user", "0.2.0"), 2, "state_schema: working copy 2")
+  local sb = paths.norm(root .. "/tests/.tmp-outgrown"); paths.rm_rf(sb)
+  paths.mkdirp(sb .. "/.nvim"); paths.mkdirp(sb .. "/.lw")
+  local function put(rel, v, w)
+    local f = assert(io.open(sb .. "/" .. rel, "wb"))
+    f:write('{"_meta":{"version":' .. v .. (w and (',"written_by":"' .. w .. '"') or "") .. '}}')
+    f:close()
+  end
+  eq(pin.state_outgrown_hint(sb, "0.1.43", "0.2.0", "global"), nil, "outgrown: no state")
+  put(".nvim/loomworks.cache.json", 8, "0.1.43")
+  eq(pin.state_outgrown_hint(sb, "0.1.43", "0.2.0", "global"), nil, "outgrown: the schema it reads")
+  put(".nvim/loomworks.cache.json", 9, "0.1.49+dev")
+  eq(pin.state_outgrown_hint(sb, "0.1.43", "0.2.0", "global"),
+    "lw: .nvim/loomworks.cache.json was written by lw 0.1.49+dev (schema 9), newer than the pinned lw 0.1.43" ..
+    " reads (schema 8), so it will refuse it - to run this lw here: lw pin ignore; to move the pin: lw" ..
+    " bootstrap upgrade; to discard the build cache (builds are kept): lw reset --state",
+    "outgrown: the spec's line for a legacy cache")
+  eq(pin.state_outgrown_hint(sb, "0.1.50", "0.2.0", "global"), nil,
+    "outgrown: .lw/ for a release that reads it (no .lw/cache.json)")
+  eq(pin.state_outgrown_hint(sb, "0.3.0", "0.2.0", "global"), nil, "outgrown: a pin newer than the host")
+  put(".lw/cache.json", 10, nil)
+  local l = pin.state_outgrown_hint(sb, "0.2.0-beta.9", "0.2.0", "lw.sh")
+  ok(l and l:find("lw: .lw/cache.json was written by a newer lw (schema 10), newer than the pinned lw" ..
+    " 0.2.0-beta.9 reads (schema 9)", 1, true) and l:find("./lw.sh pin ignore", 1, true)
+    and l:find("./lw.sh reset --state", 1, true), "outgrown: .lw/ layout, invoked form  (" .. tostring(l) .. ")")
+  put(".lw/user.json", 3, "0.3.0")
+  l = pin.state_outgrown_hint(sb, "0.2.0-beta.9", "0.2.0", "global")
+  ok(l and l:find(".lw/user.json was written by lw 0.3.0 (schema 3)", 1, true)
+    and l:find("lw bootstrap upgrade", 1, true) and not l:find("reset", 1, true),
+    "outgrown: a working copy names no reset  (" .. tostring(l) .. ")")
+  paths.rm_rf(sb)
+end
+
+print("host — lw pin, an ignored pin, the relay forward (§16.23, §16.24)")
+do
+  local sb = paths.norm(root .. "/tests/.tmp-pinignore"); paths.rm_rf(sb)
+  local repo, bin, home = sb .. "/repo", sb .. "/bin", sb .. "/home"
+  paths.mkdirp(repo); paths.mkdirp(bin); paths.mkdirp(home)
+  git_init(repo)
+  local win = paths.is_windows
+  local function write(p, s) local f = assert(io.open(p, "wb")); f:write(s); f:close() end
+  local function spawn(exe, argv, env, cwd)
+    local logf, errf = sb .. "/out.txt", sb .. "/err.txt"
+    local fd = assert(uv.fs_open(logf, "w", 420))
+    local fe = assert(uv.fs_open(errf, "w", 420))
+    local done, code = false, nil
+    local h = uv.spawn(exe, { args = argv, cwd = cwd or root, env = env, stdio = { nil, fd, fe } },
+      function(c) code = c; done = true end)
+    if h then
+      local t = uv.new_timer()
+      t:start(60000, 0, function() if not done then pcall(uv.process_kill, h, "sigterm") end end)
+      while not done do uv.run("once") end
+      t:stop(); t:close(); h:close()
+    end
+    uv.fs_close(fd); uv.fs_close(fe)
+    return code, slurp(logf) or "", slurp(errf) or ""
+  end
+  -- A fake lw: a luvi app that records its arguments and environment, exit 7.
+  local app = sb .. "/echo-app"
+  paths.mkdirp(app)
+  write(app .. "/main.lua", table.concat({
+    'local f = assert(io.open(os.getenv("LW_TEST_ECHO_OUT"), "wb"))',
+    'f:write("ARGS=" .. table.concat(args, " ") .. "\\n")',
+    'f:write("LW_ROOT=" .. tostring(os.getenv("LW_ROOT")) .. "\\n")',
+    'f:write("PINNED=" .. tostring(os.getenv("LOOMWORKS_PINNED")) .. "\\n")',
+    'f:close()',
+    'return 7',
+  }, "\n") .. "\n")
+  local fake = bin .. "/" .. (win and "lw.exe" or "lw")
+  -- (luvi joins even an absolute Windows path to its working directory: relative paths)
+  spawn(uv.exepath(), { "echo-app", "-o", "bin/" .. (win and "lw.exe" or "lw") }, nil, sb)
+  ok(uv.fs_stat(fake) ~= nil, "built a fake lw on the test search path")
+  local echo_out = sb .. "/echo.txt"
+  local sep = win and ";" or ":"
+  local base = {}
+  local override = { LOOMWORKS_DATA_DIR = home, LOCALAPPDATA = home, APPDATA = home, XDG_DATA_HOME = home,
+    XDG_CONFIG_HOME = home, LOOMWORKS_NO_HOUSEKEEPING = "1", LW_TEST_ECHO_OUT = echo_out,
+    LOOMWORKS_RELEASE_URL = sb .. "/no-mirror" }
+  for k, v in pairs(uv.os_environ()) do
+    local K = win and k:upper() or k
+    if override[k] == nil and K ~= "PATH" and k ~= "LOOMWORKS_LUA" and k ~= "LOOMWORKS_LW"
+        and k ~= "LOOMWORKS_PINNED" and k ~= "LW_ROOT" and k ~= "LOOMWORKS_INSTALL_DIR" then
+      base[#base + 1] = k .. "=" .. v
+    end
+  end
+  for k, v in pairs(override) do base[#base + 1] = k .. "=" .. v end
+  -- (uv.os_getenv returns nil for a value longer than its buffer: read the table)
+  local sys_path = ""
+  for k, v in pairs(uv.os_environ()) do if (win and k:upper() or k) == "PATH" then sys_path = v end end
+  local function host(args, extra, path_dirs)
+    local env = {}
+    for _, e in ipairs(base) do
+      if not (extra and extra[e:match("^([^=]*)")]) then env[#env + 1] = e end
+    end
+    env[#env + 1] = "PATH=" .. table.concat(path_dirs or {}, sep) .. ((path_dirs and #path_dirs > 0) and sep or "")
+      .. sys_path
+    for k, v in pairs(extra or {}) do env[#env + 1] = k .. "=" .. v end
+    local argv = { "lua", "--" }
+    for _, a in ipairs(args) do argv[#argv + 1] = a end
+    os.remove(echo_out)
+    return spawn(uv.exepath(), argv, env)
+  end
+  write(repo .. "/lw.pin", "version = 0.1.50\n")
+  local R = { LW_ROOT = repo }
+
+  -- lw pin: report, ignore, follow (dev source: the version is the changelog's).
+  local DEV = { LW_ROOT = repo, LOOMWORKS_LUA = paths.norm(root .. "/lua") }
+  local code, out, err = host({ "pin" }, DEV)
+  ok(code == 0 and out:find("pinned    lw 0.1.50", 1, true) and out:find("mode      follow", 1, true),
+    "lw pin: reports the pin and the mode  (" .. out .. err .. ")")
+  code, out, err = host({ "pin", "ignore" }, DEV)
+  ok(code == 0 and out:find("lw: pin ignored here - this checkout now runs ", 1, true)
+    and out:find("(pinned 0.1.50); lw pin follow undoes it", 1, true),
+    "lw pin ignore: one line  (" .. out .. err .. ")")
+  eq(slurp(repo .. "/.lw/local"), require("boot.pin").LOCAL_IGNORE_TEXT, "lw pin ignore writes .lw/local")
+  ok(slurp(repo .. "/.lw/.gitignore") ~= nil, "with .lw/'s self-ignore file")
+  code, out, err = host({ "--no-input", "init" }, R)
+  code, out, err = host({ "status" }, R)
+  ok(not err:find("following lw.pin", 1, true), "a valid .lw/local warns nothing  (" .. err .. ")")
+  local pin_at = out:find("\nPin%s+pin ignored: pinned 0%.1%.50, running ")
+  local rt_at = out:find("\nRuntime ", 1, true)
+  ok(pin_at ~= nil and rt_at ~= nil and rt_at < pin_at,
+    "lw status: a Pin line under Runtime  (" .. out .. err .. ")")
+  code, out, err = host({ "pin", "follow" }, DEV)
+  ok(code == 0 and out:find("following the pin again", 1, true) and slurp(repo .. "/.lw/local") == nil,
+    "lw pin follow deletes it  (" .. out .. err .. ")")
+  ok(err:find("lw: moving this checkout to the older lw 0.1.50 (from 0.2.0+dev)", 1, true)
+    and err:find(".nvim/loomworks.user.json", 1, true),
+    "lw pin follow onto an older pinned lw warns  (" .. err .. ")")
+  code, out = host({ "pin", "follow" }, DEV)
+  ok(code == 0 and out:find("already following", 1, true), "lw pin follow again: already following")
+  code, out = host({ "status" }, R)
+  ok(not out:find("\nPin ", 1, true), "lw status: no Pin line when following  (" .. out .. ")")
+  os.rename(repo .. "/lw.pin", repo .. "/lw.pin.off")
+  code, out, err = host({ "pin", "ignore" }, DEV)
+  ok(code == 1 and err:find("no lw.pin here - nothing to ignore", 1, true) and slurp(repo .. "/.lw/local") == nil,
+    "lw pin ignore without a pin refuses, writing nothing  (" .. err .. ")")
+  os.rename(repo .. "/lw.pin.off", repo .. "/lw.pin")
+  code = host({ "pin", "sideways" }, DEV)
+  eq(code, 2, "lw pin <unknown>: usage error")
+
+  -- A broken .lw/local: follow, with one warning line.
+  write(repo .. "/.lw/local", "pin = maybe\n")
+  code, out, err = host({ "pin" }, R)
+  ok(err:find("names an unknown pin mode 'maybe' - following lw.pin", 1, true) and out:find("mode      follow", 1, true),
+    "a .lw/local with another value: follow, one warning  (" .. err .. ")")
+
+  -- The relay form under an ignored pin forwards to the search path's lw,
+  -- with --no-pin first and only the workspace root in the environment.
+  write(repo .. "/.lw/local", "pin = ignore\n")
+  code, out, err = host({ "daemon", "run", "--stdio", "--root", repo }, nil, { bin })
+  local rec = slurp(echo_out) or ""
+  ok(code == 7 and rec:find("ARGS=--no-pin daemon run --stdio --root " .. repo .. "\n", 1, true),
+    "relay form, ignored pin: forwarded to the lw on the search path, --no-pin first  (exit " ..
+    tostring(code) .. ": " .. rec .. err .. ")")
+  ok(rec:find("LW_ROOT=" .. repo .. "\n", 1, true) and rec:find("PINNED=nil\n", 1, true),
+    "the forward carries the workspace root and no pinned-context marker")
+  -- Only the relay form forwards; LOOMWORKS_LW disables it.
+  code, out, err = host({ "daemon", "run", "--stdio", "--root", repo }, { LOOMWORKS_LW = fake }, { bin })
+  ok(code ~= 7 and slurp(echo_out) == nil, "LOOMWORKS_LW disables the forward")
+  code = host({ "pin" }, R, { bin })
+  ok(code == 0 and slurp(echo_out) == nil, "another command runs as the invoked host")
+  -- Followed: the relay form is redirected to the pin instead (never forwarded).
+  os.remove(repo .. "/.lw/local")
+  code, out, err = host({ "daemon", "run", "--stdio", "--root", repo }, nil, { bin })
+  ok(slurp(echo_out) == nil and err:find("pinned lw 0.1.50", 1, true),
+    "followed: redirected to the pinned release, not forwarded  (" .. err .. ")")
+
+  -- A redirect to a release older than the working copy's last writer warns
+  -- (headless §16.23 "Moving to an older lw"). The pinned release is the
+  -- fake lw, placed in the executable cache under its own hash.
+  local sha = verify.sha256_hex(slurp(fake)):lower()
+  local asset = require("boot.pin").detect_asset()
+  local mirror = sb .. "/mirror"
+  paths.mkdirp(mirror)
+  write(mirror .. "/" .. asset, slurp(fake))
+  write(repo .. "/lw.pin", "version = 0.2.0-beta.9\nsha256_" .. asset .. " = " .. sha .. "\n")
+  write(repo .. "/.lw/user.json", '{"_meta":{"version":2,"written_by":"0.2.0"}}')
+  R = { LW_ROOT = repo, LOOMWORKS_RELEASE_URL = mirror }
+  code, out, err = host({ "build" }, R)
+  rec = slurp(echo_out) or ""
+  ok(code == 7 and rec:find("PINNED=0.2.0-beta.9", 1, true), "redirected to the pinned fake  (exit " ..
+    tostring(code) .. ": " .. rec .. out .. err .. ")")
+  ok(err:find("lw: moving this checkout to the older lw 0.2.0-beta.9 (from 0.2.0)", 1, true),
+    "a redirect older than the working copy's writer warns  (" .. err .. ")")
+  write(repo .. "/.lw/user.json", '{"_meta":{"version":2,"written_by":"0.2.0-beta.9"}}')
+  code, out, err = host({ "build" }, R)
+  ok(code == 7 and not err:find("moving this checkout", 1, true),
+    "no warning once the pinned release wrote it  (" .. err .. ")")
+  -- Ignored: the build runs here, not the pinned fake.
+  write(repo .. "/.lw/local", "pin = ignore\n")
+  code, out, err = host({ "build" }, R)
+  ok(slurp(echo_out) == nil and not err:find("(pinned)", 1, true),
+    "an ignored pin: no redirect  (" .. err .. ")")
+  paths.rm_rf(sb)
+end
+
 print("boot.paths — LOOMWORKS_INSTALL_DIR is retired: ignored, its folder untouched (§16.22)")
 do
   local function with_env(name, value, fn)
@@ -2166,8 +2493,12 @@ os.exit(0)
       "a 0.2.0-beta.9 pin: `lw init` runs  (exit " .. tostring(code) .. ": " .. out .. err .. ")")
     code, out, err = lw({ "build" }, fwd_env, b9)
     recs, raw = dumped()
-    ok(code == 0 and (recs[1] or {}).PINNED == "0.2.0-beta.9" and not err:find(".lw/user.json", 1, true),
+    ok(code == 0 and (recs[1] or {}).PINNED == "0.2.0-beta.9" and not err:find("does not read .lw/user.json", 1, true),
       "a 0.2.0-beta.9 pin: redirected, no hint  (exit " .. tostring(code) .. ": " .. raw .. err .. ")")
+    -- `lw init` here (9.8.7) wrote .lw/user.json: the redirect moves it to an
+    -- older lw, said in one line (headless §16.23 "Moving to an older lw").
+    ok(err:find("lw: moving this checkout to the older lw 0.2.0-beta.9 (from 9.8.7)", 1, true) ~= nil,
+      "a 0.2.0-beta.9 pin: the redirect to an older lw than the working copy's writer warns  (" .. err .. ")")
   end
   paths.rm_rf(sb)
 end

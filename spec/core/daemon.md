@@ -624,6 +624,16 @@ Runtime   unreadable daemon handle — the next workspace command recovers it (d
 `in-process` in `in-process` mode, when neither the runtime lock nor a handle
 exists.
 
+**Pin line.** In a repository whose pin is ignored (headless §16.23 "Ignored
+pin"), a `Pin` line follows `Runtime`, computed from local reads only (the
+pin, `.lw/local` and the running executable):
+
+```
+Pin       pin ignored: pinned 0.1.43, running /usr/local/bin/lw 0.2.0+dev
+```
+
+Following the pin, or without one, there is no `Pin` line.
+
 **Running tasks.** Under the Runtime line, `lw status` lists the daemon's
 running tasks, one line each: the operation (`kind`), the profile, the origin
 (`lw` for `cli`, `editor`), the elapsed time since `started_at`, and the
@@ -945,7 +955,15 @@ relay runs the socket handshake on its behalf:
      talking to an attached runtime (a repository pinned before 5i): the
      editor treats it as such and never sends `retire` over it.
    - `relay = { lw_version }`: the relay's own code identity (§19.9), which
-     is the identity of the daemon it would launch. A client weighs a
+     is the identity of the daemon it would launch. With the pin ignored
+     (headless §16.23 "Ignored pin") it also carries `pin = { version, mode =
+     "ignore", exe, no_path_lw? }`: the pinned version, the relay's resolved
+     executable path (that of the lw it forwarded to, which is the relay its
+     client talks to), and `no_path_lw = true` when the relay looked for an
+     `lw` on the search path and found none, so it runs itself. A client
+     shows it ("pin ignored: pinned X, running <exe> <lw_version>"); it
+     changes no rule. Absent when the pin is followed or there is none, and
+     from a relay older than the field. A client weighs a
      daemon's identity against it (§19.9 "Editor retirement").
 
    All three are optional fields added to `welcome`, as the frozen-subset rule
@@ -1056,16 +1074,35 @@ into a protocol rule and a client policy:
   The once-per-version rule, now keyed by identity, bounds the editor and a
   CLI of another binary restarting each other's daemon. A daemon whose only
   incompatibility is older schemas stays observed while the editor waits for
+
   it to go idle, and for the whole session when the editor declines to retire
   it.
+- **Pin mode switch.** `lw pin ignore` and `lw pin follow` (headless §16.24)
+  change which build runs the workspace's operations without running one, so
+  the switch itself applies the rules above to the workspace daemon: when
+  the new effective identity — the pinned release when following (unless it
+  is the invoked lw's own version), the invoked lw when ignoring — differs
+  from the running daemon's, an **idle** daemon is stopped (§19.11) and a
+  **busy** one is sent `retire`; it never stops a busy daemon. It speaks only
+  the frozen control subset, so a daemon of any version is covered, and it
+  launches nothing: the next command, or the editor's relay, starts the new
+  build. A daemon of the same identity, none, or one that does not answer
+  (reported in one line, with `lw daemon stop`) is left alone. Connected
+  relays then exit (§19.10 "Relay exit status"), and the editor's relaunched
+  relay applies the new mode (with the pin ignored, it forwards to the lw on
+  the search path, headless §16.23). The switch prints what it did in one
+  line, e.g. `lw: the workspace daemon (lw 0.1.43) is busy — it restarts as
+  lw 0.2.0+dev when idle`. With the editor and the shell resolving to
+  different binaries (no `lw` on the search path, or a launcher run) the
+  existing once-per-identity editor rule bounds the replacements.
 
 ### 19.10 Launch
 
 *Status: master (`daemon/launch.lua`, `daemon/ensure.lua`,
 `daemon/rlog.lua`). In `daemon` mode the workspace commands launch — the
 commands that need no workspace (`status`, `health`, `pull`, `worktree`,
-`settings`, `help`, `daemon …`) and the recovery commands (`trust`, `nuke`,
-`unlock`) never do; the `Runtime` row says the daemon "starts on the next
+`settings`, `help`, `daemon …`, `pin`) and the recovery commands (`trust`,
+`nuke`, `reset --state`, `unlock`) never do; the `Runtime` row says the daemon "starts on the next
 command". The ensure step of a command waits about a second per step at most
 (connect + handshake, `ping`), and for a daemon still starting at most about
 a second, once, before running without it. A command the daemon would run (a
@@ -2250,8 +2287,13 @@ in-process path in this step; they are not routed commands, so they print no
 daemon line, and their cross-process locks (§16.6, §19.3) serialize them with
 the daemon's operations as with any other process:
 
-- `lw nuke` — removes the workspace's build state (`.lw/build/`, the build
+- `lw reset --state` (headless §16.30) — deletes the build and health caches
+  without loading the workspace; with `--builds` also the build state, as
+  `lw nuke`;
+- `lw nuke` — the alias of `lw reset --state --builds`: removes the
+  workspace's build state (`.lw/build/`, the build
   and health caches), taking every build-directory lock first (§19.3); the
+
   editor's nuke in `daemon` mode is `Maintenance/1.nuke` ([loomworks.nvim `spec/plugin.md` §19.16](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#1916-the-editor-as-a-client) "Model
   writes");
 - `lw device clean` (§16.34) — its device locks and the device's staging stay

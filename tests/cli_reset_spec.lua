@@ -439,3 +439,198 @@ describe("lw reset (on-disk)", function()
     assert.is_truthy(r.stderr:find("--all", 1, true))
   end)
 end)
+
+-- `lw reset --state [--builds] [-y]` (headless §16.30): the derived caches
+-- reset WITHOUT loading the workspace — an allowlist (never the working copy,
+-- `.lw/local` or the build directories), listed, confirmed, refused under a
+-- busy daemon or a pending commit journal; `lw nuke` is its `--builds` alias.
+describe("lw reset --state", function()
+  local function put(p, s)
+    vim.fn.mkdir(vim.fn.fnamemodify(p, ":h"), "p")
+    local f = assert(io.open(p, "wb")); f:write(s); f:close()
+  end
+  local function read(p)
+    local f = io.open(p, "rb"); if not f then return nil end
+    local s = f:read("*a"); f:close(); return s
+  end
+  local inspect = require("loomworks.daemon.inspect")
+  local command = require("loomworks.daemon.command")
+  local real_state, real_query, real_stop
+  before_each(function()
+    real_state, real_query, real_stop = inspect.state, command.query, cli._state_reset_stop
+  end)
+  after_each(function()
+    inspect.state, command.query, cli._state_reset_stop = real_state, real_query, real_stop
+    cli._test_interactive = nil
+  end)
+
+  --- A workspace whose build cache has a NEWER schema (no load can read it),
+  --- with a health cache, `.lw/local` and a build tree.
+  local function state_ws()
+    local root = make_ws()
+    put(root .. "/.lw/cache.json", '{"_meta":{"version":99,"written_by":"9.9.9"}}')
+    put(root .. "/.lw/cache.json.bak", "{}")
+    put(root .. "/.lw/health.json", "{}")
+    put(root .. "/.lw/local", "pin = ignore\n")
+    put(root .. "/.lw/build/App/Debug/marker.txt", "x")
+    return root
+  end
+
+  it("deletes only the build and health caches, listing what it deletes and keeps", function()
+    local root = state_ws()
+    local user = read(root .. "/.lw/user.json")
+    local r = capture(function() return cli.cmd_reset_state(root, { "reset", "--state", "-y" }) end)
+    assert.is_nil(r.exit_code, r.stderr)
+    local d, k = r.stdout:find("Will delete:", 1, true), r.stdout:find("Will keep:", 1, true)
+    assert.is_truthy(d and k and d < k, r.stdout)
+    for _, p in ipairs({ ".lw/cache.json", ".lw/cache.json.bak", ".lw/health.json" }) do
+      assert.is_truthy(r.stdout:find("\n  " .. p .. "\n", 1, true), r.stdout)
+      assert.is_nil(uv.fs_lstat(root .. "/" .. p), p .. " is gone")
+    end
+    for _, p in ipairs({ ".lw/user.json", ".lw/local", "loomworks.json", ".lw/build/" }) do
+      assert.is_truthy(r.stdout:find("  " .. p .. "\n", k, true), p .. " listed as kept: " .. r.stdout)
+    end
+    assert.equals(user, read(root .. "/.lw/user.json"))
+    assert.equals("pin = ignore\n", read(root .. "/.lw/local"))
+    assert.is_not_nil(uv.fs_stat(root .. "/.lw/build/App/Debug/marker.txt"))
+    assert.is_truthy(r.stdout:find("RESET:", 1, true), r.stdout)
+    assert.is_nil(require("loomworks.op_lock").read(root), "the operation lock was released")
+    assert.is_nil(uv.fs_lstat(root .. "/.lw/cache.json.lock"), "the save lock was released")
+    -- The workspace loads again: from an empty build cache.
+    assert.is_not_nil(cli._load_workspace(root, false))
+  end)
+
+  it("never deletes through a link at an allowlisted name, and says so", function()
+    local root = state_ws()
+    local target = root .. "/elsewhere.json"
+    put(target, "keep")
+    os.remove(root .. "/.lw/health.json")
+    local ok = uv.fs_symlink(target, root .. "/.lw/health.json")
+    if not ok then return end -- (no symlink privilege on this host)
+    local r = capture(function() return cli.cmd_reset_state(root, { "reset", "--state", "-y" }) end)
+    assert.is_nil(r.exit_code, r.stderr)
+    assert.is_truthy(r.stdout:find("Not removed (not a regular file in a real .lw/): .lw/health.json", 1, true),
+      r.stdout)
+    assert.equals("keep", read(target))
+    assert.is_not_nil(uv.fs_lstat(root .. "/.lw/health.json"))
+  end)
+
+  it("non-interactive without -y refuses, naming the flag, and deletes nothing", function()
+    local root = state_ws()
+    cli._test_interactive = false
+    local r = capture(function() return cli.cmd_reset_state(root, { "reset", "--state" }) end)
+    assert.equals(1, r.exit_code)
+    assert.is_truthy(r.stderr:find("Re-run with -y", 1, true), r.stderr)
+    assert.is_not_nil(uv.fs_stat(root .. "/.lw/cache.json"))
+  end)
+
+  it("interactive: a declined prompt deletes nothing", function()
+    local root = state_ws()
+    cli._test_interactive = true
+    local rd = io.read
+    io.read = function() return "n" end
+    local r = capture(function() return cli.cmd_reset_state(root, { "reset", "--state" }) end)
+    io.read = rd
+    assert.equals(1, r.exit_code)
+    assert.is_truthy(r.stderr:find("aborted", 1, true), r.stderr)
+    assert.is_not_nil(uv.fs_stat(root .. "/.lw/cache.json"))
+  end)
+
+  it("nothing to delete succeeds", function()
+    local root = make_ws()
+    for _, n in ipairs({ "cache.json", "cache.json.bak", "health.json", "health.json.bak" }) do
+      os.remove(root .. "/.lw/" .. n)
+    end
+    local r = capture(function() return cli.cmd_reset_state(root, { "reset", "--state" }) end)
+    assert.is_nil(r.exit_code, r.stderr)
+    assert.is_truthy(r.stdout:find("Nothing to delete", 1, true), r.stdout)
+  end)
+
+  it("usage errors: a profile, --all or an unknown flag (exit 2)", function()
+    local root = state_ws()
+    for _, args in ipairs({ { "reset", "--state", "Dev" }, { "reset", "--state", "--all" },
+        { "reset", "--state", "--bogus" } }) do
+      local r = capture(function() return cli.cmd_reset_state(root, args) end)
+      assert.equals(2, r.exit_code, table.concat(args, " "))
+    end
+    assert.is_not_nil(uv.fs_stat(root .. "/.lw/cache.json"))
+  end)
+
+  it("a pending commit journal makes it refuse, naming the file", function()
+    local root = state_ws()
+    put(root .. "/.lw/txn.json", "{}")
+    local r = capture(function() return cli.cmd_reset_state(root, { "reset", "--state", "-y" }) end)
+    os.remove(root .. "/.lw/txn.json")
+    assert.equals(1, r.exit_code)
+    assert.is_truthy(r.stderr:find(".lw/txn.json", 1, true), r.stderr)
+    assert.is_not_nil(uv.fs_stat(root .. "/.lw/cache.json"))
+  end)
+
+  it("a busy workspace daemon makes it refuse; an idle one is stopped first", function()
+    local root = state_ws()
+    inspect.state = function(r) return { kind = "live", root = r, lock = { pid = 4242 } } end
+    command.query = function() return { busy = true, lw_version = "0.2.0" } end
+    local stopped = 0
+    cli._state_reset_stop = function() stopped = stopped + 1; return 0 end
+    local r = capture(function() return cli.cmd_reset_state(root, { "reset", "--state", "-y" }) end)
+    assert.equals(1, r.exit_code)
+    assert.is_truthy(r.stderr:find("pid 4242, lw 0.2.0) is busy", 1, true), r.stderr)
+    assert.equals(0, stopped)
+    assert.is_not_nil(uv.fs_stat(root .. "/.lw/cache.json"))
+    command.query = function() return { busy = false, clients = 1, lw_version = "0.2.0" } end
+    r = capture(function() return cli.cmd_reset_state(root, { "reset", "--state", "-y" }) end)
+    assert.is_nil(r.exit_code, r.stderr)
+    assert.equals(1, stopped)
+    assert.is_truthy(r.stderr:find("stopped the idle workspace daemon (pid 4242)", 1, true), r.stderr)
+    assert.is_nil(uv.fs_stat(root .. "/.lw/cache.json"))
+  end)
+
+  it("--builds: the nuke, its build state listed, then the other entries", function()
+    local root = state_ws()
+    put(root .. "/.lw/build/stray/x.txt", "x")
+    local lines = cli._state_reset_build_lines(root)
+    assert.is_truthy(vim.tbl_contains(lines, "    .lw/build/stray/"), vim.inspect(lines))
+    local r = capture(function() return cli.cmd_reset_state(root, { "reset", "--state", "--builds", "-y" }) end)
+    assert.is_nil(r.exit_code, r.stderr)
+    assert.is_truthy(r.stdout:find("Will delete (build state only; your configuration is kept):", 1, true), r.stdout)
+    assert.is_truthy(r.stdout:find("    .lw/build/stray/", 1, true), r.stdout)
+    assert.is_truthy(r.stdout:find("Will keep:", 1, true), r.stdout)
+    assert.is_truthy(r.stdout:find("NUKED", 1, true), r.stdout)
+    assert.is_nil(uv.fs_stat(root .. "/.lw/build"))
+    assert.is_nil(uv.fs_stat(root .. "/.lw/cache.json"))
+    assert.is_not_nil(uv.fs_stat(root .. "/.lw/user.json"))
+    assert.is_not_nil(uv.fs_stat(root .. "/.lw/local"))
+  end)
+
+  it("--builds lists a profile's computed build directory under its profile", function()
+    local root = make_ws()
+    local ws, profile = load(root)
+    local pp = profile:projects()[1]
+    local bd = pp and pp:build_dir()
+    if not bd then return end -- (this module computes no build directory)
+    put(bd .. "/marker.txt", "x")
+    local lines = cli._state_reset_build_lines(root)
+    local want = "    .lw/build/" .. bd:gsub("\\", "/"):match("/%.lw/build/(.+)$") .. "/  (profile " .. profile.key .. ")"
+    assert.is_truthy(vim.tbl_contains(lines, want), want .. " in " .. vim.inspect(lines))
+    assert.is_not_nil(ws)
+  end)
+
+  it("lw nuke is the --builds alias: same listing and outcome", function()
+    local root = state_ws()
+    local r = capture(function() return cli.cmd_nuke(root, { "nuke", "-y" }) end)
+    assert.is_nil(r.exit_code, r.stderr)
+    assert.is_truthy(r.stdout:find("Will delete (build state only", 1, true), r.stdout)
+    assert.is_truthy(r.stdout:find("NUKED", 1, true), r.stdout)
+    assert.is_nil(uv.fs_stat(root .. "/.lw/build"))
+    assert.is_not_nil(uv.fs_stat(root .. "/.lw/local"))
+    local u = capture(function() return cli.cmd_nuke(root, { "nuke", "--builds" }) end)
+    assert.equals(2, u.exit_code)
+  end)
+
+  it("is recognised before the workspace load (never routed, no daemon ensure)", function()
+    assert.is_true(cli._is_state_reset({ "reset", "--state" }))
+    assert.is_true(cli._is_state_reset({ "reset", "-y", "--state", "--builds" }))
+    assert.is_false(cli._is_state_reset({ "reset", "Dev" }))
+    assert.is_false(cli._is_state_reset({ "nuke" }))
+  end)
+end)

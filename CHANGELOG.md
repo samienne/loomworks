@@ -28,8 +28,37 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
 
 ## Unreleased
 
+### Added
+
+- `lw pin ignore` makes one checkout of a pinned repository run the lw you
+  invoke (a newer release, or a development build) instead of the pinned
+  release, as `--no-pin` would on every command; `lw pin follow` follows the
+  pin again and `lw pin` shows the mode. The setting is `.lw/local`, never
+  committed. With the pin ignored, the editor's daemon relay runs the lw on
+  your search path, so the editor and the shell run one binary; `lw status`
+  shows a `Pin` line and `lw health` and `lw bootstrap` report it. Switching
+  stops an idle workspace daemon of the previous build, or asks a busy one to
+  restart when idle. Moving a checkout to an older lw (following the pin
+  again, or a redirect to a pinned release older than the working copy's
+  last writer) prints a one-line warning: an older lw may drop settings it
+  does not know (#173).
+- `lw reset --state` deletes only the build cache and the health cache,
+  without loading the workspace: the way out when the build cache was
+  written by a newer lw. It keeps your working copy, `.lw/local`, the pin and
+  the build directories (the next build configures them again in place),
+  lists what it deletes and keeps, and confirms first (`-y` in CI). Under a
+  pin of a release before 0.2.0-beta.7 it deletes that release's
+  `.nvim/loomworks.cache.json` and `.nvim/loomworks.health.json`.
+  `--builds` also deletes the build state, listed per profile; `lw nuke` is
+  now its alias (#173).
+
 ### Changed
 
+- A working copy or build cache written by a newer lw now names the fixes:
+  `lw pin ignore` and `lw bootstrap upgrade` in a pinned repository (else
+  "update lw"), and for the build cache `lw reset --state`. A newer lw about
+  to redirect to a pinned release that cannot read the state prints them
+  first (#173).
 - `lw run` with no target named needs the profile's default target and no
   longer falls back to its only launchable target: without a stored default
   it refuses before configuring or building anything, naming both fixes

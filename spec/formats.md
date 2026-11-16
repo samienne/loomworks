@@ -44,10 +44,11 @@ for information only.
 | Daemon handle | `<root>/.lw/daemon-<S>.json` | normative | §8 |
 | Version pin | `lw.pin` at the repository root | normative | §9 |
 | Migration marker | `<root>/.lw/migrated.json` | normative | §10 |
+| Pin mode | `.lw/local` at the pin root | normative | §11 |
 
 `<root>` is the workspace root. Every per-workspace file lives in the
-workspace state directory `<root>/.lw/`, whose full layout, self-ignore file
-and reserved names are [headless §16.44](core/headless.md#1644-workspace-state-directory-lw).
+workspace state directory `<root>/.lw/`, whose full layout and self-ignore file
+are [headless §16.44](core/headless.md#1644-workspace-state-directory-lw).
 Releases before 0.2.0 keep the same files in `<root>/.nvim/` under
 `loomworks.`-prefixed names (`.nvim/loomworks.user.json` for `.lw/user.json`,
 and so on); a 0.2.0+ reader reads the legacy names only to migrate (§10).
@@ -520,3 +521,24 @@ divergence report. A reader ignores unknown members. A regular-file marker
 that does not parse still marks the migration done, with no divergence
 report; a marker path that is not a regular file stops the command (headless
 §16.44 *Crash safety*).
+
+## 11. Pin mode `.lw/local`
+
+What an ignored pin does is [headless §16.23](core/headless.md#1623-global-pin-aware-redirect)
+"Ignored pin"; `lw pin` writes and deletes the file (headless §16.24).
+
+`<pin root>/.lw/local` uses the syntax of `lw.pin` (§9): `key = value`
+lines, blank lines and `#` comments ignored, unknown keys ignored. One key is
+defined: `pin`, whose only value is `ignore`. The file holds no version: an
+ignored pin runs whichever lw is invoked.
+
+```
+# written by lw pin ignore; lw pin follow deletes it
+pin = ignore
+```
+
+The file is absent when the pin is followed. A reader treats a missing file,
+a file without `pin`, and a `pin` of any other value alike — follow — and
+warns once for the last two and for a path that is not a regular file. The
+file is not signed: it selects no code beyond the lws the user installed,
+exactly as the no-pin flag does, and lives in the self-ignored `.lw/`.

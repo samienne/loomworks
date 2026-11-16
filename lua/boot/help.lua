@@ -237,11 +237,36 @@ the sha256 check is independent and always enforced. `--verify` additionally
 runs `gh attestation verify` when gh is present (skipped with a note otherwise).
 Air-gapped: point LOOMWORKS_RELEASE_URL at a local mirror directory.
 
-Bypass the pin with `--no-pin`, or LOOMWORKS_LW=<path> to run a specific binary
+Bypass the pin with `--no-pin` (`lw pin ignore` does so for good in one
+checkout), or LOOMWORKS_LW=<path> to run a specific binary
 (the dev / test-at-head override). `lw health` checks the launcher files too
 (`lw help launcher`). Before lw 0.1.37 plain `lw bootstrap` wrote the files; it
 now only reports - use `lw bootstrap install`. A host command (handled by lw
 itself); never redirected by an existing pin.]==],
+
+  pin = [[lw pin
+lw pin ignore
+lw pin follow
+
+Whether this checkout follows its lw.pin. In a pinned repository a globally
+installed lw runs the pinned release for workspace operations; `lw pin ignore`
+makes this checkout run the lw you invoke instead (a newer release, or a
+development build), as `--no-pin` would on every command.
+
+  (no sub-command)  show the pin root, the pinned version and the mode
+                    (follow or ignore) and, ignored, the lw that runs
+  ignore            write .lw/local (`pin = ignore`): every command here runs
+                    as the invoked lw; the editor's daemon relay runs the lw
+                    on your search path
+  follow            delete .lw/local: follow the pin again
+
+The setting is per checkout and never committed (.lw/ ignores itself);
+deleting .lw/ follows the pin again. Switching stops an idle workspace daemon
+of the previous build, or asks a busy one to restart when idle. Following the
+pin again may move this checkout to an older lw, which can drop settings it
+does not know and refuse state a newer lw wrote (lw reset --state discards the
+build cache). `lw status` shows an ignored pin on its Pin line. A host command
+(handled by lw itself); never redirected by a pin.]],
 }
 
 local USAGE = [[lw - loomworks standalone runner

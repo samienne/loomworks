@@ -922,9 +922,10 @@ describe("review hardening of the ensure path (§19.7, §19.10)", function()
         assert.truthy(ms < 2500, ms .. " ms")
     end)
 
-    it("trust, nuke and unlock never start a daemon", function()
+    it("trust, nuke, reset --state and unlock never start a daemon", function()
         local env = H.env({ LOOMWORKS_RUNTIME = "daemon" })
         for _, args in ipairs({ { "unlock", "--workspace" }, { "unlock", "--journal" }, { "nuke", "-y" },
+            { "reset", "--state", "-y" },
             { "--no-input", "trust" } }) do
             H.lw(args, { env = env, cwd = root })
             assert.is_nil(rlock.read(root), table.concat(args, " ") .. " started a daemon")

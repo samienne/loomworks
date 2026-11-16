@@ -196,6 +196,16 @@ local command, command_sub = pin.command_words(forwarded)
 local pin_start = (command == "daemon") and paths.norm(pin.root_option(forwarded)) or nil
 pin_start = pin_start or paths.norm(lw_root_env)
 local pin_root = pin.find_pin_root(pin_start or uv.cwd())
+-- An ignored pin (`<pin root>/.lw/local`, headless §16.23 "Ignored pin"): the
+-- no-pin flag made persistent for this checkout. Never read in the pinned
+-- context (a launcher execs the pinned release, which runs itself). A file
+-- that says anything else means follow, with one warning line.
+local pin_ignored = false
+if pin_root and not pinned_sentinel then
+  local mode, warn = pin.read_local(pin_root)
+  if warn then io.stderr:write(warn .. "\n") end
+  pin_ignored = mode == "ignore"
+end
 
 -- ---- host commands: version / self-update (work without a bundle) -----------
 -- `--version` / `-v` are the conventional spellings; accept them as aliases so
@@ -547,8 +557,50 @@ do
     no_pin = no_pin,
     lw_override = lw_override,
     dev = dev_opt_in,
+    ignored = pin_ignored,
+    state_reset = pin.is_state_reset(forwarded),
   }
   local action, _, since = pin.decide(decision)
+  -- Whether this workspace pins an lw: the newer-schema refusal names `lw pin
+  -- ignore` / `lw bootstrap upgrade` only then (three-file-model §2.7).
+  _G.__loomworks_has_pin = p ~= nil
+  -- An ignored pin: this host runs every command itself. The `Pin` line of
+  -- `lw status`, health and the relay's `welcome` (daemon §19.8 `relay.pin`)
+  -- read this — also in a relay forwarded here with --no-pin.
+  if pin_ignored and p then
+    _G.__loomworks_pin_ignored = { version = p.version }
+  end
+  -- The relay form with the pin ignored runs the lw on the search path, so
+  -- that the editor (which launches the relay from the binary it selected)
+  -- and the shell run one binary (headless §16.23 "Ignored pin"). The
+  -- no-pin flag the target gets stops any further forward (one hop); the
+  -- LOOMWORKS_LW override and the development facility disable it.
+  if pin_ignored and p and command == "daemon" and command_sub == "run" and stdio
+      and not no_pin and not lw_override and not dev_opt_in then
+    local bexe = require("boot.exe")
+    local found = bexe.resolve("lw", paths.is_windows and { exts = { ".exe" } } or nil)
+    local okx, self_exe = pcall(uv.exepath)
+    local kind = pin.forward_kind(found, okx and self_exe or nil, function(x)
+      local okr, r = pcall(uv.fs_realpath, x)
+      return okr and r or nil
+    end)
+    if kind == "none" then
+      _G.__loomworks_pin_ignored.no_path_lw = true
+    elseif kind == "forward" then
+      -- The forwarding environment carries only the workspace root (no
+      -- pinned-context marker: it was removed at startup).
+      uv.os_setenv("LW_ROOT", pin_start or uv.cwd())
+      local args = { "--no-pin" }
+      for _, a in ipairs(forwarded) do args[#args + 1] = a end
+      local code, ferr = bexe.run_in_place(found, args)
+      if not code then
+        io.stderr:write("lw: cannot run " .. found .. " (the lw on the search path, the pin being ignored" ..
+          " here): " .. tostring(ferr) .. "\n")
+        exit(1)
+      end
+      exit(code)
+    end
+  end
   -- A command this host runs itself in a repository that pins another lw
   -- leaves the workspace daemon to the pinned lw: the CLI's
   -- ensure step neither starts nor replaces one (loomworks.daemon.ensure).
@@ -565,6 +617,8 @@ do
     end
     local launchers = { sh = has("lw.sh"), cmd = has("lw.cmd") }
     _G.__loomworks_legacy_pin = pin.legacy_layout_message(legacy, invoked_form, forwarded, launchers)
+    -- (`lw reset --state` deletes that release's caches under their legacy names, §16.30.)
+    _G.__loomworks_legacy_pin_version = legacy
     _G.__loomworks_legacy_pin_pull = pin.legacy_layout_pull_note(legacy, invoked_form, launchers)
   end
   -- The pinned lw predates the command: never redirect to a host that would
@@ -626,10 +680,20 @@ do
     end
     -- Record its last use (`lw cleanup --all` prunes executables unused for long).
     exe_cache.touch(sha)
-    -- A working copy of a newer lw the pinned one ignores: say so once.
-    if legacy and uv.fs_stat(pin_root .. "/.lw/user.json") then
+    -- State the pinned release cannot read (headless §16.23): its own
+    -- refusal names neither `lw pin ignore` nor `lw reset --state`, so say it
+    -- first. It replaces the hint about a newer working copy it ignores.
+    local outgrown = pin.state_outgrown_hint(pin_root, p.version, self_version, invoked_form)
+    if outgrown then
+      io.stderr:write(outgrown .. "\n")
+    elseif legacy and uv.fs_stat(pin_root .. "/.lw/user.json") then
+      -- A working copy of a newer lw the pinned one ignores: say so once.
       io.stderr:write(pin.legacy_layout_hint(legacy, invoked_form) .. "\n")
     end
+    -- A redirect to a release older than the working copy's last writer
+    -- (headless §16.23 "Moving to an older lw"): warned, never asked.
+    local older = pin.redirect_older_line(pin_root, p.version, invoked_form)
+    if older then io.stderr:write(older .. "\n") end
     -- Pass the sentinel + workspace root to the pinned lw explicitly (they
     -- were removed from our environment at startup, spec §16.22): set just
     -- before the exec, which is the only process this one starts from here
@@ -740,6 +804,17 @@ if version_json then
   end
   io.write(require("loomworks.daemon.descriptor").encode(doc) .. "\n")
   exit(0)
+end
+
+-- `lw pin [ignore|follow]` (headless §16.24): a host command like
+-- `bootstrap` — never redirected, no workspace — run here with system Lua,
+-- which its switch needs to retire a daemon of the previous build.
+if host_command == "pin" then
+  local start = pin_start or (uv.cwd():gsub("\\", "/"):gsub("/+$", ""))
+  exit(require("loomworks.pin_mode").run(forwarded, { start = start, pin_root = pin_root, invoked = invoked_form }, {
+    out = function(l) io.write(l .. "\n") end,
+    err = function(l) io.stderr:write(l .. "\n") end,
+  }))
 end
 
 _G.arg = forwarded

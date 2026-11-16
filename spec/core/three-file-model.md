@@ -730,10 +730,19 @@ cache).
   the workspace is refused (as for a version mismatch, §15 invariant 11), and a
   newer-schema file appearing while a workspace is loaded returns it to that
   refused state instead of being reconciled. The message names both versions
-  and the remedy — `.lw/cache.json was written by loomworks X
-  (schema N), newer than this loomworks Y (schema M) — update loomworks; the
-  file was left unchanged` — and does not offer a reset or a discard as the
-  fix, since the file is valid, only newer.
+  and the remedies, and the file is never resolved automatically. It names
+  the file, the version that wrote it with its schema, and this lw's limit,
+  then the fixes, spelled in the invoked form (headless §16.24):
+  `.lw/cache.json was written by loomworks X (schema N), newer than this
+  loomworks Y reads (schema M); the file was left unchanged — to run a newer
+  lw here: lw pin ignore; to move the pin: lw bootstrap upgrade; to discard
+  the build cache (builds are kept): lw reset --state`. Without a pin the
+  first two read "update lw". For the working copy the reset is not offered
+  (headless §16.30 never deletes it): the file is valid, only newer.
+  Releases before this rule say "update loomworks"; a newer host redirecting
+  to such a pinned release prints the remedies first (headless §16.23
+  "State the pinned release cannot read").
+
 - **Same schema, newer writer** — `written_by` newer than the running version:
   the file is loaded and saved normally, and a warning is shown **once per
   process per file**: `… was written by loomworks X, newer than this loomworks

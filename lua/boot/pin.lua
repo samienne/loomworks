@@ -507,20 +507,276 @@ function M.root_option(args)
   return nil
 end
 
+-- ---------------------------------------------------------------------------
+-- Pin mode: `<pin root>/.lw/local` (formats §11, headless §16.23 "Ignored
+-- pin"). Its absence means follow the pin.
+-- ---------------------------------------------------------------------------
+
+--- The pin-mode file, relative to the pin root.
+M.LOCAL_FILE = ".lw/local"
+
+--- The pin-mode file's content as `lw pin ignore` writes it.
+M.LOCAL_IGNORE_TEXT = "# written by lw pin ignore; lw pin follow deletes it\npin = ignore\n"
+
+--- Parse `.lw/local` text: the syntax of `lw.pin` (`key = value` lines, blank
+--- lines and `#` comments ignored, unknown keys ignored). Returns "ignore"
+--- when `pin = ignore`, else nil plus why (a line that does not parse, no
+--- `pin` key, or another value — all mean follow).
+--- @param text string|nil
+--- @return "ignore"|nil mode, string|nil why
+function M.parse_local(text)
+  if type(text) ~= "string" then return nil, "cannot be read" end
+  local value
+  for line in (text .. "\n"):gmatch("([^\n]-)\n") do
+    local l = line:gsub("^%s+", ""):gsub("%s+$", "")
+    if l ~= "" and l:sub(1, 1) ~= "#" then
+      local key, val = l:match("^([%w_%.%-]+)%s*=%s*(.-)$")
+      if not key then return nil, "has a malformed line '" .. l .. "'" end
+      if key == "pin" then value = val end
+      -- Unknown keys are ignored (forward compatibility).
+    end
+  end
+  if value == nil then return nil, "has no 'pin' setting" end
+  if value ~= "ignore" then return nil, "names an unknown pin mode '" .. value .. "'" end
+  return "ignore"
+end
+
+--- Read the pin mode of the checkout whose pin root is `pin_root`: "ignore"
+--- when `<pin root>/.lw/local` is a regular file (lstat, never followed
+--- through a link) holding `pin = ignore`; nil (follow) otherwise, with a
+--- one-line warning (`lw: …`) for a file that says anything else or a path
+--- that is not a regular file. A missing file is follow without a warning.
+--- @param pin_root string|nil
+--- @return "ignore"|nil mode, string|nil warning
+function M.read_local(pin_root)
+  if not pin_root then return nil end
+  local path = pin_root .. "/" .. M.LOCAL_FILE
+  local st = uv.fs_lstat(path)
+  if not st then return nil end
+  if st.type ~= "file" then
+    return nil, "lw: " .. path .. " is not a regular file - ignored, following lw.pin"
+  end
+  local f = io.open(path, "rb")
+  local text = f and f:read("*a")
+  if f then f:close() end
+  local mode, why = M.parse_local(text)
+  if mode then return mode end
+  return nil, "lw: " .. path .. " " .. tostring(why) .. " - following lw.pin"
+end
+
+--- The text naming an ignored pin and the lw that runs (daemon §19.6 `Pin`
+--- line, health, the relay's `welcome`).
+--- @param pinned string the pinned version
+--- @param exe string|nil the running executable
+--- @param version string|nil its version
+--- @param no_path_lw boolean|nil a relay that found no lw on the search path
+--- @return string
+function M.ignored_text(pinned, exe, version, no_path_lw)
+  return "pin ignored: pinned " .. tostring(pinned) .. ", running " .. tostring(exe or "lw") ..
+    (version and (" " .. version) or "") .. (no_path_lw and " (no lw on the search path)" or "")
+end
+
+--- Paths compare equal (separators normalized; case-insensitively on Windows).
+local function same_path(a, b, windows)
+  if type(a) ~= "string" or type(b) ~= "string" then return false end
+  a, b = a:gsub("\\", "/"), b:gsub("\\", "/")
+  if windows then a, b = a:lower(), b:lower() end
+  return a == b
+end
+
+--- Where a relay with the pin ignored runs (headless §16.23 "Ignored pin"):
+--- "none" when no `lw` was found on the search path (it runs itself),
+--- "self" when the one found is this executable (the same resolved path: a
+--- link or a differently cased name is the same file), else "forward" (it
+--- runs that lw in its place). Pure: `realpath` resolves links.
+--- @param found string|nil the lw found on the search path
+--- @param self_exe string|nil this process's executable
+--- @param realpath fun(p: string): string|nil
+--- @param windows? boolean
+--- @return "none"|"self"|"forward"
+function M.forward_kind(found, self_exe, realpath, windows)
+  if windows == nil then windows = M.is_windows end
+  if not found then return "none" end
+  if same_path(found, self_exe, windows) then return "self" end
+  local rf, rs = realpath(found), self_exe and realpath(self_exe)
+  if rf and rs and same_path(rf, rs, windows) then return "self" end
+  return "forward"
+end
+
+--- The working copy a release reads, relative to the root: the legacy name
+--- for one before STATE_DIR_SINCE (§16.44).
+--- @param version string
+--- @return string
+function M.working_copy_rel(version)
+  if require("boot.paths").compare_versions(version, M.STATE_DIR_SINCE) < 0 then
+    return ".nvim/loomworks.user.json"
+  end
+  return ".lw/user.json"
+end
+
+--- The `_meta.written_by` of the JSON file at `path`, or nil.
+--- @param path string
+--- @return string|nil
+function M.written_by(path)
+  local f = io.open(path, "rb")
+  if not f then return nil end
+  local s = f:read("*a"); f:close()
+  local ok, doc = pcall(require("boot.json").decode, s)
+  if not ok or type(doc) ~= "table" or type(doc._meta) ~= "table" then return nil end
+  local w = doc._meta.written_by
+  return (type(w) == "string" and w ~= "") and w or nil
+end
+
+--- Is `a` older than `b` (semver precedence; build metadata such as `+dev`
+--- ignored)? False unless both are versions.
+--- @param a string|nil
+--- @param b string|nil
+--- @return boolean
+function M.older(a, b)
+  if type(a) ~= "string" or type(b) ~= "string" then return false end
+  if not a:match("^%d+%.%d+%.%d+") or not b:match("^%d+%.%d+%.%d+") then return false end
+  return require("boot.paths").compare_versions(a, b) < 0
+end
+
+--- The one-line warning of a move to an older lw (headless §16.23 "Moving to
+--- an older lw").
+--- @param to string the older lw's version
+--- @param from string the version moved from
+--- @param user_rel string the working copy the older lw saves (relative)
+--- @param invoked "lw.sh"|"lw.cmd"|"launcher"|"global"|nil
+--- @return string
+function M.older_lw_line(to, from, user_rel, invoked)
+  return "lw: moving this checkout to the older lw " .. tostring(to) .. " (from " .. tostring(from) ..
+    "): it may drop settings it does not know when it saves " .. user_rel ..
+    ", and may refuse state a newer lw wrote (" ..
+    require("boot.launcher_check").cmd(invoked, "reset --state") .. " discards the build cache)"
+end
+
+--- The warning before redirecting to the pinned release `version` when the
+--- working copy that release reads was last written by a newer lw (its
+--- `_meta.written_by`), else nil. Reads only that file; writes nothing.
+--- @param pin_root string
+--- @param version string the pinned version
+--- @param invoked "lw.sh"|"lw.cmd"|"launcher"|"global"|nil
+--- @return string|nil
+function M.redirect_older_line(pin_root, version, invoked)
+  local rel = M.working_copy_rel(version)
+  local w = M.written_by(pin_root .. "/" .. rel)
+  if not w or not M.older(version, w) then return nil end
+  return M.older_lw_line(version, w, rel, invoked)
+end
+
+--- Is `args` (the forwarded argv) `lw reset --state …`? `--state` among the
+--- command's own arguments (before a `--`).
+--- @param args string[]
+--- @return boolean
+function M.is_state_reset(args)
+  local cmd = M.command_words(args)
+  if cmd ~= "reset" then return false end
+  for i = 1, #args do
+    if args[i] == "--" then break end
+    if args[i] == "--state" then return true end
+  end
+  return false
+end
+
+-- The schema (`_meta.version`) each release reads, per state file: the first
+-- release of each schema, newest first (headless §16.23 "State the pinned
+-- release cannot read"). A release older than every entry reads the last
+-- entry's schema.
+M.STATE_SCHEMAS = {
+  cache = { { since = "0.1.50-beta.1", schema = 9 }, { since = "0.0.0", schema = 8 } },
+  user = { { since = "0.0.0", schema = 2 } },
+}
+
+--- The schema of `file` ("cache"|"user") that release `version` reads.
+--- @param file "cache"|"user"
+--- @param version string
+--- @return integer
+function M.state_schema(file, version)
+  local cmp = require("boot.paths").compare_versions
+  local list = M.STATE_SCHEMAS[file]
+  for _, e in ipairs(list) do
+    if cmp(version, e.since) >= 0 then return e.schema end
+  end
+  return list[#list].schema
+end
+
+--- The `_meta` of the JSON file at `path` (signed or plain: only the JSON
+--- object is decoded), or nil.
+local function read_meta(path)
+  local f = io.open(path, "rb")
+  if not f then return nil end
+  local s = f:read("*a"); f:close()
+  local ok, doc = pcall(require("boot.json").decode, s)
+  if not ok or type(doc) ~= "table" or type(doc._meta) ~= "table" then return nil end
+  return doc._meta
+end
+
+--- The line a newer host prints before redirecting to the pinned release
+--- `version` when a state file that release reads (the working copy, then
+--- the build cache; under the legacy names before STATE_DIR_SINCE) has a
+--- schema newer than it reads — its refusal names neither `lw pin ignore`
+--- nor `lw reset --state` (headless §16.23). Nil when none is, or when the
+--- pinned release is newer than `self_version` (not checked). Reads only
+--- each file's `_meta`; writes nothing.
+--- @param pin_root string
+--- @param version string the pinned version
+--- @param self_version string|nil this host's version
+--- @param invoked "lw.sh"|"lw.cmd"|"launcher"|"global"|nil
+--- @return string|nil
+function M.state_outgrown_hint(pin_root, version, self_version, invoked)
+  local cmp = require("boot.paths").compare_versions
+  if type(self_version) == "string" and self_version:match("^%d+%.%d+%.%d+")
+      and cmp(version, self_version) > 0 then
+    return nil
+  end
+  local legacy = cmp(version, M.STATE_DIR_SINCE) < 0
+  local files = {
+    { file = "user", rel = legacy and ".nvim/loomworks.user.json" or ".lw/user.json" },
+    { file = "cache", rel = legacy and ".nvim/loomworks.cache.json" or ".lw/cache.json" },
+  }
+  local lc = require("boot.launcher_check")
+  for _, f in ipairs(files) do
+    local meta = read_meta(pin_root .. "/" .. f.rel)
+    local reads = M.state_schema(f.file, version)
+    if meta and type(meta.version) == "number" and meta.version > reads then
+      local by = (type(meta.written_by) == "string" and meta.written_by ~= "")
+        and ("lw " .. meta.written_by) or "a newer lw"
+      local line = "lw: " .. f.rel .. " was written by " .. by .. " (schema " .. tostring(meta.version) ..
+        "), newer than the pinned lw " .. version .. " reads (schema " .. tostring(reads) ..
+        "), so it will refuse it - to run this lw here: " .. lc.cmd(invoked, "pin ignore") ..
+        "; to move the pin: " .. lc.cmd(invoked, "bootstrap upgrade")
+      if f.file == "cache" then
+        line = line .. "; to discard the build cache (builds are kept): " .. lc.cmd(invoked, "reset --state")
+      end
+      return line
+    end
+  end
+  return nil
+end
+
 --- Decide what a global host should do about a pin. Pure — all inputs explicit.
 --- "unsupported": the pinned release predates the command (REDIRECT_SINCE);
 --- the third value is the release that introduced it. The caller does not
 --- redirect, and leaves the workspace daemon to the pinned lw.
---- @param o { command?, sub?, stdio?, pin?, self_version?, pinned_sentinel?, no_pin?, lw_override?, dev? }
+--- `ignored`: the checkout ignores its pin (`.lw/local`, which the caller
+--- reads only outside the pinned context) — the no-pin flag made persistent.
+--- `state_reset`: the command is `lw reset --state` (never redirected).
+--- @param o { command?, sub?, stdio?, pin?, self_version?, pinned_sentinel?, no_pin?, lw_override?, dev?, ignored?, state_reset? }
 --- @return "in-process"|"redirect"|"bypass"|"no-pin"|"unsupported" action, string reason, string|nil since
 function M.decide(o)
   if o.pinned_sentinel then return "in-process", "already running as the pinned host" end
   if o.dev then return "bypass", "development source" end
   if o.lw_override then return "bypass", "LOOMWORKS_LW override" end
   if o.no_pin then return "bypass", "--no-pin" end
+  if o.ignored then return "bypass", ".lw/local: pin ignored" end
   if not M.is_redirect_command(o.command, o.sub) then
     return "in-process", "not a workspace operation"
   end
+  -- `lw reset --state` is a recovery command (headless §16.30): it repairs
+  -- what the pinned release cannot read, so it is never redirected.
+  if o.state_reset then return "in-process", "recovery command (reset --state)" end
   if not o.pin then return "no-pin", "no pin in this workspace" end
   if o.self_version and o.pin.version == o.self_version then
     return "in-process", "pinned version == self"
@@ -537,10 +793,10 @@ end
 --- — or nil. A command such a host runs itself (a config edit, `lw profile
 --- select`) must not start or replace the workspace daemon: that is the
 --- pinned lw's. Pure — the same inputs as `decide`.
---- @param o { pin?, self_version?, pinned_sentinel?, no_pin?, lw_override?, dev? }
+--- @param o { pin?, self_version?, pinned_sentinel?, no_pin?, lw_override?, dev?, ignored? }
 --- @return string|nil
 function M.foreign_pin(o)
-  if o.pinned_sentinel or o.dev or o.lw_override or o.no_pin or not o.pin then return nil end
+  if o.pinned_sentinel or o.dev or o.lw_override or o.no_pin or o.ignored or not o.pin then return nil end
   if o.self_version and o.pin.version == o.self_version then return nil end
   return o.pin.version
 end
@@ -651,6 +907,35 @@ M.GLOBAL_FLAGS = { ["--no-input"] = true, ["--non-interactive"] = true,
   ["--no-color"] = true }
 
 local INSTALL_ONLY = { "--version", "--latest", "--channel", "--pin-only", "--force" }
+
+--- Parse `lw pin [ignore|follow]` arguments (headless §16.24 "Pin mode").
+--- @param args string[] the arguments (host flags already peeled), including
+---   the command word itself
+--- @param popts? { invoked?: string }
+--- @return table|nil opts { sub?: "ignore"|"follow" }, string|nil usage_error
+function M.parse_pin_args(args, popts)
+  local invoked = popts and popts.invoked
+  local function C(rest) return require("boot.launcher_check").cmd(invoked, rest) end
+  local seen_command, positional = false, {}
+  for _, v in ipairs(args) do
+    local flag = type(v) == "string" and v:match("^([^=]+)") or v
+    if flag == "--color" and v:find("=", 1, true) then -- `--color=<when>`, tolerated
+    elseif M.GLOBAL_FLAGS[v] then -- tolerated
+    elseif type(v) == "string" and v:sub(1, 1) == "-" then
+      return nil, "unknown option '" .. v .. "' for `" .. C("pin") .. "`"
+    elseif not seen_command and v == "pin" then
+      seen_command = true
+    else
+      positional[#positional + 1] = v
+    end
+  end
+  if #positional > 1 then return nil, "unexpected argument '" .. positional[2] .. "'" end
+  local sub = positional[1]
+  if sub ~= nil and sub ~= "ignore" and sub ~= "follow" then
+    return nil, "unknown `" .. C("pin") .. "` sub-command '" .. sub .. "' (ignore, follow)"
+  end
+  return { sub = sub }
+end
 
 --- Parse `lw bootstrap [install|upgrade] …` arguments.
 --- @param args string[] the arguments (host flags already peeled), including

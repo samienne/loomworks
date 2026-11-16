@@ -197,8 +197,10 @@ belongs in the matching `spec/` file.
     resolve a version mismatch — the system never silently discards or
     overwrites an incompatible cache.
     A cache (or working copy) whose version is **newer** than the running
-    loomworks understands is refused the same way, but the remedy shown is to
-    update loomworks, not to reset — the file is valid, only newer (§2.7).
+    loomworks understands is refused the same way, with the remedies of §2.7
+    "Reading a newer file" (`lw pin ignore`, `lw bootstrap upgrade`, and for
+    the build cache `lw reset --state`) — never resolved automatically.
+
 
 12. **Non-blocking initialization**: Workspace setup never blocks the
     Neovim UI thread. File reads use async I/O. Tool detection runs
