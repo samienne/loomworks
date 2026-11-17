@@ -12977,7 +12977,10 @@ silently removes the same leftovers (pinned releases excepted, and old runtime
 logs only once unmodified for 30 days), and notes it in the workspace's
 runtime log (.lw/daemon-<slot>.log). In the workspace it also
 removes the daemon files of lw before slots (.nvim/loomworks.daemon.lock and
-.json once their daemon is gone, .log and .log.1 as old runtime logs).
+.json once their daemon is gone, .log and .log.1 as old runtime logs). In a
+repo whose lw.pin names a release before 0.2.0-beta.7 (state in .nvim/), the
+workspace's files are left to that lw: `lw cleanup` there cleans up only
+outside the workspace, and says so.
 
 What lw keeps outside the workspace on purpose: its settings (config.json),
 the machine key (trust.key), the tool scan cache (tools.json), the newest three

@@ -493,6 +493,29 @@ describe("lw cleanup (spec §16.40)", function()
         assert.is_false(exists(log)); assert.is_false(exists(log1))
     end)
 
+    it("under a pin before .lw/ it leaves the workspace's files to the pinned lw (§16.23)", function()
+        local log = write(sb.root .. "/.nvim/loomworks.daemon.log", "pinned lw's log\n")
+        local tmpf = write(sb.root .. "/.lw/tmp/lw-test-" .. HEX24 .. ".xml"); age(tmpf)
+        local outside = write(sb.data .. "/.dl-0.1.40.zip"); age(outside)
+        -- Without the pin the workspace's files are listed.
+        local plain = run({ "cleanup" }, opts(sb))
+        assert.is_truthy(plain.text:find(log, 1, true), plain.text)
+        _G.__loomworks_legacy_pin = "lw: this repo pins lw 0.1.51, which keeps its state in .nvim/; REFUSAL"
+        _G.__loomworks_legacy_pin_version = "0.1.51"
+        local ok, r = pcall(run, { "cleanup", "--yes" }, opts(sb))
+        _G.__loomworks_legacy_pin = nil
+        _G.__loomworks_legacy_pin_version = nil
+        assert.is_true(ok, tostring(r))
+        assert.equals(0, r.code, r.text)
+        -- What lw left outside the workspace is still cleaned up.
+        assert.is_false(exists(outside))
+        -- The workspace's files are neither listed nor removed, and that is said.
+        assert.is_nil(r.text:find(log, 1, true), r.text)
+        assert.is_nil(r.text:find(tmpf, 1, true), r.text)
+        assert.is_true(exists(log)); assert.is_true(exists(tmpf))
+        assert.is_truthy(r.text:find("This repo pins lw 0.1.51, which keeps its state in .nvim/", 1, true), r.text)
+    end)
+
     it("says exactly what --all adds (pinned releases only), in the hint and the help", function()
         local r = run({ "cleanup" }, opts(sb))
         assert.is_truthy(r.text:find("nothing to clean up", 1, true), r.text)

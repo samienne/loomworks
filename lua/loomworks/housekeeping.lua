@@ -1137,11 +1137,23 @@ function M.cmd(root, args, host, opts)
     -- the log inside the workspace, so the old location only holds what
     -- earlier versions left (housekeeping keeps 30 days).
     c.root, c.all, c.pinned_age, c.legacy_logs_any_age = root, o.all, o.pinned_age, true
+    -- A repository that pins an lw before `.lw/` (§16.23): its `.nvim/` files
+    -- are the pinned lw's and no housekeeping runs on the workspace, so only
+    -- what lw left outside it is cleaned up.
+    local ok_sm, legacy_pin = pcall(function()
+        return require("loomworks.state_migration").legacy_pin_version()
+    end)
+    legacy_pin = ok_sm and legacy_pin or nil
+    if legacy_pin then c.root = nil end
     local now = c.now or os.time()
     c.now = now
     local items, info = M.collect(c)
     table.sort(items, function(a, b) return a.path < b.path end)
     local out = host.out
+    if legacy_pin and root then
+        out("(This repo pins lw " .. legacy_pin .. ", which keeps its state in .nvim/: the workspace's files"
+            .. " are left to it.)")
+    end
     local kw = 4
     for _, it in ipairs(items) do kw = math.max(kw, #it.kind) end
     local function row(prefix, it)

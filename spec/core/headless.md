@@ -1621,7 +1621,9 @@ out reads "to use the pinned lw `<version>` run this command with it".
 Nothing is written, and `.nvim/` is not migrated: the pinned release keeps
 working on it. Nor does the host write the workspace's runtime log or run
 housekeeping on the workspace (§16.40) for such a command, and shell
-completion offers no workspace candidates and prints nothing. `lw worktree
+completion offers no workspace candidates and prints nothing. `lw cleanup`
+(§16.40) lists and removes only what lw left outside the workspace there,
+with one line saying the workspace's files are left to the pinned lw. `lw worktree
 add` (§16.27) creates the worktree but does not seed it: in place of the
 pull it prints one line naming the pinned launcher's `pull` and
 `lw bootstrap upgrade`, and succeeds. Host and management operations, which
@@ -4760,7 +4762,10 @@ prompts.
   old location, so whatever is there is a leftover, and a dry run lists it
   before anything is removed. (Housekeeping, which removes without asking,
   keeps the 30-day age: a repository pinning a release older than this rule
-  still writes there.)
+  still writes there.) In a repository that pins a release before the `.lw/`
+  layout (§16.23) the workspace's own files (its `.lw/tmp/` leftovers and the
+  legacy daemon files in `.nvim/`) are the pinned release's and are neither
+  listed nor removed; a line says so.
 - `--all` adds the **cached executables unused for 30 days**
   (`<data>/exe/<sha256>/`) — only those — and counts the cached executables
   it keeps. With nothing to remove and no `--all`, the command says what
