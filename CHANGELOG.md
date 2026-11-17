@@ -80,6 +80,13 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
 
 ### Fixed
 
+- A workspace created with `lw init` no longer stops every command when an
+  lw before 0.2.0 later runs there and writes `.nvim/`: `lw init` now marks
+  the new `.lw/` as native (in `.lw/migrated.json`), so lw keeps using
+  `.lw/user.json` and `lw health` reports the older lw's
+  `.nvim/loomworks.user.json`, with the way to take it instead. Workspaces
+  created by earlier 0.2.0 betas have no marker and still stop (#179).
+
 - A failed `lw self-update --channel <c>` (no release on that channel, a
   download or verification failure, an unwritable install) no longer saves
   the channel, so you are no longer recorded on a channel the update never
