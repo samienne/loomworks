@@ -11994,21 +11994,24 @@ function M.cmd_worktree_add(args, opts)
   out("created worktree " .. paint(path))
   out("  branch " .. branch .. (exists and " (existing)" or " (new)"))
 
+  -- A repository that pins an lw before `.lw/` (§16.23): a working copy
+  -- seeded here the pinned lw would never read (like `lw pull`'s refusal).
+  -- The note names the pinned lw's pull — also after --no-pull, where this
+  -- lw's `lw pull` would be refused.
+  local legacy_note = require("loomworks.state_migration").legacy_pin_pull_note()
+  if legacy_note then
+    out("  " .. legacy_note)
+    return 0
+  end
+  -- The remedy runs in the new worktree, not where `add` was run.
   if no_pull then
-    out("  pull skipped (--no-pull) — run `lw pull` here to fold in main's config")
+    out("  pull skipped (--no-pull) — to fold in main's config, run `lw pull` in the new worktree")
     return 0
   end
 
   -- Auto-pull: fold MAIN's working config into the fresh worktree (source =
   -- main, target = the new path). A main with NO working copy is "nothing to
   -- pull" — not a failure; the worktree stays and we succeed.
-  -- A repository that pins an lw before `.lw/` (§16.23): a working copy
-  -- seeded here the pinned lw would never read (like `lw pull`'s refusal).
-  local legacy_note = require("loomworks.state_migration").legacy_pin_pull_note()
-  if legacy_note then
-    out("  " .. legacy_note)
-    return 0
-  end
   local user = require("loomworks.user")
   if not uv.fs_stat(user.source_filepath(main)) then
     out("  pull skipped — " .. main .. " has no working config to pull")
