@@ -59,7 +59,11 @@ and Upgrade notes below before upgrading.
   naming the files an earlier lw left in `.nvim/` that are no longer used
   (such as `.nvim/build/` and `.nvim/loomworks.user.json`), and `lw health`
   lists them all. lw never deletes them: delete them by hand once no older lw
-  is pinned in the repository (#162, #176).
+  is pinned in the repository. A workspace created with `lw init` is marked
+  as native, so `.nvim/` state an older lw writes there later is a `lw health`
+  warning, not a stop; when an older lw writes `.nvim/` state into a migrated
+  workspace, lw stops, names both copies and the older lw as the usual
+  cause, and says how to keep either one (#162, #176, #177, #179).
 - The build cache (`.lw/cache.json`, formerly
   `.nvim/loomworks.cache.json`) is now version 9. A version 8
   cache is migrated when it loads and written as version 9 by the next save;
@@ -77,11 +81,13 @@ and Upgrade notes below before upgrading.
   `lw nuke`, `lw unlock`): it refuses with one line naming the launcher form
   (`./lw.sh <command>`, or the pinned version when the repository has no
   launcher) and `lw bootstrap upgrade`. `lw worktree add` creates the
-  worktree but does not seed it, shell completion stays silent, and the
-  daily housekeeping leaves the pinned lw's `.nvim/` files alone. A build
+  worktree but does not seed it (its note names the pinned lw's pull), shell
+  completion stays silent, and the daily housekeeping and `lw cleanup` leave
+  the pinned lw's files in the workspace alone (`lw cleanup` cleans up only
+  outside the workspace there, and says so). A build
   redirected to such a release while `.lw/user.json` exists says once that
   the pinned lw ignores it. `--no-pin` (or `lw pin ignore`) still runs the
-  newer lw (#170, #176).
+  newer lw (#170, #176, #178).
 
 ### Added
 
@@ -112,9 +118,10 @@ and Upgrade notes below before upgrading.
   the build directories (the next build configures them again in place),
   lists what it deletes and keeps, and confirms first (`-y` in CI). Under a
   pin of a release before 0.2.0-beta.7 it deletes that release's
-  `.nvim/loomworks.cache.json` and `.nvim/loomworks.health.json`.
+  `.nvim/loomworks.cache.json` and `.nvim/loomworks.health.json`, and it
+  does not suggest `lw unlock --journal` for such a release's journal.
   `--builds` also deletes the build state, listed per profile; `lw nuke` is
-  now its alias (#173).
+  now its alias (#173, #178).
 
 ### Changed
 
@@ -240,6 +247,8 @@ and Upgrade notes below before upgrading.
 
 ### Fixed
 
+- `lw worktree add --no-pull` said to run `lw pull` "here", the directory
+  you ran it in; it now says to run it in the new worktree (#178).
 - clangd no longer floods MSVC projects that build with `/Wall` with
   `-Wc++98-compat`, `-Wpadded` and similar warnings: clangd reads a cl-style
   `/Wall` as `-Weverything`, so the compile database lw writes for clangd now
