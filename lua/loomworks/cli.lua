@@ -2017,6 +2017,12 @@ function M.cmd_reset_state(root, args)
 
   local journal = sr.state_reset_journal(root, legacy)
   if journal then
+    -- Under a pin before `.lw/` the journal is the pinned lw's: this lw
+    -- refuses `lw unlock` there, and its --journal discards only .lw/txn.json.
+    if legacy then
+      die("refusing to reset the state: " .. journal .. " records an interrupted commit — the next load by "
+        .. "the pinned lw " .. legacy .. " completes it; run it once in this workspace, then retry")
+    end
     die("refusing to reset the state: " .. journal .. " records an interrupted commit — the next load by the lw "
       .. "that wrote it completes it (or `lw unlock --journal` discards it)")
   end
@@ -11994,21 +12000,24 @@ function M.cmd_worktree_add(args, opts)
   out("created worktree " .. paint(path))
   out("  branch " .. branch .. (exists and " (existing)" or " (new)"))
 
+  -- A repository that pins an lw before `.lw/` (§16.23): a working copy
+  -- seeded here the pinned lw would never read (like `lw pull`'s refusal).
+  -- The note names the pinned lw's pull — also after --no-pull, where this
+  -- lw's `lw pull` would be refused.
+  local legacy_note = require("loomworks.state_migration").legacy_pin_pull_note()
+  if legacy_note then
+    out("  " .. legacy_note)
+    return 0
+  end
+  -- The remedy runs in the new worktree, not where `add` was run.
   if no_pull then
-    out("  pull skipped (--no-pull) — run `lw pull` here to fold in main's config")
+    out("  pull skipped (--no-pull) — to fold in main's config, run `lw pull` in the new worktree")
     return 0
   end
 
   -- Auto-pull: fold MAIN's working config into the fresh worktree (source =
   -- main, target = the new path). A main with NO working copy is "nothing to
   -- pull" — not a failure; the worktree stays and we succeed.
-  -- A repository that pins an lw before `.lw/` (§16.23): a working copy
-  -- seeded here the pinned lw would never read (like `lw pull`'s refusal).
-  local legacy_note = require("loomworks.state_migration").legacy_pin_pull_note()
-  if legacy_note then
-    out("  " .. legacy_note)
-    return 0
-  end
   local user = require("loomworks.user")
   if not uv.fs_stat(user.source_filepath(main)) then
     out("  pull skipped — " .. main .. " has no working config to pull")
@@ -12974,7 +12983,10 @@ silently removes the same leftovers (pinned releases excepted, and old runtime
 logs only once unmodified for 30 days), and notes it in the workspace's
 runtime log (.lw/daemon-<slot>.log). In the workspace it also
 removes the daemon files of lw before slots (.nvim/loomworks.daemon.lock and
-.json once their daemon is gone, .log and .log.1 as old runtime logs).
+.json once their daemon is gone, .log and .log.1 as old runtime logs). In a
+repo whose lw.pin names a release before 0.2.0-beta.7 (state in .nvim/), the
+workspace's files are left to that lw: `lw cleanup` there cleans up only
+outside the workspace, and says so.
 
 What lw keeps outside the workspace on purpose: its settings (config.json),
 the machine key (trust.key), the tool scan cache (tools.json), the newest three
@@ -13108,9 +13120,11 @@ connect to each other's. A daemon of an lw before slots (files without
 removes its lock and handle once it is gone.]],
   unlock = [[lw unlock <profile> | <build dir> | --workspace | --journal | --all [--force] | --device <serial>
 
-Clear build-directory locks. loomworks serializes configure/build/clean on a
-build dir across processes (editor + CLI) with an advisory lockfile that names
-its holder (process id, host, start time). A holder that crashed or was killed
+Clear build-directory locks (and, with the flags below, the workspace
+operation lock, a stuck commit journal or a device lock). loomworks
+serializes configure/build/clean on a build dir across processes (editor +
+CLI) with an advisory lockfile that names its holder (process id, host, start
+time). A holder that crashed or was killed
 is reclaimed automatically by the next command; one that hangs (alive, no
 heartbeat) is reported with the recovery command, `<command> --break-locks`.
 
@@ -13122,12 +13136,14 @@ heartbeat) is reported with the recovery command, `<command> --break-locks`.
   --workspace  the workspace operation lock (.lw/op.lock), held
                by publish / import / pull / rename / remove / reset / nuke
   --journal    discard a stuck commit journal (.lw/txn.json) and
-               its staged copies. A multi-file operation that crashed is
-               normally completed by the next command; when it cannot be
-               (a file changed since, a staged copy is missing) the workspace
-               is refused until you discard the journal (the files then stay
-               as they are — possibly mixed). `lw nuke` cannot help: it takes
-               the same lock, and only resets build state.
+               its staged copies — not a lock. A multi-file operation that
+               crashed is normally completed by the next command; when it
+               cannot be (a file changed since, a staged copy is missing) the
+               workspace is refused until you discard the journal (the files
+               then stay as they are — possibly mixed). `lw nuke` does not
+               help: taking the workspace operation lock first completes or
+               refuses the journal, and nuke resets only build state, while
+               the journal also covers loomworks.json and .lw/user.json.
   --force      also remove the lock of a holder that is running (or hung, or on
                another host) — WITHOUT stopping it: it may still be running and
                writing there. Printed loudly, recorded in the runtime log
