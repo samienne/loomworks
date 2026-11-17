@@ -359,6 +359,47 @@ describe("state migration", function()
             .. "build/, loomworks.cache.json, loomworks.user.json", 1, true), kinds.info)
     end)
 
+    it("a native .lw/ (lw init) that an older lw then writes .nvim/ into: health warns, no refusal", function()
+        local r = new_root()
+        local ok, err = require("loomworks.workspace").init_workspace(r)
+        assert.is_true(ok, err)
+        local kind, data = sm.read_marker(r)
+        assert.equals("file", kind)
+        assert.is_true(type(data) == "table" and data.native == true)
+        assert.is_nil(data.source_sha256)
+        local mine = read(r .. "/.lw/user.json")
+        assert.is_nil(sm.divergence(r))
+        -- an lw before 0.2.0 runs here and creates its own working copy
+        write(r .. "/.nvim/loomworks.user.json", LEGACY_BYTES)
+        assert.is_false(sm.pending(r))
+        assert.is_nil(sm.run(r))
+        assert.equals(mine, read(r .. "/.lw/user.json"))
+        local msg = sm.divergence(r)
+        assert.truthy(msg and msg:find("was written by an older lw after this workspace was created in .lw/", 1, true), msg)
+        assert.is_nil(msg:find("changed after it was copied", 1, true))
+        local items = require("loomworks.suggestions").legacy_state_provider({ root = r })
+        local found
+        for _, it in ipairs(items) do
+            if it.kind == "suggestion" and it.title:find("created in .lw/", 1, true) then found = it end
+        end
+        assert.truthy(found)
+        -- init again: the workspace exists, the marker is not rewritten
+        local before = read(r .. "/.lw/migrated.json")
+        assert.is_false((require("loomworks.workspace").init_workspace(r)))
+        assert.equals(before, read(r .. "/.lw/migrated.json"))
+    end)
+
+    it("an unmarked .lw/ (an earlier 0.2 beta) that an older lw writes .nvim/ into still refuses", function()
+        local r = new_root()
+        assert.is_true((require("loomworks.workspace").init_workspace(r)))
+        os.remove(r .. "/.lw/migrated.json")
+        write(r .. "/.nvim/loomworks.user.json", LEGACY_BYTES)
+        assert.is_true(sm.pending(r))
+        local status, msg = sm.run(r)
+        assert.equals("refused", status)
+        assert.equals(sm.UNFINISHED, msg)
+    end)
+
     it("leftovers lists only known files of lw before 0.2.0, never cache/ or the editor's files", function()
         local r = legacy_root()
         write(r .. "/.nvim/tmp/x", "x")

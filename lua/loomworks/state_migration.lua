@@ -257,6 +257,24 @@ local function version()
     return ok and v or "unknown"
 end
 
+--- Write the native marker (formats §10): `lw init` of a fresh `.lw/` (no
+--- marker yet, nothing migrated) marks the workspace as created by 0.2.0+, so
+--- a `.nvim/` working copy an older lw writes later is reported by health
+--- (`divergence`) instead of being taken for an unfinished migration.
+--- Never over an existing marker path. `<root>/.lw` must exist.
+--- @param root string
+--- @return boolean ok, string|nil err
+function M.write_native_marker(root)
+    root = norm(root)
+    if lstat_type(state_dir.path(root, state_dir.MARKER)) then return true end
+    local body = vim.json.encode({
+        native = true,
+        written_by = version(),
+        created_at = os.date("!%Y-%m-%dT%H:%M:%SZ"),
+    }) .. "\n"
+    return require("loomworks.io").write_file_atomic(state_dir.path(root, state_dir.MARKER), body, { backup = false })
+end
+
 --- Take the legacy operation lock exclusively (never reclaiming another's).
 --- Returns a release function, or nil + the live holder's info, or
 --- nil when it could not be taken for another reason (proceed without it).
@@ -480,13 +498,24 @@ function M.leftovers_text(names, max)
 end
 
 --- The divergence (health): the legacy working copy changed after it was
---- copied. Returns the finding's message, or nil.
+--- copied, or — in a workspace created natively in `.lw/` (native marker) —
+--- an older lw wrote one at all. Returns the finding's message, or nil.
 --- @param root string
 --- @return string|nil
 function M.divergence(root)
     root = norm(root)
     local kind, data = M.read_marker(root)
-    if kind ~= "file" or type(data) ~= "table" or type(data.source_sha256) ~= "string" then return nil end
+    if kind ~= "file" or type(data) ~= "table" then return nil end
+    if data.native == true then
+        -- Created in `.lw/` by 0.2.0+ (lw init): any legacy working copy was
+        -- written by an older lw afterwards (one before would have been migrated).
+        if not M.legacy_user(root) then return nil end
+        return ".nvim/loomworks.user.json was written by an older lw after this workspace was created "
+            .. "in .lw/ by lw 0.2.0 or later; lw 0.2.0 and later keep using .lw/user.json. To take the "
+            .. "older copy instead, stop the older lw, move .lw/user.json and .lw/migrated.json out of "
+            .. ".lw/, and run lw again: it copies .nvim/loomworks.user.json anew"
+    end
+    if type(data.source_sha256) ~= "string" then return nil end
     local legacy = M.legacy_user(root)
     if not legacy then return nil end
     local bytes = read_bytes(legacy)

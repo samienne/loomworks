@@ -5060,7 +5060,7 @@ already says whose they are. The syntax of the normative files is
 | `build/`, `build.nuke-<hex>` | default build directories (§8 `resolve_build_dir`) and a nuke in progress (§19.3) | `build/`, `build.nuke-<hex>` |
 | `cache/` | launcher cache (§16.22) and module-owned areas such as the language-server database (§4.6) | `cache/` |
 | `tmp/` | per-run files (§16.40) | `tmp/` |
-| `migrated.json` | migration marker (below) | — |
+| `migrated.json` | migration marker, or the native marker of a workspace `lw init` created (below) | — |
 | `local` | per-checkout pin mode, `pin = ignore` (§16.23 "Ignored pin", [formats.md](../formats.md) §11) | — |
 | `.gitignore` | the self-ignore file (below) | — |
 
@@ -5198,8 +5198,22 @@ older copy instead, stop the older lw, move `.lw/user.json` and
 `.nvim/loomworks.user.json` anew". lw itself never replaces or removes
 `.lw/user.json` or the marker for this.
 
-A workspace created by 0.2.0+ (`lw init`) has no `.nvim/` state and no
-marker. A working-copy pull or worktree seed (§16.25) reads the source
+A workspace created by 0.2.0+ (`lw init`) has no `.nvim/` state. Its `lw
+init` writes the marker as a **native marker** (`"native": true`, formats.md
+§10) into the fresh `.lw/`, before the working copy and never over an
+existing marker path; nothing is migrated. The marker then means what a
+migration marker means: `.lw/` is authoritative and no copy is ever made. A
+release before 0.2.0 that later runs there knows only `.nvim/` and creates its
+own `.nvim/loomworks.user.json`; a 0.2.0+ host still uses `.lw/` and health
+reports it as actionable, with the same manual way out:
+"`.nvim/loomworks.user.json` was written by an older lw after this workspace
+was created in `.lw/` by lw 0.2.0 or later; lw 0.2.0 and later keep using
+`.lw/user.json`. To take the older copy instead, stop the older lw, move
+`.lw/user.json` and `.lw/migrated.json` out of `.lw/`, and run lw again: it
+copies `.nvim/loomworks.user.json` anew". A workspace created by an earlier
+0.2.0 beta has no marker: there, a legacy working copy an older lw writes
+beside `.lw/user.json` is taken for an interrupted copy (*Crash safety*) and
+the command fails as described there. A working-copy pull or worktree seed (§16.25) reads the source
 checkout's `.lw/user.json`, or, while the source is not migrated, its legacy
 working copy, without migrating the source; the target is always written in
 `.lw/`.

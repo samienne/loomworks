@@ -1237,6 +1237,7 @@ M.register_health(M.daemon_count_provider, { persist = false, area = "lw" })
 -- ---------------------------------------------------------------------------
 -- Provider #6 — the `.nvim/` state of releases before 0.2.0 (HEALTH-ONLY,
 -- REPORT-ONLY, §16.44): a legacy working copy changed after it was copied to
+-- `.lw/`, or written by an older lw into a workspace created natively in
 -- `.lw/` (actionable), and the legacy files and build trees lw no longer
 -- uses (informational). Reads only; never removes anything.
 -- ---------------------------------------------------------------------------

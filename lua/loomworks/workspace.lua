@@ -173,6 +173,11 @@ function M.init_workspace(root, name, write_json)
         assert(require("loomworks.io").mkdir_p(nvim_dir))
     end
     require("loomworks.state_dir").ensure_ignore(root)
+    -- A fresh `.lw/` (not migrated): the native marker (formats §10), before
+    -- the working copy, so an older lw's later `.nvim/` working copy is a
+    -- health warning, not an unfinished migration (§16.44).
+    local okm, merr = sm.write_native_marker(root)
+    if not okm then return false, "cannot write .lw/migrated.json (" .. tostring(merr) .. ")" end
 
     local data = { _meta = { version = user_mod.CURRENT_VERSION,
         written_by = require("loomworks.save_guard").version() } }

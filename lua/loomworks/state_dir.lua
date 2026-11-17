@@ -29,7 +29,7 @@ M.LEGACY_TXN = ".nvim/loomworks.txn.json"
 --- The legacy default build root (relative to the root).
 M.LEGACY_BUILD = ".nvim/build"
 
---- The migration marker's name in `.lw/` (formats §10).
+--- The migration (or native) marker's name in `.lw/` (formats §10).
 M.MARKER = "migrated.json"
 
 --- The self-ignore file's exact content.

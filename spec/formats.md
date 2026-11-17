@@ -43,7 +43,7 @@ for information only.
 | Commit journal | `<root>/.lw/txn.json` | normative | §7 |
 | Daemon handle | `<root>/.lw/daemon-<S>.json` | normative | §8 |
 | Version pin | `lw.pin` at the repository root | normative | §9 |
-| Migration marker | `<root>/.lw/migrated.json` | normative | §10 |
+| Migration / native marker | `<root>/.lw/migrated.json` | normative | §10 |
 | Pin mode | `.lw/local` at the pin root | normative | §11 |
 
 `<root>` is the workspace root. Every per-workspace file lives in the
@@ -521,6 +521,14 @@ divergence report. A reader ignores unknown members. A regular-file marker
 that does not parse still marks the migration done, with no divergence
 report; a marker path that is not a regular file stops the command (headless
 §16.44 *Crash safety*).
+
+**Native marker.** `lw init` writing a fresh `.lw/` (no marker path yet)
+writes the same file, atomically and before the working copy, as
+`{ "native": true, "written_by": "<version>", "created_at": "<RFC 3339 UTC>" }`
+(no `from`, no `source_sha256`). It marks the workspace as created in `.lw/`,
+never migrated: like a migration marker it means no copy is made, and a
+legacy working copy that appears later is reported by health instead of the
+divergence report (headless §16.44 *After migration*). It is never rewritten.
 
 ## 11. Pin mode `.lw/local`
 
