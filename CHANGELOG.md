@@ -141,7 +141,7 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
   already had `.lw/` from 0.2.0 or later, lw no longer blames an interrupted
   copy: it says that both hold differing state, that an older lw (run
   directly or through a pin) is the usual cause, that 0.2.0 and later use
-  only `.lw/`, and how to keep either one (#TBD).
+  only `.lw/`, and how to keep either one (#177).
 
 ## 0.2.0 - 2026-11-08
 
