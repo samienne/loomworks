@@ -117,6 +117,19 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
   looped. A build redirected to such a release
   while `.lw/user.json` exists says once that the pinned lw ignores it.
   `--no-pin` still runs the newer lw (#170).
+- In a repository pinned to a release before 0.2.0-beta.7, `lw cleanup`
+  removed the pinned lw's files in the workspace (its old runtime logs, at
+  any age); it now cleans up only outside the workspace there, and says so
+  (#TBD).
+- `lw worktree add --no-pull` said to run `lw pull` "here", which is the
+  directory you ran it in, not the new worktree; it now says to run it in
+  the new worktree. In a repository pinned to a release before
+  0.2.0-beta.7 it names the pinned lw's pull, as the auto-pull note does
+  (#TBD).
+- `lw help unlock` now says what `--journal` discards and why `lw nuke`
+  does not help, and `lw reset --state` no longer suggests
+  `lw unlock --journal` for a journal of a release before 0.2.0-beta.7,
+  which only that release completes (#TBD).
 
 ## 0.2.0 - 2026-11-08
 
