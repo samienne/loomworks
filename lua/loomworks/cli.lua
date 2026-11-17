@@ -2017,6 +2017,12 @@ function M.cmd_reset_state(root, args)
 
   local journal = sr.state_reset_journal(root, legacy)
   if journal then
+    -- Under a pin before `.lw/` the journal is the pinned lw's: this lw
+    -- refuses `lw unlock` there, and its --journal discards only .lw/txn.json.
+    if legacy then
+      die("refusing to reset the state: " .. journal .. " records an interrupted commit — the next load by "
+        .. "the pinned lw " .. legacy .. " completes it; run it once in this workspace, then retry")
+    end
     die("refusing to reset the state: " .. journal .. " records an interrupted commit — the next load by the lw "
       .. "that wrote it completes it (or `lw unlock --journal` discards it)")
   end
@@ -13114,9 +13120,11 @@ connect to each other's. A daemon of an lw before slots (files without
 removes its lock and handle once it is gone.]],
   unlock = [[lw unlock <profile> | <build dir> | --workspace | --journal | --all [--force] | --device <serial>
 
-Clear build-directory locks. loomworks serializes configure/build/clean on a
-build dir across processes (editor + CLI) with an advisory lockfile that names
-its holder (process id, host, start time). A holder that crashed or was killed
+Clear build-directory locks (and, with the flags below, the workspace
+operation lock, a stuck commit journal or a device lock). loomworks
+serializes configure/build/clean on a build dir across processes (editor +
+CLI) with an advisory lockfile that names its holder (process id, host, start
+time). A holder that crashed or was killed
 is reclaimed automatically by the next command; one that hangs (alive, no
 heartbeat) is reported with the recovery command, `<command> --break-locks`.
 
@@ -13128,12 +13136,14 @@ heartbeat) is reported with the recovery command, `<command> --break-locks`.
   --workspace  the workspace operation lock (.lw/op.lock), held
                by publish / import / pull / rename / remove / reset / nuke
   --journal    discard a stuck commit journal (.lw/txn.json) and
-               its staged copies. A multi-file operation that crashed is
-               normally completed by the next command; when it cannot be
-               (a file changed since, a staged copy is missing) the workspace
-               is refused until you discard the journal (the files then stay
-               as they are — possibly mixed). `lw nuke` cannot help: it takes
-               the same lock, and only resets build state.
+               its staged copies — not a lock. A multi-file operation that
+               crashed is normally completed by the next command; when it
+               cannot be (a file changed since, a staged copy is missing) the
+               workspace is refused until you discard the journal (the files
+               then stay as they are — possibly mixed). `lw nuke` does not
+               help: taking the workspace operation lock first completes or
+               refuses the journal, and nuke resets only build state, while
+               the journal also covers loomworks.json and .lw/user.json.
   --force      also remove the lock of a holder that is running (or hung, or on
                another host) — WITHOUT stopping it: it may still be running and
                writing there. Printed loudly, recorded in the runtime log

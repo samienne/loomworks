@@ -563,7 +563,24 @@ describe("lw reset --state", function()
     os.remove(root .. "/.lw/txn.json")
     assert.equals(1, r.exit_code)
     assert.is_truthy(r.stderr:find(".lw/txn.json", 1, true), r.stderr)
+    assert.is_truthy(r.stderr:find("`lw unlock --journal` discards it", 1, true), r.stderr)
     assert.is_not_nil(uv.fs_stat(root .. "/.lw/cache.json"))
+  end)
+
+  it("under a pin before .lw/ a legacy journal is left to the pinned lw, not `lw unlock --journal`", function()
+    local root = state_ws()
+    put(root .. "/.nvim/loomworks.txn.json", "{}")
+    _G.__loomworks_legacy_pin = "lw: this repo pins lw 0.2.0-beta.5, which keeps its state in .nvim/; REFUSAL"
+    _G.__loomworks_legacy_pin_version = "0.2.0-beta.5"
+    local r = capture(function() return cli.cmd_reset_state(root, { "reset", "--state", "-y" }) end)
+    _G.__loomworks_legacy_pin = nil
+    _G.__loomworks_legacy_pin_version = nil
+    assert.equals(1, r.exit_code)
+    assert.is_truthy(r.stderr:find(".nvim/loomworks.txn.json", 1, true), r.stderr)
+    assert.is_truthy(r.stderr:find("the pinned lw 0.2.0-beta.5", 1, true), r.stderr)
+    -- This lw refuses `lw unlock` there, and its --journal is .lw/txn.json.
+    assert.is_nil(r.stderr:find("unlock --journal", 1, true), r.stderr)
+    assert.is_not_nil(uv.fs_stat(root .. "/.nvim/loomworks.txn.json"))
   end)
 
   it("a busy workspace daemon makes it refuse; an idle one is stopped first", function()
