@@ -45,11 +45,18 @@ M.REPORT = "lw: this workspace's state is now in .lw/ (working copy copied from 
     .. "which is left as it was for older lw versions; builds now go to .lw/build/)"
 
 --- The refusal when `.lw/user.json` exists without a marker and is not
---- byte-identical to `.nvim/loomworks.user.json`.
-M.UNFINISHED = "lw: .lw/user.json exists but differs from .nvim/loomworks.user.json and the copy "
-    .. "was never finished (no .lw/migrated.json): an interrupted copy, or a file put there by hand. "
-    .. "To copy .nvim/loomworks.user.json anew, move .lw/user.json out of .lw/ and retry; to keep "
-    .. ".lw/user.json instead, copy it over .nvim/loomworks.user.json and retry"
+--- byte-identical to `.nvim/loomworks.user.json`. Most often an lw before
+--- 0.2.0 wrote `.nvim/` in a workspace whose `.lw/` a 0.2.0+ lw created (no
+--- marker: nothing was migrated); else an interrupted copy, or a file put
+--- there by hand. Nothing tells these apart, so it names them all.
+M.UNFINISHED = "lw: both .lw/user.json and .nvim/loomworks.user.json hold this workspace's state and they "
+    .. "differ, with no .lw/migrated.json to tell which is current. Usually an lw older than 0.2.0 (run "
+    .. "directly, or through an lw.pin, lw.sh or lw.cmd of such a release) wrote .nvim/ after .lw/ was "
+    .. "created; else a copy from .nvim/ was interrupted, or .lw/user.json was put there by hand. "
+    .. "lw 0.2.0 and later use only .lw/. To keep .lw/user.json, delete .nvim/loomworks.user.json (or "
+    .. "copy .lw/user.json over it) and retry; to take the older state, move .lw/user.json out of .lw/ "
+    .. "and retry: lw copies .nvim/loomworks.user.json anew. Then run only lw 0.2.0 or later here "
+    .. "(move an older lw.pin to 0.2.0 or later) so .nvim/ is not written again"
 
 local function lstat_type(p)
     local st = uv().fs_lstat(p)

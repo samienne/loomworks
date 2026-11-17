@@ -137,6 +137,11 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
   does not help, and `lw reset --state` no longer suggests
   `lw unlock --journal` for a journal of a release before 0.2.0-beta.7,
   which only that release completes (#178).
+- When an lw older than 0.2.0 wrote `.nvim/` state in a workspace that
+  already had `.lw/` from 0.2.0 or later, lw no longer blames an interrupted
+  copy: it says that both hold differing state, that an older lw (run
+  directly or through a pin) is the usual cause, that 0.2.0 and later use
+  only `.lw/`, and how to keep either one (#TBD).
 
 ## 0.2.0 - 2026-11-08
 

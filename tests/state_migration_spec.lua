@@ -228,7 +228,7 @@ describe("state migration", function()
         write(r .. "/.lw/user.json", "copied earlier") -- partial copy, or put there by hand
         local status, msg = sm.run(r)
         assert.equals("refused", status)
-        assert.truthy(msg:find("differs from .nvim/loomworks.user.json", 1, true), msg)
+        assert.truthy(msg:find("and .nvim/loomworks.user.json hold this workspace's state and they differ", 1, true), msg)
         assert.truthy(msg:find("move .lw/user.json out of .lw/", 1, true), msg)
         assert.equals("copied earlier", read(r .. "/.lw/user.json"))
         assert.equals(LEGACY_BYTES, read(r .. "/.nvim/loomworks.user.json"))
@@ -237,6 +237,31 @@ describe("state migration", function()
         assert.is_true(uv.fs_rename(r .. "/.lw/user.json", r .. "/user.json.old"))
         assert.equals("migrated", (sm.run(r)))
         assert.equals(LEGACY_BYTES, read(r .. "/.lw/user.json"))
+    end)
+
+    it("an older lw writing .nvim/ beside a .lw/ made by 0.2.0+: refused, naming both and the older lw", function()
+        local r = new_root()
+        write(r .. "/.lw/user.json", "native 0.2 state") -- lw init by 0.2.0+: no marker
+        write(r .. "/.nvim/loomworks.user.json", LEGACY_BYTES) -- then lw 0.1.x ran here
+        local status, msg = sm.run(r)
+        assert.equals("refused", status)
+        assert.equals(sm.UNFINISHED, msg)
+        -- Says both hold state, that an older lw is the usual cause, which one
+        -- 0.2.0+ uses, and both ways out.
+        assert.truthy(msg:find("both .lw/user.json and .nvim/loomworks.user.json", 1, true), msg)
+        assert.truthy(msg:find("an lw older than 0.2.0", 1, true), msg)
+        assert.truthy(msg:find("lw.pin", 1, true), msg)
+        assert.truthy(msg:find("lw 0.2.0 and later use only .lw/", 1, true), msg)
+        assert.truthy(msg:find("delete .nvim/loomworks.user.json", 1, true), msg)
+        assert.truthy(msg:find("move .lw/user.json out of .lw/", 1, true), msg)
+        -- No longer blames an interrupted copy first.
+        assert.is_nil(msg:find("the copy was never finished", 1, true), msg)
+        assert.equals("native 0.2 state", read(r .. "/.lw/user.json"))
+        assert.is_false(exists(r .. "/.lw/migrated.json"))
+        -- Keeping .lw/ as told: nothing left to migrate, .lw/user.json kept.
+        assert.is_true(uv.fs_unlink(r .. "/.nvim/loomworks.user.json"))
+        assert.is_nil(sm.run(r))
+        assert.equals("native 0.2 state", read(r .. "/.lw/user.json"))
     end)
 
     it("without hard links the final name is created exclusively and verified", function()

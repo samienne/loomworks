@@ -5170,14 +5170,21 @@ temporary copies only before the marker and removes its own before writing
 it). Between steps 4 and 5, `.lw/user.json` exists without a marker: the next
 run, under the locks of step 2, finishes only when that file is
 byte-identical (SHA-256) to the legacy working copy, writing the marker with
-that hash as `source_sha256`. Otherwise — a partial file of the non-atomic
-fallback, an older lw that saved in between, or a file put there by hand —
-it never copies over it and the command fails: "lw: .lw/user.json exists
-but differs from .nvim/loomworks.user.json and the copy was never finished
-(no .lw/migrated.json): an interrupted copy, or a file put there by hand. To
-copy .nvim/loomworks.user.json anew, move .lw/user.json out of .lw/ and
-retry; to keep .lw/user.json instead, copy it over .nvim/loomworks.user.json
-and retry". A marker path that exists but is not a
+that hash as `source_sha256`. Otherwise — most often a workspace whose `.lw/`
+a 0.2.0+ lw created (no marker: nothing was migrated) and where an lw before
+0.2.0 then wrote `.nvim/`; else a partial file of the non-atomic fallback, an
+older lw that saved in between, or a file put there by hand, which nothing
+tells apart — it never copies over it and the command fails: "lw: both
+.lw/user.json and .nvim/loomworks.user.json hold this workspace's state and
+they differ, with no .lw/migrated.json to tell which is current. Usually an
+lw older than 0.2.0 (run directly, or through an lw.pin, lw.sh or lw.cmd of
+such a release) wrote .nvim/ after .lw/ was created; else a copy from .nvim/
+was interrupted, or .lw/user.json was put there by hand. lw 0.2.0 and later
+use only .lw/. To keep .lw/user.json, delete .nvim/loomworks.user.json (or
+copy .lw/user.json over it) and retry; to take the older state, move
+.lw/user.json out of .lw/ and retry: lw copies .nvim/loomworks.user.json
+anew. Then run only lw 0.2.0 or later here (move an older lw.pin to 0.2.0 or
+later) so .nvim/ is not written again". A marker path that exists but is not a
 regular file (`lstat`) stops the command: "lw: .lw/migrated.json is not a
 regular file — remove it, then retry".
 
