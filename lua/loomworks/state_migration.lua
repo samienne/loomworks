@@ -46,8 +46,8 @@ M.REPORT = "lw: this workspace's state is now in .lw/ (working copy copied from 
 
 --- The refusal when `.lw/user.json` exists without a marker and is not
 --- byte-identical to `.nvim/loomworks.user.json`. Most often an lw before
---- 0.2.0 wrote `.nvim/` in a workspace whose `.lw/` a 0.2.0+ lw created (no
---- marker: nothing was migrated); else an interrupted copy, or a file put
+--- 0.2.0 wrote `.nvim/` in a workspace whose `.lw/` an earlier beta created (no native
+--- marker: nothing was migrated; natively created ones have it); else an interrupted copy, or a file put
 --- there by hand. Nothing tells these apart, so it names them all.
 M.UNFINISHED = "lw: both .lw/user.json and .nvim/loomworks.user.json hold this workspace's state and they "
     .. "differ, with no .lw/migrated.json to tell which is current. Usually an lw older than 0.2.0 (run "

@@ -5171,7 +5171,7 @@ it). Between steps 4 and 5, `.lw/user.json` exists without a marker: the next
 run, under the locks of step 2, finishes only when that file is
 byte-identical (SHA-256) to the legacy working copy, writing the marker with
 that hash as `source_sha256`. Otherwise — most often a workspace whose `.lw/`
-a 0.2.0+ lw created (no marker: nothing was migrated) and where an lw before
+an earlier beta created (no native marker: nothing was migrated) and where an lw before
 0.2.0 then wrote `.nvim/`; else a partial file of the non-atomic fallback, an
 older lw that saved in between, or a file put there by hand, which nothing
 tells apart — it never copies over it and the command fails: "lw: both
