@@ -871,6 +871,24 @@ synthesized in the compiler's native syntax: MSVC `/I`, `/D`, and
 compiler `cl.exe` is emitted as `argv[0]` so clangd's cl-compatible driver
 parses the flags. The project build directory is never written to.
 
+**clangd warning-level normalization.** The owned database is a clangd
+input, not a build command, so its argv is normalized for clangd by a
+module-independent core helper (`cpp_compilers.clangd_warning_argv`) that any
+module's owned-database writer applies — here, to every rendered entry
+(compiled sources, header entries §12.3 and the per-file query §12.6 alike).
+For an entry driven in **cl mode** — `argv[0]` whose basename is `cl` or
+`clang-cl` (case-insensitive, optional `.exe`), or an argv carrying
+`--driver-mode=cl` — every `/Wall` or `-Wall` token is replaced by `/W4`.
+Reason: in cl mode `/Wall` is MSVC's "all warnings", which clangd's
+cl-compatible driver maps to clang's `-Weverything` (`-Wc++98-compat`,
+`-Wpadded`, `-Wunsafe-buffer-usage`, …); clang-cl's `/W4` is `-Wall -Wextra`,
+what a clang build of the same project reports. Nothing is added (no
+`-pedantic`), every other flag — `/wdNNNN` included — is kept, and GNU-style
+entries are untouched (`-Wall` there already means `-Wall`). The build and the
+build directory's native `compile_commands.json` are never changed. Like any
+change to the database's content, it reaches an existing database only when
+that database is next regenerated (§12.4).
+
 The database is written **entry-by-entry** (a streaming writer): the file
 is opened, `[` is written, then each entry is encoded on its own with
 `vim.json.encode(entry)` and appended (comma-separated), then `]`. loomworks

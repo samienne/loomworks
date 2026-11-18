@@ -2941,7 +2941,9 @@ end
 --- Build the argv prefix (compiler + flags, no source file) for a
 --- compileGroup, in the compiler's native syntax. Shared by compiled-source
 --- and header entries so both render identical flags. Returns a fresh
---- table each call (the caller appends the file and keeps it).
+--- table each call (the caller appends the file and keeps it). The argv is
+--- clangd-normalized (`cpp_compilers.clangd_warning_argv`): only the owned
+--- database is rendered here, never a build command.
 --- @param cg table compileGroup
 --- @param compiler string compiler path / bare name (argv[0])
 --- @return string[]
@@ -2977,6 +2979,9 @@ local function cg_argv_prefix(cg, compiler)
             args[#args + 1] = (msvc and "/D" or "-D") .. def
         end
     end
+    -- clangd-facing normalization (spec §12.2): a cl-driver `/Wall` would
+    -- read as `-Weverything`; the owned DB carries `/W4` instead.
+    require("loomworks.cpp_compilers").clangd_warning_argv(args)
     return args
 end
 
