@@ -1133,6 +1133,65 @@ describe("cmake async generated-cc", function()
         assert.equals(2, #v2)
         assert.is_not.equals("SENTINEL", v2[1].file)
     end)
+
+    -- Generator format stamp (Â§12.4): a content-changing generator update
+    -- reaches databases that are fresh by mtime.
+    describe("format stamp", function()
+        local stamp_file
+        before_each(function() stamp_file = out_dir .. "/compile_commands.lw-stamp" end)
+
+        local function refresh()
+            local changed = nil
+            cmake.refresh_generated_cc(build_dir, out_dir, { variant = "Debug" },
+                function(c) changed = c end)
+            assert.is_true(vim.wait(30000, function() return changed ~= nil end, 5))
+            return changed
+        end
+        local function pin_reply_past()
+            uvx.fs_utime(build_dir .. "/.cmake/api/v1/reply/index-2025.json",
+                os.time() - 100, os.time() - 100)
+        end
+
+        it("regenerates an mtime-fresh DB that has no stamp (written by an older lw)", function()
+            vim.fn.mkdir(out_dir, "p")
+            local f = assert(io.open(out_file, "w"))
+            f:write(vim.json.encode({ { file = "SENTINEL", directory = build_dir, arguments = { "cl.exe", "/Wall" } } }))
+            f:close()
+            pin_reply_past()
+            assert.is_true(refresh())
+            local db = read_db()
+            assert.equals(2, #db)
+            assert.is_truthy(uvx.fs_stat(stamp_file))
+        end)
+
+        it("regenerates an mtime-fresh DB whose stamp names another format", function()
+            assert.is_true(refresh())
+            pin_reply_past()
+            local s = assert(io.open(stamp_file, "w"))
+            s:write("1\n"); s:close()
+            assert.is_true(refresh())
+            local s2 = assert(io.open(stamp_file, "r"))
+            local body = s2:read("*a"); s2:close()
+            assert.equals(tostring(cmake.OWNED_CC_FORMAT), body:match("^(%d+)"))
+        end)
+
+        it("regenerates when the DB was rewritten after the stamp (older lw ran)", function()
+            assert.is_true(refresh())
+            pin_reply_past()
+            local f = assert(io.open(out_file, "w"))
+            f:write(vim.json.encode({ { file = "SENTINEL", directory = build_dir, arguments = { "cc" } } }))
+            f:close()
+            assert.is_true(refresh())
+            assert.equals(2, #read_db())
+        end)
+
+        it("does not regenerate with a current stamp and a fresh mtime", function()
+            assert.is_true(refresh())
+            assert.is_truthy(uvx.fs_stat(stamp_file))
+            pin_reply_past()
+            assert.is_false(refresh())
+        end)
+    end)
 end)
 
 -- ---------------------------------------------------------------------------

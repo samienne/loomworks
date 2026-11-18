@@ -84,8 +84,9 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
   `-Wc++98-compat`, `-Wpadded` and similar warnings: clangd reads a cl-style
   `/Wall` as `-Weverything`, so the compile database lw writes for clangd now
   carries `/W4` (clang's `-Wall -Wextra`) instead. The build and the build
-  directory's own `compile_commands.json` are unchanged. An existing database
-  is rewritten on the next reconfigure. (#181)
+  directory's own `compile_commands.json` are unchanged. Existing databases
+  are regenerated automatically after the upgrade, without a reconfigure:
+  lw now stamps each database with the format that wrote it. (#181)
 - A workspace created with `lw init` no longer stops every command when an
   lw before 0.2.0 later runs there and writes `.nvim/`: `lw init` now marks
   the new `.lw/` as native (in `.lw/migrated.json`), so lw keeps using
