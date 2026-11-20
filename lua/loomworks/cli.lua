@@ -3065,10 +3065,11 @@ function M.cmd_run(ws, args)
   local profile, target_name
   profile, target_name, ws = M._run_selection(ws, r.positionals)
   local rp = require("loomworks.run_prep")
-  -- No target named and no default target stored: refused before anything
-  -- is configured or built (headless §16.17 "Order").
+  -- No target named and no default target stored, or a stored default that
+  -- is a module device target: refused before anything is configured or
+  -- built (headless §16.17 "Order").
   if not target_name then
-    local refusal = rp.no_default_refusal(profile)
+    local refusal = rp.no_default_refusal(profile, ws) or rp.device_default_refusal(profile)
     if refusal then die(refusal) end
   end
   local reconfigure_skip
@@ -7138,27 +7139,32 @@ end
 -- A launchable-target candidate's short kind label for display.
 local function target_kind_label(kind) return kind == "target" and "exe" or "launch" end
 
---- Does a launchable-target candidate `c` match a profile's stored default-target
---- descriptor? Matches by (project, target-id) for build targets and
---- (project, name) for command launch configs.
-local function candidate_is_default(desc, c)
-  if not desc or desc.project ~= c.project.key then return false end
-  if desc.target then return c.kind == "target" and c.target_id == desc.target end
-  if desc.launch then return c.kind == "launch" and c.name == desc.launch end
-  return false
-end
-
 --- Gather a profile's launchable targets for display (read-only; never builds).
 --- Returns `rows` (each { label, kind_label, is_default, cand?, suffix? }, the
---- default first if it isn't otherwise enumerable), `unconfigured` (project keys
---- that could contribute build targets once configured), and `incomplete`.
---- @return { rows: table[], unconfigured: string[], incomplete: boolean }
+--- default first if it isn't otherwise enumerable), `devices` (the profile's
+--- module device targets, rows of kind_label "device": launched from the editor
+--- only, headless §16.17), `unconfigured` (project keys that could contribute
+--- build targets once configured), and `incomplete`. The default is marked by
+--- run_prep.is_stored_default, as the editor's listing marks it.
+--- @return { rows: table[], devices: table[], unconfigured: string[], incomplete: boolean }
 local function collect_targets(ws, profile)
+  local rp = require("loomworks.run_prep")
   local cands = launchable_targets(ws, profile)
   local desc = profile._default_target_descriptor
+  local function candidate_is_default(c) return desc ~= nil and rp.is_stored_default(desc, c) end
+  local devices = {}
+  for _, c in ipairs(rp.device_targets(ws, profile)) do
+    devices[#devices + 1] = {
+      label = c.project.key .. ":" .. c.name,
+      kind_label = "device",
+      is_default = candidate_is_default(c),
+      cand = c,
+      description = c.label ~= c.name and c.label or nil,
+    }
+  end
   local rows, seen_default = {}, false
   for _, c in ipairs(cands) do
-    local is_default = candidate_is_default(desc, c)
+    local is_default = candidate_is_default(c)
     if is_default then seen_default = true end
     rows[#rows + 1] = {
       label = c.project.key .. ":" .. c.name,
@@ -7192,7 +7198,8 @@ local function collect_targets(ws, profile)
     end
   end
   table.sort(unconfigured)
-  return { rows = rows, unconfigured = unconfigured, incomplete = #unconfigured > 0 }
+  return { rows = rows, devices = devices, unconfigured = unconfigured,
+    incomplete = #unconfigured > 0 }
 end
 
 --- Resolve a profile for the READ-ONLY target listing. Unlike resolve_profile,
@@ -7213,30 +7220,38 @@ end
 
 --- `lw target [list] [profile]` — print a profile's launchable targets, default
 --- marked `*`, with a note when the list is incomplete (a project not yet
---- configured). Read-only.
+--- configured). The profile's module device targets follow in their own
+--- group, marked launchable from the editor only (headless §16.18). Read-only.
 local function print_target_list(ws, profile)
   local info = collect_targets(ws, profile)
+  local width = require("loomworks.description").width
+  local function print_rows(rows)
+    local lw_ = 0
+    for _, r in ipairs(rows) do
+      lw_ = math.max(lw_, width(r.label .. " (" .. r.kind_label .. ")"))
+    end
+    for _, r in ipairs(rows) do
+      local cell = r.label .. " (" .. r.kind_label .. ")"
+      local line = string.format("  %s %s", r.is_default and "*" or " ", cell)
+      if r.description then
+        line = line .. string.rep(" ", lw_ - width(cell))
+      end
+      out(line .. (r.suffix or "") .. M._summary_suffix(width(line), r.description))
+    end
+  end
   out("targets — profile '" .. profile.key .. "':")
   if #info.rows == 0 then
     out("  (none" .. (info.incomplete and " yet)" or ")"))
   else
-    local lw_ = 0
-    for _, r in ipairs(info.rows) do
-      lw_ = math.max(lw_, require("loomworks.description").width(r.label .. " (" .. r.kind_label .. ")"))
-    end
-    for _, r in ipairs(info.rows) do
-      local cell = r.label .. " (" .. r.kind_label .. ")"
-      local line = string.format("  %s %s", r.is_default and "*" or " ", cell)
-      if r.description then
-        line = line .. string.rep(" ", lw_ - require("loomworks.description").width(cell))
-      end
-      out(line .. (r.suffix or "")
-        .. M._summary_suffix(require("loomworks.description").width(line), r.description))
-    end
+    print_rows(info.rows)
   end
   if info.incomplete then
     out("  build targets for " .. table.concat(info.unconfigured, ", ") ..
       " appear after `lw build`.")
+  end
+  if #info.devices > 0 then
+    out("device targets (launch from the editor; `lw run` does not run them yet):")
+    print_rows(info.devices)
   end
   return 0
 end
@@ -7805,6 +7820,7 @@ function M.cmd_test_target(root, args)
 end
 
 M._collect_targets = collect_targets
+M._print_target_list = print_target_list
 M._resolve_profile_for_listing = resolve_profile_for_listing
 
 -- ---------------------------------------------------------------------------

@@ -392,6 +392,86 @@ describe("lw run: the launch target resolves before the build (§16.17 Order)", 
     end)
 end)
 
+describe("lw run: a profile with module device targets (§16.17)", function()
+    local root, ws, profile
+    local saved
+    before_each(function()
+        cmake._cmake_version_cache = { ["/fake/cmake"] = { major = 3, minor = 28 } }
+        cpp.lookup_path = function() return nil end
+        saved = { cmake.has_devices, cmake.device_targets }
+        cmake.has_devices = true
+        cmake.device_targets = function(_, config_name)
+            return config_name == "Debug" and { { id = "run-device", label = "Run on device" } } or {}
+        end
+        ws, profile, root = make_core()
+        assert.equals(cmake, unit_of(profile, "App")._project._module.impl)
+        configured(unit_of(profile, "App"), {
+            AppRunner = { type = "executable", artifact = "AppRunner" } })
+        configured(unit_of(profile, "Lib"), {
+            LibTool = { type = "executable", artifact = "LibTool" } })
+    end)
+    after_each(function()
+        cmake.has_devices, cmake.device_targets = saved[1], saved[2]
+        cpp.lookup_path = orig_lookup
+        cmake._cmake_version_cache = {}
+        if root then vim.fn.delete(root, "rf"); root = nil end
+    end)
+
+    it("a device target id: refused as editor-only, without reconfiguring", function()
+        local spawned, launched, code, stderr = run(ws, profile, "run-device")
+        assert.equals(1, code)
+        assert.truthy(stderr:find("module device target", 1, true), stderr)
+        assert.truthy(stderr:find("App:run-device", 1, true), stderr)
+        assert.truthy(stderr:find("from the editor", 1, true), stderr)
+        assert.equals(0, #spawned, "nothing was configured or built")
+        assert.is_nil(launched)
+    end)
+
+    it("a project-qualified device target id: refused without reconfiguring", function()
+        local spawned, _, code, stderr = run(ws, profile, "Lib:run-device")
+        assert.equals(1, code)
+        assert.truthy(stderr:find("module device target", 1, true), stderr)
+        assert.equals(0, #spawned)
+    end)
+
+    it("a project key: refused without reconfiguring, naming the device targets", function()
+        local spawned, _, code, stderr = run(ws, profile, "App")
+        assert.equals(1, code)
+        assert.truthy(stderr:find("no launch target 'App'", 1, true), stderr)
+        assert.truthy(stderr:find("App:run-device", 1, true), stderr)
+        assert.equals(0, #spawned)
+    end)
+
+    it("an unknown name: still reconfigured once, and the refusal names the device targets", function()
+        local spawned, _, code, stderr = run(ws, profile, "Nope")
+        assert.equals(1, code)
+        assert.equals(2, #of_kind(spawned, "configure"))
+        assert.truthy(stderr:find("App:run-device", 1, true), stderr)
+        assert.truthy(stderr:find("Lib:run-device", 1, true), stderr)
+        assert.truthy(stderr:find("from the editor", 1, true), stderr)
+    end)
+
+    it("no name and no default: the refusal names the device targets", function()
+        local spawned, _, code, stderr = run(ws, profile, nil)
+        assert.equals(1, code)
+        assert.truthy(stderr:find("no default target set", 1, true), stderr)
+        assert.truthy(stderr:find("App:run-device", 1, true), stderr)
+        assert.truthy(stderr:find("from the editor", 1, true), stderr)
+        assert.equals(0, #spawned)
+    end)
+
+    it("no name and a stored default that is a device target: refused as editor-only, before any configure", function()
+        profile._default_target_descriptor = { project = "App", device_target = "run-device" }
+        local spawned, launched, code, stderr = run(ws, profile, nil)
+        assert.equals(1, code)
+        assert.truthy(stderr:find("default target 'App:run-device'", 1, true), stderr)
+        assert.truthy(stderr:find("module device target", 1, true), stderr)
+        assert.truthy(stderr:find("from the editor", 1, true), stderr)
+        assert.equals(0, #spawned, "nothing was configured or built")
+        assert.is_nil(launched)
+    end)
+end)
+
 describe("lw run: the target's dependency projects are built", function()
     local root
     before_each(function()

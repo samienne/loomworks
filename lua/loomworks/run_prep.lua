@@ -69,7 +69,7 @@ end
 --- @return loomworks.RunCandidate[]
 local function device_candidates(ws, pp)
     local unit = pp._config_unit
-    local project = pp._project
+    local project = pp._project or (unit and unit._project)
     local mod = project and project._module and project._module.impl
     local config_name = pp._configuration and pp._configuration.name
     if not (mod and mod.has_devices and mod.device_targets and config_name) then return {} end
@@ -86,6 +86,33 @@ local function device_candidates(ws, pp)
             device_target = dt.id }
     end
     return out
+end
+
+--- A profile's module device targets, per project in the profile's order
+--- (candidates of kind "device"). A run never launches them (headless
+--- §16.17); its refusals and the target listing name them as editor-only.
+--- @param ws loomworks.Workspace
+--- @param profile loomworks.Profile
+--- @return loomworks.RunCandidate[]
+function M.device_targets(ws, profile)
+    local out = {}
+    for _, pp in ipairs(profile:projects()) do
+        for _, c in ipairs(device_candidates(ws, pp)) do out[#out + 1] = c end
+    end
+    return out
+end
+
+--- The refusal line naming a profile's module device targets
+--- (`<project>:<id>`) as launchable from the editor only, or "" when it
+--- offers none.
+--- @param devices loomworks.RunCandidate[] (M.device_targets)
+--- @return string
+function M.device_targets_note(devices)
+    if #devices == 0 then return "" end
+    local labels = {}
+    for _, c in ipairs(devices) do labels[#labels + 1] = c.project.key .. ":" .. c.name end
+    return "\n  device targets (launch from the editor; `lw run` does not run module device targets yet): " ..
+        table.concat(labels, ", ")
 end
 
 --- Does candidate `c` match a profile's stored default-target descriptor?
@@ -221,8 +248,10 @@ end
 --- @param kind "target"|"launch"|nil `--target` / `--launch`
 --- @param opts? { refresh?: boolean }
 --- @return loomworks.LaunchTarget|nil lt, string|nil err
---- @return "missing"|nil why `"missing"`: a named target matched nothing (the
----   case a host retries once after reconfiguring `reconfigure_units`)
+--- @return "missing"|"unlaunchable"|nil why `"missing"`: a named target
+---   matched nothing (the case a host retries once after reconfiguring
+---   `reconfigure_units`); `"unlaunchable"`: it names a module device target
+---   or a project, which no reconfigure makes launchable (never retried)
 function M.select(ws, profile, name, proj_scope, kind, opts)
     if opts and opts.refresh then
         for _, pp in ipairs(profile:projects()) do
@@ -234,9 +263,21 @@ function M.select(ws, profile, name, proj_scope, kind, opts)
         if #matches == 0 then
             local labels = {}
             for _, c in ipairs(all) do labels[#labels + 1] = M.fmt_cand(c) end
+            local devices = M.device_targets(ws, profile)
+            local note = M.device_targets_note(devices)
+            -- A module device target, or a project key, cannot become a
+            -- launchable build target by reconfiguring: refused without the
+            -- retry (headless §16.17 "Order").
+            if #M.match_targets(ws, profile, name, proj_scope, nil, devices) > 0 then
+                return nil, "'" .. name .. "' is a module device target of profile '" .. profile.key ..
+                    "': launch it from the editor; `lw run` does not run module device targets yet." ..
+                    note, "unlaunchable"
+            end
+            local why = "missing"
+            if not proj_scope and profile.project and profile:project(name) then why = "unlaunchable" end
             return nil, "no launch target '" .. name .. "' in profile '" .. profile.key .. "'.\n" ..
-                "  available: " .. (next(labels) and table.concat(labels, ", ") or "(none)") .. "\n" ..
-                "  a target on a different profile: lw run <profile> <target>", "missing"
+                "  available: " .. (next(labels) and table.concat(labels, ", ") or "(none)") .. note .. "\n" ..
+                "  a target on a different profile: lw run <profile> <target>", why
         elseif #matches > 1 then
             local labels = {}
             for _, c in ipairs(matches) do labels[#labels + 1] = M.fmt_cand(c) end
@@ -247,10 +288,26 @@ function M.select(ws, profile, name, proj_scope, kind, opts)
     end
     -- No name → the profile's stored default target; none is never guessed
     -- (not even a sole launchable target, headless §16.17).
-    local refusal = M.no_default_refusal(profile)
+    local refusal = M.no_default_refusal(profile, ws)
     if refusal then return nil, refusal end
     for _, pp in ipairs(profile:projects()) do build_run().ensure_unit_targets(ws, pp._config_unit) end
     return profile:default_target()
+end
+
+--- The refusal of a run naming no target on a profile whose stored default
+--- target is a module device target (set from the editor), else nil: a run
+--- never launches one (headless §16.17). Known from the descriptor alone,
+--- so refused before any configure. Only `lw run` (the CLI and the daemon's
+--- `run` operation) checks it: the editor launches device targets itself.
+--- @param profile loomworks.Profile
+--- @return string|nil
+function M.device_default_refusal(profile)
+    local desc = profile._default_target_descriptor
+    if not (desc and desc.device_target) then return nil end
+    return "the default target '" .. tostring(desc.project) .. ":" .. desc.device_target ..
+        "' of profile '" .. profile.key .. "' is a module device target: launch it from the editor;" ..
+        " `lw run` does not run module device targets yet.\n" ..
+        "  or name one:  lw run " .. profile.key .. " <target>"
 end
 
 --- The refusal of a run naming no target on a profile with no default
@@ -258,15 +315,19 @@ end
 --- (Profile:default_target reads the descriptor only), so both hosts check
 --- it before a run's configure phase (headless §16.17 "Order"): nothing is
 --- configured or built. The message names both fixes.
+--- With `ws`, it also names the profile's module device targets as
+--- launchable from the editor only (M.device_targets_note).
 --- @param profile loomworks.Profile
+--- @param ws? loomworks.Workspace
 --- @return string|nil
-function M.no_default_refusal(profile)
+function M.no_default_refusal(profile, ws)
     if profile:default_target() then return nil end
     local key = profile.key
     return "no default target set for profile '" .. key .. "'.\n" ..
         "  name one:     lw run " .. key .. " <target>\n" ..
         "  or set one:   lw target set " .. key .. " <target>\n" ..
-        "  list them:    lw target list " .. key
+        "  list them:    lw target list " .. key ..
+        (ws and M.device_targets_note(M.device_targets(ws, profile)) or "")
 end
 
 --- The configuration units a run reconfigures once when its NAMED target is

@@ -1057,7 +1057,15 @@ that can only capture emits the same output once the step exits. The run
 differs in being the user's own program — interactive and (where applicable)
 windowed. The run is read-only toward configuration (§16.9) and, like the
 editor's non-debug launch, excludes debugger attachment and module device
-targets (§11; both deferred). A build target whose artifact is
+targets (§11; both deferred). A run that cannot launch anything on a profile
+that offers module device targets says so: its refusal (no such target, no
+default target set) lists the profile's device targets (`<project>:<id>`) as
+launchable from the editor only, and a named operand that is one of them is
+refused as a module device target, not as an unknown name. A run naming no
+target whose stored default target (set from the editor) is a module device
+target is refused the same way, naming that default as launchable from the
+editor only — known from the stored default alone, so before anything is
+configured or built (*Order*, below). A build target whose artifact is
 **foreign** (§18.1) is run on a device instead of the host: the chain becomes
 build → deploy → stage → execute (§18.4–§18.5), the device is resolved per
 §18.3 (a device option selects it for this invocation), forwarded arguments
@@ -1116,8 +1124,11 @@ then does it fail, with the same message and the targets it knows. A run
 naming no target is never reconfigured. This retry is `lw run`'s and the
 daemon's `prepare_run` with the default `profile` build scope; an editor
 launch's `target` build scope (API.md §9.3) runs no configure step and
-resolves the target once. A target a module only reports after a build is
-not guessed: the run fails at step 2, naming the targets it does know
+resolves the target once. A name that configuring cannot turn into a
+launchable build target — a project key of the profile, or the id of a module
+device target the profile offers (bare, or `<project>:<id>` / `--project`
+scoped) — is refused at step 2 without this re-run. A target a module only
+reports after a build is not guessed: the run fails at step 2, naming the targets it does know
 (§16.3).
 
 **Positional grammar.** Before any `--`, a run takes zero, one, or two
@@ -1190,7 +1201,12 @@ listing is complete only for the profile's configured projects and MAY be empty
 or partial otherwise; the operation reports that the list is incomplete — and
 which project must be configured to complete it — rather than guessing the
 missing targets (§16.3). The listing marks the profile's **default target**
-(§16.17) among the results. Because it neither builds nor writes, the listing MAY
+(§16.17) among the results. It also lists the profile's **module device
+targets** (§11: each project's device targets for the configuration the
+profile maps it to) as a separate group marked launchable from the editor only
+— a run excludes them (§16.17); a machine-readable listing, where a host has
+one, carries them with a kind that tells them apart. Because it neither builds
+nor writes, the listing MAY
 resolve the **active profile** as its default even in a non-interactive host,
 unlike the operations that build or manage state (§16.3, §16.9).
 
