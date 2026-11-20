@@ -249,6 +249,18 @@ and Upgrade notes below before upgrading.
 
 - `lw worktree add --no-pull` said to run `lw pull` "here", the directory
   you ran it in; it now says to run it in the new worktree (#178).
+- `lw module install harmony` installs harmony module v0.1.5: a device run
+  now refuses an unsigned HAP before installing it, naming the missing
+  `signingConfigs` in `build-profile.json5`, instead of failing on the device
+  with "no signature file"; a signed build's HAP is preferred over the
+  unsigned one it leaves next to it. Run `lw module update harmony` to get
+  it. (#183)
+- `lw run` on a profile whose module offers device targets (such as the
+  HarmonyOS `run-device`) now says they launch from the editor only, listing
+  them, instead of a bare `available: (none)`; naming one, or a project, is
+  refused at once rather than after reconfiguring every project, and so is
+  a bare `lw run` whose stored default target is a device target.
+  `lw target list` shows them in their own editor-only group. (#182)
 - clangd no longer floods MSVC projects that build with `/Wall` with
   `-Wc++98-compat`, `-Wpadded` and similar warnings: clangd reads a cl-style
   `/Wall` as `-Weverything`, so the compile database lw writes for clangd now
