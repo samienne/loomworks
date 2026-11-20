@@ -80,6 +80,12 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
 
 ### Fixed
 
+- `lw module install harmony` installs harmony module v0.1.5: a device run
+  now refuses an unsigned HAP before installing it, naming the missing
+  `signingConfigs` in `build-profile.json5`, instead of failing on the device
+  with "no signature file"; a signed build's HAP is preferred over the
+  unsigned one it leaves next to it. Run `lw module update harmony` to get
+  it. (#183)
 - `lw run` on a profile whose module offers device targets (such as the
   HarmonyOS `run-device`) now says they launch from the editor only, listing
   them, instead of a bare `available: (none)`; naming one, or a project, is

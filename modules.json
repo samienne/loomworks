@@ -4,10 +4,10 @@
     "harmony": {
       "description": "HarmonyOS / OpenHarmony build + device support (arkts, hvigor, hdc devices)",
       "repo": "samienne/loomworks-module-ohos.nvim",
-      "version": "0.1.4",
+      "version": "0.1.5",
       "api_version": 1,
-      "url": "https://codeload.github.com/samienne/loomworks-module-ohos.nvim/zip/refs/tags/v0.1.4",
-      "sha256": "5f2283a789bd06c5e83176ecb60dae0cb478ae22481c5c8eafe2bdeca3c4a9ec",
+      "url": "https://codeload.github.com/samienne/loomworks-module-ohos.nvim/zip/refs/tags/v0.1.5",
+      "sha256": "e79e3b1419f3a6674bd6d363b9a03ab510c311cf72e2b7e1c26fed4897e75058",
       "brings": { "sdks": ["ohos"], "progress": ["hvigor"] }
     }
   }
