@@ -59,7 +59,15 @@ pick_tool() {
     local t
     # Prefer a self-contained gcc/clang toolchain (msvc and clang-cl need a VS
     # dev environment); take the full key so e.g. "ninja-appleclang-15" survives.
-    t=$(grep -viE 'msvc|clang-cl' "$keys" | grep -iE 'gcc|clang' | head -1)
+    # On Windows prefer mingw gcc: it ships its own C++ library, while a plain
+    # clang compiles against the Visual Studio STL, which rejects a clang older
+    # than the one it was released with (STL1000 — VS 18 needs clang 22, the
+    # runner image's LLVM lagged behind).
+    t=""
+    if is_windows_host; then
+        t=$(grep -viE 'msvc|clang' "$keys" | grep -iE 'gcc' | head -1)
+    fi
+    [ -z "$t" ] && t=$(grep -viE 'msvc|clang-cl' "$keys" | grep -iE 'gcc|clang' | head -1)
     [ -z "$t" ] && t=$(head -1 "$keys")
     printf '%s' "$t"
 }
