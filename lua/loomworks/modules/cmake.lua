@@ -2941,7 +2941,9 @@ end
 --- Build the argv prefix (compiler + flags, no source file) for a
 --- compileGroup, in the compiler's native syntax. Shared by compiled-source
 --- and header entries so both render identical flags. Returns a fresh
---- table each call (the caller appends the file and keeps it).
+--- table each call (the caller appends the file and keeps it). The argv is
+--- clangd-normalized (`cpp_compilers.clangd_warning_argv`): only the owned
+--- database is rendered here, never a build command.
 --- @param cg table compileGroup
 --- @param compiler string compiler path / bare name (argv[0])
 --- @return string[]
@@ -2977,6 +2979,9 @@ local function cg_argv_prefix(cg, compiler)
             args[#args + 1] = (msvc and "/D" or "-D") .. def
         end
     end
+    -- clangd-facing normalization (spec §12.2): a cl-driver `/Wall` would
+    -- read as `-Weverything`; the owned DB carries `/W4` instead.
+    require("loomworks.cpp_compilers").clangd_warning_argv(args)
     return args
 end
 
@@ -3923,6 +3928,57 @@ local CC_ENTRIES_TARGETS_PER_STEP = 16
 --- Headers attributed+rendered per inner loop iteration of the headers phase.
 local CC_HEADERS_PER_STEP = 128
 
+--- Format number of the owned `compile_commands.json` content (§12.4).
+--- BUMP IT whenever a generator change alters the generated content (flags,
+--- entries, paths): a database stamped with another number is stale, so the
+--- change reaches existing databases without waiting for a reconfigure.
+--- 1 = before stamps existed (never written); 2 = cl-driver /Wall -> /W4.
+M.OWNED_CC_FORMAT = 2
+
+--- The stamp beside the owned database. `compile_commands.json` itself stays
+--- a plain JSON array clangd reads, so the stamp is a sidecar file.
+local CC_STAMP_NAME = "compile_commands.lw-stamp"
+
+--- The stamp line for a database whose current stat is `st`: the format
+--- number, then the database's mtime and size as written. Binding the stamp
+--- to the database's mtime+size makes a database rewritten by a loomworks
+--- that does not know the stamp (a downgrade) read as unstamped.
+--- @param st table uv.fs_stat result of the database
+--- @return string
+local function cc_stamp_line(st)
+    return string.format("%d %d.%09d %d\n", M.OWNED_CC_FORMAT,
+        st.mtime.sec, st.mtime.nsec or 0, st.size)
+end
+
+--- Whether `out_dir`'s database carries the current stamp. `db_stat` is the
+--- database's stat (nil when absent ⇒ false).
+--- @param out_dir string
+--- @param db_stat table|nil
+--- @return boolean
+local function cc_stamp_current(out_dir, db_stat)
+    if not (db_stat and db_stat.mtime and db_stat.size) then return false end
+    local body = io_mod.read_file(out_dir .. "/" .. CC_STAMP_NAME)
+    return body == cc_stamp_line(db_stat)
+end
+
+--- Record the current stamp for the database just written into `out_dir`
+--- (atomic write: temp file, then rename). Called after the database's own
+--- atomic rename. A failure only logs: the guard then sees no current stamp
+--- and regenerates once more later.
+--- @param out_dir string
+local function cc_write_stamp(out_dir)
+    local st = uv.fs_stat(out_dir .. "/compile_commands.json")
+    local ok, err = false, "database missing after write"
+    if st then
+        ok, err = io_mod.write_file_atomic(out_dir .. "/" .. CC_STAMP_NAME,
+            cc_stamp_line(st), { backup = false })
+    end
+    if not ok then
+        require("loomworks.log").default():warn(
+            "cmake: compile_commands stamp write failed: %s", tostring(err))
+    end
+end
+
 --- Reconstruct a `compile_commands.json` from the cmake file-api and write it
 --- into `out_dir`, ASYNCHRONOUSLY and YIELDING. The heavy
 --- reconstruction — reading the per-target file-api replies, the Tier-1 header
@@ -3975,6 +4031,8 @@ function M.generate_compile_commands_async(build_dir, out_dir, opts, done)
     local phase = "read" -- read → entries → walk → headers → write → (finish)
 
     local function finish_ok(count)
+        -- Stamp only a database that was actually written (§12.4).
+        if count ~= nil then pcall(cc_write_stamp, out_dir) end
         done(count ~= nil, count)
     end
 
@@ -4190,9 +4248,10 @@ end
 --- @type table<string, { dirty: boolean, dones: fun(changed: boolean)[] }>
 local _cc_in_progress = {}
 
---- Whether the reply index is newer than the generated file (or the file is
---- absent) — the cheap synchronous freshness gate. Returns nil when
---- there is no reply index at all (never configured / no work possible).
+--- Whether the reply index is newer than the generated file, the file is
+--- absent, or its generator format stamp is not current (§12.4) — the cheap
+--- synchronous freshness gate. Returns nil when there is no reply index at
+--- all (never configured / no work possible).
 --- @param build_dir string
 --- @param out_dir string
 --- @return boolean|nil stale (nil ⇒ no reply index)
@@ -4201,6 +4260,7 @@ local function cc_is_stale(build_dir, out_dir)
     if not reply_mtime then return nil end
     local out_stat = uv.fs_stat(out_dir .. "/compile_commands.json")
     local out_mtime = out_stat and out_stat.mtime and out_stat.mtime.sec or nil
+    if not cc_stamp_current(out_dir, out_stat) then return true end
     if out_mtime and reply_mtime <= out_mtime then return false end
     return true
 end

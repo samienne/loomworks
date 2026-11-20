@@ -227,6 +227,84 @@ describe("cmake _build_cc_entries", function()
 end)
 
 -- ---------------------------------------------------------------------------
+-- cl-driver warning level: /Wall → /W4 in the owned DB (§12.2)
+-- ---------------------------------------------------------------------------
+
+describe("cpp_compilers.clangd_warning_argv", function()
+    local cpp = require("loomworks.cpp_compilers")
+
+    it("maps /Wall and -Wall to /W4 under cl / cl.exe / clang-cl drivers", function()
+        for _, drv in ipairs({ "cl", "C:/VS/bin/CL.EXE", "clang-cl", [[C:\llvm\bin\clang-cl.exe]] }) do
+            local a = { drv, "/Wall", "/wd4100", "-Wall", "/std:c++17", "x.cpp" }
+            local n = cpp.clangd_warning_argv(a)
+            assert.equals(2, n, drv)
+            assert.same({ drv, "/W4", "/wd4100", "/W4", "/std:c++17", "x.cpp" }, a, drv)
+        end
+    end)
+
+    it("maps /Wall under an explicit --driver-mode=cl", function()
+        local a = { "/opt/llvm/bin/clang", "--driver-mode=cl", "/Wall", "x.cpp" }
+        assert.equals(1, cpp.clangd_warning_argv(a))
+        assert.same({ "/opt/llvm/bin/clang", "--driver-mode=cl", "/W4", "x.cpp" }, a)
+    end)
+
+    it("leaves GNU-style drivers untouched (-Wall stays -Wall)", function()
+        for _, drv in ipairs({ "/usr/bin/g++", "clang++", "C:/llvm/bin/clang.exe", "clang-cl-ish" }) do
+            local a = { drv, "-Wall", "-Wextra", "x.cpp" }
+            assert.equals(0, cpp.clangd_warning_argv(a), drv)
+            assert.same({ drv, "-Wall", "-Wextra", "x.cpp" }, a, drv)
+        end
+    end)
+
+    it("leaves other warning flags of a cl entry alone", function()
+        local a = { "cl.exe", "/W3", "/W4", "/WX", "/wd4100", "-Wno-foo", "x.cpp" }
+        assert.equals(0, cpp.clangd_warning_argv(a))
+        assert.same({ "cl.exe", "/W3", "/W4", "/WX", "/wd4100", "-Wno-foo", "x.cpp" }, a)
+    end)
+end)
+
+describe("cmake owned DB translates the cl-driver /Wall (§12.2)", function()
+    local codemodel, detail, toolchains
+    before_each(function()
+        codemodel = load_fixture("codemodel-v2.json")
+        detail = load_fixture("target-app-Debug.json")
+        toolchains = load_fixture("toolchains-v1.json")
+    end)
+
+    local function build(tc, fragment)
+        local frags = detail.compileGroups[1].compileCommandFragments
+        frags[#frags + 1] = { fragment = fragment }
+        return cmake._build_cc_entries(
+            codemodel, { ["target-app-Debug.json"] = detail }, tc,
+            codemodel.paths.source, "Debug", "C:/proj/build")
+    end
+
+    it("emits /W4 instead of /Wall for a cl.exe entry, keeping /wdNNNN", function()
+        local a = by_basename(build(toolchains, "/Wall /wd4100 /wd4514"))["main.cpp"].arguments
+        assert.is_false(has_tok(a, "/Wall"))
+        assert.is_true(has_tok(a, "/W4"))
+        assert.is_true(has_tok(a, "/wd4100"))
+        assert.is_true(has_tok(a, "/wd4514"))
+        assert.is_true(has_tok(a, "/std:c++17"))
+    end)
+
+    it("emits /W4 instead of -Wall for a clang-cl entry", function()
+        local tc = { toolchains = { { language = "CXX", compiler = { path = "C:/llvm/bin/clang-cl.exe" } } } }
+        local a = by_basename(build(tc, "-Wall"))["main.cpp"].arguments
+        assert.is_false(has_tok(a, "-Wall"))
+        assert.is_true(has_tok(a, "/W4"))
+    end)
+
+    it("keeps -Wall for a GNU-driver entry", function()
+        local tc = { toolchains = { { language = "CXX", compiler = { path = "/usr/bin/g++" } } } }
+        local a = by_basename(build(tc, "-Wall -Wextra"))["main.cpp"].arguments
+        assert.is_true(has_tok(a, "-Wall"))
+        assert.is_true(has_tok(a, "-Wextra"))
+        assert.is_false(has_tok(a, "/W4"))
+    end)
+end)
+
+-- ---------------------------------------------------------------------------
 -- generate_compile_commands — end-to-end with fixtures on disk
 -- ---------------------------------------------------------------------------
 
@@ -1054,6 +1132,65 @@ describe("cmake async generated-cc", function()
         assert.is_truthy(v2)
         assert.equals(2, #v2)
         assert.is_not.equals("SENTINEL", v2[1].file)
+    end)
+
+    -- Generator format stamp (Â§12.4): a content-changing generator update
+    -- reaches databases that are fresh by mtime.
+    describe("format stamp", function()
+        local stamp_file
+        before_each(function() stamp_file = out_dir .. "/compile_commands.lw-stamp" end)
+
+        local function refresh()
+            local changed = nil
+            cmake.refresh_generated_cc(build_dir, out_dir, { variant = "Debug" },
+                function(c) changed = c end)
+            assert.is_true(vim.wait(30000, function() return changed ~= nil end, 5))
+            return changed
+        end
+        local function pin_reply_past()
+            uvx.fs_utime(build_dir .. "/.cmake/api/v1/reply/index-2025.json",
+                os.time() - 100, os.time() - 100)
+        end
+
+        it("regenerates an mtime-fresh DB that has no stamp (written by an older lw)", function()
+            vim.fn.mkdir(out_dir, "p")
+            local f = assert(io.open(out_file, "w"))
+            f:write(vim.json.encode({ { file = "SENTINEL", directory = build_dir, arguments = { "cl.exe", "/Wall" } } }))
+            f:close()
+            pin_reply_past()
+            assert.is_true(refresh())
+            local db = read_db()
+            assert.equals(2, #db)
+            assert.is_truthy(uvx.fs_stat(stamp_file))
+        end)
+
+        it("regenerates an mtime-fresh DB whose stamp names another format", function()
+            assert.is_true(refresh())
+            pin_reply_past()
+            local s = assert(io.open(stamp_file, "w"))
+            s:write("1\n"); s:close()
+            assert.is_true(refresh())
+            local s2 = assert(io.open(stamp_file, "r"))
+            local body = s2:read("*a"); s2:close()
+            assert.equals(tostring(cmake.OWNED_CC_FORMAT), body:match("^(%d+)"))
+        end)
+
+        it("regenerates when the DB was rewritten after the stamp (older lw ran)", function()
+            assert.is_true(refresh())
+            pin_reply_past()
+            local f = assert(io.open(out_file, "w"))
+            f:write(vim.json.encode({ { file = "SENTINEL", directory = build_dir, arguments = { "cc" } } }))
+            f:close()
+            assert.is_true(refresh())
+            assert.equals(2, #read_db())
+        end)
+
+        it("does not regenerate with a current stamp and a fresh mtime", function()
+            assert.is_true(refresh())
+            assert.is_truthy(uvx.fs_stat(stamp_file))
+            pin_reply_past()
+            assert.is_false(refresh())
+        end)
     end)
 end)
 

@@ -653,6 +653,52 @@ function M.is_msvc_style(tool_data)
 end
 
 -- ---------------------------------------------------------------------------
+-- Owned LSP database: clangd-facing argv normalization
+-- ---------------------------------------------------------------------------
+
+--- Whether an argv drives the compiler in cl mode: argv[0]'s basename is
+--- `cl` / `clang-cl` (case-insensitive, optional `.exe`), or an explicit
+--- `--driver-mode=cl` is present.
+--- @param args string[]
+--- @return boolean
+local function argv_is_cl_driver(args)
+    local drv = args[1]
+    if type(drv) == "string" then
+        local base = drv:gsub("\\", "/"):match("[^/]+$") or drv
+        base = base:lower():gsub("%.exe$", "")
+        if base == "cl" or base == "clang-cl" then return true end
+    end
+    for i = 2, #args do
+        if args[i] == "--driver-mode=cl" then return true end
+    end
+    return false
+end
+
+--- Normalize the warning level of one owned-database argv for clangd, IN
+--- PLACE. Under the cl driver `/Wall` (and its `-Wall` spelling) is MSVC's
+--- "all warnings", which clangd's cl-compatible driver maps to clang's
+--- `-Weverything` — a flood of `-Wc++98-compat`, `-Wpadded`, … in the editor.
+--- It is replaced by `/W4`, which clang-cl maps to `-Wall -Wextra` (what a
+--- clang build of the same project warns about). Only the owned LSP database
+--- is normalized — never the build and never a native database. Every other
+--- flag (including `/wdNNNN`) and every non-cl argv is left untouched.
+--- Module-independent: any module's owned-DB writer applies it per argv.
+--- @param args string[] argv, compiler first (mutated)
+--- @return integer replaced number of tokens rewritten
+function M.clangd_warning_argv(args)
+    if type(args) ~= "table" or not argv_is_cl_driver(args) then return 0 end
+    local n = 0
+    for i = 2, #args do
+        local a = args[i]
+        if a == "/Wall" or a == "-Wall" then
+            args[i] = "/W4"
+            n = n + 1
+        end
+    end
+    return n
+end
+
+-- ---------------------------------------------------------------------------
 -- Compiler-cache compatibility: PDB-writing debug flags
 -- ---------------------------------------------------------------------------
 

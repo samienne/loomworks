@@ -871,6 +871,25 @@ synthesized in the compiler's native syntax: MSVC `/I`, `/D`, and
 compiler `cl.exe` is emitted as `argv[0]` so clangd's cl-compatible driver
 parses the flags. The project build directory is never written to.
 
+**clangd warning-level normalization.** The owned database is a clangd
+input, not a build command, so its argv is normalized for clangd by a
+module-independent core helper (`cpp_compilers.clangd_warning_argv`) that any
+module's owned-database writer applies — here, to every rendered entry
+(compiled sources, header entries §12.3 and the per-file query §12.6 alike).
+For an entry driven in **cl mode** — `argv[0]` whose basename is `cl` or
+`clang-cl` (case-insensitive, optional `.exe`), or an argv carrying
+`--driver-mode=cl` — every `/Wall` or `-Wall` token is replaced by `/W4`.
+Reason: in cl mode `/Wall` is MSVC's "all warnings", which clangd's
+cl-compatible driver maps to clang's `-Weverything` (`-Wc++98-compat`,
+`-Wpadded`, `-Wunsafe-buffer-usage`, …); clang-cl's `/W4` is `-Wall -Wextra`,
+what a clang build of the same project reports. Nothing is added (no
+`-pedantic`), every other flag — `/wdNNNN` included — is kept, and GNU-style
+entries are untouched (`-Wall` there already means `-Wall`). The build and the
+build directory's native `compile_commands.json` are never changed. Like any
+change to the database's content, it reaches an existing database when that
+database is next regenerated; the generator format stamp (§12.4) makes that
+happen on the first freshness check after an upgrade, without a reconfigure.
+
 The database is written **entry-by-entry** (a streaming writer): the file
 is opened, `[` is written, then each entry is encoded on its own with
 `vim.json.encode(entry)` and appended (comma-separated), then `]`. loomworks
@@ -933,7 +952,9 @@ attributed to exactly one target.
 
 ### 12.4 Freshness
 
-Regeneration is gated on a cheap, **synchronous** mtime guard: the owned database is rebuilt only when the file-api reply index is newer than the generated file (or the generated file is absent). CMake rewrites the reply on every reconfigure — exactly when flags can change — so this gate is both necessary and sufficient, and makes every trigger below a no-op when nothing has advanced (thrash-proof). The guard is a couple of `stat`s and one small directory scan; it stays on the calling path so a fresh database costs almost nothing. Only when the guard decides to rebuild is the reconstruction dispatched, and that work runs **asynchronously and single-flight** (§12.2), never blocking the UI. clangd auto-reloads `compile_commands.json` on change, so an in-place content update needs no server restart.
+Regeneration is gated on a cheap, **synchronous** mtime guard: the owned database is rebuilt only when the file-api reply index is newer than the generated file, the generated file is absent, or its **generator format stamp** does not match (below). CMake rewrites the reply on every reconfigure — exactly when flags can change — so this gate is both necessary and sufficient, and makes every trigger below a no-op when nothing has advanced (thrash-proof). The guard is a couple of `stat`s and one small directory scan; it stays on the calling path so a fresh database costs almost nothing. Only when the guard decides to rebuild is the reconstruction dispatched, and that work runs **asynchronously and single-flight** (§12.2), never blocking the UI. clangd auto-reloads `compile_commands.json` on change, so an in-place content update needs no server restart.
+
+**Generator format stamp.** The reply mtime says nothing about which version of loomworks wrote the database, so a generator change that alters the database's content (e.g. the `/Wall` normalization of §12.2) would otherwise reach an existing database only after the next reconfigure. After each successful write the generator records a stamp beside the database, `compile_commands.lw-stamp` (`compile_commands.json` itself stays a plain JSON array): one line holding the generator's format number and the database's mtime and size as written. The format number is a constant of the module, bumped whenever the generated content changes. The guard treats the database as stale when the stamp is missing or unreadable, names another format, or does not match the database's current mtime and size (the database was rewritten by a loomworks that does not know the stamp). The stamp is written atomically (temporary file, then rename) after the database's own atomic rename; a failure to write it only costs one extra regeneration later. The stamp lives under `.lw/cache/` and is private (loomworks `spec/formats.md`).
 
 Regeneration is triggered from three idempotent paths, so the owned database refreshes whenever the native one would:
 
