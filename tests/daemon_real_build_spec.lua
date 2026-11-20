@@ -14,12 +14,20 @@ local uv = vim.uv or vim.loop
 local function have(exe) return vim.fn.executable(exe) == 1 end
 
 --- A cmake tool key from `lw tools`: a self-contained ninja gcc/clang first
---- (no Visual Studio environment needed), then any ninja tool, else nil.
+--- (no Visual Studio environment needed), then any ninja tool, else nil. On
+--- Windows gcc (mingw) comes first: it ships its own C++ library, while a plain
+--- clang compiles against the Visual Studio STL, which rejects a clang older
+--- than the one it was released with (STL1000).
 local function pick_tool(out)
     local keys = {}
     for line in (out .. "\n"):gmatch("([^\n]*)\n") do
         local key = line:match("^%s+(ninja%-[%w%.%-]+)%s")
         if key then keys[#keys + 1] = key end
+    end
+    if vim.fn.has("win32") == 1 then
+        for _, k in ipairs(keys) do
+            if k:match("gcc") and not k:match("clang") then return k end
+        end
     end
     for _, k in ipairs(keys) do
         if (k:match("gcc") or k:match("clang")) and not k:match("clang%-cl") then return k end
