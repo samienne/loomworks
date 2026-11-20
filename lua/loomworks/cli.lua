@@ -3065,10 +3065,11 @@ function M.cmd_run(ws, args)
   local profile, target_name
   profile, target_name, ws = M._run_selection(ws, r.positionals)
   local rp = require("loomworks.run_prep")
-  -- No target named and no default target stored: refused before anything
-  -- is configured or built (headless §16.17 "Order").
+  -- No target named and no default target stored, or a stored default that
+  -- is a module device target: refused before anything is configured or
+  -- built (headless §16.17 "Order").
   if not target_name then
-    local refusal = rp.no_default_refusal(profile, ws)
+    local refusal = rp.no_default_refusal(profile, ws) or rp.device_default_refusal(profile)
     if refusal then die(refusal) end
   end
   local reconfigure_skip

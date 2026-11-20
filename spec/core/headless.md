@@ -1061,7 +1061,11 @@ targets (§11; both deferred). A run that cannot launch anything on a profile
 that offers module device targets says so: its refusal (no such target, no
 default target set) lists the profile's device targets (`<project>:<id>`) as
 launchable from the editor only, and a named operand that is one of them is
-refused as a module device target, not as an unknown name. A build target whose artifact is
+refused as a module device target, not as an unknown name. A run naming no
+target whose stored default target (set from the editor) is a module device
+target is refused the same way, naming that default as launchable from the
+editor only — known from the stored default alone, so before anything is
+configured or built (*Order*, below). A build target whose artifact is
 **foreign** (§18.1) is run on a device instead of the host: the chain becomes
 build → deploy → stage → execute (§18.4–§18.5), the device is resolved per
 §18.3 (a device option selects it for this invocation), forwarded arguments

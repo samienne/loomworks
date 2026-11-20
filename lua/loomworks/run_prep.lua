@@ -294,6 +294,22 @@ function M.select(ws, profile, name, proj_scope, kind, opts)
     return profile:default_target()
 end
 
+--- The refusal of a run naming no target on a profile whose stored default
+--- target is a module device target (set from the editor), else nil: a run
+--- never launches one (headless §16.17). Known from the descriptor alone,
+--- so refused before any configure. Only `lw run` (the CLI and the daemon's
+--- `run` operation) checks it: the editor launches device targets itself.
+--- @param profile loomworks.Profile
+--- @return string|nil
+function M.device_default_refusal(profile)
+    local desc = profile._default_target_descriptor
+    if not (desc and desc.device_target) then return nil end
+    return "the default target '" .. tostring(desc.project) .. ":" .. desc.device_target ..
+        "' of profile '" .. profile.key .. "' is a module device target: launch it from the editor;" ..
+        " `lw run` does not run module device targets yet.\n" ..
+        "  or name one:  lw run " .. profile.key .. " <target>"
+end
+
 --- The refusal of a run naming no target on a profile with no default
 --- target set, else nil. The stored default is known without configuring
 --- (Profile:default_target reads the descriptor only), so both hosts check

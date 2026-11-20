@@ -459,6 +459,17 @@ describe("lw run: a profile with module device targets (§16.17)", function()
         assert.truthy(stderr:find("from the editor", 1, true), stderr)
         assert.equals(0, #spawned)
     end)
+
+    it("no name and a stored default that is a device target: refused as editor-only, before any configure", function()
+        profile._default_target_descriptor = { project = "App", device_target = "run-device" }
+        local spawned, launched, code, stderr = run(ws, profile, nil)
+        assert.equals(1, code)
+        assert.truthy(stderr:find("default target 'App:run-device'", 1, true), stderr)
+        assert.truthy(stderr:find("module device target", 1, true), stderr)
+        assert.truthy(stderr:find("from the editor", 1, true), stderr)
+        assert.equals(0, #spawned, "nothing was configured or built")
+        assert.is_nil(launched)
+    end)
 end)
 
 describe("lw run: the target's dependency projects are built", function()
