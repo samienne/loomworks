@@ -86,6 +86,12 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
   with "no signature file"; a signed build's HAP is preferred over the
   unsigned one it leaves next to it. Run `lw module update harmony` to get
   it. (#183)
+- `lw run` on a profile whose module offers device targets (such as the
+  HarmonyOS `run-device`) now says they launch from the editor only, listing
+  them, instead of a bare `available: (none)`; naming one, or a project, is
+  refused at once rather than after reconfiguring every project, and so is
+  a bare `lw run` whose stored default target is a device target.
+  `lw target list` shows them in their own editor-only group. (#182)
 - clangd no longer floods MSVC projects that build with `/Wall` with
   `-Wc++98-compat`, `-Wpadded` and similar warnings: clangd reads a cl-style
   `/Wall` as `-Weverything`, so the compile database lw writes for clangd now

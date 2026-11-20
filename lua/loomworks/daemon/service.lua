@@ -923,7 +923,11 @@ function Service:_accept(ctx)
     -- nothing is configured or built (headless §16.17 "Order"; API.md §9.1,
     -- §9.2, §9.4), with the in-process message.
     if launching and profile and a.target == nil then
-        local refusal = require("loomworks.run_prep").no_default_refusal(profile)
+        local rp = require("loomworks.run_prep")
+        -- A run (`lw run`) of a stored default that is a module device
+        -- target is refused too: the editor launches device targets itself.
+        local refusal = rp.no_default_refusal(profile)
+            or (ctx.op == "run" and rp.device_default_refusal(profile) or nil)
         if refusal then
             return ctx.reply({ outcome = "refused", message = refusal, exit_code = 1,
                 notes = ctx.notes, note_roles = ctx.note_roles })

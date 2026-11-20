@@ -23,7 +23,11 @@ local function fake_profile(opts)
   opts = opts or {}
   local project = require("tests.helpers").set_launches({
     key = "acme",
-    _module = opts.parses and { impl = { parse_targets = function() return {} end } } or nil,
+    _module = (opts.parses or opts.devices) and { impl = {
+      parse_targets = opts.parses and function() return {} end or nil,
+      has_devices = opts.devices and true or nil,
+      device_targets = opts.devices and function() return opts.devices end or nil,
+    } } or nil,
   }, opts.launch)
   local unit = {
     targets = opts.targets,       -- nil → ensure_unit_targets tries (and, with no
@@ -35,7 +39,8 @@ local function fake_profile(opts)
   return {
     key = opts.key or "p1",
     _default_target_descriptor = opts.default,
-    projects = function() return { { _config_unit = unit } } end,
+    projects = function() return { { _config_unit = unit, _project = project,
+      _configuration = { name = "Debug" } } } end,
     project = function(_, k) return k == "acme" and project or nil end,
   }
 end
@@ -94,6 +99,45 @@ describe("collect_targets", function()
     })
     local info = cli._collect_targets({}, prof)
     for _, r in ipairs(info.rows) do assert.is_falsy(r.is_default) end
+  end)
+end)
+
+describe("collect_targets: module device targets", function()
+  local devices = { { id = "run-device", label = "Run on device" } }
+
+  it("lists them apart from the launchable rows, editor-only", function()
+    local prof = fake_profile({
+      launch = { serve = { command = "node" } }, state = "configured", devices = devices,
+    })
+    local info = cli._collect_targets({}, prof)
+    for _, r in ipairs(info.rows) do assert.are_not.equal("acme:run-device", r.label) end
+    assert.equals(1, #info.devices)
+    assert.equals("acme:run-device", info.devices[1].label)
+    assert.equals("device", info.devices[1].kind_label)
+  end)
+
+  it("marks a device target stored as the default (run_prep.is_stored_default)", function()
+    local prof = fake_profile({
+      state = "configured", devices = devices,
+      default = { project = "acme", device_target = "run-device" },
+    })
+    local info = cli._collect_targets({}, prof)
+    assert.is_true(info.devices[1].is_default)
+  end)
+
+  it("lw target list prints them in their own group", function()
+    local prof = fake_profile({
+      launch = { serve = { command = "node" } }, state = "configured", devices = devices,
+    })
+    local lines = {}
+    local orig = io.write
+    io.write = function(...) for _, s in ipairs({ ... }) do lines[#lines + 1] = s end; return true end
+    local ok, err = pcall(cli._print_target_list, {}, prof)
+    io.write = orig
+    assert(ok, err)
+    local text = table.concat(lines)
+    assert.truthy(text:find("device targets (launch from the editor", 1, true), text)
+    assert.truthy(text:find("acme:run-device", 1, true), text)
   end)
 end)
 
