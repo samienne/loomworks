@@ -16,6 +16,10 @@ M.is_win = package.config:sub(1, 1) == "\\"
 local function tmp()
     local d = (vim.fn.tempname():gsub("\\", "/"))
     vim.fn.mkdir(d, "p")
+    -- The resolved spelling on POSIX: lw reports the realpath'd root
+    -- (macOS: /var -> /private/var). Windows keeps the spelling as is
+    -- (realpath there can change the drive-letter case or expand 8.3 names).
+    if not M.is_win then d = uv.fs_realpath(d) or d end
     return d
 end
 M.tmp = tmp
@@ -152,9 +156,13 @@ end
 --- The step script of `shell_workspace` (run by nvim -l): prints
 --- `step <kind> FOO=<LW_TEST_FOO> ONLY=<LW_TEST_ONLY>` on stdout and a line
 --- on stderr; writes its pid to $LW_TEST_PIDFILE.<kind> (atomically); waits until the file $LW_TEST_GATE exists; sleeps $LW_TEST_SLEEP ms;
---- exits 3 when $LW_TEST_FAIL names its kind; kills itself with a signal
---- when $LW_TEST_KILL is `<kind>:<signal>` (e.g. `build:sigkill` — on
---- Windows libuv emulates it with TerminateProcess, exit code 1).
+--- exits 3 when $LW_TEST_FAIL names its kind. $LW_TEST_KILL =
+--- `<kind>:<signal>` (e.g. `build:sigkill`) makes that step die by the
+--- signal: on Windows the script kills itself (libuv emulates it with
+--- TerminateProcess, exit code 1); on POSIX it just returns and the `sh`
+--- that `shell_workspace` runs it under kills itself, so the step dies from
+--- the signal (128 + n) whatever nvim's own signal handling (some nvim
+--- versions catch SIGTERM as a deadly signal and exit 1).
 M.STEP = [[
 local kind = arg[1]
 local pf = os.getenv("LW_TEST_PIDFILE")
@@ -200,7 +208,7 @@ local only = os.getenv("LW_TEST_SLEEP_STEP") -- (sleep in this step only)
 if ms and (not only or only == kind) then vim.uv.sleep(ms) end
 if os.getenv("LW_TEST_FAIL") == kind then os.exit(3) end
 local ks = os.getenv("LW_TEST_KILL")
-if ks and ks:sub(1, #kind + 1) == kind .. ":" then
+if ks and ks:sub(1, #kind + 1) == kind .. ":" and vim.fn.has("win32") == 1 then
     io.stdout:flush(); io.stderr:flush()
     vim.uv.kill(vim.uv.os_getpid(), ks:sub(#kind + 2))
     vim.uv.sleep(10000)
@@ -208,7 +216,9 @@ end
 ]]
 
 --- A workspace with one `shell` project `app` (configure + build both run
---- the STEP script through this nvim) and a configuration set `dev`
+--- the STEP script through this nvim; on POSIX under `sh`, which `exec`s it
+--- unless $LW_TEST_KILL names the step, then kills itself after it, see
+--- STEP) and a configuration set `dev`
 --- (app=Debug). `opts.profile`: also write a signed working copy with the
 --- profile `dev` (the trust key must already be set, in-process tests);
 --- `opts.launch`: with it, the project's launch configurations in that
@@ -222,7 +232,19 @@ function M.shell_workspace(opts)
     local step = root .. "/step.lua"
     local f = io.open(step, "w"); f:write(M.STEP); f:close()
     local nv = (vim.v.progpath:gsub("\\", "/"))
-    local function cmd(kind) return { nv, "--headless", "-u", "NONE", "-l", step, kind } end
+    -- POSIX: sh -c SH nv step kind [args...]. The killed step is the sh
+    -- itself (a plain shell dies from the signal it sends itself); any other
+    -- step `exec`s nvim, so the step process is nvim as on Windows.
+    -- (No `${...}` in it: lw expands those in a command, expand.lua.)
+    local SH = 'nv=$0; step=$1; kind=$2; shift 2; case "$LW_TEST_KILL" in "$kind":*) '
+        .. '"$nv" --headless -u NONE -l "$step" "$kind" "$@" || exit; '
+        .. 's=$(printf %s "$LW_TEST_KILL" | sed "s/^[^:]*:sig//" | tr a-z A-Z); '
+        .. 'kill -s "$s" $$; exit 1 ;; '
+        .. '*) exec "$nv" --headless -u NONE -l "$step" "$kind" "$@" ;; esac'
+    local function cmd(kind)
+        if vim.fn.has("win32") == 1 then return { nv, "--headless", "-u", "NONE", "-l", step, kind } end
+        return { "sh", "-c", SH, nv, step, kind }
+    end
     local cfg = {
         projects = { app = { path = "app", shell = {
             build_dir = "${workspace_root}/out/${variant}",

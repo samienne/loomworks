@@ -534,12 +534,15 @@ end
 --- is a direct child of `<root>/.lw/tmp` (separator-bounded) whose name is
 --- exactly `lw-test-<hex>.xml`, with `<root>/.lw` and `<root>/.lw/tmp`
 --- real directories (lstat: never a link or junction); anything else is
---- refused and left alone.
+--- refused and left alone. `\` is a separator only on Windows: on POSIX it
+--- is a filename character, so a `root` or `path` holding one is refused
+--- (the path checked must be the path removed).
 --- @param root string|nil the workspace root
 --- @param path string|nil
 --- @return boolean removed
 function M.unlink(root, path)
     if type(root) ~= "string" or root == "" or type(path) ~= "string" or path == "" then return false end
+    if not IS_WIN and (root:find("\\", 1, true) or path:find("\\", 1, true)) then return false end
     local prefix = norm_path(root) .. "/.lw/tmp"
     local p = norm_path(path)
     if p:sub(1, #prefix + 1) ~= prefix .. "/" then return false end

@@ -656,10 +656,26 @@ describe("Tests/1 run internals", function()
         local ok = touch(tmp .. "/lw-test-0123abcdef.xml")
         assert.is_true(test_store.unlink(root, ok))
         assert.is_nil(uv.fs_stat(ok))
-        -- (Backslashes and the root's spelling with a trailing slash.)
-        ok = touch(tmp .. "/lw-test-ff.xml")
-        assert.is_true(test_store.unlink(root .. "/", (ok:gsub("/", "\\"))))
+        -- The root's spelling with a trailing slash.
+        ok = touch(tmp .. "/lw-test-fe.xml")
+        assert.is_true(test_store.unlink(root .. "/", ok))
         assert.is_nil(uv.fs_stat(ok))
+        if vim.fn.has("win32") == 1 then
+            -- Backslashes are separators on Windows.
+            ok = touch(tmp .. "/lw-test-ff.xml")
+            assert.is_true(test_store.unlink(root .. "/", (ok:gsub("/", "\\"))))
+            assert.is_nil(uv.fs_stat(ok))
+        else
+            -- On POSIX `\` is a filename character: `.lw/tmp\lw-test-ff.xml`
+            -- names a file in `.lw`, not in `.lw/tmp`; it is refused.
+            local odd = touch(root .. "/.lw/tmp\\lw-test-ff.xml")
+            assert.is_false(test_store.unlink(root, odd))
+            assert.is_not_nil(uv.fs_stat(odd))
+            local real = touch(tmp .. "/lw-test-ff.xml")
+            assert.is_false(test_store.unlink(root, tmp .. "\\lw-test-ff.xml"))
+            assert.is_false(test_store.unlink(root .. "\\", real))
+            assert.is_not_nil(uv.fs_stat(real))
+        end
         -- A directory of that name is never removed.
         vim.fn.mkdir(tmp .. "/lw-test-aa.xml", "p")
         assert.is_false(test_store.unlink(root, tmp .. "/lw-test-aa.xml"))

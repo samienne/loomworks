@@ -80,6 +80,10 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
 
 ### Fixed
 
+- On Linux and macOS, removing a test run's results file now refuses a
+  path containing `\`: it was checked as if `\` were a separator but removed
+  as written, so a file named with a backslash in `.lw` could pass the
+  `.lw/tmp` check (#185).
 - `lw module install harmony` installs harmony module v0.1.5: a device run
   now refuses an unsigned HAP before installing it, naming the missing
   `signingConfigs` in `build-profile.json5`, instead of failing on the device

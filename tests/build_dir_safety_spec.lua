@@ -28,12 +28,12 @@ local mock_modules = {
 }
 
 --- Create a workspace with the given overrides.
-local function make_ws(config_overrides, user_overrides, cache_overrides)
+local function make_ws(config_overrides, user_overrides, cache_overrides, root)
     local config_json = h.make_config_json(config_overrides)
     local user_json = user_overrides and h.make_user_json(user_overrides) or nil
     local cache_json = cache_overrides and h.make_cache_json(cache_overrides) or nil
 
-    local data = workspace.assemble("/root", config_json, user_json, cache_json, { trust = require("tests.helpers").trust_all })
+    local data = workspace.assemble(root or "/root", config_json, user_json, cache_json, { trust = require("tests.helpers").trust_all })
     assert(data, "assemble failed")
 
     local events_log = {}
@@ -67,6 +67,15 @@ local function make_ws(config_overrides, user_overrides, cache_overrides)
     ws:_cleanup_orphaned_skeletons(data.cache)
     ws:remerge(data.config, data.cache, data.user)
     return ws, events_log, notifications
+end
+
+--- A real, writable workspace root: `_run_deletion` saves the cache before it
+--- deletes and fails safe when that save fails, so the deletion path only runs
+--- against a root it can write (a literal "/root" is unwritable on POSIX).
+local function tmp_root()
+    local root = vim.fn.tempname():gsub("\\", "/")
+    vim.fn.mkdir(root, "p")
+    return root
 end
 
 
@@ -216,7 +225,8 @@ describe("deletion safety with shared dirs", function()
     end)
 
     it("deletes dir when all referencing configs are in the batch", function()
-        local shared_dir = "/root/.lw/build/App/ninja-gcc"
+        local root = tmp_root()
+        local shared_dir = root .. "/.lw/build/App/ninja-gcc"
         local deleted_dirs = {}
 
         local ws = make_ws({
@@ -234,7 +244,7 @@ describe("deletion safety with shared dirs", function()
                     state = "configured", build_dir = shared_dir,
                 },
             },
-        })
+        }, root)
 
         ws._core._deps.io.rm_rf_async = function(dir, cb)
             deleted_dirs[#deleted_dirs + 1] = dir
@@ -253,6 +263,7 @@ describe("deletion safety with shared dirs", function()
         end, function()
             done = true
         end)
+        vim.fn.delete(root, "rf")
 
         assert.is_true(done)
         assert.equals(1, #deleted_dirs)
@@ -260,7 +271,8 @@ describe("deletion safety with shared dirs", function()
     end)
 
     it("deletes dir when only one config references it", function()
-        local build_dir = "/root/.lw/build/App/ninja-gcc/Debug"
+        local root = tmp_root()
+        local build_dir = root .. "/.lw/build/App/ninja-gcc/Debug"
         local deleted_dirs = {}
 
         local ws = make_ws({
@@ -273,7 +285,7 @@ describe("deletion safety with shared dirs", function()
                     state = "configured", build_dir = build_dir,
                 },
             },
-        })
+        }, root)
 
         ws._core._deps.io.rm_rf_async = function(dir, cb)
             deleted_dirs[#deleted_dirs + 1] = dir
@@ -289,6 +301,7 @@ describe("deletion safety with shared dirs", function()
         end, function()
             done = true
         end)
+        vim.fn.delete(root, "rf")
 
         assert.is_true(done)
         assert.equals(1, #deleted_dirs)

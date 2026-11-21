@@ -143,8 +143,12 @@ describe("version.identity of a development source", function()
         package.loaded.luvi = { bundle = { base = exe } }
         version.lua_root = function() return nil end
         local uv = vim.uv or vim.loop
-        local spellings = { exe, (exe:gsub("/", "\\")) }
-        if vim.fn.has("win32") == 1 then spellings[#spellings + 1] = dir .. "/lw.EXE" end
+        local spellings = { exe }
+        -- Backslash and case spellings name the same file only on Windows.
+        if vim.fn.has("win32") == 1 then
+            spellings[#spellings + 1] = (exe:gsub("/", "\\"))
+            spellings[#spellings + 1] = dir .. "/lw.EXE"
+        end
         local link = dir .. "/link-lw.exe"
         if uv.fs_symlink(exe, link) then spellings[#spellings + 1] = link end
         local saved_exepath = uv.exepath

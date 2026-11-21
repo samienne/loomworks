@@ -641,7 +641,7 @@ describe("housekeeping review fixes (spec §16.40)", function()
         local mine = paths_of(hk.collect(opts(sb)))
         assert.is_truthy(mine[x])
         if not IS_WIN then
-            local other = paths_of(hk.collect(opts(sb, { uid = -12345 })))
+            local other = paths_of(hk.collect(opts(sb, { uid = -12345, is_windows = false })))
             assert.is_nil(other[x])
         end
     end)

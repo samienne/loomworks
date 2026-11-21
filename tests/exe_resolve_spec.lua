@@ -28,6 +28,9 @@ describe("loomworks.exe", function()
         saved_cwd = uv.cwd()
         tmp = (vim.fn.tempname():gsub("\\", "/"))
         vim.fn.mkdir(tmp, "p")
+        -- uv.cwd() after a chdir reports the resolved path (macOS: /var ->
+        -- /private/var); Windows paths are kept as spelled.
+        if not IS_WIN then tmp = uv.fs_realpath(tmp) or tmp end
         copy_probe(tmp)
     end)
 
@@ -98,13 +101,14 @@ describe("loomworks.exe", function()
         uv.chdir(tmp)
         local got = exe.editor_exepath("lwprobe")
         uv.chdir(saved_cwd)
-        vim.fn.exepath = function() return "C:/py/Scripts/meson.exe" end
+        local meson = IS_WIN and "C:/py/Scripts/meson.exe" or "/opt/py/bin/meson"
+        vim.fn.exepath = function() return meson end
         local kept = exe.editor_exepath("meson")
         vim.fn.exepath = function() return "" end
         local none = exe.editor_exepath("meson")
         vim.fn.exepath = orig
         assert.equals("", got)
-        assert.equals("C:/py/Scripts/meson.exe", kept)
+        assert.equals(meson, kept)
         assert.equals("", none)
     end)
 

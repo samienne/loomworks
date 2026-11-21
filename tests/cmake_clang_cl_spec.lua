@@ -13,6 +13,7 @@ local cmake_kits = require("loomworks.cmake_kits")
 local cmake = require("loomworks.modules.cmake")
 local msvc = require("loomworks.msvc")
 local cpp = require("loomworks.cpp_compilers")
+local IS_WIN = vim.fn.has("win32") == 1
 
 local INSTALLS = {
     {
@@ -195,6 +196,7 @@ describe("cmake clang-cl configure command", function()
     end
 
     it("uses -G Ninja, clang-cl for both C and C++, exports compile_commands, vcvars-wrapped", function()
+        if not IS_WIN then return pending("Windows only") end
         local tasks = cmake.tasks(ctx(), "variant:Debug")
         local configure = find_task(tasks, "configure")
         assert.is_not_nil(configure)
