@@ -133,7 +133,8 @@ versioned URL instead of `latest`, or use the repo-local launcher below.
 **Coming from 0.1.x.** Releases before 0.2 were published in loomworks.nvim.
 An `lw` of 0.1.51 or later moves to 0.2 with `lw self-update`; run
 `lw self-update` on an older one to reach 0.1.51 first, or install 0.2 as
-above.
+above. See [Upgrading from 0.1.x](#upgrading-from-01x) for pinned
+repositories.
 
 ## Quick start
 
@@ -213,6 +214,29 @@ reads, and `lw worktree add` creates the worktree without seeding it: run
 them with the launcher, or move the pin with `lw bootstrap upgrade`. `install` also sets the line-ending
 attributes of the launchers, the ignore rule for the cache and the executable
 bit of `lw.sh`; commit what it reports.
+
+## Upgrading from 0.1.x
+
+Until 0.2.0 is published on the stable channel, add `--channel unstable` to
+the `self-update` and `bootstrap upgrade` commands below.
+
+**The installed `lw`.** Run `lw self-update`. From a release below 0.1.51 run
+it twice: the first run reaches 0.1.51, the second 0.2. `--version <x.y.z>`
+exists only from 0.2 on; a 0.1.x `lw` ignores it.
+
+**A pinned repository.** With an installed `lw` of 0.2, run `lw bootstrap
+upgrade` in the repository: one step rewrites `lw.pin`, `lw.sh` and `lw.cmd`.
+Commit all three. Through the repository's own launcher (`./lw.sh bootstrap
+upgrade`, `.\lw.cmd bootstrap upgrade`) it works too, but takes two runs from
+a 0.1.51 pin and more from an older one: an `lw` below 0.1.51 cannot fetch a
+0.2 release by `--version` (it gets a 404), so pin 0.1.51 first. Each run says
+what to run next. When `.\lw.cmd` replaces itself, cmd may print an error
+after lw finishes (lw says so first); the files are correct.
+
+**After the upgrade.** The first command in the workspace moves its state from
+`.nvim/` to `.lw/`, and the first build configures each build directory
+afresh. `lw health` lists the files an earlier lw left in `.nvim/`; delete
+them by hand once no older lw is pinned in the repository.
 
 ## The workspace daemon
 

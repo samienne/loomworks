@@ -28,6 +28,13 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
 
 ## Unreleased
 
+### Upgrade notes
+
+- Upgrading from 0.1.x, for the installed `lw` and for a pinned repository
+  (`lw bootstrap upgrade`, then commit `lw.pin`, `lw.sh` and `lw.cmd`), is
+  described step by step in the README section "Upgrading from 0.1.x"
+  (#186).
+
 ### Added
 
 - `lw pin ignore` makes one checkout of a pinned repository run the lw you
@@ -84,6 +91,19 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
   path containing `\`: it was checked as if `\` were a separator but removed
   as written, so a file named with a backslash in `.lw` could pass the
   `.lw/tmp` check (#185).
+- `.\lw.cmd bootstrap install` or `upgrade` no longer makes cmd print
+  `'"!bin!"' is not recognized` and exit 9009 after lw rewrote `lw.cmd`: the
+  new `lw.cmd` runs lw and exits on one line, so nothing after lw is read
+  from the rewritten file. Replacing an `lw.cmd` of an earlier release through
+  itself still can, so lw now says so as the report's last line; the files
+  are correct (#186).
+- `lw bootstrap` on a pin from before 0.2.0-beta.7 (state in `.nvim/`) now
+  offers `lw bootstrap upgrade`, which moves the repository to lw 0.2 and its
+  state to `.lw/`, even when the channel has nothing newer than the pin
+  (#186).
+- An upgrade to 0.2 run by an `lw` below 0.1.51 now says to run
+  `bootstrap upgrade` again, as the move takes more than one more run,
+  instead of suggesting a single `bootstrap install` (#186).
 - `lw module install harmony` installs harmony module v0.1.5: a device run
   now refuses an unsigned HAP before installing it, naming the missing
   `signingConfigs` in `build-profile.json5`, instead of failing on the device
