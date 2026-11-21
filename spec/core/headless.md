@@ -1515,6 +1515,11 @@ byte offset, only after the current line finishes, so the launcher MUST run the
 host and exit with the host's status on **one** line (parsed whole before it
 runs): nothing after the host's run is read from the file again. A launcher of
 an earlier generation does not (§16.24 *Install* says what the report adds).
+That line calls a batch label (`... & call :status & call exit /b ...`), and
+cmd looks the label up in the file as it is on disk then, i.e. the rewritten
+one: every `lw.cmd` template MUST therefore keep the `:status` label, or the
+running launcher prints "The system cannot find the batch label specified"
+and exits 1 after the host finishes.
 
 The launcher's cache directory holds only artifacts it can re-fetch: the
 cached host binaries (one per pinned version and asset) and a marker naming
@@ -2270,8 +2275,10 @@ bootstrap install` once more (now executing the new release, and keeping the
 pin) refreshes them — a run that is otherwise a no-op. From a host below 0.1.51
 to a target of 0.2 or later one more run is not enough (the launchers it wrote
 still run an older generation's path, and a host below 0.1.51 cannot fetch a
-0.2 release by `--version`): the report then says to run `… bootstrap upgrade`
-**again**, as the move takes more than one more run. A global host of 0.2 or
+0.2 release by `--version`): the user runs `… bootstrap upgrade` **again**. Such
+a host runs its own 0.1.x code, so its report still suggests a single `…
+bootstrap install`; the README's upgrade steps say to run upgrade a second
+time. A global host of 0.2 or
 later does the whole move in one run. A global host (release or
 development build, §16.12) can equally install or upgrade the pin directly,
 writing its own generation.

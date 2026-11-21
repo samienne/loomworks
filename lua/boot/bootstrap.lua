@@ -319,20 +319,9 @@ local function older_host_hint(version, opts, st)
   local self = opts.self_version
   if opts.pin_only then return nil end
   if not (self and st and st.pin_changed and paths.version_gt(version, self)) then return nil end
-  local head = "lw.sh / lw.cmd are the launchers of lw " .. self .. " (the lw that ran this);"
-  -- From below 0.1.51 to 0.2 or later one more install is not enough: the
-  -- next run is still an old generation's, so name upgrade and say "again".
-  if paths.version_gt(M.MULTI_RUN_BELOW, self) and not paths.version_gt("0.2.0-0", version) then
-    return head .. " run `" .. M.launcher_cmd(opts.invoked, "bootstrap upgrade") .. "` again - from lw " ..
-      self .. " the move to " .. version .. " takes more than one more run"
-  end
-  return head .. " run `" .. M.launcher_cmd(opts.invoked, "bootstrap install") .. "` once more to take " ..
-    version .. "'s"
+  return "lw.sh / lw.cmd are the launchers of lw " .. self .. " (the lw that ran this);" ..
+    " run `" .. M.launcher_cmd(opts.invoked, "bootstrap install") .. "` once more to take " .. version .. "'s"
 end
-
---- The first release whose launcher path reaches a 0.2 pin in one more run;
---- an older host's upgrade to 0.2 or later takes more runs (spec §16.24).
-M.MULTI_RUN_BELOW = "0.1.51"
 
 --- The status page's reason for upgrading a pin from before 0.2.0-beta.7.
 M.MOVE_TO_02 = "moves this repo to lw 0.2 and its state to .lw/"

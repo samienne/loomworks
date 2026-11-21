@@ -33,7 +33,9 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
 - Upgrading from 0.1.x, for the installed `lw` and for a pinned repository
   (`lw bootstrap upgrade`, then commit `lw.pin`, `lw.sh` and `lw.cmd`), is
   described step by step in the README section "Upgrading from 0.1.x"
-  (#186).
+  (#186). Through the repository's launcher from an `lw` below 0.1.51, run
+  `bootstrap upgrade` a second time: that `lw`'s report suggests a single
+  `bootstrap install`, which does not finish the move.
 
 ### Added
 
@@ -101,9 +103,6 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
   offers `lw bootstrap upgrade`, which moves the repository to lw 0.2 and its
   state to `.lw/`, even when the channel has nothing newer than the pin
   (#186).
-- An upgrade to 0.2 run by an `lw` below 0.1.51 now says to run
-  `bootstrap upgrade` again, as the move takes more than one more run,
-  instead of suggesting a single `bootstrap install` (#186).
 - `lw module install harmony` installs harmony module v0.1.5: a device run
   now refuses an unsigned HAP before installing it, naming the missing
   `signingConfigs` in `build-profile.json5`, instead of failing on the device

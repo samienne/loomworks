@@ -204,6 +204,8 @@ rem The pinned run and its exit are one line: cmd parses a line whole before
 rem running it, and reads the next one from disk at its old byte offset, so
 rem `lw bootstrap install` may rewrite this file while it runs. `call exit /b`
 rem expands the exit status lw returned.
+rem Every lw.cmd template keeps the :status label: that line looks it up in
+rem the file as rewritten, and a missing label fails with exit 1 (spec 16.22).
 set "LOOMWORKS_LAUNCHER=lw.cmd"
 
 if not "%LOOMWORKS_LW%"=="" (
@@ -431,9 +433,9 @@ M.CMD_REWRITE_SAFE_GEN = 11
 
 M.GENERATIONS = {
   sh = {
-    -- v0.2.0-beta.5
+    -- v0.2.0-beta.5 .. v0.2.0-beta.6
     ["17cb11f08a5f3688b49e14e20332215622c363ae89141eced2491cf20e8aa30e"] = {
-      gen = 6, releases = "0.2.0-beta.5",
+      gen = 6, releases = "0.2.0-beta.5-0.2.0-beta.6",
       defects = {
         NVIM_CACHE_LW02,
       },
@@ -488,9 +490,9 @@ M.GENERATIONS = {
         CMD_REWRITE_UNSAFE,
       },
     },
-    -- v0.2.0-beta.5
+    -- v0.2.0-beta.5 .. v0.2.0-beta.6
     ["da74e958cb2fcaeef0f78da26ec443ea696736833bc81cd8d40f311c92f1362e"] = {
-      gen = 9, releases = "0.2.0-beta.5",
+      gen = 9, releases = "0.2.0-beta.5-0.2.0-beta.6",
       defects = {
         CMD_REWRITE_UNSAFE,
         NVIM_CACHE_LW02,

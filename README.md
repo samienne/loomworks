@@ -229,8 +229,9 @@ upgrade` in the repository: one step rewrites `lw.pin`, `lw.sh` and `lw.cmd`.
 Commit all three. Through the repository's own launcher (`./lw.sh bootstrap
 upgrade`, `.\lw.cmd bootstrap upgrade`) it works too, but takes two runs from
 a 0.1.51 pin and more from an older one: an `lw` below 0.1.51 cannot fetch a
-0.2 release by `--version` (it gets a 404), so pin 0.1.51 first. Each run says
-what to run next. When `.\lw.cmd` replaces itself, cmd may print an error
+0.2 release by `--version` (it gets a 404), so pin 0.1.51 first. With an `lw`
+below 0.1.51, run `bootstrap upgrade` a second time: its report suggests only
+one more `bootstrap install`, which is not enough. When `.\lw.cmd` replaces itself, cmd may print an error
 after lw finishes (lw says so first); the files are correct.
 
 **After the upgrade.** The first command in the workspace moves its state from

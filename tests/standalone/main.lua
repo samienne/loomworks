@@ -3248,18 +3248,6 @@ do
   local hint2 = bootstrap.install(repo, { version = V2, self_version = "1.0.0-test" })
   ok(hint2 and has(hint2, "once more to take " .. V2),
     "an older host moving the pin says to run the update once more  (" .. show(hint2) .. ")")
-  -- From below 0.1.51 to 0.2 or later one more install is not enough (§16.24
-  -- *Upgrading through the launcher*): the hint says to run upgrade again.
-  local V02 = "0.2.5-test"; stage(V02)
-  bootstrap.install(repo, { version = V1 })
-  local hint3 = bootstrap.install(repo, { version = V02, self_version = "0.1.43", invoked = "lw.cmd" })
-  ok(hint3 and has(hint3, "run `.\\lw.cmd bootstrap upgrade` again - from lw 0.1.43 the move to " .. V02 ..
-    " takes more than one more run") and not has(hint3, "once more to take"),
-    "a host below 0.1.51 moving the pin to 0.2+ says to run upgrade again  (" .. show(hint3) .. ")")
-  ok(not has(hint3, "lw.cmd is replaced while it runs"), "(lw.cmd was current: no replaced-while-running note)")
-  local hint4 = bootstrap.install(repo, { version = V2, self_version = "0.1.51" })
-  ok(hint4 and has(hint4, "once more to take " .. V2) and not has(hint4, "again"),
-    "from 0.1.51 one more install is enough  (" .. show(hint4) .. ")")
   bootstrap.install(repo, { version = V2 })
 
   -- ---- launcher generations -------------------------------------------------
