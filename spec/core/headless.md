@@ -1508,6 +1508,19 @@ interpreter asking whether to terminate the batch job after a Ctrl-C or
 Ctrl-Break (it clears the interpreter's pending interrupt once the host has
 exited), so the console returns at once and a calling script sees status 130.
 
+**Rewritten while it runs.** Pin management may rewrite the Windows launcher
+while that launcher is running it (`.\lw.cmd bootstrap install` / `upgrade`).
+The command interpreter reads a batch file's next line from disk, at its old
+byte offset, only after the current line finishes, so the launcher MUST run the
+host and exit with the host's status on **one** line (parsed whole before it
+runs): nothing after the host's run is read from the file again. A launcher of
+an earlier generation does not (§16.24 *Install* says what the report adds).
+That line calls a batch label (`... & call :status & call exit /b ...`), and
+cmd looks the label up in the file as it is on disk then, i.e. the rewritten
+one: every `lw.cmd` template MUST therefore keep the `:status` label, or the
+running launcher prints "The system cannot find the batch label specified"
+and exits 1 after the host finishes.
+
 The launcher's cache directory holds only artifacts it can re-fetch: the
 cached host binaries (one per pinned version and asset) and a marker naming
 the last one fetched. Older cached binaries are pruned only by an explicit pin
@@ -1984,6 +1997,12 @@ A read-only report, ASCII (§16.7), in three parts.
      plus, when the invoked host is older than `<newest>` and launchers are in
      use, "then run `… bootstrap install` once more to take `<newest>`'s
      launchers" (see *Upgrading through the launcher*);
+   - **a pin from before 0.2.0-beta.7** (state still in `.nvim/`, §16.23) →
+     `lw bootstrap upgrade` "moves this repo to lw 0.2 and its state to .lw/",
+     even when the channel followed has nothing newer than the pin (then with
+     `--channel unstable` while that channel has no 0.2 release); an upgrade
+     action already offered to 0.2.0-beta.7 or later carries the same reason
+     instead;
    - **healthy and current** → `lw bootstrap install --version <x.y.z>` "pin a
      different release" and `lw help bootstrap`.
 
@@ -2201,7 +2220,14 @@ user also edits. With `--pin-only` only the pin's attribute rule applies (above)
   global `lw` honours the pin — and how to check it later (the status page);
 - a run that wrote or changed files ends with the commit hint naming exactly
   those files (`Commit them: git add lw.pin .gitattributes && git commit`);
-  install never commits.
+  install never commits;
+- when the host was invoked through `lw.cmd` and replaced it with content from
+  a generation that is not safe to rewrite while running (an earlier known
+  generation, or unknown content under `--force`, §16.22 *Rewritten while it
+  runs*), the report's **last** line is `note: lw.cmd is replaced while it runs;
+  cmd may print an error after this - the files are correct`: the interpreter
+  running the old launcher may print an error (and a non-zero status) after
+  the host exits, which this precedes.
 
 **Exit status.** 0 when the repository reached the target state (a launcher kept
 for lack of `--force` still counts: everything else converged and the report
@@ -2246,7 +2272,14 @@ templates of a release newer than itself. When the target release is newer than
 the host running the operation and launchers are in use, the report says the
 launchers were written by `<running version>` and that running `./lw.sh
 bootstrap install` once more (now executing the new release, and keeping the
-pin) refreshes them — a run that is otherwise a no-op. A global host (release or
+pin) refreshes them — a run that is otherwise a no-op. From a host below 0.1.51
+to a target of 0.2 or later one more run is not enough (the launchers it wrote
+still run an older generation's path, and a host below 0.1.51 cannot fetch a
+0.2 release by `--version`): the user runs `… bootstrap upgrade` **again**. Such
+a host runs its own 0.1.x code, so its report still suggests a single `…
+bootstrap install`; the README's upgrade steps say to run upgrade a second
+time. A global host of 0.2 or
+later does the whole move in one run. A global host (release or
 development build, §16.12) can equally install or upgrade the pin directly,
 writing its own generation.
 

@@ -171,6 +171,24 @@ function M.write_launcher(root, kind, force)
   return status, info
 end
 
+--- Whether replacing lw.cmd (a write_launcher outcome) can confuse the
+--- cmd.exe running it: cmd reads the rest of a batch file from disk at its
+--- old byte offset after lw exits. Generations from CMD_REWRITE_SAFE_GEN on
+--- run lw and exit on one line; an older or unknown file may not.
+--- @param status string|nil write_launcher's status
+--- @param info table|nil its classify result (for "refreshed")
+--- @return boolean
+function M.cmd_rewrite_unsafe(status, info)
+  if status == "refreshed" then
+    return not (info and info.gen and info.gen >= launcher.CMD_REWRITE_SAFE_GEN)
+  end
+  return status == "replaced"
+end
+
+--- The line printed last when lw replaced the lw.cmd that ran it (spec §16.24).
+M.CMD_REPLACED_RUNNING_LINE = "note: lw.cmd is replaced while it runs; cmd may print an error after this" ..
+  " - the files are correct"
+
 --- Write both launchers (kept for callers/tests that just want them written).
 function M.write_launchers(root, force)
   for _, kind in ipairs({ "sh", "cmd" }) do
@@ -233,6 +251,7 @@ local function apply(root, version, hashes, opts)
   if pin_eol then add("rewrote lw.pin with LF line endings") end
 
   local created_launcher = false
+  local cmd_replaced_running = false
   if opts.pin_only then
     -- --pin-only never writes, refreshes or deletes a launcher.
     local present = {}
@@ -249,6 +268,9 @@ local function apply(root, version, hashes, opts)
       local st, info = M.write_launcher(root, kind, opts.force)
       if st == nil then return nil, info end
       if st == "written" then created_launcher = true end
+      if kind == "cmd" and opts.invoked == "lw.cmd" and M.cmd_rewrite_unsafe(st, info) then
+        cmd_replaced_running = true
+      end
       if st ~= "same" and st ~= "kept" then touch(launcher.KINDS[kind]) end
       add(launcher_line(kind, st, info))
     end
@@ -287,7 +309,8 @@ local function apply(root, version, hashes, opts)
   end
 
   return changes, { old = old, had_pin = have_pin ~= nil, pin_changed = pin_changed,
-    created_launcher = created_launcher, top = top, touched = touched }
+    created_launcher = created_launcher, top = top, touched = touched,
+    cmd_replaced_running = cmd_replaced_running }
 end
 
 --- The hint when a host older than the target wrote the launchers: it can only
@@ -299,6 +322,9 @@ local function older_host_hint(version, opts, st)
   return "lw.sh / lw.cmd are the launchers of lw " .. self .. " (the lw that ran this);" ..
     " run `" .. M.launcher_cmd(opts.invoked, "bootstrap install") .. "` once more to take " .. version .. "'s"
 end
+
+--- The status page's reason for upgrading a pin from before 0.2.0-beta.7.
+M.MOVE_TO_02 = "moves this repo to lw 0.2 and its state to .lw/"
 
 --- A command that must run through a launcher (the pinned release): the
 --- invoked launcher's form, else ./lw.sh.
@@ -461,6 +487,8 @@ function M.install(start, opts)
       out[#out + 1] = "Commit them: " .. table.concat(st.touched, ", ")
     end
   end
+  -- Last, so it sits right above whatever cmd.exe prints once lw exits.
+  if st.cmd_replaced_running then out[#out + 1] = M.CMD_REPLACED_RUNNING_LINE end
   return out
 end
 
@@ -695,9 +723,18 @@ function M.status(start, opts)
       act(check.commit_cmd(commit_files), "commit them - contributors and CI only get what is committed")
     end
     local sv = opts.self_version
+    -- A pin from before the move to .lw/ (0.1.x and the early 0.2 betas):
+    -- the way forward is an upgrade, even when its channel has nothing newer.
+    local legacy_state = r.pin and r.version and pin.valid_version(r.version)
+      and paths.version_gt(pin.STATE_DIR_SINCE, r.version)
+    local offered_02 = false
     local function upgrade(to, extra)
       local up = "bootstrap upgrade" .. (extra or "") .. (r.mode == "pin-only" and " --pin-only" or "")
       local why = "move the pin to " .. to
+      if legacy_state and not paths.version_gt(pin.STATE_DIR_SINCE, to) then
+        offered_02 = true
+        why = why .. "; " .. M.MOVE_TO_02
+      end
       if r.mode == "launchers" and sv and paths.version_gt(to, sv) then
         why = why .. ", then run `" .. M.launcher_cmd(invoked, "bootstrap install") ..
           "` once more to take " .. to .. "'s launchers"
@@ -707,6 +744,12 @@ function M.status(start, opts)
     if newer and r.pin then upgrade(newest) end
     if ahead and r.pin and newest_unstable and paths.version_gt(newest_unstable, compare) then
       upgrade(newest_unstable, " --channel unstable")
+    end
+    if legacy_state and not offered_02 then
+      -- Until the channel followed has a 0.2 release, the move is on unstable.
+      local on_02 = channel == "unstable" or (newest and not paths.version_gt(pin.STATE_DIR_SINCE, newest))
+      act(cmd("bootstrap upgrade" .. (on_02 and "" or " --channel unstable") ..
+        (r.mode == "pin-only" and " --pin-only" or "")), M.MOVE_TO_02)
     end
     if r.mode == "pin-only" then
       act(cmd("bootstrap install"), "add lw.sh / lw.cmd so contributors and CI need no global lw")
