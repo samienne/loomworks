@@ -7,8 +7,18 @@ on:
 
 jobs:
   test:
-    name: Tests (Windows)
-    runs-on: windows-latest
+    name: Tests (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            label: Linux
+          - os: macos-latest
+            label: macOS
+          - os: windows-latest
+            label: Windows
     steps:
       - uses: actions/checkout@v5
 
@@ -18,14 +28,31 @@ jobs:
           neovim: true
           version: stable
 
+      # The specs configure and build real projects (cmake and meson) and use git.
+      - name: Install build tools (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build meson g++ git
+
+      - name: Install build tools (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake ninja meson
+
       - name: Install Ninja
+        if: runner.os == 'Windows'
         run: choco install ninja -y
 
-      - name: Install plenary.nvim
+      - name: Install plenary.nvim (Windows)
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $dest = "$env:LOCALAPPDATA\nvim-data\lazy\plenary.nvim"
+          $dest = "$env:LOCALAPPDATA
+vim-data\lazy\plenary.nvim"
           git clone --depth 1 https://github.com/nvim-lua/plenary.nvim $dest
+
+      - name: Install plenary.nvim (Linux, macOS)
+        if: runner.os != 'Windows'
+        run: |
+          git clone --depth 1 https://github.com/nvim-lua/plenary.nvim             "${XDG_DATA_HOME:-$HOME/.local/share}/nvim/lazy/plenary.nvim"
 
       # Spec files run at most 8 at a time (--jobs 8; unbounded overloads the
       # 4-core runner and flakes timing specs), under ONE whole-suite budget (see
@@ -33,7 +60,7 @@ jobs:
       # that exited non-zero (also after a clean summary, with its nvim log),
       # printed no summary, or was still running at the deadline.
       - name: Run test suite
-        shell: pwsh
+        shell: bash
         run: nvim -l scripts/run_specs.lua --timeout 600000 --jobs 8 --init tests/minimal_init.lua tests
 
   standalone:
