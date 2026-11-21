@@ -45,14 +45,14 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $dest = "$env:LOCALAPPDATA
-vim-data\lazy\plenary.nvim"
+          $dest = "$env:LOCALAPPDATA\nvim-data\lazy\plenary.nvim"
           git clone --depth 1 https://github.com/nvim-lua/plenary.nvim $dest
 
       - name: Install plenary.nvim (Linux, macOS)
         if: runner.os != 'Windows'
         run: |
-          git clone --depth 1 https://github.com/nvim-lua/plenary.nvim             "${XDG_DATA_HOME:-$HOME/.local/share}/nvim/lazy/plenary.nvim"
+          git clone --depth 1 https://github.com/nvim-lua/plenary.nvim \
+            "${XDG_DATA_HOME:-$HOME/.local/share}/nvim/lazy/plenary.nvim"
 
       # Spec files run at most 8 at a time (--jobs 8; unbounded overloads the
       # 4-core runner and flakes timing specs), under ONE whole-suite budget (see
