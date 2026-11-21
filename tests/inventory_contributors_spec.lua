@@ -10,6 +10,7 @@ _G.LOOMWORKS_CLI_NO_AUTORUN = true
 
 local inv = require("loomworks.inventory")
 local h = require("tests.helpers")
+local IS_WIN = vim.fn.has("win32") == 1
 
 --- A probe context with everything injected: nothing on PATH unless listed,
 --- `run` answers from `outputs[argv[1]]`, files from `files`.
@@ -312,6 +313,7 @@ describe("inventory contributors", function()
     end)
 
     it("the MSVC scan lists Visual Studio's bundled cmake + ninja when vcvarsall would add them", function()
+        if not IS_WIN then return pending("Windows only") end
         local orig = { has = vim.fn.has, detect = msvc.detect_async, for_ = msvc.clang_cl_for_async, cl = msvc.clang_cl_async }
         vim.fn.has = function(f) if f == "win32" then return 1 end return orig.has(f) end
         local function inst(p, line, product)

@@ -4,6 +4,7 @@
 
 package.loaded["loomworks.msvc"] = nil
 local msvc = require("loomworks.msvc")
+local IS_WIN = vim.fn.has("win32") == 1
 
 --- Save/restore globals around a function.
 local function with(overrides, fn)
@@ -98,6 +99,7 @@ describe("msvc.clang_cl", function()
     end)
 
     it("returns path + version when present", function()
+        if not IS_WIN then return pending("Windows only") end
         msvc.clear_cache()
         with({
             ["vim.fn.exepath"] = function() return "C:/LLVM/bin/clang-cl.exe" end,
@@ -118,6 +120,7 @@ describe("msvc.clang_cl", function()
     -- GNU-style linker, and configure dies with
     --   "Unable to detect linker for compiler `...clang-cl.EXE -Wl,--version`".
     it("lowercases the executable extension exepath reports", function()
+        if not IS_WIN then return pending("Windows only") end
         msvc.clear_cache()
         with({
             ["vim.fn.exepath"] = function()
@@ -166,6 +169,7 @@ describe("msvc.clang_cl_for", function()
     end)
 
     it("without the standalone fallback, an install bundling no clang-cl gets none", function()
+        if not IS_WIN then return pending("Windows only") end
         msvc.clear_cache()
         with({
             ["vim.uv.fs_stat"] = function() return nil end,
@@ -181,6 +185,7 @@ describe("msvc.clang_cl_for", function()
     end)
 
     it("falls back to standalone/PATH clang-cl when no bundled one exists", function()
+        if not IS_WIN then return pending("Windows only") end
         msvc.clear_cache()
         with({
             -- Bundled clang-cl absent; standalone's sibling clangd present.
@@ -200,6 +205,7 @@ describe("msvc.clang_cl_for", function()
     end)
 
     it("leaves clangd_path nil when no sibling clangd is found", function()
+        if not IS_WIN then return pending("Windows only") end
         msvc.clear_cache()
         with({
             ["vim.uv.fs_stat"] = function() return nil end, -- nothing on disk

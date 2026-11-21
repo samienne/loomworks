@@ -16,6 +16,10 @@ M.is_win = package.config:sub(1, 1) == "\\"
 local function tmp()
     local d = (vim.fn.tempname():gsub("\\", "/"))
     vim.fn.mkdir(d, "p")
+    -- The resolved spelling on POSIX: lw reports the realpath'd root
+    -- (macOS: /var -> /private/var). Windows keeps the spelling as is
+    -- (realpath there can change the drive-letter case or expand 8.3 names).
+    if not M.is_win then d = uv.fs_realpath(d) or d end
     return d
 end
 M.tmp = tmp

@@ -21,6 +21,7 @@ local shell = require("loomworks.modules.shell")
 local typescript = require("loomworks.modules.typescript")
 local overseer = require("loomworks.task_plan")
 local real_modules = require("loomworks.modules")
+local IS_WIN = vim.fn.has("win32") == 1
 
 local orig_lookup = cpp.lookup_path
 
@@ -139,6 +140,7 @@ describe("lw build: forwarded build-tool args reach the build tool", function()
     end
 
     it("MSVC + Ninja (vcvars-wrapped): `-- --target AppRunner` lands inside the .bat", function()
+        if not IS_WIN then return pending("Windows only") end
         local ws, profile, r, vs = msvc_core()
         root = r
         local spawned = run_build(ws, { "build", profile.key, "--", "--target", "AppRunner" })
@@ -156,6 +158,7 @@ describe("lw build: forwarded build-tool args reach the build tool", function()
     end)
 
     it("MSVC + Ninja: `--target AppRunner` (repeatable) maps to cmake --build --target", function()
+        if not IS_WIN then return pending("Windows only") end
         local ws, profile, r, vs = msvc_core()
         root = r
         local spawned = run_build(ws, { "build", profile.key, "--target", "AppRunner",
@@ -166,6 +169,7 @@ describe("lw build: forwarded build-tool args reach the build tool", function()
     end)
 
     it("MSVC + Ninja: batch-unsafe args are escaped (%) or refused (\"), never dropped", function()
+        if not IS_WIN then return pending("Windows only") end
         local ws, profile, r, vs = msvc_core()
         root = r
         local spawned = run_build(ws, { "build", profile.key, "--", "-DX=100%" })
@@ -237,6 +241,7 @@ describe("module build_args / build_targets", function()
     end
 
     it("cmake preset + MSVC Ninja: args and targets are inside the .bat", function()
+        if not IS_WIN then return pending("Windows only") end
         local t = build_task(cmake.tasks({
             name = "App", path = "App", workspace_root = root,
             configurations = { ["preset:dev"] = {

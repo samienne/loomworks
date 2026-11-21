@@ -59,6 +59,7 @@ describe("msvc VS Installer dir on the vcvarsall PATH", function()
     end
 
     it("installer_dir resolves ProgramFiles(x86), falls back to ProgramFiles, never a missing dir", function()
+        if not WIN then return pending("Windows only") end
         fake["ProgramFiles(x86)"] = root .. "/pf86"
         fake["ProgramFiles"] = root .. "/pf"
         assert.is_nil(msvc.installer_dir())
@@ -71,6 +72,7 @@ describe("msvc VS Installer dir on the vcvarsall PATH", function()
     end)
 
     it("with_installer_path appends the dir once to the inherited PATH", function()
+        if not WIN then return pending("Windows only") end
         fake["ProgramFiles(x86)"] = root .. "/pf86"
         local dir = make_installer(root .. "/pf86")
         local env = msvc.with_installer_path({ FOO = "1" })
@@ -86,6 +88,7 @@ describe("msvc VS Installer dir on the vcvarsall PATH", function()
     end)
 
     it("does not duplicate a dir already on PATH (case/slash-insensitive)", function()
+        if not WIN then return pending("Windows only") end
         fake["ProgramFiles(x86)"] = root .. "/pf86"
         local dir = make_installer(root .. "/pf86")
         fake.PATH = [[C:\Windows;]] .. dir:upper():gsub("\\", "/") .. "/"

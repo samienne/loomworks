@@ -17,6 +17,7 @@
 --- disk) — no real MSVC or cmake.
 
 local cmake = require("loomworks.modules.cmake")
+local IS_WIN = vim.fn.has("win32") == 1
 
 --- @param tasks table[]
 --- @param action string
@@ -71,6 +72,7 @@ describe("cmake vcvarsall .bat filename (MSVC+Ninja)", function()
     end
 
     it("gives configure and build distinct .bat files, and configure keeps its command", function()
+        if not IS_WIN then return pending("Windows only") end
         local tasks = cmake.tasks(ctx(), "my-debug")
         local configure = find_task(tasks, "configure")
         local build = find_task(tasks, "build")
@@ -108,6 +110,7 @@ describe("cmake vcvarsall .bat filename (MSVC+Ninja)", function()
     end)
 
     it("gives clean its own distinct .bat file too", function()
+        if not IS_WIN then return pending("Windows only") end
         local build_tasks = cmake.tasks(ctx(), "my-debug")
         local configure = find_task(build_tasks, "configure")
         local build = find_task(build_tasks, "build")
