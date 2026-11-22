@@ -46,6 +46,12 @@ and Upgrade notes below before upgrading.
 
 ### Upgrade notes
 
+- Upgrading from 0.1.x, for the installed `lw` and for a pinned repository
+  (`lw bootstrap upgrade`, then commit `lw.pin`, `lw.sh` and `lw.cmd`), is
+  described step by step in the README section "Upgrading from 0.1.x"
+  (#186). Through the repository's launcher from an `lw` below 0.1.51, run
+  `bootstrap upgrade` a second time: that `lw`'s report suggests a single
+  `bootstrap install`, which does not finish the move.
 - lw now keeps a workspace's state in `.lw/` instead of `.nvim/`, with
   shorter names (`.lw/user.json`, `.lw/cache.json`, ...); builds go to
   `.lw/build/`. The first command in a workspace of an earlier release copies
@@ -247,6 +253,20 @@ and Upgrade notes below before upgrading.
 
 ### Fixed
 
+- On Linux and macOS, removing a test run's results file now refuses a
+  path containing `\`: it was checked as if `\` were a separator but removed
+  as written, so a file named with a backslash in `.lw` could pass the
+  `.lw/tmp` check (#185).
+- `.\lw.cmd bootstrap install` or `upgrade` no longer makes cmd print
+  `'"!bin!"' is not recognized` and exit 9009 after lw rewrote `lw.cmd`: the
+  new `lw.cmd` runs lw and exits on one line, so nothing after lw is read
+  from the rewritten file. Replacing an `lw.cmd` of an earlier release through
+  itself still can, so lw now says so as the report's last line; the files
+  are correct (#186).
+- `lw bootstrap` on a pin from before 0.2.0-beta.7 (state in `.nvim/`) now
+  offers `lw bootstrap upgrade`, which moves the repository to lw 0.2 and its
+  state to `.lw/`, even when the channel has nothing newer than the pin
+  (#186).
 - `lw worktree add --no-pull` said to run `lw pull` "here", the directory
   you ran it in; it now says to run it in the new worktree (#178).
 - `lw module install harmony` installs harmony module v0.1.5: a device run
