@@ -3248,6 +3248,7 @@ do
   local hint2 = bootstrap.install(repo, { version = V2, self_version = "1.0.0-test" })
   ok(hint2 and has(hint2, "once more to take " .. V2),
     "an older host moving the pin says to run the update once more  (" .. show(hint2) .. ")")
+  bootstrap.install(repo, { version = V2 })
 
   -- ---- launcher generations -------------------------------------------------
   -- a known earlier generation is refreshed and says which one it was
@@ -3259,6 +3260,23 @@ do
   ok(has(r1, "refreshed lw.cmd: replaced the launcher written by lw 9.9-test"),
     "a known generation is refreshed  (" .. show(r1) .. ")")
   eq(slurp(repo .. "/lw.cmd"), launcher.render("cmd"), "lw.cmd rewritten to the current template")
+  ok(not has(r1, "lw.cmd is replaced while it runs"), "not run through lw.cmd: no replaced-while-running note")
+  -- replacing the lw.cmd that ran this (§16.22 *Rewritten while it runs*):
+  -- the report's last line warns of the error cmd may print afterwards
+  put(repo .. "/lw.cmd", old_cmd)
+  local rc = bootstrap.install(repo, { version = V2, invoked = "lw.cmd" })
+  eq(rc and rc[#rc], bootstrap.CMD_REPLACED_RUNNING_LINE,
+    "replacing the running lw.cmd ends with the note  (" .. show(rc) .. ")")
+  ok(bootstrap.CMD_REPLACED_RUNNING_LINE:find("cmd may print an error after this - the files are correct", 1, true),
+    "the note's wording")
+  put(repo .. "/lw.cmd", (launcher.render("cmd"):gsub("\r\n", "\n")))
+  local reol = bootstrap.install(repo, { version = V2, invoked = "lw.cmd" })
+  ok(has(reol, "rewrote lw.cmd with CRLF") and not has(reol, "lw.cmd is replaced while it runs"),
+    "the current template is safe to rewrite: no note  (" .. show(reol) .. ")")
+  ok(bootstrap.cmd_rewrite_unsafe("refreshed", { gen = 10 }) and bootstrap.cmd_rewrite_unsafe("replaced", nil)
+    and not bootstrap.cmd_rewrite_unsafe("refreshed", { gen = launcher.CMD_REWRITE_SAFE_GEN })
+    and not bootstrap.cmd_rewrite_unsafe("eol", nil) and not bootstrap.cmd_rewrite_unsafe("written", nil),
+    "cmd_rewrite_unsafe: earlier generations and unknown content only")
   -- content that is no known generation is kept unless --force
   put(repo .. "/lw.sh", "#!/bin/sh\necho my own launcher\n")
   local r2 = bootstrap.install(repo, { version = V2 })
@@ -3698,6 +3716,29 @@ do
     ok(t2:find("./lw.sh bootstrap upgrade", 1, true) and t2:find("once more to take " .. V2, 1, true),
       "the invoked (launcher) form + the run-it-once-more hint")
     ok(not t2:find("only reports now", 1, true), "no migration note when pinned")
+    -- a pin from before 0.2.0-beta.7 is offered the move to 0.2 and .lw/,
+    -- even when its channel has nothing newer (§16.24 status page)
+    do
+      local L = sb .. "/st-legacy"; git_init(L)
+      stage("0.1.43")
+      local V02 = "0.2.5-test"; stage(V02)
+      ok(bootstrap.install(L, { version = "0.1.43" }) ~= nil, "(setup) pinned at 0.1.43")
+      git(L, "add", "-A"); git(L, "commit", "-q", "-m", "x")
+      local tl = table.concat(bootstrap.status(L, { self_version = V2, resolve_newest = newest_is("0.1.43") }).lines, "\n")
+      ok(tl:find("lw bootstrap upgrade --channel unstable", 1, true)
+        and tl:find("moves this repo to lw 0.2 and its state to .lw/", 1, true),
+        "legacy pin, stable has nothing newer: upgrade on unstable offered  (" .. tl .. ")")
+      local tu = table.concat(bootstrap.status(L, { self_version = V2, channel = "unstable",
+        resolve_newest = newest_is("0.1.43") }).lines, "\n")
+      ok(tu:find("lw bootstrap upgrade  ", 1, true) and tu:find("moves this repo to lw 0.2", 1, true),
+        "on the unstable channel: plain upgrade  (" .. tu .. ")")
+      local tn = table.concat(bootstrap.status(L, { self_version = V2, resolve_newest = newest_is(V02) }).lines, "\n")
+      local _, n = tn:gsub("moves this repo to lw 0%.2", "")
+      ok(tn:find("move the pin to " .. V02 .. "; moves this repo to lw 0.2", 1, true) and n == 1,
+        "a newer 0.2 release: the upgrade action carries the reason, once  (" .. tn .. ")")
+      local tc = table.concat(bootstrap.status(h, { self_version = V1, resolve_newest = newest_is(V2) }).lines, "\n")
+      ok(not tc:find("moves this repo to lw 0.2", 1, true), "not for a pin of 0.2.0-beta.7 or later")
+    end
     eq(bootstrap.status(h, { check = true, resolve_newest = newest_is(V2) }).exit, 0,
       "--check passes on a healthy pin with a newer release available")
     -- offline: not checked, never a failure
@@ -4555,7 +4596,7 @@ do
   local launcher = require("boot.launcher")
   local exe = require("boot.exe")
 
-  -- Static: every line of lw.cmd that runs lw ends in `& call :status`. On
+  -- Static: every line of lw.cmd that runs lw has `& call :status` right after lw. On
   -- Ctrl-C / Ctrl-Break, cmd.exe (sharing lw's console) would otherwise ask
   -- "Terminate batch job (Y/N)?" at its next batch line and wait on the
   -- console after lw already cleaned up and exited 130; a `call` on the same
@@ -4565,7 +4606,10 @@ do
     lines[#lines + 1] = line
     if line:match('^%s*"%%PINBIN%%"') or line:match('^%s*"%%LOOMWORKS_LW%%"') then
       runs = runs + 1
-      if not line:match(" & call :status$") then bare[#bare + 1] = line end
+      -- (the pinned run also exits on that line, §16.22 *Rewritten while it runs*)
+      if not (line:match(" & call :status$") or line:match(" & call :status & call exit /b %%%%ERRORLEVEL%%%%$")) then
+        bare[#bare + 1] = line
+      end
     end
   end
   eq(runs, 2, "lw.cmd runs lw on two lines (pinned binary, LOOMWORKS_LW override)")
