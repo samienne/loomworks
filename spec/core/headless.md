@@ -824,6 +824,40 @@ batch runner contributes no tests; a profile with no test runners at all is
 reported as such, not a failure. Like a build (§16.4), a test run is read-only
 toward configuration (§16.9).
 
+**Runs that execute no test.** A run whose runners all succeed but execute
+no test is not reported as a pass. A test case counts as **executed** when it
+passed, failed or errored, not when it was skipped or disabled. Each step's
+count of executed cases is taken from its results file:
+
+- A batch step is counted from the results file its runner reports
+  (`results_out`, module interface `run_command_all`), for example ctest's
+  JUnit with CMake 3.21 or later, or meson's `testlog.junit.xml`. A runner
+  that reports none, or a file that is missing, unreadable or older than the
+  step after the step ends, leaves the count **unknown**. The step is then
+  judged on its exit status alone, as above, with no warning (a missing
+  file is not a failure for a batch step, since its exit status is
+  authoritative). An unknown count is never taken as zero.
+- An executable step that is judged on parsed results (§18.6) is counted from
+  them. A missing results file it requested fails it, as in §18.6. A step
+  judged on its exit status only has an unknown count.
+
+A step that executed none reports `no tests ran` in its outcome line and its
+summary line instead of `passed`. When no step failed and every step's count
+is known and zero, the run **executed no test**:
+
+- A **narrowed** run is one with forwarded arguments (`-- <args>`) or
+  named test executables (`--target`). It is a failure: after the summary
+  it prints `NO TESTS RAN: <profile> (<n> step[s])`, or
+  `(<n> executable[s])` for named targets, and exits 1 with the error
+  `no tests ran (the forwarded arguments matched no tests)`, or for named
+  targets `no tests ran (the named executables ran no test case)`.
+- Any other run prints the same `NO TESTS RAN: …` line, as a warning, in
+  place of `TESTS OK`, and exits 0. An example is a ctest directory with no
+  registered tests.
+
+A plan with no test step at all is still reported as
+`no tests to run for profile '<p>'`, with exit 0.
+
 A headless test invocation MAY forward caller-supplied arguments to the native
 batch runner (e.g. a parallelism knob), and MAY request machine-readable
 (JUnit XML) results written to a caller-specified location — a single file per

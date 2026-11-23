@@ -38,6 +38,17 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
   section "Upgrading from 0.1.x" explains it; delete `.nvim/build/` by hand
   once no older lw is pinned in the repository. (#203)
 
+### Fixed
+
+- `lw test` no longer reports `TESTS OK` when no test ran (for example a
+  ctest `-R` filter that matches nothing, which ctest exits 0 on). A run that
+  executed no test case prints `NO TESTS RAN: <profile>`. With forwarded
+  arguments (`-- <args>`), with `--target`, or for an editor run of selected
+  tests, it then exits 1. Otherwise it is a warning and exits 0. Skipped and
+  disabled cases do not count as run. ctest needs CMake 3.21 or later for
+  this check; with an older ctest the run is judged on its exit status as
+  before. (#189)
+
 ## 0.2.1 - 2026-11-23
 
 A fix for Windows: an `lw.cmd` of any earlier release, replaced by

@@ -21,7 +21,7 @@
 ---   host.deploy(lt, cb)?    run a launch's deploy steps, then cb(ok, err);
 ---                           default lt:deploy_sync() here
 ---   host.exec(lt, o, cb)    one executable step (`exec_step`, or a seam), then
----                           cb(failed, reasons, counts, exit_only, junit_path?)
+---                           cb(failed, reasons, counts, exit_only, junit_path?, executed?)
 ---   host.foreign(lt, f, o, cb)  a device run (`o = { dev, no_build,
 ---                           before_exec }`), then cb(outcome); nil when the
 ---                           host does not run programs on a device
@@ -504,6 +504,10 @@ function M.prepare(ws, profile, pre, opts, deps)
             skip_units = skip, extra_args = (#extra > 0) and extra or nil, junit = opts.junit,
             no_rebuild = no_build or nil,
             junit_dest_for = function(label) return res.junit_for(label) end,
+            -- A count file per step (spec §16.16 "Runs that execute no test").
+            results_for = function()
+                return require("loomworks.housekeeping").tmp_path(ws.root, "lw-test-", ".xml")
+            end,
         })
         for _, st in ipairs(planned or {}) do
             res.batch_steps[st.unit] = res.batch_steps[st.unit] or {}
@@ -513,6 +517,36 @@ function M.prepare(ws, profile, pre, opts, deps)
     local okj, jerr = require("loomworks.build_run").prepare_junit(opts.junit)
     if not okj then return nil, jerr end
     return res
+end
+
+--- The error of a narrowed plan run that executed no test (spec §16.16).
+M.NO_TESTS_RAN_EXTRA = "no tests ran (the forwarded arguments matched no tests)"
+--- The error of a named-target run that executed no test case (spec §16.16).
+M.NO_TESTS_RAN_TARGETS = "no tests ran (the named executables ran no test case)"
+
+--- The executed cases of a batch step's count file (spec §16.16 "Runs that
+--- execute no test"): nil (unknown) when there is no file, or it is older
+--- than the step (`started`, os.time() before it ran; 2 s of slack for
+--- filesystem time granularity), else its passed, failed and errored cases.
+--- @param path string|nil the runner's `results_out`
+--- @param started integer
+--- @return integer|nil
+function M.count_executed(path, started)
+    if not path then return nil end
+    local st = uv.fs_stat(path)
+    if not st or st.type ~= "file" or (st.mtime and st.mtime.sec + 2 < started) then return nil end
+    local test_run = require("loomworks.remote.test_run")
+    local results = require("loomworks.gtest").parse_xml_results(path)
+    if not results then
+        -- No test case: zero only for a JUnit document (an empty or
+        -- unreadable file is unknown).
+        local f = io.open(path, "rb")
+        local head = f and f:read(4096) or nil
+        if f then f:close() end
+        if not (head and head:find("<testsuite", 1, true)) then return nil end
+        results = {}
+    end
+    return test_run.executed(test_run.count(results))
 end
 
 --- Run the prepared steps: per unit, its batch step(s), then one
@@ -539,6 +573,12 @@ function M.run(ws, profile, prepared, opts, host, done)
         end
     end
     local summary, summary_roles, n_failed = {}, {}, 0
+    -- Whether every step so far executed a known zero cases (spec §16.16
+    -- "Runs that execute no test"); an unknown count is never zero.
+    local none_ran = true
+    local function ran(executed)
+        if executed ~= 0 then none_ran = false end
+    end
     local results = { steps = {}, junit = {} }
     local function record(name, ok, code, junit)
         results.steps[#results.steps + 1] = { name = name, exit_code = code, status = ok and "passed" or "failed" }
@@ -555,6 +595,14 @@ function M.run(ws, profile, prepared, opts, host, done)
             return done(1, string.format("%d of %d test step%s failed", n_failed, #summary,
                 #summary == 1 and "" or "s"), results)
         end
+        if none_ran and #summary > 0 then
+            -- Narrowed (forwarded arguments): not a pass. Otherwise a warning.
+            local narrowed = #extra > 0
+            host.out(require("loomworks.remote.test_run").no_tests_ran_line(profile.key, #summary, "step"),
+                narrowed and "fail" or "warn")
+            if narrowed then return done(1, M.NO_TESTS_RAN_EXTRA, results) end
+            return done(0, nil, results)
+        end
         host.out(string.format("TESTS OK: %s (%d step%s)", profile.key, #summary, #summary == 1 and "" or "s"), "ok")
         return done(0, nil, results)
     end
@@ -568,7 +616,15 @@ function M.run(ws, profile, prepared, opts, host, done)
             local b = q.b
             host.out(require("loomworks.cli_color").header("test", st.project.key .. ": " .. (b.runner or "runner")),
                 "phase")
+            -- The step's count file (spec §16.16): read only when written by
+            -- this step (a runner's fixed location may hold an older one).
+            local started = os.time()
+            if b.results_tmp and not b.cleanup then
+                b.cleanup = function() os.remove(b.results_tmp) end
+            end
             return host.spawn(b, function(code)
+                local executed = M.count_executed(b.results_out, started)
+                if b.results_tmp then os.remove(b.results_tmp) end
                 local path, warning = build_run.junit_result(b)
                 if path then
                     host.out("JUnit: " .. path, "plain")
@@ -577,9 +633,11 @@ function M.run(ws, profile, prepared, opts, host, done)
                 end
                 local ok = code == 0
                 if not ok then n_failed = n_failed + 1 end
-                summary_roles[#summary + 1] = ok and "ok" or "fail"
+                ran(executed)
+                local none = ok and executed == 0
+                summary_roles[#summary + 1] = none and "warn" or ok and "ok" or "fail"
                 summary[#summary + 1] = string.format("  %-28s %s", st.project.key .. ": " .. (b.runner or "runner"),
-                    ok and "passed" or ("FAILED (exit status " .. tostring(code) .. ")"))
+                    none and "no tests ran" or ok and "passed" or ("FAILED (exit status " .. tostring(code) .. ")"))
                 record(b.name or st.label, ok, code, path)
                 return next_step()
             end)
@@ -589,14 +647,16 @@ function M.run(ws, profile, prepared, opts, host, done)
             label = name, header = st.project.key .. ": " .. name, saved = true,
             args = st.args, cwd = st.cwd, entry_working_dir = st.entry.working_dir,
             extra = extra, dev = opts.dev, junit_path = junit_for(st.label), no_build = opts.no_build,
-        }, function(failed, reasons, c, exit_only, junit)
+        }, function(failed, reasons, c, exit_only, junit, executed)
             if failed then n_failed = n_failed + 1 end
+            ran(executed)
             local test_run = require("loomworks.remote.test_run")
             local names = failed and test_run.failed_names(c, test_run.FAILED_NAMES_CAP) or ""
-            summary_roles[#summary + 1] = failed and "fail" or "ok"
+            local none = not failed and executed == 0
+            summary_roles[#summary + 1] = failed and "fail" or none and "warn" or "ok"
             summary[#summary + 1] = string.format("  %-28s %s%s", st.project.key .. ": " .. name,
                 failed and ("FAILED (" .. test_run.failed_reasons(reasons, c) .. ")" .. (names ~= "" and (": " .. names) or ""))
-                    or ("passed" .. ((c and not exit_only) and test_run.not_run_suffix(c) or "")),
+                    or ((none and "no tests ran" or "passed") .. ((c and not exit_only) and test_run.not_run_suffix(c) or "")),
                 exit_only and "  (exit status only — no per-case results)" or "")
             record(st.label, not failed, failed and 1 or 0, junit)
             return next_step()
@@ -627,8 +687,9 @@ end
 --- `saved` (a saved entry's step) a refused or unresolvable run fails the step
 --- instead of the invocation, and a program without per-case results is
 --- judged on its exit status alone and written to JUnit as one test case.
---- `cb(failed, reasons, counts, exit_only, junit_path?)` (`junit_path`: the
---- JUnit file written).
+--- `cb(failed, reasons, counts, exit_only, junit_path?, executed?)` (`junit_path`: the
+--- JUnit file written; `executed`: the executed cases, nil when unknown —
+--- spec §16.16 "Runs that execute no test").
 function M.exec_step(ws, lt, opts, host, cb)
     local test_run = require("loomworks.remote.test_run")
     local gtest = require("loomworks.gtest")
@@ -675,12 +736,18 @@ function M.exec_step(ws, lt, opts, host, cb)
         -- alone, and is one JUnit case.
         local exit_only = opts.saved and not results_requested and true or false
         local c = test_run.count(results)
+        -- Executed cases (spec §16.16 "Runs that execute no test"): known only
+        -- from parsed results; nil (unknown) for a program judged on its exit
+        -- status, or whose requested results file did not come back.
+        local executed = (results_requested and results and not results_missing) and test_run.executed(c) or nil
         if failed then
             local names = test_run.failed_names(c, test_run.FAILED_NAMES_CAP)
             host.out(string.format("%s: FAILED (%s)%s", label, test_run.failed_reasons(reasons, c),
                 names ~= "" and (": " .. names) or ""), "fail")
         elseif exit_only then
             host.out(label .. ": passed (exit status 0; no per-case results)", "ok")
+        elseif executed == 0 then
+            host.out(label .. ": no tests ran" .. test_run.not_run_suffix(c), "warn")
         else
             host.out(string.format("%s: %d test%s passed%s", label, c.passed, c.passed == 1 and "" or "s",
                 test_run.not_run_suffix(c)), "ok")
@@ -705,7 +772,7 @@ function M.exec_step(ws, lt, opts, host, cb)
                 host.err("lw: warning: no JUnit output for " .. label .. " (no results file)\n", "warn")
             end
         end
-        return cb(failed, reasons or {}, c, exit_only, written)
+        return cb(failed, reasons or {}, c, exit_only, written, executed)
     end
 
     -- The step itself, once its deploy (if any) is done.

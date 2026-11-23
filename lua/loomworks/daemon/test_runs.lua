@@ -219,6 +219,9 @@ function M.run_all_recs(idx, covered)
     return recs
 end
 
+--- The error of a narrowed run that executed no test case (API §10.2).
+M.NO_TESTS_RAN = "no tests ran (the selection matched no tests)"
+
 --- The steps of resolved nodes (a selection, or run-all's `run_all_recs`).
 --- @param ws table
 --- @param store loomworks.daemon.TestStore
@@ -770,6 +773,9 @@ function M.phase(service, ctx, store, sel, kind)
     function phase.run(api)
         local run = api.run
         local cases, counts = {}, { passed = 0, failed = 0, skipped = 0, errored = 0 }
+        -- Whether every step so far executed a known zero cases (API §10.2,
+        -- CLI §16.16 "Runs that execute no test").
+        local none_ran = true
         local si = 0
         local next_test, run_step
 
@@ -781,6 +787,8 @@ function M.phase(service, ctx, store, sel, kind)
 
         local function step_done(s, code)
             -- The results file is authoritative; then what the output showed.
+            -- (A results file that came back makes the step's count known.)
+            local had_file = s.results ~= nil and uv.fs_stat(s.results) ~= nil
             local got, results = {}, s.tu and s.tu:parse_results(s.results) or nil
             test_store.unlink(ctx.ws.root, s.path)
             local step_cases = {}
@@ -808,10 +816,18 @@ function M.phase(service, ctx, store, sel, kind)
                 end
             end
             -- Suites and targets: their cases' outcome, else the exit code.
-            local failed_case = false
+            local failed_case, executed = false, 0
             for _, c in ipairs(step_cases) do
                 if c.status == "failed" or c.status == "errored" then failed_case = true end
+                if c.status == "passed" or c.status == "failed" or c.status == "errored" then
+                    executed = executed + 1
+                end
             end
+            -- A results file with no executed case and exit 0: no test ran
+            -- (never a pass by the exit code alone). Without a results file
+            -- the step's count is unknown: it ran.
+            local ran_none = had_file and executed == 0 and code == 0
+            if not ran_none then none_ran = false end
             for k = #s.nodes, 1, -1 do
                 local n = s.nodes[k]
                 if not got[n] and (n.kind == "suite" or n.kind == "target") then
@@ -828,7 +844,7 @@ function M.phase(service, ctx, store, sel, kind)
                     if agg then
                         got[n] = true
                         report(n, { status = agg, errors = {} })
-                    elseif n == s.head or n.kind == "target" then
+                    elseif (n == s.head or n.kind == "target") and not ran_none then
                         local msg = code ~= 0 and ("exited with code " .. tostring(code)) or nil
                         local res = to_result({ status = code == 0 and "passed" or "failed", message = msg },
                             s.output)
@@ -861,9 +877,17 @@ function M.phase(service, ctx, store, sel, kind)
             local derr = disc_error()
             -- (The reply names it, so a client tells it from failed tests.)
             result.discovery_error = derr
-            if n == 0 then
+            if #steps == 0 then
                 if derr then return api.finish(1, derr, { result = result }) end
                 api.task:line("out", "no tests to run for profile '" .. ctx.profile.key .. "'", "plain")
+                return api.finish(0, nil, { result = result })
+            end
+            if bad == 0 and none_ran then
+                if derr then return api.finish(1, derr, { result = result }) end
+                -- Narrowed (a selection or extra arguments): not a pass.
+                local narrowed = ctx.args.select ~= nil or (type(ctx.args.extra) == "table" and #ctx.args.extra > 0)
+                api.task:line("out", "NO TESTS RAN: " .. ctx.profile.key, narrowed and "fail" or "warn")
+                if narrowed then return api.finish(1, M.NO_TESTS_RAN, { result = result }) end
                 return api.finish(0, nil, { result = result })
             end
             if bad == 0 then

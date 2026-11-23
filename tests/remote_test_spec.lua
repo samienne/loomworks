@@ -249,6 +249,34 @@ describe("lw test --target on a device", function()
         local res = test({ "Runner" })
         assert.is_true(res.ok, res.stderr)
         for _, a in ipairs(dev.last_argv) do assert.falsy(a:find("gtest_output", 1, true)) end
+        -- (Its count is unknown: never "no tests ran", #189.)
+        assert.truthy(res.stdout:find("TESTS OK: Debug:kit (1 executable)", 1, true), res.stdout)
+    end)
+
+    it("a gtest filter that matches nothing: NO TESTS RAN, exit 1 (§16.16, §18.6, #189)", function()
+        xml_cases = {}
+        local res = test({ "Runner" }, { extra = { "--gtest_filter=Nope.*" } })
+        assert.is_false(res.ok)
+        assert.equals(1, res.exit_code)
+        assert.truthy(res.stdout:find("Runner: no tests ran\n", 1, true), res.stdout)
+        assert.truthy(res.stdout:find("NO TESTS RAN: Debug:kit (1 executable)", 1, true), res.stdout)
+        assert.falsy(res.stdout:find("TESTS OK", 1, true), res.stdout)
+        assert.truthy(res.stderr:find("no tests ran (the named executables ran no test case)", 1, true), res.stderr)
+    end)
+
+    it("one of several executables ran no test: the run still passes", function()
+        local calls = 0
+        local orig = dev.behaviors.Runner
+        dev.behaviors.Runner = function(ctx)
+            if ctx.req.argv[2] ~= "--gtest_list_tests" then
+                calls = calls + 1
+                xml_cases = calls == 1 and {} or { { name = "a" } }
+            end
+            return orig(ctx)
+        end
+        local res = test({ "Runner", "Runner" })
+        assert.is_true(res.ok, res.stderr)
+        assert.truthy(res.stdout:find("TESTS OK: Debug:kit (2 executables)", 1, true), res.stdout)
     end)
 
     it("several executables write one JUnit file each", function()

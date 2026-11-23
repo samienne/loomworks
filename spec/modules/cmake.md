@@ -644,6 +644,20 @@ like MSVC, harmless for single-config like Ninja).
 | Run specific test | `ctest --test-dir <dir> -C <cfg> -R ^<name>$ --output-on-failure --output-junit <path>` |
 | Individual gtest case (`add_test`) | Same + `GTEST_FILTER=Suite.Test` in env |
 
+**Headless batch run** (`run_command_all`, core §16.16): `ctest --test-dir
+<dir> -C <cfg> --output-on-failure`, then `--output-junit <path>` when JUnit
+is requested, then the forwarded arguments. To count the executed cases
+(core §16.16 "Runs that execute no test"), the runner also asks ctest for
+JUnit when none was requested: `--output-junit <opts.results>`, a temporary
+file in the workspace's `.lw/tmp/` that the core reads and then removes. It
+does this only when `ctest --version` (probed once per process) is 3.21 or
+later, the version that added `--output-junit`. With an older or unknown
+ctest it adds nothing and reports no `results_out`, so the count is
+unknown. With a requested JUnit file, that file is the one counted
+(`results_out` = `junit_out`). It never uses `--no-tests=error`, which needs
+CMake 3.17 or later and would also fail an unfiltered run with no
+registered tests.
+
 ### 8.2 GTest helper
 
 `gtest.lua` is a shared utility containing all gtest-specific

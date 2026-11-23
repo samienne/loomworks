@@ -312,7 +312,13 @@ folder and parsed with the same parser as local results (§8.9). The outcome is
 **failed** when any of: the exit status is non-zero; the parsed results contain
 a failure or error; results were requested but no results file came back; a
 crash report was collected. Framework detection (§8.9 list probe) runs through
-the runner like any other execution.
+the runner like any other execution. Parsed results that contain no
+**executed** case (none passed, failed or errored: the filter matched
+nothing, or every case was skipped or disabled) do not fail the step by this
+rule alone. The step reports `no tests ran`, and a headless test invocation
+judges the run as a whole (§16.16 "Runs that execute no test"): a named
+target's run is narrowed, so it then fails. This applies the same way to a
+local run of a named executable.
 
 Which tests run on a device in this version: the test executables named
 explicitly in a headless test invocation (§16.16). Tests registered with a
