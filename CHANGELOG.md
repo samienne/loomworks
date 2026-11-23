@@ -47,7 +47,7 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
   tests, it then exits 1. Otherwise it is a warning and exits 0. Skipped and
   disabled cases do not count as run. ctest needs CMake 3.21 or later for
   this check; with an older ctest the run is judged on its exit status as
-  before. (#189)
+  before. (#204)
 
 ## 0.2.1 - 2026-11-23
 
