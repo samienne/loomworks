@@ -10500,10 +10500,27 @@ function M.cmd_status(root, opts)
 
   -- Old state row: files a release before 0.2.0 left in .nvim/ that lw no
   -- longer uses (headless §16.44 *After migration*). A nag only: lw never
-  -- deletes them.
+  -- deletes them. While .nvim/build/ is among them and a profile is still
+  -- unconfigured, the line adds that its first build is a full rebuild: the
+  -- old trees are not reused (§16.44 *Build directories*, #190).
   do
     local sm = require("loomworks.state_migration")
-    local ok, line = pcall(function() return sm.leftovers_text(sm.leftovers(ws.root or root)) end)
+    local ok, line = pcall(function()
+      local names = sm.leftovers(ws.root or root)
+      local text = sm.leftovers_text(names)
+      if text and vim.tbl_contains(names, "build/") then
+        local unconfigured = false
+        for _, p in ipairs(profiles) do
+          for _, pp in ipairs(p:projects()) do
+            local unit = pp._config_unit
+            local st = unit and unit:local_state()
+            if st and st ~= "configured" and st ~= "built" then unconfigured = true end
+          end
+        end
+        if unconfigured then text = text .. sm.REBUILD_NOTE end
+      end
+      return text
+    end)
     if ok and line then out(pal.title("Old state") .. string.rep(" ", 8) .. pal.dim(line)) end
   end
 
