@@ -3262,21 +3262,28 @@ do
   eq(slurp(repo .. "/lw.cmd"), launcher.render("cmd"), "lw.cmd rewritten to the current template")
   ok(not has(r1, "lw.cmd is replaced while it runs"), "not run through lw.cmd: no replaced-while-running note")
   -- replacing the lw.cmd that ran this (§16.22 *Rewritten while it runs*):
-  -- the report's last line warns of the error cmd may print afterwards
+  -- a known generation resumes in the new template's landing zone, so no
+  -- note; unknown content replaced under --force may print an error, and the
+  -- report's last line says so
   put(repo .. "/lw.cmd", old_cmd)
-  local rc = bootstrap.install(repo, { version = V2, invoked = "lw.cmd" })
+  local rk = bootstrap.install(repo, { version = V2, invoked = "lw.cmd" })
+  ok(has(rk, "refreshed lw.cmd") and not has(rk, "lw.cmd is replaced while it runs"),
+    "a known generation replaced while it runs: no note  (" .. show(rk) .. ")")
+  put(repo .. "/lw.cmd", "@echo off\r\nrem my own lw.cmd\r\n")
+  local rc = bootstrap.install(repo, { version = V2, invoked = "lw.cmd", force = true })
   eq(rc and rc[#rc], bootstrap.CMD_REPLACED_RUNNING_LINE,
-    "replacing the running lw.cmd ends with the note  (" .. show(rc) .. ")")
+    "replacing a running unknown lw.cmd ends with the note  (" .. show(rc) .. ")")
   ok(bootstrap.CMD_REPLACED_RUNNING_LINE:find("cmd may print an error after this - the files are correct", 1, true),
     "the note's wording")
   put(repo .. "/lw.cmd", (launcher.render("cmd"):gsub("\r\n", "\n")))
   local reol = bootstrap.install(repo, { version = V2, invoked = "lw.cmd" })
   ok(has(reol, "rewrote lw.cmd with CRLF") and not has(reol, "lw.cmd is replaced while it runs"),
     "the current template is safe to rewrite: no note  (" .. show(reol) .. ")")
-  ok(bootstrap.cmd_rewrite_unsafe("refreshed", { gen = 10 }) and bootstrap.cmd_rewrite_unsafe("replaced", nil)
-    and not bootstrap.cmd_rewrite_unsafe("refreshed", { gen = launcher.CMD_REWRITE_SAFE_GEN })
+  ok(bootstrap.cmd_rewrite_unsafe("replaced", nil) and bootstrap.cmd_rewrite_unsafe("refreshed", nil)
+    and not bootstrap.cmd_rewrite_unsafe("refreshed", { gen = 1 })
+    and not bootstrap.cmd_rewrite_unsafe("refreshed", { gen = 10 })
     and not bootstrap.cmd_rewrite_unsafe("eol", nil) and not bootstrap.cmd_rewrite_unsafe("written", nil),
-    "cmd_rewrite_unsafe: earlier generations and unknown content only")
+    "cmd_rewrite_unsafe: unknown content only")
   -- content that is no known generation is kept unless --force
   put(repo .. "/lw.sh", "#!/bin/sh\necho my own launcher\n")
   local r2 = bootstrap.install(repo, { version = V2 })

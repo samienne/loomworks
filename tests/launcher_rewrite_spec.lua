@@ -2,7 +2,8 @@
 --- *Rewritten while it runs*, §16.24 *Install*): `.\lw.cmd bootstrap install`
 --- rewrites the lw.cmd that cmd.exe is executing; cmd reads the next line at
 --- its old byte offset once lw exits. The current template runs lw and exits
---- on one line (the note on replacing an older one: tests/standalone/main.lua).
+--- on one line, and begins with a landing zone where every earlier generation
+--- resumes (the note on replacing unknown content: tests/standalone/main.lua).
 
 local launcher = require("boot.launcher")
 local uv = vim.uv or vim.loop
@@ -39,23 +40,121 @@ describe("lw.cmd rewritten while it runs", function()
     assert.truthy(text:find('(\n  "%LOOMWORKS_LW%" %* & call :status\n  exit /b !ERRORLEVEL!\n)', 1, true))
   end)
 
-  it("catalogues the 0.2.0-beta.7..beta.16 lw.cmd as a generation not safe to rewrite", function()
+  it("catalogues every earlier lw.cmd generation with its resume offset", function()
     local cur = vim.fn.sha256(launcher.normalize(launcher.LW_CMD))
     assert.is_nil(launcher.GENERATIONS.cmd[cur])
-    local g = launcher.GENERATIONS.cmd[BETA16]
-    assert.truthy(g)
-    assert.equals(10, g.gen)
-    assert.is_true(g.gen < launcher.CMD_REWRITE_SAFE_GEN)
-    for hash, gg in pairs(launcher.GENERATIONS.cmd) do
-      assert.is_true(gg.gen < launcher.CMD_REWRITE_SAFE_GEN, hash)
-      local found = false
-      for _, d in ipairs(gg.defects) do
-        if d.text:find("rewrites it during its own run", 1, true) then
-          found = true
-          assert.equals("minor", d.severity)
-        end
+    assert.equals(10, launcher.GENERATIONS.cmd[BETA16].gen)
+    for hash, g in pairs(launcher.GENERATIONS.cmd) do
+      assert.is_number(g.resume, hash)
+      for _, d in ipairs(g.defects) do
+        assert.is_nil(d.text:find("rewrites it during its own run", 1, true), hash)
       end
-      assert.is_true(found, hash)
+    end
+  end)
+
+  -- The landing zone (launcher.lua, CMD_LANDING): where an older lw.cmd that
+  -- lw replaced while it ran resumes reading the new file.
+  local MARGIN = 1024
+  local function landing(crlf)
+    local first = crlf:find("\r\n:::", 1, true) + 2 -- 1-based start of the first colon line
+    local exit_at = crlf:find("\r\n@exit /b %ERRORLEVEL%\r\n:lw_start\r\n", 1, true) + 2
+    return first - 1, exit_at - 1 -- 0-based: [start, stop) is all colon lines
+  end
+
+  it("begins with a landing zone covering every catalogued resume offset", function()
+    local crlf = launcher.render("cmd")
+    assert.equals("@goto lw_start\r\n", crlf:sub(1, 16))
+    local start, stop = landing(crlf)
+    local zone = crlf:sub(start + 1, stop)
+    assert.equals(launcher.CMD_LANDING_LINES * 64, #zone)
+    assert.truthy(zone:match("^[:\r\n]+$"))
+    for l in zone:gmatch("(.-)\r\n") do assert.truthy(l:match("^:+$"), l) end
+    for hash, g in pairs(launcher.GENERATIONS.cmd) do
+      assert.is_true(g.resume >= start and g.resume + MARGIN <= stop,
+        ("%s resumes at %d, zone [%d, %d)"):format(hash, g.resume, start, stop))
+    end
+    -- the run line, :status (spec 16.22) and :lw_start each appear once
+    local _, n = crlf:gsub("\r\n:lw_start\r\n", "")
+    assert.equals(1, n)
+    _, n = crlf:gsub("\r\n:status\r\n", "")
+    assert.equals(1, n)
+  end)
+
+  -- tests/fixtures/launchers/cmd/genNN.cmd: the lw.cmd each generation wrote
+  -- (from its release tag), LF-normalized.
+  local FIX = "tests/fixtures/launchers/cmd/"
+  local function fixtures()
+    local t = {}
+    for name in vim.fs.dir(FIX) do
+      if name:match("^gen%d+%.cmd$") then t[#t + 1] = name end
+    end
+    table.sort(t)
+    return t
+  end
+  local function read(path)
+    local fh = assert(io.open(path, "rb")); local s = fh:read("*a"); fh:close(); return s
+  end
+  local function write(path, s)
+    local fh = assert(io.open(path, "wb")); fh:write(s); fh:close()
+  end
+  -- 0-based offset just past the last line that runs the pinned lw.
+  local function resume_of(crlf)
+    local at
+    for s, l, e in crlf:gmatch("()([^\r\n]*)\r\n()") do
+      if l:find('^"%%PINBIN%%"') then at = e - 1 end
+    end
+    return at
+  end
+
+  it("has a fixture for every catalogued generation, at its resume offset", function()
+    local seen = {}
+    for _, name in ipairs(fixtures()) do
+      local text = launcher.normalize(read(FIX .. name))
+      local g = launcher.GENERATIONS.cmd[vim.fn.sha256(text)]
+      assert.truthy(g, name)
+      assert.equals(tonumber(name:match("%d+")), g.gen, name)
+      assert.equals(g.resume, resume_of((text:gsub("\n", "\r\n"))), name)
+      seen[g.gen] = true
+    end
+    for hash, g in pairs(launcher.GENERATIONS.cmd) do assert.truthy(seen[g.gen], hash) end
+  end)
+
+  -- Each generation's own lw.cmd run by a real cmd.exe, with a pinned "lw"
+  -- (a copy of cmd.exe, verified against lw.pin as a real one is) that writes
+  -- the current template over the running file and exits 7: nothing is
+  -- downloaded, and what cmd reads after lw is exactly what a real
+  -- `.\lw.cmd bootstrap install` / `upgrade` leaves it.
+  local windows = uv.os_uname().sysname:find("Windows") ~= nil
+  local real = windows and it or pending
+  real("every generation, rewritten by lw while it runs, exits with lw's status and prints nothing", function()
+    local sysroot = os.getenv("SystemRoot") or "C:/Windows"
+    local cmdexe = sysroot .. "/System32/cmd.exe"
+    local fake = read(cmdexe)
+    local sha = vim.fn.sha256(fake)
+    local new = launcher.render("cmd")
+    local cases = fixtures()
+    cases[#cases + 1] = "current"
+    for _, name in ipairs(cases) do
+      local dir = vim.fn.tempname()
+      vim.fn.mkdir(dir .. "/.nvim/cache", "p")
+      local old = name == "current" and new or (launcher.normalize(read(FIX .. name)):gsub("\n", "\r\n"))
+      write(dir .. "/lw.cmd", old)
+      write(dir .. "/next.cmd", new)
+      write(dir .. "/rewrite.cmd", "@copy /y next.cmd lw.cmd >nul\r\n@exit 7\r\n")
+      -- a 0.1 pin: every generation caches it in .nvim\cache
+      write(dir .. "/lw.pin", "version=0.1.51\nsha256_lw-windows-x86_64.exe=" .. sha .. "\n")
+      write(dir .. "/.nvim/cache/lw-0.1.51-lw-windows-x86_64.exe", fake)
+      -- as a user runs it (.\lw.cmd), with only the system directories on PATH
+      local r = vim.system({ cmdexe, "/d", "/c", ".\\lw.cmd", "/d", "/c", ".\\rewrite.cmd" }, {
+        text = true, cwd = dir, timeout = 60000,
+        env = { LOOMWORKS_LW = "", LOOMWORKS_RELEASE_URL = "",
+          PATH = sysroot .. "\\System32;" .. sysroot },
+      }):wait()
+      local out = (r.stdout or "") .. (r.stderr or "")
+      assert.equals(7, r.code, name .. ": " .. out)
+      assert.equals("", out, name)
+      assert.equals(new, read(dir .. "/lw.cmd"), name)
+      vim.fn.delete(dir, "rf")
     end
   end)
 

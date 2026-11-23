@@ -184,7 +184,27 @@ fi
 LOOMWORKS_LAUNCHER=lw.sh LOOMWORKS_PINNED="$version" LW_ROOT="$PWD" exec "$bin" "$@"
 ]==]
 
-M.LW_CMD = [==[@echo off
+-- lw.cmd begins with a landing zone (spec headless §16.22 *Rewritten while it
+-- runs*). An lw.cmd of an earlier generation runs lw on one line and reads
+-- the next one from disk once lw exits, at its own old byte offset: when lw
+-- replaced the file meanwhile (bootstrap install / upgrade), cmd.exe resumes
+-- in the middle of this one. A fresh run jumps over the zone; a resumed one
+-- lands in its lines of colons, which are labels (ignored) from any byte on,
+-- and reaches `@exit /b %ERRORLEVEL%`, the status lw returned. The zone must
+-- cover every catalogued generation's `resume` offset (M.GENERATIONS) with a
+-- margin: tests/launcher_rewrite_spec.lua checks that, and runs each
+-- generation with a real cmd.exe.
+M.CMD_LANDING_LINES = 128
+local CMD_LANDING = [==[@goto lw_start
+rem lw.cmd landing zone: the lines of colons below are labels, ignored. An
+rem older lw.cmd that `lw bootstrap install` / `upgrade` replaced while it ran
+rem resumes reading this file in them once lw exits, and exits with lw's status.
+rem A run of this file starts at :lw_start.
+]==] .. string.rep(string.rep(":", 62) .. "\n", M.CMD_LANDING_LINES) .. [==[@exit /b %ERRORLEVEL%
+:lw_start
+]==]
+
+M.LW_CMD = CMD_LANDING .. [==[@echo off
 setlocal EnableExtensions EnableDelayedExpansion
 rem loomworks repo-local launcher (Windows). Committed alongside lw.pin. Fetches
 rem the pinned, verified lw host binary into .lw\cache\ and runs it; the host
@@ -421,15 +441,10 @@ local OLD_PLATFORM_LIST_BETA5 = { severity = "minor", text = "on a platform with
 local NVIM_CACHE_LW02 = { severity = "minor", text = "caches the lw binary of a 0.2.0 or later " ..
   "pin in .nvim/cache instead of .lw/cache" }
 
--- Before the pinned run and the launcher's exit were one line (§16.22): lw
--- rewriting lw.cmd during that run (bootstrap install / upgrade) makes
--- cmd.exe read the new file at the old offset and print an error after lw.
-local CMD_REWRITE_UNSAFE = { severity = "minor", text = "when lw rewrites it during its own run " ..
-  "(bootstrap install / upgrade), cmd.exe can print an error afterwards (the files are correct)" }
-
---- The first lw.cmd generation that survives being rewritten by the lw it
---- runs; earlier known generations (and unknown content) may not.
-M.CMD_REWRITE_SAFE_GEN = 11
+-- `resume` (lw.cmd generations): the byte offset, in the CRLF file, just past
+-- the line that runs lw: where cmd.exe resumes reading once lw exits, in
+-- whatever lw.cmd lw wrote meanwhile (the current template's landing zone
+-- covers them all, spec §16.22 *Rewritten while it runs*).
 
 M.GENERATIONS = {
   sh = {
@@ -483,50 +498,50 @@ M.GENERATIONS = {
     },
   },
   cmd = {
+    -- v0.2.0-beta.17 .. v0.2.0: runs lw and exits on one line (never resumes);
+    -- the later template only adds the landing zone for older generations
+    ["221f3f1838d5920e002bb1f108298821b1e5e69370aec3a57da7ff087116295a"] = {
+      gen = 11, releases = "0.2.0-beta.17-0.2.0", resume = 6956,
+      defects = {},
+    },
     -- v0.2.0-beta.7 .. v0.2.0-beta.16
     ["866d6e068578db05d05e85e31bc9418249bc1a85304314d4b9cf362c56ac75db"] = {
-      gen = 10, releases = "0.2.0-beta.7-0.2.0-beta.16",
+      gen = 10, releases = "0.2.0-beta.7-0.2.0-beta.16", resume = 6492,
       defects = {
-        CMD_REWRITE_UNSAFE,
       },
     },
     -- v0.2.0-beta.5 .. v0.2.0-beta.6
     ["da74e958cb2fcaeef0f78da26ec443ea696736833bc81cd8d40f311c92f1362e"] = {
-      gen = 9, releases = "0.2.0-beta.5-0.2.0-beta.6",
+      gen = 9, releases = "0.2.0-beta.5-0.2.0-beta.6", resume = 5696,
       defects = {
-        CMD_REWRITE_UNSAFE,
         NVIM_CACHE_LW02,
       },
     },
     -- v0.2.0-beta.4
     ["d5a48a129933e296500b23a4fb471cc3a80115e972c9f564ba86ee5f9af535cf"] = {
-      gen = 8, releases = "0.2.0-beta.4",
+      gen = 8, releases = "0.2.0-beta.4", resume = 5669,
       defects = {
-        CMD_REWRITE_UNSAFE,
         OLD_PLATFORM_LIST_BETA5,
       },
     },
     -- v0.2.0-beta.1 .. v0.2.0-beta.3
     ["c162e3ad5a3e982176a99b8db3fa697fae88869449d352a8be4a6fa2c9083122"] = {
-      gen = 7, releases = "0.2.0-beta.1-0.2.0-beta.3",
+      gen = 7, releases = "0.2.0-beta.1-0.2.0-beta.3", resume = 5623,
       defects = {
-        CMD_REWRITE_UNSAFE,
         NO_PLATFORM_LIST,
       },
     },
     -- v0.1.40 .. v0.1.50-beta.1
     ["2561fcb70a8ffa46f96577cb2105cf43ff875b7b9ba8d1f73fe04be619d366a5"] = {
-      gen = 6, releases = "0.1.40-0.1.50-beta.1",
+      gen = 6, releases = "0.1.40-0.1.50-beta.1", resume = 5340,
       defects = {
-        CMD_REWRITE_UNSAFE,
         LEGACY_ORIGIN,
       },
     },
     -- v0.1.6 .. v0.1.34
     ["f52183ec829018f3352a60b60411410400cffe76fd4e899fb3aeb9f7b8791b35"] = {
-      gen = 1, releases = "0.1.6-0.1.34",
+      gen = 1, releases = "0.1.6-0.1.34", resume = 3679,
       defects = {
-        CMD_REWRITE_UNSAFE,
         LEGACY_ORIGIN,
         { severity = "breaks", text = "calls find/findstr/certutil by bare name, " ..
           "so a same-named tool on PATH (Git Bash, CI) breaks it" },
@@ -535,18 +550,16 @@ M.GENERATIONS = {
     },
     -- v0.1.36-beta.1
     ["8fa140032b7fd103af7e401c90a1f2d40cae98f12eeab029e776ab81abde08f8"] = {
-      gen = 3, releases = "0.1.36-beta.1",
+      gen = 3, releases = "0.1.36-beta.1", resume = 4830,
       defects = {
-        CMD_REWRITE_UNSAFE,
         LEGACY_ORIGIN,
         { severity = "minor", text = "messages end in a trailing space" },
       },
     },
     -- v0.1.36-beta.2 .. v0.1.37-beta.1
     ["bb21d2287961a73e5946474b02ab24dd2378466b1531c568e3a4599370e577e3"] = {
-      gen = 4, releases = "0.1.36-beta.2-0.1.37-beta.1",
+      gen = 4, releases = "0.1.36-beta.2-0.1.37-beta.1", resume = 4926,
       defects = {
-        CMD_REWRITE_UNSAFE,
         LEGACY_ORIGIN,
         { severity = "minor", text = "does not tell lw which launcher ran it (lw then prints ./lw.sh commands);" ..
           " names the removed `lw update`" },
@@ -554,9 +567,8 @@ M.GENERATIONS = {
     },
     -- v0.1.37-beta.2 .. v0.1.39
     ["b1880aae46c5d5920e181b537939c94f362cb881becc668c91a9ca82b2af05fc"] = {
-      gen = 5, releases = "0.1.37-beta.2-0.1.39",
+      gen = 5, releases = "0.1.37-beta.2-0.1.39", resume = 5072,
       defects = {
-        CMD_REWRITE_UNSAFE,
         LEGACY_ORIGIN,
         { severity = "minor", text = "after Ctrl-C / Ctrl-Break, cmd.exe asks \"Terminate batch job (Y/N)?\"" ..
           " and waits, although lw already stopped" },
@@ -564,9 +576,8 @@ M.GENERATIONS = {
     },
     -- v0.1.35
     ["fb3ee139018cc1a514daf77bcd418cda9e92b04c92c77a90f6b0fc63d46e57a6"] = {
-      gen = 2, releases = "0.1.35",
+      gen = 2, releases = "0.1.35", resume = 4054,
       defects = {
-        CMD_REWRITE_UNSAFE,
         LEGACY_ORIGIN,
         { severity = "minor", text = "no download retry; shows a progress meter" },
       },

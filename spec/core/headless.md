@@ -1514,8 +1514,18 @@ The command interpreter reads a batch file's next line from disk, at its old
 byte offset, only after the current line finishes, so the launcher MUST run the
 host and exit with the host's status on **one** line (parsed whole before it
 runs): nothing after the host's run is read from the file again. A launcher of
-an earlier generation does not (§16.24 *Install* says what the report adds).
-That line calls a batch label (`... & call :status & call exit /b ...`), and
+an earlier generation does not: it reads its next line from the **new** file,
+at the offset just past its own run line. The template therefore begins with
+a **landing zone**: its first line jumps to the real start, and the lines that
+follow are labels made only of colons (ignored from any byte on), spanning
+every byte offset at which a known earlier generation resumes, with a margin
+of at least 1024 bytes past the largest, and ending in a line that exits with
+the status the host returned. An earlier generation rewritten while it runs
+thus lands in the zone and ends with the host's status, printing nothing; the
+generation catalogue records each one's resume offset, and a template change
+MUST keep the zone covering them all. Only unknown content (replaced under
+`--force`) can still read anything else (§16.24 *Install* says what the report
+adds). That line calls a batch label (`... & call :status & call exit /b ...`), and
 cmd looks the label up in the file as it is on disk then, i.e. the rewritten
 one: every `lw.cmd` template MUST therefore keep the `:status` label, or the
 running launcher prints "The system cannot find the batch label specified"
@@ -2221,10 +2231,9 @@ user also edits. With `--pin-only` only the pin's attribute rule applies (above)
 - a run that wrote or changed files ends with the commit hint naming exactly
   those files (`Commit them: git add lw.pin .gitattributes && git commit`);
   install never commits;
-- when the host was invoked through `lw.cmd` and replaced it with content from
-  a generation that is not safe to rewrite while running (an earlier known
-  generation, or unknown content under `--force`, §16.22 *Rewritten while it
-  runs*), the report's **last** line is `note: lw.cmd is replaced while it runs;
+- when the host was invoked through `lw.cmd` and replaced it with unknown
+  content under `--force` (a known earlier generation resumes in the landing
+  zone, §16.22 *Rewritten while it runs*), the report's **last** line is `note: lw.cmd is replaced while it runs;
   cmd may print an error after this - the files are correct`: the interpreter
   running the old launcher may print an error (and a non-zero status) after
   the host exits, which this precedes.

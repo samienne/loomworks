@@ -217,22 +217,36 @@ bit of `lw.sh`; commit what it reports.
 
 ## Upgrading from 0.1.x
 
-Until 0.2.0 is published on the stable channel, add `--channel unstable` to
-the `self-update` and `bootstrap upgrade` commands below.
+**The installed `lw`.** `lw self-update` replaces the `lw` on your PATH; it
+never moves a repository's pin. From a release below 0.1.51 run it twice: the
+first run reaches 0.1.51, the second the newest 0.2 release. `--version
+<x.y.z>` exists only from 0.2 on; a 0.1.x `lw` ignores it.
 
-**The installed `lw`.** Run `lw self-update`. From a release below 0.1.51 run
-it twice: the first run reaches 0.1.51, the second 0.2. `--version <x.y.z>`
-exists only from 0.2 on; a 0.1.x `lw` ignores it.
+**A pinned repository, with an installed 0.2 `lw`.** Run `lw bootstrap
+upgrade` in the repository: one step moves `lw.pin` to the newest release and
+rewrites `lw.sh` and `lw.cmd`. Commit all three. `lw bootstrap` (no
+sub-command) shows where the pin and the launchers stand. This is the safest
+route, on Windows above all: no launcher is running while it is rewritten.
 
-**A pinned repository.** With an installed `lw` of 0.2, run `lw bootstrap
-upgrade` in the repository: one step rewrites `lw.pin`, `lw.sh` and `lw.cmd`.
-Commit all three. Through the repository's own launcher (`./lw.sh bootstrap
-upgrade`, `.\lw.cmd bootstrap upgrade`) it works too, but takes two runs from
-a 0.1.51 pin and more from an older one: an `lw` below 0.1.51 cannot fetch a
-0.2 release by `--version` (it gets a 404), so pin 0.1.51 first. With an `lw`
-below 0.1.51, run `bootstrap upgrade` a second time: its report suggests only
-one more `bootstrap install`, which is not enough. When `.\lw.cmd` replaces itself, cmd may print an error
-after lw finishes (lw says so first); the files are correct.
+**A repository with only the launchers.** Without an installed `lw`, upgrade
+through the repository's launcher (`.\lw.cmd` in cmd or PowerShell, `./lw.sh`
+elsewhere). Each run is done by the pinned `lw`, which writes its own
+launchers, so it takes up to three runs:
+
+1. From a pin below 0.1.51, `bootstrap upgrade` moves it to 0.1.51 (an `lw`
+   below 0.1.51 cannot fetch a 0.2 release).
+2. From 0.1.51, `bootstrap upgrade` moves it to the newest 0.2 release.
+3. `bootstrap install` then writes that release's launchers; the report of
+   step 2 asks for it.
+
+Commit `lw.pin`, `lw.sh` and `lw.cmd` at the end, and check them with
+`bootstrap` (no sub-command). On Windows, when a 0.1.x `lw` replaces the
+`.\lw.cmd` that runs it (step 2 does, from a launcher older than 0.1.51's),
+cmd may print an error such as `'xpansion' is not recognized` and exit 1
+after lw finishes; the files are correct. Step 3 is clean from the release after 0.2.0 on. With a
+pin of exactly 0.2.0, do not run step 3 (or any `bootstrap install` / `upgrade`)
+through an older `.\lw.cmd`: cmd then loops forever after lw finishes; run it
+with an installed `lw`, or as `./lw.sh bootstrap install` from Git Bash.
 
 **After the upgrade.** The first command in the workspace moves its state from
 `.nvim/` to `.lw/`, and the first build configures each build directory
