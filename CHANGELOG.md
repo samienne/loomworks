@@ -28,6 +28,35 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
 
 ## Unreleased
 
+## 0.2.1 - 2026-11-23
+
+A fix for Windows: an `lw.cmd` of any earlier release, replaced by
+`bootstrap install` or `bootstrap upgrade` while it runs, now ends cleanly
+with lw's exit status instead of looping.
+
+### Upgrade notes
+
+- On Windows, with a pin of 0.2.0, do not run `bootstrap install` or
+  `bootstrap upgrade` through a `.\lw.cmd` older than 0.2.0's: lw 0.2.0 leaves
+  cmd looping after it finishes. Run them with an installed `lw` (`lw bootstrap
+  upgrade` in the repository) or as `./lw.sh` from Git Bash; the README's
+  "Upgrading from 0.1.x" describes each route. (#188)
+
+### Fixed
+
+- An `lw.cmd` of any earlier release, replaced by `bootstrap install` or
+  `bootstrap upgrade` while it runs, now ends with lw's exit status and prints
+  nothing. cmd.exe resumes the old launcher in the middle of the new file,
+  and with 0.2.0's `lw.cmd` it ran whatever it landed on: from the launcher
+  0.1.51 writes it looped forever retrying a download, deleting the files in
+  `%TEMP%` on every round when the pinned lw was already cached. The new
+  `lw.cmd` begins with a landing zone that catches every earlier launcher, and
+  the "lw.cmd is replaced while it runs" note now appears only for a
+  hand-edited `lw.cmd` replaced with `--force`. (#188)
+- The README's "Upgrading from 0.1.x" names the commands that exist
+  (`lw bootstrap`, not `lw bootstrap status`), says that `lw self-update` never
+  moves a pin, and covers a repository with only the launchers. (#188)
+
 ## 0.2.0 - 2026-11-23
 
 The first release of lw from samienne/loomworks, where `lw`, the workspace

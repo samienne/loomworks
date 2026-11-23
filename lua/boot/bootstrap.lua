@@ -173,15 +173,14 @@ end
 
 --- Whether replacing lw.cmd (a write_launcher outcome) can confuse the
 --- cmd.exe running it: cmd reads the rest of a batch file from disk at its
---- old byte offset after lw exits. Generations from CMD_REWRITE_SAFE_GEN on
---- run lw and exit on one line; an older or unknown file may not.
+--- old byte offset after lw exits. The current template's landing zone
+--- covers the offset of every catalogued generation (launcher.CMD_LANDING_LINES,
+--- spec §16.22), so only unknown content (replaced under --force) may not.
 --- @param status string|nil write_launcher's status
 --- @param info table|nil its classify result (for "refreshed")
 --- @return boolean
 function M.cmd_rewrite_unsafe(status, info)
-  if status == "refreshed" then
-    return not (info and info.gen and info.gen >= launcher.CMD_REWRITE_SAFE_GEN)
-  end
+  if status == "refreshed" then return not (info and info.gen) end
   return status == "replaced"
 end
 
