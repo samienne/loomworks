@@ -790,6 +790,12 @@ function M.phase(service, ctx, store, sel, kind)
             -- (A results file that came back makes the step's count known.)
             local had_file = s.results ~= nil and uv.fs_stat(s.results) ~= nil
             local got, results = {}, s.tu and s.tu:parse_results(s.results) or nil
+            -- (Counted before the file goes; see the empty-run rule below.)
+            local file_executed = had_file and require("loomworks.gtest").count_executed(s.results) or nil
+            if had_file and file_executed == nil and results then
+                local test_run = require("loomworks.remote.test_run")
+                file_executed = test_run.executed(test_run.count(results))
+            end
             test_store.unlink(ctx.ws.root, s.path)
             local step_cases = {}
             for _, r in ipairs(results or {}) do
@@ -823,10 +829,14 @@ function M.phase(service, ctx, store, sel, kind)
                     executed = executed + 1
                 end
             end
+            -- The file's own executed cases count too, matched to the store
+            -- or not (stale discovery, renamed cases), whatever its line
+            -- breaks; an unreadable file is unknown, so not zero.
+            if file_executed and file_executed > executed then executed = file_executed end
             -- A results file with no executed case and exit 0: no test ran
-            -- (never a pass by the exit code alone). Without a results file
-            -- the step's count is unknown: it ran.
-            local ran_none = had_file and executed == 0 and code == 0
+            -- (never a pass by the exit code alone). Without a results file,
+            -- or with one whose count is unknown, it ran.
+            local ran_none = had_file and file_executed ~= nil and executed == 0 and code == 0
             if not ran_none then none_ran = false end
             for k = #s.nodes, 1, -1 do
                 local n = s.nodes[k]

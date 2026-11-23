@@ -112,4 +112,64 @@ describe("a test run that executed no test (§16.16, #189)", function()
         assert.equals(0, r.code)
         assert.is_nil(uv.fs_stat(r.results))
     end)
+
+    -- meson writes testlog.junit.xml with ElementTree: one line, no
+    -- indentation (meson 1.4's exact form). Counted like any other.
+    local MESON_SELF_CLOSING = "<?xml version='1.0' encoding='utf-8'?>\n"
+        .. '<testsuites tests="2" errors="0" failures="0"><testsuite name="proj" tests="2" errors="0"'
+        .. ' failures="0" skipped="0" time="0.012"><testcase name="add" classname="proj" time="0.006" />'
+        .. '<testcase name="sub" classname="proj" time="0.005" /></testsuite></testsuites>'
+    local MESON_BODIES = "<?xml version='1.0' encoding='utf-8'?>\n"
+        .. '<testsuites tests="2" errors="0" failures="0"><testsuite name="proj" tests="2" errors="0"'
+        .. ' failures="0" skipped="0" time="0.012"><testcase name="add" classname="proj" time="0.006">'
+        .. '<system-out>ok 1 add</system-out></testcase><testcase name="sub" classname="proj" time="0.005">'
+        .. '<system-out>ok 1 sub</system-out></testcase></testsuite></testsuites>'
+
+    it("meson's single-line JUnit (self-closing cases) counts 2: TESTS OK, not NO TESTS RAN", function()
+        write(dir .. "/m.xml", MESON_SELF_CLOSING)
+        assert.equals(2, require("loomworks.gtest").count_executed(dir .. "/m.xml"))
+        local r = run({ xml = MESON_SELF_CLOSING, extra = { "add" } })
+        assert.equals(0, r.code, r.stdout)
+        assert.falsy(r.stdout:find("NO TESTS RAN", 1, true), r.stdout)
+        assert.truthy(r.stdout:find("TESTS OK: dev (1 step)", 1, true), r.stdout)
+    end)
+
+    it("meson's single-line JUnit with <system-out> bodies counts 2: TESTS OK", function()
+        write(dir .. "/m.xml", MESON_BODIES)
+        assert.equals(2, require("loomworks.gtest").count_executed(dir .. "/m.xml"))
+        local r = run({ xml = MESON_BODIES, extra = { "add" } })
+        assert.equals(0, r.code, r.stdout)
+        assert.falsy(r.stdout:find("NO TESTS RAN", 1, true), r.stdout)
+    end)
+
+    it("single-line cases that did not run (skipped child, notrun, disabled) are not executed", function()
+        local xml = '<testsuite name="s" tests="4"><testcase name="a" classname="s"><skipped/></testcase>'
+            .. '<testcase name="b" classname="s" status="notrun"/>'
+            .. '<testcase name="c" classname="s" status="disabled" time="0"><system-out>Disabled</system-out></testcase>'
+            .. '<testcase name="d" classname="s"><failure message="x">boom</failure></testcase></testsuite>'
+        write(dir .. "/m.xml", xml)
+        assert.equals(1, require("loomworks.gtest").count_executed(dir .. "/m.xml"))
+    end)
+
+    -- ctest 3.31 marks a DISABLED test status="disabled" with no <skipped>
+    -- child: not executed (and parsed as disabled, not passed).
+    it("ctest's status=\"disabled\" cases do not count: a narrowed run of only those is NO TESTS RAN", function()
+        local xml = '<?xml version="1.0" encoding="UTF-8"?>\n<testsuite name="(empty)" tests="1" disabled="1">\n'
+            .. '\t<testcase name="Off" classname="Off" time="0" status="disabled">\n'
+            .. '\t\t<system-out>Disabled</system-out>\n\t</testcase>\n</testsuite>\n'
+        local r = run({ xml = xml, extra = { "-R", "Off" } })
+        assert.equals(1, r.code, r.stdout)
+        assert.truthy(r.stdout:find("NO TESTS RAN", 1, true), r.stdout)
+        local parsed = require("loomworks.gtest").parse_xml_results(r.results)
+        assert.equals("skipped", parsed[1].status)
+        assert.is_true(parsed[1].disabled)
+    end)
+
+    it("an empty or non-JUnit file is unknown, never zero", function()
+        write(dir .. "/m.xml", "")
+        assert.is_nil(require("loomworks.gtest").count_executed(dir .. "/m.xml"))
+        write(dir .. "/m.xml", "garbage")
+        assert.is_nil(require("loomworks.gtest").count_executed(dir .. "/m.xml"))
+        assert.is_nil(require("loomworks.gtest").count_executed(dir .. "/missing.xml"))
+    end)
 end)

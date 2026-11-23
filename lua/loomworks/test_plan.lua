@@ -535,18 +535,9 @@ function M.count_executed(path, started)
     if not path then return nil end
     local st = uv.fs_stat(path)
     if not st or st.type ~= "file" or (st.mtime and st.mtime.sec + 2 < started) then return nil end
-    local test_run = require("loomworks.remote.test_run")
-    local results = require("loomworks.gtest").parse_xml_results(path)
-    if not results then
-        -- No test case: zero only for a JUnit document (an empty or
-        -- unreadable file is unknown).
-        local f = io.open(path, "rb")
-        local head = f and f:read(4096) or nil
-        if f then f:close() end
-        if not (head and head:find("<testsuite", 1, true)) then return nil end
-        results = {}
-    end
-    return test_run.executed(test_run.count(results))
+    -- Counted over every <testcase> element, whatever its line breaks (an
+    -- empty or unreadable file, or one with no <testsuite>, is unknown).
+    return require("loomworks.gtest").count_executed(path)
 end
 
 --- Run the prepared steps: per unit, its batch step(s), then one

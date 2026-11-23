@@ -428,12 +428,13 @@ end
 --- DISABLED_ test as not run with `result="suppressed"` (the only marker of
 --- a disabled test), a GTEST_SKIP as `result="skipped"` — with or without a
 --- `<skipped>` child (gtest before 1.11 wrote none). ctest's JUnit writes
---- `status="notrun"` for any test it did not run (SKIP_RETURN_CODE, the
---- DISABLED property, a missing executable): skipped, not disabled.
+--- `status="notrun"` for any test it did not run (SKIP_RETURN_CODE, a
+--- missing executable): skipped, not disabled; newer ctest (3.31) writes
+--- `status="disabled"` (no `<skipped>` child) for the DISABLED property.
 --- @param attrs string the testcase's attribute text
 --- @return string|nil status "skipped" or nil, boolean|nil disabled
 local function attr_status(attrs)
-    if attrs:match('result="suppressed"') then return "skipped", true end
+    if attrs:match('result="suppressed"') or attrs:match('status="disabled"') then return "skipped", true end
     if attrs:match('result="skipped"') or attrs:match('status="notrun"') then return "skipped" end
     return nil
 end
@@ -562,6 +563,50 @@ function M.parse_xml_results(output_path)
     end
 
     return #results > 0 and results or nil
+end
+
+--- How many test cases of a JUnit or gtest XML file executed (spec §16.16
+--- "Runs that execute no test"): passed, failed or errored — never skipped
+--- or disabled. Independent of line breaks (meson writes its JUnit on one
+--- line, which `parse_xml_results` reads as no case): every `<testcase`
+--- element, self-closing or with a body, is judged by its <failure>/<error>
+--- (executed) or <skipped> (not) child, else its status attributes.
+--- nil (unknown) for a missing, empty or non-XML-results file; 0 for a
+--- document with a `<testsuite` and no executed case.
+--- @param path string|nil
+--- @return integer|nil
+function M.count_executed(path)
+    if not path then return nil end
+    local f = io.open(path, "rb")
+    if not f then return nil end
+    local content = f:read("*a")
+    f:close()
+    if not content or not content:find("<testsuite", 1, true) then return nil end
+    local n, pos = 0, 1
+    while true do
+        local s = content:find("<testcase[%s/>]", pos)
+        if not s then break end
+        local gt = content:find(">", s, true)
+        if not gt then break end
+        local attrs = content:sub(s + 9, gt - 1)
+        local body = ""
+        pos = gt + 1
+        if attrs:sub(-1) ~= "/" then
+            local close = content:find("</testcase>", pos, true)
+            body = content:sub(pos, close and close - 1 or #content)
+            pos = close and close + 11 or #content + 1
+        end
+        local executed
+        if body:find("<failure", 1, true) or body:find("<error", 1, true) then
+            executed = true
+        elseif body:find("<skipped", 1, true) then
+            executed = false
+        else
+            executed = attr_status(attrs) == nil
+        end
+        if executed then n = n + 1 end
+    end
+    return n
 end
 
 return M

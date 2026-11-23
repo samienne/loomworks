@@ -650,8 +650,9 @@ is requested, then the forwarded arguments. To count the executed cases
 (core §16.16 "Runs that execute no test"), the runner also asks ctest for
 JUnit when none was requested: `--output-junit <opts.results>`, a temporary
 file in the workspace's `.lw/tmp/` that the core reads and then removes. It
-does this only when `ctest --version` (probed once per process) is 3.21 or
-later, the version that added `--output-junit`. With an older or unknown
+does this only when `ctest --version` of the ctest the step runs (resolved
+from the step's environment PATH, probed once per resolved executable) is
+3.21 or later, the version that added `--output-junit`. With an older or unknown
 ctest it adds nothing and reports no `results_out`, so the count is
 unknown. With a requested JUnit file, that file is the one counted
 (`results_out` = `junit_out`). It never uses `--no-tests=error`, which needs
