@@ -36,7 +36,7 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
   message now says so, and while `.nvim/build/` remains and a profile is
   unconfigured, the `Old state` line of `lw status` says it too. The README
   section "Upgrading from 0.1.x" explains it; delete `.nvim/build/` by hand
-  once no older lw is pinned in the repository. (#190)
+  once no older lw is pinned in the repository. (#203)
 
 ## 0.2.1 - 2026-11-23
 
