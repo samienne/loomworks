@@ -28,6 +28,12 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
 
 ## Unreleased
 
+## 0.2.2 - 2026-11-23
+
+A patch release: a narrowed `lw test` that runs no tests now reports
+`NO TESTS RAN` and fails instead of `TESTS OK`, and the move to `.lw/` now
+says that builds are rebuilt from scratch after upgrading from 0.1.x.
+
 ### Upgrade notes
 
 - The first build of each profile after the move from `.nvim/` to `.lw/` is a
