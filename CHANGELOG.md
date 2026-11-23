@@ -28,17 +28,91 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
 
 ## Unreleased
 
+## 0.2.0 - 2026-11-23
+
+The first release of lw from samienne/loomworks, where `lw`, the workspace
+daemon and its protocol now live: each `lw` is one self-contained, signed
+executable that `lw self-update` replaces alone, a workspace's state moves
+from `.nvim/` to `.lw/`, and `lw pin ignore` lets one checkout run a newer lw
+than its pin. Coming from 0.1.x, an `lw` of 0.1.51 or later reaches 0.2 with
+`lw self-update` (an older one updates to 0.1.51 first); read the Breaking
+and Upgrade notes below before upgrading.
+
+### Breaking
+
+- `lw self-update --no-host` is a usage error (exit 2): self-update replaces
+  only the `lw` executable, so there is no separate bundle step to skip
+  (#135).
+
 ### Upgrade notes
 
+- Cross over from 0.1.x before 2027-01-23. Until then every release still
+  publishes the `loomworks-lua-<version>.zip` bundle and `manifest.json`, which
+  a 0.1.x `lw` (0.1.51 included) needs to find and install a newer release;
+  releases from that date on publish only the executables, so a 0.1.x `lw`
+  can no longer self-update and must be reinstalled with the README install
+  command. Run `lw self-update` (and `lw bootstrap upgrade` in pinned
+  repositories) before then (#116).
 - Upgrading from 0.1.x, for the installed `lw` and for a pinned repository
   (`lw bootstrap upgrade`, then commit `lw.pin`, `lw.sh` and `lw.cmd`), is
   described step by step in the README section "Upgrading from 0.1.x"
   (#186). Through the repository's launcher from an `lw` below 0.1.51, run
   `bootstrap upgrade` a second time: that `lw`'s report suggests a single
   `bootstrap install`, which does not finish the move.
+- lw now keeps a workspace's state in `.lw/` instead of `.nvim/`, with
+  shorter names (`.lw/user.json`, `.lw/cache.json`, ...); builds go to
+  `.lw/build/`. The first command in a workspace of an earlier release copies
+  the working copy over and says so; `.nvim/` is left as it was for older lw
+  versions, and its build trees are not reused (the first build configures
+  afresh). `.lw/` ignores itself (`.lw/.gitignore`), so no `.gitignore` line is
+  needed. Launchers written by `lw bootstrap install` cache a 0.2.0+ pin's
+  binary in `.lw/cache/`; launchers of earlier releases keep working. If an
+  older lw is still running in the workspace, the copy waits for you to stop
+  it and retry. Until you delete them, `lw status` shows an `Old state` line
+  naming the files an earlier lw left in `.nvim/` that are no longer used
+  (such as `.nvim/build/` and `.nvim/loomworks.user.json`), and `lw health`
+  lists them all. lw never deletes them: delete them by hand once no older lw
+  is pinned in the repository. A workspace created with `lw init` is marked
+  as native, so `.nvim/` state an older lw writes there later is a `lw health`
+  warning, not a stop; when an older lw writes `.nvim/` state into a migrated
+  workspace, lw stops, names both copies and the older lw as the usual
+  cause, and says how to keep either one (#162, #176, #177, #179).
+- The build cache (`.lw/cache.json`, formerly
+  `.nvim/loomworks.cache.json`) is now version 9. A version 8
+  cache is migrated when it loads and written as version 9 by the next save;
+  after that an older `lw` or editor (including a pinned one) refuses the
+  workspace as a newer schema until it is updated. Each configuration of a
+  CMake multi-config build directory (Ninja Multi-Config, Visual Studio)
+  builds once more after the upgrade, incrementally, because its old state
+  could have come from another configuration's build. Running such a
+  configuration on a device stages it under a new directory on the device;
+  `lw device clean` removes the old one. (samienne/loomworks.nvim#357)
+- In a repository whose `lw.pin` names a release before 0.2.0-beta.7 (every
+  0.1.x release, which keeps its state in `.nvim/`), a global 0.2 `lw` does
+  not create or migrate `.lw/` for the commands it runs itself (`lw init`,
+  profile and config edits, `lw status`, `lw health`, `lw pull`, `lw trust`,
+  `lw nuke`, `lw unlock`): it refuses with one line naming the launcher form
+  (`./lw.sh <command>`, or the pinned version when the repository has no
+  launcher) and `lw bootstrap upgrade`. `lw worktree add` creates the
+  worktree but does not seed it (its note names the pinned lw's pull), shell
+  completion stays silent, and the daily housekeeping and `lw cleanup` leave
+  the pinned lw's files in the workspace alone (`lw cleanup` cleans up only
+  outside the workspace there, and says so). A build
+  redirected to such a release while `.lw/user.json` exists says once that
+  the pinned lw ignores it. `--no-pin` (or `lw pin ignore`) still runs the
+  newer lw (#170, #176, #178).
 
 ### Added
 
+- `lw` is now built for Linux arm64 (`lw-linux-arm64`) and Intel macOS
+  (`lw-macos-x86_64`), from this release on. A repository's `lw.sh` written
+  by an earlier release does not select them: run `lw bootstrap upgrade`
+  there, which `lw health` now also suggests. A pin of an earlier release
+  still has no build for these platforms (#155).
+- `lw launch set` takes `--description <para>` (repeatable), like
+  `lw launch add`; it replaces the whole description, and
+  `--description ""` clears it. `--working-dir ""` clears the working
+  directory (samienne/loomworks.nvim#290).
 - `lw pin ignore` makes one checkout of a pinned repository run the lw you
   invoke (a newer release, or a development build) instead of the pinned
   release, as `--no-pin` would on every command; `lw pin follow` follows the
@@ -57,185 +131,10 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
   the build directories (the next build configures them again in place),
   lists what it deletes and keeps, and confirms first (`-y` in CI). Under a
   pin of a release before 0.2.0-beta.7 it deletes that release's
-  `.nvim/loomworks.cache.json` and `.nvim/loomworks.health.json`.
+  `.nvim/loomworks.cache.json` and `.nvim/loomworks.health.json`, and it
+  does not suggest `lw unlock --journal` for such a release's journal.
   `--builds` also deletes the build state, listed per profile; `lw nuke` is
-  now its alias (#173).
-- After the move to `.lw/`, `lw status` shows an `Old state` line naming the
-  files an earlier lw left in `.nvim/` that are no longer used (such as
-  `.nvim/build/` and `.nvim/loomworks.user.json`), and `lw health` lists
-  them all (it reported only `.nvim/build/` before). lw never deletes them:
-  delete them by hand once no older lw is pinned in the repository (#176).
-
-### Changed
-
-- A working copy or build cache written by a newer lw now names the fixes:
-  `lw pin ignore` and `lw bootstrap upgrade` in a pinned repository (else
-  "update lw"), and for the build cache `lw reset --state`. A newer lw about
-  to redirect to a pinned release that cannot read the state prints them
-  first (#173).
-- The warning for a working copy or build cache last saved by a newer lw
-  (which still loads) names the same fixes instead of "update loomworks":
-  `lw pin ignore` and `lw bootstrap upgrade` in a pinned repository, else
-  "update lw" (#176).
-- `lw run` with no target named needs the profile's default target and no
-  longer falls back to its only launchable target: without a stored default
-  it refuses before configuring or building anything, naming both fixes
-  (`lw run <profile> <target>`, or `lw target set <profile> <target>`).
-  Before, a profile with no default target was configured first and only then
-  refused. A project with a single executable needs `lw target set` once.
-  A debug launch or launch target build naming no target is refused the
-  same way, before any task. The target listing marks only a stored
-  default (#169).
-
-### Fixed
-
-- On Linux and macOS, removing a test run's results file now refuses a
-  path containing `\`: it was checked as if `\` were a separator but removed
-  as written, so a file named with a backslash in `.lw` could pass the
-  `.lw/tmp` check (#185).
-- `.\lw.cmd bootstrap install` or `upgrade` no longer makes cmd print
-  `'"!bin!"' is not recognized` and exit 9009 after lw rewrote `lw.cmd`: the
-  new `lw.cmd` runs lw and exits on one line, so nothing after lw is read
-  from the rewritten file. Replacing an `lw.cmd` of an earlier release through
-  itself still can, so lw now says so as the report's last line; the files
-  are correct (#186).
-- `lw bootstrap` on a pin from before 0.2.0-beta.7 (state in `.nvim/`) now
-  offers `lw bootstrap upgrade`, which moves the repository to lw 0.2 and its
-  state to `.lw/`, even when the channel has nothing newer than the pin
-  (#186).
-- `lw module install harmony` installs harmony module v0.1.5: a device run
-  now refuses an unsigned HAP before installing it, naming the missing
-  `signingConfigs` in `build-profile.json5`, instead of failing on the device
-  with "no signature file"; a signed build's HAP is preferred over the
-  unsigned one it leaves next to it. Run `lw module update harmony` to get
-  it. (#183)
-- `lw run` on a profile whose module offers device targets (such as the
-  HarmonyOS `run-device`) now says they launch from the editor only, listing
-  them, instead of a bare `available: (none)`; naming one, or a project, is
-  refused at once rather than after reconfiguring every project, and so is
-  a bare `lw run` whose stored default target is a device target.
-  `lw target list` shows them in their own editor-only group. (#182)
-- clangd no longer floods MSVC projects that build with `/Wall` with
-  `-Wc++98-compat`, `-Wpadded` and similar warnings: clangd reads a cl-style
-  `/Wall` as `-Weverything`, so the compile database lw writes for clangd now
-  carries `/W4` (clang's `-Wall -Wextra`) instead. The build and the build
-  directory's own `compile_commands.json` are unchanged. Existing databases
-  are regenerated automatically after the upgrade, without a reconfigure:
-  lw now stamps each database with the format that wrote it. (#181)
-- A workspace created with `lw init` no longer stops every command when an
-  lw before 0.2.0 later runs there and writes `.nvim/`: `lw init` now marks
-  the new `.lw/` as native (in `.lw/migrated.json`), so lw keeps using
-  `.lw/user.json` and `lw health` reports the older lw's
-  `.nvim/loomworks.user.json`, with the way to take it instead. Workspaces
-  created by earlier 0.2.0 betas have no marker and still stop (#179).
-
-- A failed `lw self-update --channel <c>` (no release on that channel, a
-  download or verification failure, an unwritable install) no longer saves
-  the channel, so you are no longer recorded on a channel the update never
-  reached; it says "The update channel was not changed." The channel is saved
-  once the update completes (replaced, already up to date, or left in place
-  by design) (#175).
-- Bare `lw` in a repository pinned to a release before `.lw/` names the
-  pinned launcher without a stray space (`./lw.sh`, not `./lw.sh `) (#176).
-- `lw bootstrap` and `lw health` no longer report a stable channel with only
-  pre-releases published as "offline or release server unreachable": they say
-  there is no stable release yet and name commands that select the unstable
-  channel (`lw settings set channel unstable`;
-  `lw bootstrap upgrade --channel unstable` from bootstrap,
-  `lw self-update --channel unstable` from self-update) instead of a `--channel` flag those commands do not
-  take. Their `--json` `update` object carries `reason: "no-release"`, and
-  any other failed release check in `lw bootstrap` shows its real reason
-  (#171).
-- `lw run <profile>` works in non-interactive mode (`--no-input`, CI): the
-  one operand names the profile and runs its default target, matched as for
-  `lw build` (a unique substring works). Before, no non-interactive form ran
-  a profile's default target. In an interactive terminal one operand is
-  still a target on the active profile. A bare non-interactive `lw run` now
-  names both forms, `lw run <profile>` and `lw run <profile> <target>`
-  (#168).
-- In a repository whose `lw.pin` names a release before 0.2.0-beta.7
-  (which keeps its state in `.nvim/`), a newer `lw` no longer creates or
-  migrates `.lw/` for the commands it runs itself (`lw init`, profile and
-  config edits, `lw status`, `lw health`, `lw pull`, `lw trust`, `lw nuke`,
-  `lw unlock`): it refuses with one line naming the launcher form
-  (`./lw.sh <command>`, or the pinned version when the repository has no
-  launcher) and `lw bootstrap upgrade`. `lw worktree add` creates the
-  worktree but does not seed it, shell completion stays silent, and the
-  daily housekeeping leaves the pinned lw's `.nvim/` files alone. Before,
-  the pinned lw never saw those changes, and following its "lw init" hint
-  looped. A build redirected to such a release
-  while `.lw/user.json` exists says once that the pinned lw ignores it.
-  `--no-pin` still runs the newer lw (#170).
-- In a repository pinned to a release before 0.2.0-beta.7, `lw cleanup`
-  removed the pinned lw's files in the workspace (its old runtime logs, at
-  any age); it now cleans up only outside the workspace there, and says so
-  (#178).
-- `lw worktree add --no-pull` said to run `lw pull` "here", which is the
-  directory you ran it in, not the new worktree; it now says to run it in
-  the new worktree. In a repository pinned to a release before
-  0.2.0-beta.7 it names the pinned lw's pull, as the auto-pull note does
-  (#178).
-- `lw help unlock` now says what `--journal` discards and why `lw nuke`
-  does not help, and `lw reset --state` no longer suggests
-  `lw unlock --journal` for a journal of a release before 0.2.0-beta.7,
-  which only that release completes (#178).
-- When an lw older than 0.2.0 wrote `.nvim/` state in a workspace that
-  already had `.lw/` from 0.2.0 or later, lw no longer blames an interrupted
-  copy: it says that both hold differing state, that an older lw (run
-  directly or through a pin) is the usual cause, that 0.2.0 and later use
-  only `.lw/`, and how to keep either one (#177).
-
-## 0.2.0 - 2026-11-08
-
-The first release of lw from samienne/loomworks, where `lw`, the workspace
-daemon and its protocol now live; loomworks.nvim is a client of the daemon.
-Each `lw` is one self-contained, signed executable for Linux (x86_64,
-arm64), macOS (arm64, x86_64) and Windows x86_64: install it as the README
-shows, and `lw self-update` replaces only that file. A workspace's state
-moves from `.nvim/` to `.lw/` on first use. Coming from 0.1.x, an `lw` of
-0.1.51 or later reaches 0.2 with `lw self-update`; an older one updates to
-0.1.51 first. Read the Breaking and Upgrade notes below before upgrading.
-
-### Breaking
-
-- `lw self-update --no-host` is a usage error (exit 2): self-update replaces
-  only the `lw` executable, so there is no separate bundle step to skip
-  (#135).
-
-### Upgrade notes
-
-- lw now keeps a workspace's state in `.lw/` instead of `.nvim/`, with
-  shorter names (`.lw/user.json`, `.lw/cache.json`, ...); builds go to
-  `.lw/build/`. The first command in a workspace of an earlier release copies
-  the working copy over and says so; `.nvim/` is left as it was for older lw
-  versions, and its build trees are not reused (the first build configures
-  afresh). `.lw/` ignores itself (`.lw/.gitignore`), so no `.gitignore` line is
-  needed. Launchers written by `lw bootstrap install` cache a 0.2.0+ pin's
-  binary in `.lw/cache/`; launchers of earlier releases keep working. If an
-  older lw is still running in the workspace, the copy waits for you to stop
-  it and retry (#162).
-- The build cache (`.lw/cache.json`, formerly
-  `.nvim/loomworks.cache.json`) is now version 9. A version 8
-  cache is migrated when it loads and written as version 9 by the next save;
-  after that an older `lw` or editor (including a pinned one) refuses the
-  workspace as a newer schema until it is updated. Each configuration of a
-  CMake multi-config build directory (Ninja Multi-Config, Visual Studio)
-  builds once more after the upgrade, incrementally, because its old state
-  could have come from another configuration's build. Running such a
-  configuration on a device stages it under a new directory on the device;
-  `lw device clean` removes the old one. (samienne/loomworks.nvim#357)
-
-### Added
-
-- `lw` is now built for Linux arm64 (`lw-linux-arm64`) and Intel macOS
-  (`lw-macos-x86_64`), from this release on. A repository's `lw.sh` written
-  by an earlier release does not select them: run `lw bootstrap upgrade`
-  there, which `lw health` now also suggests. A pin of an earlier release
-  still has no build for these platforms (#155).
-- `lw launch set` takes `--description <para>` (repeatable), like
-  `lw launch add`; it replaces the whole description, and
-  `--description ""` clears it. `--working-dir ""` clears the working
-  directory (samienne/loomworks.nvim#290).
+  now its alias (#173, #178).
 
 ### Changed
 
@@ -344,23 +243,90 @@ moves from `.nvim/` to `.lw/` on first use. Coming from 0.1.x, an `lw` of
   An argument starting with `-` now goes after `--`
   (`lw launch set app run -- --port 1`); bare arguments still work as before
   (samienne/loomworks.nvim#290).
+- A working copy or build cache written by a newer lw now names the fixes:
+  `lw pin ignore` and `lw bootstrap upgrade` in a pinned repository (else
+  "update lw"), and for the build cache `lw reset --state`. The warning for
+  one that still loads names the same fixes instead of "update loomworks".
+  A newer lw about to redirect to a pinned release that cannot read the
+  state prints them first (#173, #176).
+- `lw run` with no target named needs the profile's default target and no
+  longer falls back to its only launchable target: without a stored default
+  it refuses before configuring or building anything, naming both fixes
+  (`lw run <profile> <target>`, or `lw target set <profile> <target>`).
+  A project with a single executable needs `lw target set` once.
+  A debug launch or launch target build naming no target is refused the
+  same way, before any task. The target listing marks only a stored
+  default (#169).
 
 ### Fixed
 
+- On Linux and macOS, removing a test run's results file now refuses a
+  path containing `\`: it was checked as if `\` were a separator but removed
+  as written, so a file named with a backslash in `.lw` could pass the
+  `.lw/tmp` check (#185).
+- `.\lw.cmd bootstrap install` or `upgrade` no longer makes cmd print
+  `'"!bin!"' is not recognized` and exit 9009 after lw rewrote `lw.cmd`: the
+  new `lw.cmd` runs lw and exits on one line, so nothing after lw is read
+  from the rewritten file. Replacing an `lw.cmd` of an earlier release through
+  itself still can, so lw now says so as the report's last line; the files
+  are correct (#186).
+- `lw bootstrap` on a pin from before 0.2.0-beta.7 (state in `.nvim/`) now
+  offers `lw bootstrap upgrade`, which moves the repository to lw 0.2 and its
+  state to `.lw/`, even when the channel has nothing newer than the pin
+  (#186).
+- `lw worktree add --no-pull` said to run `lw pull` "here", the directory
+  you ran it in; it now says to run it in the new worktree (#178).
+- `lw module install harmony` installs harmony module v0.1.5: a device run
+  now refuses an unsigned HAP before installing it, naming the missing
+  `signingConfigs` in `build-profile.json5`, instead of failing on the device
+  with "no signature file"; a signed build's HAP is preferred over the
+  unsigned one it leaves next to it. Run `lw module update harmony` to get
+  it. (#183)
+- `lw run` on a profile whose module offers device targets (such as the
+  HarmonyOS `run-device`) now says they launch from the editor only, listing
+  them, instead of a bare `available: (none)`; naming one, or a project, is
+  refused at once rather than after reconfiguring every project, and so is
+  a bare `lw run` whose stored default target is a device target.
+  `lw target list` shows them in their own editor-only group. (#182)
+- clangd no longer floods MSVC projects that build with `/Wall` with
+  `-Wc++98-compat`, `-Wpadded` and similar warnings: clangd reads a cl-style
+  `/Wall` as `-Weverything`, so the compile database lw writes for clangd now
+  carries `/W4` (clang's `-Wall -Wextra`) instead. The build and the build
+  directory's own `compile_commands.json` are unchanged. Existing databases
+  are rebuilt automatically (#181).
 - `lw run` resolves its launch target before it builds: it configures what
-  is not configured yet, then fails at once when there is nothing to launch
-  (no default target set, no such target) instead of after a full build,
+  is not configured yet, then fails at once when the named target does not
+  exist instead of after a full build (with no target named and no default
+  target set it refuses before configuring, see Changed),
   and builds only the resolved target and the projects it depends on
   (directly or transitively), not the whole profile. A named target that is
   not in the configured tree, such as one just added to the build files,
   first has its project's configure step re-run once (no wipe, unlike
   `lw build --reconfigure`). A command launch configuration still builds the whole profile
   (#164).
+- `lw run <profile>` works in non-interactive mode (`--no-input`, CI): the
+  one operand names the profile and runs its default target, matched as for
+  `lw build` (a unique substring works). Before, no non-interactive form ran
+  a profile's default target. In an interactive terminal one operand is
+  still a target on the active profile. A bare non-interactive `lw run` now
+  names both forms, `lw run <profile>` and `lw run <profile> <target>`
+  (#168).
 - When the release origin has no stable release yet, `lw self-update`,
   `lw bootstrap install --latest` / `upgrade` and `lw release query` say that
-  no stable release was found there and suggest `--channel unstable` (or
-  `lw settings set channel unstable`), instead of a bare "fetch SHA256SUMS"
-  error. A release mirror with no release says so too (#143).
+  no stable release was found there instead of a bare "fetch SHA256SUMS"
+  error, and `lw bootstrap` and `lw health` say there is no stable release yet
+  instead of "offline or release server unreachable". Each names a command
+  that selects the unstable channel (`lw settings set channel unstable`, or
+  `--channel unstable` on the commands that take it). A release mirror with
+  no release says so too. The `--json` `update` object of `lw bootstrap` and
+  `lw health` carries `reason: "no-release"`, and any other failed release
+  check in `lw bootstrap` shows its real reason (#143, #171).
+- A failed `lw self-update --channel <c>` (no release on that channel, a
+  download or verification failure, an unwritable install) no longer saves
+  the channel, so you are no longer recorded on a channel the update never
+  reached; it says "The update channel was not changed." The channel is saved
+  once the update completes (replaced, already up to date, or left in place
+  by design) (#175).
 - On Linux the workspace daemon no longer dies, leaving its running step
   behind, when a client disconnects while the daemon is writing to it: a
   write to a closed connection is a disconnect, never a signal that ends lw.
