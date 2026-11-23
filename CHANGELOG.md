@@ -28,7 +28,7 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
 
 ## Unreleased
 
-## 0.2.0 - 2026-11-16
+## 0.2.0 - 2026-11-23
 
 The first release of lw from samienne/loomworks, where `lw`, the workspace
 daemon and its protocol now live: each `lw` is one self-contained, signed
@@ -46,6 +46,13 @@ and Upgrade notes below before upgrading.
 
 ### Upgrade notes
 
+- Cross over from 0.1.x before 2027-01-23. Until then every release still
+  publishes the `loomworks-lua-<version>.zip` bundle and `manifest.json`, which
+  a 0.1.x `lw` (0.1.51 included) needs to find and install a newer release;
+  releases from that date on publish only the executables, so a 0.1.x `lw`
+  can no longer self-update and must be reinstalled with the README install
+  command. Run `lw self-update` (and `lw bootstrap upgrade` in pinned
+  repositories) before then (#116).
 - Upgrading from 0.1.x, for the installed `lw` and for a pinned repository
   (`lw bootstrap upgrade`, then commit `lw.pin`, `lw.sh` and `lw.cmd`), is
   described step by step in the README section "Upgrading from 0.1.x"
