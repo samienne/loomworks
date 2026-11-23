@@ -1341,7 +1341,9 @@ line.
 
 After the `Trust` line, an `Old state` line names the files an earlier release
 left in `.nvim/` that lw no longer uses (§16.44 *Leftovers*), when there are
-any; it is advisory and never changes the exit status.
+any, and, while `.nvim/build/` is one of them and a profile is unconfigured,
+that the first build of such a profile is a full rebuild; it is advisory and
+never changes the exit status.
 
 The overview also renders the **suggestions** count line ([loomworks.nvim `spec/plugin.md` Part II](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#part-ii-ui) §1.1) when
 the suggestion framework has findings — a one-line advisory pointing at
@@ -5209,9 +5211,12 @@ working copy beside the legacy one. A command that loads no workspace
    in `.lw/`.
 5. **Commit point.** The marker `.lw/migrated.json` (formats.md §10) is
    written atomically, last. Until it exists the migration has not happened.
-6. **Report.** One line: "lw: this workspace's state is now in .lw/ (working
-   copy copied from .nvim/, which is left as it was for older lw versions;
-   builds now go to .lw/build/)".
+6. **Report.** One line, which says that the upgrade costs a full rebuild
+   (*Build directories*, below): "lw: this workspace's state is now in .lw/
+   (working copy copied from .nvim/, which is left as it was for older lw
+   versions). Builds now go to .lw/build/: the old build directories in
+   .nvim/build/ are not reused, so the first build of each profile
+   reconfigures and rebuilds it from scratch".
 
 Only the working copy is migrated. The build cache, health cache, backups,
 logs, locks, daemon files, `tmp/`, `cache/` and `build/` are not: caches and
@@ -5302,8 +5307,12 @@ and health an informational item (beside the divergence above), both reading
 "`.nvim/ holds files lw 0.2.0 and later no longer use: build/,
 loomworks.cache.json, loomworks.user.json (+N more) — delete them by hand
 once no older lw is pinned here`": at most three names, directories first,
-then a count of the rest (the verbose health report lists them all). The
-line disappears once they are gone.
+then a count of the rest (the verbose health report lists them all). While
+`build/` is among them and a profile has a configuration unit that is not
+configured, the status line adds "`; its build/ is not reused: the first
+build of each unconfigured profile reconfigures and rebuilds it from
+scratch`" (*Build directories*, above). The line disappears once they are
+gone.
 
 **Deletion.** No 0.2.0+ host deletes anything under `.nvim/`, with exactly two
 exceptions: the stale pre-slot daemon files of §16.40 *Legacy locations*, and

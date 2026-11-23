@@ -500,6 +500,9 @@ describe("state migration through lw (Core:setup)", function()
         local code, out = run(r, "project", "list")
         assert.equals(0, code, out)
         assert.truthy(out:find("state is now in .lw/", 1, true), out)
+        -- It says the upgrade costs a full rebuild (#190).
+        assert.truthy(out:find("the old build directories in .nvim/build/ are not reused, so the first "
+            .. "build of each profile reconfigures and rebuilds it from scratch", 1, true), out)
         assert.truthy(out:find("app", 1, true), out)
         assert.equals(bytes, read(r .. "/.lw/user.json"))
         assert.equals(bytes, read(r .. "/.nvim/loomworks.user.json"))
@@ -523,6 +526,40 @@ describe("state migration through lw (Core:setup)", function()
         local code2, out2 = run(r, "status")
         assert.equals(0, code2, out2)
         assert.is_nil(out2:find("Old state", 1, true), out2)
+    end)
+
+    it("lw status: with .nvim/build/ left and an unconfigured profile, says the first build is a full rebuild", function()
+        local r = new_root()
+        vim.fn.mkdir(r .. "/App", "p")
+        write(r .. "/loomworks.json", vim.json.encode({ projects = { App = { shell = {
+            build_dir = "${workspace_root}/out", configure_cmd = { "true" }, build_cmd = { "true" },
+            configurations = { Debug = vim.empty_dict() } } } } }))
+        assert.equals(0, (run(r, "configuration-set", "create", "Dev", "App=Debug")))
+        assert.equals(0, (run(r, "profile", "create", "Dev", "--activate")))
+        local bytes = read(r .. "/.lw/user.json")
+        write(r .. "/.nvim/loomworks.user.json", bytes)
+        write(r .. "/.nvim/build/App/Debug/CMakeCache.txt", "x")
+        vim.fn.delete(r .. "/.lw", "rf")
+        local note = "; its build/ is not reused: the first build of each unconfigured profile "
+            .. "reconfigures and rebuilds it from scratch\n"
+        -- The status that migrates prints the report; a later one, only the line.
+        local code0, out0 = run(r, "status")
+        assert.equals(0, code0, out0)
+        assert.truthy(out0:find("state is now in .lw/", 1, true), out0)
+        local code, out = run(r, "status")
+        assert.equals(0, code, out)
+        assert.truthy(out:find("\nOld state        .nvim/ holds files lw 0.2.0 and later no longer use: "
+            .. "build/, loomworks.user.json — delete them by hand once no older lw is pinned here" .. note,
+            1, true), out)
+        -- Said once: only on the Old state line.
+        local _, n = out:gsub("not reused", "")
+        assert.equals(1, n, out)
+        -- Without .nvim/build/, the Old state line carries no rebuild note.
+        vim.fn.delete(r .. "/.nvim/build", "rf")
+        local code2, out2 = run(r, "status")
+        assert.equals(0, code2, out2)
+        assert.truthy(out2:find("Old state", 1, true), out2)
+        assert.is_nil(out2:find("not reused", 1, true), out2)
     end)
 
     it("an older lw at work: the command fails, saying to stop it and retry", function()

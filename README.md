@@ -248,10 +248,14 @@ pin of exactly 0.2.0, do not run step 3 (or any `bootstrap install` / `upgrade`)
 through an older `.\lw.cmd`: cmd then loops forever after lw finishes; run it
 with an installed `lw`, or as `./lw.sh bootstrap install` from Git Bash.
 
-**After the upgrade.** The first command in the workspace moves its state from
-`.nvim/` to `.lw/`, and the first build configures each build directory
-afresh. `lw health` lists the files an earlier lw left in `.nvim/`; delete
-them by hand once no older lw is pinned in the repository.
+**After the upgrade.** The first command in the workspace (even `lw status`)
+moves its state from `.nvim/` to `.lw/`. Builds now go to `.lw/build/`, and
+the old build trees in `.nvim/build/` are not reused: a configured CMake or
+Meson tree records its own absolute location, so it cannot be moved. The
+first build of each profile after the upgrade therefore configures and
+rebuilds it from scratch, a full rebuild. `lw status` and `lw health` list
+the files an earlier lw left in `.nvim/`; delete them by hand, `.nvim/build/`
+included, once no older lw is pinned in the repository.
 
 ## The workspace daemon
 

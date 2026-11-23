@@ -41,8 +41,16 @@ end
 M.TEMP_PATTERN = "^user%.json%.migrate%-%x+$"
 
 --- The one-line report of a completed migration.
+--- It says the cost plainly: build directories are not carried over (#190).
 M.REPORT = "lw: this workspace's state is now in .lw/ (working copy copied from .nvim/, "
-    .. "which is left as it was for older lw versions; builds now go to .lw/build/)"
+    .. "which is left as it was for older lw versions). Builds now go to .lw/build/: the old build "
+    .. "directories in .nvim/build/ are not reused, so the first build of each profile reconfigures "
+    .. "and rebuilds it from scratch"
+
+--- Appended to the status `Old state` line while `.nvim/build/` is among the
+--- leftovers and a profile is still unconfigured (headless §16.18).
+M.REBUILD_NOTE = "; its build/ is not reused: the first build of each unconfigured profile "
+    .. "reconfigures and rebuilds it from scratch"
 
 --- The refusal when `.lw/user.json` exists without a marker and is not
 --- byte-identical to `.nvim/loomworks.user.json`. Most often an lw before

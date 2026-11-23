@@ -28,6 +28,16 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
 
 ## Unreleased
 
+### Upgrade notes
+
+- The first build of each profile after the move from `.nvim/` to `.lw/` is a
+  full rebuild: the old build trees in `.nvim/build/` are not reused (a
+  configured CMake or Meson tree records its own location). The migration
+  message now says so, and while `.nvim/build/` remains and a profile is
+  unconfigured, the `Old state` line of `lw status` says it too. The README
+  section "Upgrading from 0.1.x" explains it; delete `.nvim/build/` by hand
+  once no older lw is pinned in the repository. (#190)
+
 ## 0.2.1 - 2026-11-23
 
 A fix for Windows: an `lw.cmd` of any earlier release, replaced by
