@@ -144,16 +144,24 @@ describe("lw.cmd rewritten while it runs", function()
       -- a 0.1 pin: every generation caches it in .nvim\cache
       write(dir .. "/lw.pin", "version=0.1.51\nsha256_lw-windows-x86_64.exe=" .. sha .. "\n")
       write(dir .. "/.nvim/cache/lw-0.1.51-lw-windows-x86_64.exe", fake)
+      -- %TEMP%/%TMP% are a sandbox of their own (an old generation that
+      -- loops deletes files in %TEMP%), and a download goes to a missing
+      -- local path (copied, never curl'd): nothing reaches the network.
+      local tmp = dir .. "\\tmp"
+      vim.fn.mkdir(tmp, "p")
+      write(tmp .. "/canary", "canary")
       -- as a user runs it (.\lw.cmd), with only the system directories on PATH
       local r = vim.system({ cmdexe, "/d", "/c", ".\\lw.cmd", "/d", "/c", ".\\rewrite.cmd" }, {
         text = true, cwd = dir, timeout = 60000,
-        env = { LOOMWORKS_LW = "", LOOMWORKS_RELEASE_URL = "",
+        env = { LOOMWORKS_LW = "", LOOMWORKS_RELEASE_URL = dir .. "\\no-such-release",
+          TEMP = tmp, TMP = tmp,
           PATH = sysroot .. "\\System32;" .. sysroot },
       }):wait()
       local out = (r.stdout or "") .. (r.stderr or "")
       assert.equals(7, r.code, name .. ": " .. out)
       assert.equals("", out, name)
       assert.equals(new, read(dir .. "/lw.cmd"), name)
+      assert.equals("canary", read(tmp .. "/canary"), name)
       vim.fn.delete(dir, "rf")
     end
   end)

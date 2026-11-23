@@ -1764,7 +1764,7 @@ do
   code, out, err = host({ "pin", "follow" }, DEV)
   ok(code == 0 and out:find("following the pin again", 1, true) and slurp(repo .. "/.lw/local") == nil,
     "lw pin follow deletes it  (" .. out .. err .. ")")
-  ok(err:find("lw: moving this checkout to the older lw 0.1.50 (from 0.2.0+dev)", 1, true)
+  ok(err:find("lw: moving this checkout to the older lw 0%.1%.50 %(from %d+%.%d+%.%d+%+dev%)")
     and err:find(".nvim/loomworks.user.json", 1, true),
     "lw pin follow onto an older pinned lw warns  (" .. err .. ")")
   code, out = host({ "pin", "follow" }, DEV)

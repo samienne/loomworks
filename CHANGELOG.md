@@ -28,6 +28,12 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
 
 ## Unreleased
 
+## 0.2.1 - 2026-11-23
+
+A fix for Windows: an `lw.cmd` of any earlier release, replaced by
+`bootstrap install` or `bootstrap upgrade` while it runs, now ends cleanly
+with lw's exit status instead of looping.
+
 ### Upgrade notes
 
 - On Windows, with a pin of 0.2.0, do not run `bootstrap install` or
