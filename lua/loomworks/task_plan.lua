@@ -1119,6 +1119,10 @@ M._junit_dest_for = junit_dest_for  -- exported for tests
 --- `opts.skip_units` drops the listed units' batch steps (a foreign unit);
 --- `opts.junit_dest_for(label)`, when given, assigns the JUnit path
 --- instead of the per-runner rule (the caller's whole-plan labelling).
+--- `opts.results_for(label)`, when given, names a temporary count file per
+--- step (spec §16.16 "Runs that execute no test"): passed to the runner as
+--- `opts.results`; the step carries the runner's `results_out` (the file to
+--- count) and `results_tmp` (that temporary path, for the caller to remove).
 --- `opts.no_rebuild` (`lw test --no-build`) is forwarded to each
 --- runner; a self-rebuilding runner whose spec does not confirm it
 --- (`no_rebuild = true`) yields a step with `refused` set (the reason) — the
@@ -1127,7 +1131,7 @@ M._junit_dest_for = junit_dest_for  -- exported for tests
 --- gets no step: it is named in `refused`, so the
 --- caller runs the other projects' tests, then fails.
 --- @param profile loomworks.Profile
---- @param opts? table { extra_args?: string[], junit?: string, no_rebuild?: boolean, skip_units?: table<loomworks.ConfigUnit, boolean>, junit_dest_for?: fun(label: string, unit: loomworks.ConfigUnit): string|nil }
+--- @param opts? table { extra_args?: string[], junit?: string, no_rebuild?: boolean, skip_units?: table<loomworks.ConfigUnit, boolean>, junit_dest_for?: fun(label: string, unit: loomworks.ConfigUnit): string|nil, results_for?: fun(label: string): string }
 --- @return table[]|nil steps, integer units_seen
 --- @return loomworks.RefusalLine[]|nil refused nil when none
 function M.plan_profile_test(profile, opts)
@@ -1168,9 +1172,10 @@ function M.plan_profile_test(profile, opts)
         else
             junit_dest = opts.junit and junit_dest_for(opts.junit, r.label, multi) or nil
         end
+        local results_tmp = opts.results_for and opts.results_for(r.label) or nil
         local ok, spec = pcall(function()
             return r.tu:run_command_all({ extra_args = opts.extra_args, junit = junit_dest,
-                profile = profile, no_rebuild = opts.no_rebuild or nil })
+                results = results_tmp, profile = profile, no_rebuild = opts.no_rebuild or nil })
         end)
         if not ok then
             -- A throwing runner is a bug, not "no tests" — surface it
@@ -1193,6 +1198,8 @@ function M.plan_profile_test(profile, opts)
                 env = spec.env,
                 junit_dest = junit_dest,
                 junit_out = spec.junit_out,
+                results_out = spec.results_out,
+                results_tmp = (results_tmp and spec.results_out == results_tmp) and results_tmp or nil,
                 refused = (opts.no_rebuild and not spec.no_rebuild and r.tu.run_command_all_rebuilds
                     and r.tu:run_command_all_rebuilds())
                     and "its test runner rebuilds its targets and cannot skip that" or nil,

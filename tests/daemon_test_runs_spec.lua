@@ -245,6 +245,47 @@ describe("Tests/1 runs in the daemon (§19.15 Tests, §19.20 Tests/1)", function
         assert.equals("passed", sig[ids["Str"]][#sig[ids["Str"]]])
     end)
 
+    it("a narrowed run that executed no case is NO TESTS RAN with exit 1, never TESTS OK (#189)", function()
+        h = open(root, key)
+        h.subscribe(1)
+        h.op(2, "configure")
+        local ids = h.discover()
+        h.send(call(3, TESTS.object, TESTS.iface, "run_cases",
+            { select = { { id = ids["fake"] } }, no_build = true, extra = { "--gtest_filter=Nope.*" } }))
+        h.ok(3, { outcome = "accepted", task_id = { ["$bind"] = "run" } })
+        h.expect({ kind = "task", task_id = { ["$var"] = "run" }, phase = "done", exit_code = 1,
+            error = "no tests ran (the selection matched no tests)",
+            result = { exit_code = 1, counts = { passed = 0, failed = 0, skipped = 0, errored = 0 } } }, 120000)
+        local text = h.text(h.s.vars.run)
+        assert.truthy(text:find("NO TESTS RAN: dev", 1, true), text)
+        assert.falsy(text:find("TESTS OK", 1, true), text)
+    end)
+
+    -- Executed cases the store does not know (stale discovery, renamed
+    -- cases) still ran: not NO TESTS RAN, and the program passed.
+    it("a results file whose executed cases match no store entry is a pass, not NO TESTS RAN (#189)", function()
+        h = open(root, key)
+        h.subscribe(1)
+        h.op(2, "configure")
+        local ids = h.discover()
+        local f = assert(io.open(root .. "/app/tests.json", "wb"))
+        f:write(vim.json.encode({ targets = { { name = "fake", cases = { "Renamed.One", "Renamed.Two" },
+            file = "math.cpp", line = 3 } } }))
+        f:close()
+        h.send(call(3, TESTS.object, TESTS.iface, "run_cases",
+            { select = { { id = ids["fake"] } }, no_build = true, extra = { "--gtest_filter=Renamed.*" } }))
+        h.ok(3, { outcome = "accepted", task_id = { ["$bind"] = "run" } })
+        h.expect({ kind = "task", task_id = { ["$var"] = "run" }, phase = "done", exit_code = 0 }, 120000)
+        local text = h.text(h.s.vars.run)
+        assert.falsy(text:find("NO TESTS RAN", 1, true), text)
+        assert.truthy(text:find("TESTS OK: dev", 1, true), text)
+        local sig = statuses(h.results())
+        assert.equals("passed", sig[ids["fake"]] and sig[ids["fake"]][#sig[ids["fake"]]], vim.inspect(sig))
+        f = assert(io.open(root .. "/app/tests.json", "wb"))
+        f:write(vim.json.encode(TESTS_JSON))
+        f:close()
+    end)
+
     it("a stale or non-runnable node is refused before acceptance; a node with no last result answers only its id", function()
         h = open(root, key)
         h.op(1, "configure")

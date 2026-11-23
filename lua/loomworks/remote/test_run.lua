@@ -40,6 +40,24 @@ function M.count(results)
     return c
 end
 
+--- How many cases of parsed results executed (spec §16.16 "Runs that execute
+--- no test"): passed, failed or errored — never skipped or disabled.
+--- @param c table M.count output
+--- @return integer
+function M.executed(c)
+    return c.passed + c.failed + c.errored
+end
+
+--- The run-level outcome line of a run that executed no test, e.g.
+--- `NO TESTS RAN: dev (2 steps)` (spec §16.16).
+--- @param scope string the profile key
+--- @param n integer steps or executables
+--- @param what string "step" | "executable"
+--- @return string
+function M.no_tests_ran_line(scope, n, what)
+    return string.format("NO TESTS RAN: %s (%d %s%s)", scope, n, what, n == 1 and "" or "s")
+end
+
 --- The not-passed, not-failed counts for a summary line, e.g.
 --- ", 2 skipped, 1 disabled" ("" when there are none).
 --- @param c table M.count output

@@ -126,6 +126,61 @@ describe("CTestUnit run_command_all args + JUnit (spec §16.16)", function()
         assert.is_nil(spec.junit_out)
     end)
 
+    -- #189: a count file for the empty-run rule (spec §16.16; cmake.md §8.1),
+    -- only with a ctest that has --output-junit (3.21+).
+    it("asks for a count file at opts.results with ctest >= 3.21; reports it as results_out", function()
+        local orig = CTestUnit._output_junit_supported
+        CTestUnit._output_junit_supported = function() return true end
+        local spec = tu_for():run_command_all({ results = "/ws/.lw/tmp/lw-test-1.xml", extra_args = { "-R", "x" } })
+        CTestUnit._output_junit_supported = orig
+        assert.same(
+            { "ctest", "--test-dir", "/b/ctestdir", "--output-on-failure",
+              "--output-junit", "/ws/.lw/tmp/lw-test-1.xml", "-R", "x" },
+            spec.cmd)
+        assert.equals("/ws/.lw/tmp/lw-test-1.xml", spec.results_out)
+        assert.is_nil(spec.junit_out)
+    end)
+
+    it("an older or unknown ctest gets no count file (count unknown)", function()
+        local orig = CTestUnit._output_junit_supported
+        CTestUnit._output_junit_supported = function() return false end
+        local spec = tu_for():run_command_all({ results = "/ws/.lw/tmp/lw-test-1.xml" })
+        CTestUnit._output_junit_supported = orig
+        assert.same({ "ctest", "--test-dir", "/b/ctestdir", "--output-on-failure" }, spec.cmd)
+        assert.is_nil(spec.results_out)
+    end)
+
+    it("probes the ctest the step runs (its env PATH), once per resolved executable", function()
+        local exe = require("loomworks.exe")
+        local orig_resolve, orig_system = exe.resolve, vim.fn.system
+        local probed = {}
+        exe.resolve = function(name, env)
+            assert.equals("ctest", name)
+            return env and env.PATH and (env.PATH .. "/ctest") or nil
+        end
+        vim.fn.system = function(argv)
+            probed[#probed + 1] = argv[1]
+            return argv[1]:find("new", 1, true) and "ctest version 3.31.2\n" or "ctest version 3.20.0\n"
+        end
+        local ok, err = pcall(function()
+            assert.is_true(CTestUnit._output_junit_supported({ PATH = "/new" }))
+            assert.is_true(CTestUnit._output_junit_supported({ PATH = "/new" }))
+            assert.is_false(CTestUnit._output_junit_supported({ PATH = "/old" }))
+            -- Not resolvable: older (count unknown), nothing probed.
+            assert.is_false(CTestUnit._output_junit_supported(nil))
+        end)
+        exe.resolve, vim.fn.system = orig_resolve, orig_system
+        assert(ok, err)
+        assert.same({ "/new/ctest", "/old/ctest" }, probed)
+    end)
+
+    it("a requested JUnit file is the one counted", function()
+        local spec = tu_for():run_command_all({ junit = "/out/r.xml", results = "/ws/.lw/tmp/x.xml" })
+        assert.same({ "ctest", "--test-dir", "/b/ctestdir", "--output-on-failure", "--output-junit", "/out/r.xml" },
+            spec.cmd)
+        assert.equals("/out/r.xml", spec.results_out)
+    end)
+
     it("combines --junit and forwarded args (junit first)", function()
         local spec = tu_for():run_command_all({ junit = "/o/r.xml", extra_args = { "-j", "2" } })
         assert.same(

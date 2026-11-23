@@ -3383,12 +3383,13 @@ end
 --- fails the invocation (`die`) unless it is a saved entry's. `opts.verbose`
 --- (`-v`): the step prints its deploy steps and the program invocation (on a
 --- device, every device command) under its header (`_test_host`).
---- @return boolean failed, string[] reasons, table counts, boolean exit_only, string|nil junit_path
+--- `executed`: its executed cases, nil when unknown (spec §16.16).
+--- @return boolean failed, string[] reasons, table counts, boolean exit_only, string|nil junit_path, integer|nil executed
 function M._run_test_executable(ws, lt, opts, deps)
   local r
   require("loomworks.test_plan").exec_step(ws, lt, opts, M._test_host(ws, deps, opts.verbose),
     function(...) r = { ... } end)
-  return r[1], r[2], r[3], r[4], r[5]
+  return r[1], r[2], r[3], r[4], r[5], r[6]
 end
 
 --- Run named test executables: build the profile, then
@@ -3526,18 +3527,26 @@ function M._run_named_tests(ws, profile, names, opts, deps, resolve, check_cwd)
 
   local several = #names > 1
   local failed_names = {}
+  -- Whether every executable ran a known zero cases (spec §16.16 "Runs that
+  -- execute no test"): a named-target run is narrowed, so that fails.
+  local none_ran = true
   for i, name in ipairs(names) do
     local lt = lts[i]
-    local failed = M._run_test_executable(ws, lt, {
+    local failed, _, _, _, _, executed = M._run_test_executable(ws, lt, {
       label = name, extra = opts.extra, dev = opts.dev, cwd_override = opts.cwd_override,
       no_build = opts.no_build, verbose = opts.verbose,
       junit_path = opts.junit and test_run.junit_path(opts.junit, name, several) or nil,
     }, deps)
     if failed then failed_names[#failed_names + 1] = name end
+    if executed ~= 0 then none_ran = false end
   end
   if #failed_names > 0 then
     die(string.format("%d of %d test executable%s failed: %s", #failed_names, #names,
       #names == 1 and "" or "s", table.concat(failed_names, ", ")), 1)
+  end
+  if none_ran and #names > 0 then
+    out(test_run.no_tests_ran_line(profile.key, #names, "executable"), "fail")
+    die(require("loomworks.test_plan").NO_TESTS_RAN_TARGETS, 1)
   end
   out(string.format("TESTS OK: %s (%d executable%s)", profile.key, #names, #names == 1 and "" or "s"), "ok")
   return 0
@@ -13468,6 +13477,10 @@ Only a gtest executable built by the project gets per-test results
 (--gtest_output); any other entry passes or fails on its exit status (one
 JUnit case). A saved target also registered with ctest runs in both steps
 (use --saved / --discovered to pick one).
+
+A run that executed no test case (a filter matched nothing; skipped cases do
+not count) is never TESTS OK: it prints NO TESTS RAN, and exits 1 when it was
+narrowed by forwarded args (-- …) or --target, 0 (a warning) otherwise.
 
 CI example (JUnit + 4-way parallel ctest):
   lw --no-input test Debug:ninja-gcc-12 --discovered --junit results.xml -- -j 4

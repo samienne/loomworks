@@ -1,6 +1,7 @@
 -- The teststub module's test program (lua/loomworks/modules/teststub.lua):
 --   nvim -l run.lua <tests.json> <target> --gtest_output=xml:<xml>
--- Runs the target's cases that GTEST_FILTER selects (`:`-separated exact
+-- Runs the target's cases that GTEST_FILTER (or a --gtest_filter= argument,
+-- which wins) selects (`:`-separated exact
 -- names or `Suite.*`; unset or empty: every case), printing gtest-format
 -- progress, and writes a gtest XML results file. `tests.json` `results`
 -- (`{ "<Suite.Case>": "failed" | "skipped" }`) chooses outcomes; a case
@@ -11,7 +12,11 @@
 -- LW_TEST_RUN_SLEEP_CASE when that is set).
 local path, target = arg[1], arg[2]
 local xml
-for i = 3, #arg do xml = arg[i]:match("^%-%-gtest_output=xml:(.+)$") or xml end
+local filter_arg
+for i = 3, #arg do
+    xml = arg[i]:match("^%-%-gtest_output=xml:(.+)$") or xml
+    filter_arg = arg[i]:match("^%-%-gtest_filter=(.*)$") or filter_arg
+end
 local f = assert(io.open(path, "rb"))
 local spec = vim.json.decode(f:read("*a"))
 f:close()
@@ -20,7 +25,7 @@ local outcomes = spec.results or {}
 local locations = spec.failures or {}
 local ms = tonumber(os.getenv("LW_TEST_RUN_SLEEP") or "")
 local sleep_case = os.getenv("LW_TEST_RUN_SLEEP_CASE")
-local filter = os.getenv("GTEST_FILTER")
+local filter = filter_arg or os.getenv("GTEST_FILTER")
 local function wanted(name)
     if not filter or filter == "" then return true end
     for pat in filter:gmatch("[^:]+") do

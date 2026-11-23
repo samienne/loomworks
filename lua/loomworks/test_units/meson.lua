@@ -700,7 +700,7 @@ end
 --- (`lw test --no-build`) adds `--no-rebuild` and confirms it in
 --- the returned spec.
 --- @param opts? table { filter?: string, extra_args?: string[], junit?: string, profile?: loomworks.Profile, no_rebuild?: boolean }
---- @return table|nil { cmd, env, cwd, junit_out, no_rebuild? }
+--- @return table|nil { cmd, env, cwd, junit_out, results_out, no_rebuild? }
 function MesonTestUnit:run_command_all(opts)
     opts = opts or {}
     local prefix = meson_prefix_for(self._config_unit)
@@ -736,6 +736,10 @@ function MesonTestUnit:run_command_all(opts)
         -- location under the build dir. Reported only when JUnit was requested,
         -- so the core copies it to the caller's path.
         junit_out = opts.junit and (self._build_dir .. "/meson-logs/testlog.junit.xml") or nil,
+        -- The file the core counts the executed cases from (spec §16.16
+        -- "Runs that execute no test"): meson writes it on every run (the
+        -- core ignores one older than the step).
+        results_out = self._build_dir .. "/meson-logs/testlog.junit.xml",
         no_rebuild = opts.no_rebuild and true or nil,
     }
 end

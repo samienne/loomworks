@@ -499,10 +499,36 @@ function CTestUnit:test_command_all(opts)
     }
 end
 
+--- Whether the `ctest` a step runs has `--output-junit` (CMake >= 3.21):
+--- resolved as the spawn resolves it (the step's `env` PATH, else the
+--- process PATH), probed once per resolved executable. A ctest that cannot
+--- be resolved or probed is treated as older. Overridable in tests.
+--- @param env? table<string,string> the step's environment
+--- @return boolean
+local output_junit_supported = {}
+function CTestUnit._output_junit_supported(env)
+    local exe = require("loomworks.exe").resolve("ctest", env)
+    if not exe then return false end
+    if output_junit_supported[exe] == nil then
+        output_junit_supported[exe] = false
+        pcall(function()
+            local out = vim.fn.system({ exe, "--version" })
+            local major, minor = tostring(out):match("ctest version (%d+)%.(%d+)")
+            major, minor = tonumber(major), tonumber(minor)
+            output_junit_supported[exe] = major ~= nil and (major > 3 or (major == 3 and minor >= 21))
+        end)
+    end
+    return output_junit_supported[exe]
+end
+
 --- Native ctest run: authoritative exit code, streaming output.
 --- nil when the build dir has no configured test set (no CTestTestfile.cmake).
---- @param opts? table { filter?: string, extra_args?: string[], junit?: string, profile?: loomworks.Profile }
---- @return table|nil { cmd, cwd, env, junit_out }
+--- `opts.results` (spec §16.16 "Runs that execute no test"): a temporary
+--- file to count the executed cases from — written with `--output-junit` when
+--- no JUnit was requested and ctest has that option (3.21+); `results_out`
+--- is the file to count (the requested JUnit, else that one), nil when none.
+--- @param opts? table { filter?: string, extra_args?: string[], junit?: string, results?: string, profile?: loomworks.Profile }
+--- @return table|nil { cmd, cwd, env, junit_out, results_out }
 function CTestUnit:run_command_all(opts)
     opts = opts or {}
     if not self:_find_ctest_dir() then return nil end
@@ -512,16 +538,6 @@ function CTestUnit:run_command_all(opts)
         cmd[#cmd + 1] = "-R"
         cmd[#cmd + 1] = opts.filter
     end
-    -- ctest writes JUnit XML directly to the requested path (CMake ≥ 3.21), so
-    -- junit_out equals the request — the core copies nothing.
-    local junit_out
-    if opts.junit then
-        cmd[#cmd + 1] = "--output-junit"
-        cmd[#cmd + 1] = opts.junit
-        junit_out = opts.junit
-    end
-    -- Caller args (from `lw test -- …`) go last so they layer on top.
-    if opts.extra_args then vim.list_extend(cmd, opts.extra_args) end
     -- On Windows the test executables loaded by ctest must find their sibling
     -- DLLs (shared libraries built into subfolders of the tree); ctest does not
     -- set this up itself, so we prepend the same run environment a target launch
@@ -535,7 +551,22 @@ function CTestUnit:run_command_all(opts)
         env = env or {}
         for k, v in pairs(cenv) do env[k] = v end
     end
-    return { cmd = cmd, cwd = self._build_dir, env = env, junit_out = junit_out }
+    -- ctest writes JUnit XML directly to the requested path (CMake ≥ 3.21), so
+    -- junit_out equals the request — the core copies nothing.
+    local junit_out, results_out
+    if opts.junit then
+        cmd[#cmd + 1] = "--output-junit"
+        cmd[#cmd + 1] = opts.junit
+        junit_out = opts.junit
+        results_out = opts.junit
+    elseif opts.results and CTestUnit._output_junit_supported(env) then
+        cmd[#cmd + 1] = "--output-junit"
+        cmd[#cmd + 1] = opts.results
+        results_out = opts.results
+    end
+    -- Caller args (from `lw test -- …`) go last so they layer on top.
+    if opts.extra_args then vim.list_extend(cmd, opts.extra_args) end
+    return { cmd = cmd, cwd = self._build_dir, env = env, junit_out = junit_out, results_out = results_out }
 end
 
 --- `ctest` does not build — it assumes an already-built tree — so a headless
