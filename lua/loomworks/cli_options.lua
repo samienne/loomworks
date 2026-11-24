@@ -319,7 +319,7 @@ end
 --- valued ones are spelled `--dev=<path>` and `--color=<when>` (a bare
 --- `--color` is not one).
 M.GLOBAL = set({ "--no-input", "--non-interactive", "--shared", "--local",
-  "--dev", "--no-pin", "--no-daemon", "--no-color" })
+  "--dev", "--no-pin", "--no-daemon", "--no-color", "--no-sticky" })
 
 --- Is `v` a global option (including `--dev=<path>` and `--color=<when>`)?
 --- @param v any

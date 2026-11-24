@@ -138,6 +138,9 @@ local function enable_vt(fd)
   vt_memo[fd] = enabled
   return enabled
 end
+--- Enable (memoized) VT processing on a Windows console fd; false when not a
+--- console. (Exported for the sticky status line, loomworks.cli_sticky.)
+M.enable_vt = enable_vt
 
 local FD = { stdout = 1, stderr = 2 }
 

@@ -136,6 +136,10 @@ decides integrity.
 - `cli_color.lua`, `term.lua`: colouring and terminal-safe rendering. Every
   printed line is neutralised against control sequences, because names and
   paths come from workspace files;
+- `cli_sticky.lua`: the live status line of step commands (spec §16.7):
+  pipes a step's output through, keeping a status line on the bottom row and
+  bracketing the step with start and end lines; fed by the in-process step
+  loop and by the daemon task stream alike;
 - `config.lua`: lw's own per-user settings (`lw settings`).
 
 The CLI decides whether to run **in-process** or through the **daemon**
