@@ -1893,6 +1893,10 @@ such variables (`CLICOLOR_FORCE`, …) reach every process of the build,
 including ones whose output a build script captures, so they would change
 what a build does; a user who wants colour sets them in the environment of
 `lw build`, which the step receives.
+The client draws the live status line (§16.7 *Live status line*) from this
+stream — a step header starts a step, its output feeds it, the next header or
+`done` ends it — without the step position or total time, which the stream does
+not carry.
 
 The daemon sends the `Workspace/1.changed` of the task's cache write-back (§19.12)
 before its `done`, so the editor has already reloaded the outcome when the

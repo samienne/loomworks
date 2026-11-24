@@ -1047,6 +1047,20 @@ local function resolve_profile(ws, name, opts)
 end
 M._resolve_profile = resolve_profile
 
+--- The live status line's phase-start writer (loomworks.cli_sticky, spec
+--- §16.7 "Live status line") when run_spec will draw the line for a step (the
+--- same gate as there), else nil — the step's `==> [kind] name` header is then
+--- printed as always.
+--- @param to_stderr? boolean
+--- @return fun(info: table)|nil
+local function sticky_header(to_stderr)
+  if not vim._loomworks_shim or to_stderr then return nil end
+  local sticky = require("loomworks.cli_sticky")
+  if not sticky.enabled() then return nil end
+  return sticky.write_start
+end
+M._sticky_header = sticky_header  -- exported for tests
+
 --- Spawn `step` and wait for it, returning its exit code. Output handling
 --- depends on the host: the standalone shim streams (the child inherits this
 --- terminal, so progress-aware tools like ninja see a real terminal); real
@@ -1072,6 +1086,40 @@ local function run_spec(step, root, to_stderr)
   end
   step = { cmd = spec.cmd, cwd = spec.cwd, env = spec.env }
   local env = step.env
+  -- Live status line (loomworks.cli_sticky, spec §16.7): the step context
+  -- the caller set (M._sticky_step), taken once.
+  local sticky_ctx = M._sticky_step
+  M._sticky_step = nil
+  local sticky = vim._loomworks_shim and sticky_ctx and not to_stderr
+    and require("loomworks.cli_sticky") or nil
+  if sticky and sticky.enabled() then
+    -- Piped instead of inherited, so the line can be kept below the output.
+    -- Tools that honour these keep their colour on a pipe (ninja keeps the
+    -- compiler's escape codes); the codes are passed through untouched.
+    if sticky.colored() then
+      env = vim.deepcopy(env or {})
+      env.CLICOLOR_FORCE = "1"
+      env.FORCE_COLOR = "1"
+    end
+    io.stdout:flush(); io.stderr:flush()
+    if not M._sticky_hooked then
+      M._sticky_hooked = true
+      on_exit(function() sticky.teardown() end)
+    end
+    local session = sticky.start(sticky_ctx)
+    local function feed(_, d) if d then session:feed(d) end end
+    local res = vim.system(step.cmd, {
+      cwd = step.cwd or root,
+      env = env,
+      stdout = feed,
+      stderr = feed,
+      hide = false,
+    }):wait()
+    local code = build_run.exit_status(res.code, res.signal)
+    session:finish(code == 0)
+    if res.spawn_error then errw(build_run.spawn_failure_line(step.cmd[1], res.spawn_error) .. "\n") end
+    return code
+  end
   if vim._loomworks_shim then
     -- Flush our own buffered output first: the child inherits the terminal and
     -- writes directly, so anything we printed must land before its output
@@ -1263,16 +1311,30 @@ local function run_build_steps(profile, ws, opts)
     local tn, tn_role = build_run.trust_notice(ws, profile)
     if tn then note(tn, tn_role) end
   end
-  for _, step in ipairs(steps) do
+  local run_t0 = uv.hrtime() / 1e6
+  for i, step in ipairs(steps) do
     -- Conflict gate + full-reconfigure reset. `--force` and `--no-input`
     -- alike just refuse with exit 1; force is the only bypass, never a prompt.
     local ok_g, g_err = build_run.before_step(ws, step, { force = opts.force })
     if not ok_g then die(g_err, 1) end
     local lines, roles = build_run.step_lines(ws, step, { verbose = opts.verbose, env = true })
-    for i, line in ipairs(lines) do log(line, roles[i]) end
+    -- With the sticky line on, the header is its phase-start line
+    -- (loomworks.cli_sticky.write_start); the detail lines stay as they are.
+    local start_line = sticky_header(quiet)
+    for li, line in ipairs(lines) do
+      if li == 1 and start_line then
+        start_line({ kind = step.kind, name = step.name, profile = profile.key,
+          index = i, count = #steps })
+      else
+        log(line, roles[li])
+      end
+    end
     -- Through the module table so tests can stub the spawn.
     -- (A step a signal ended comes back as 128 + signal, with the signal.)
+    M._sticky_step = { kind = step.kind, name = step.name, profile = profile.key,
+      index = i, count = #steps, run_start_ms = run_t0 }
     local code, sig = M._run_spec(step, ws.root, quiet)
+    M._sticky_step = nil
     build_run.after_step(ws, step, code)
     if code ~= 0 then
       -- A `--target` the unit's parsed targets do not list (likely a typo).
@@ -1455,7 +1517,14 @@ function M.cmd_clean(ws, args)
   with_build_locks(profile, "clean", function()
     out(build_run.lead_line("clean", "profile: " .. profile.key))
     for _, step in ipairs(steps) do
-      out(build_run.clean_step_line(step))
+      -- With the sticky line on (a spawned step only), the header is its
+      -- phase-start line (loomworks.cli_sticky.write_start).
+      local start_line = not step.wipe_build_dir and sticky_header(false)
+      if start_line then
+        start_line({ kind = "clean", name = step.name, profile = profile.key })
+      else
+        out(build_run.clean_step_line(step))
+      end
       if step.wipe_build_dir then
         -- A core-performed wipe is a build-directory deletion, the same path as
         -- the daemon's (build_run.wipe_step).
@@ -1475,7 +1544,9 @@ function M.cmd_clean(ws, args)
         if verbose then
           for _, l in ipairs(build_run.command_lines(step, step.cwd or ws.root)) do out(l, "command") end
         end
+        M._sticky_step = { kind = "clean", name = step.name, profile = profile.key }
         local code, sig = M._run_spec(step, ws.root)
+        M._sticky_step = nil
         build_run.after_clean_step(ws, step, code)
         if code ~= 0 then die(build_run.failure_message(step, code, nil, sig), code) end
       end
@@ -3301,7 +3372,7 @@ function M._run_launch_target_impl(lt, ws, opts, deps)
 
   local spec, serr = rp.resolve_spec(lt, opts)
   if not spec then die(serr) end
-  return M._run_resolved(spec, opts, ws.root, deps)
+  return M._run_resolved(spec, opts, ws.root, deps, lt._profile and lt._profile.key)
 end
 
 --- Finish a run whose launch spec is resolved — in-process, or as returned by
@@ -3313,8 +3384,9 @@ end
 --- @param opts { prefix_tokens?: string[], print_mode?: "sh"|"json", dry_run?: boolean }
 --- @param root string the workspace root (the cwd when the spec has none)
 --- @param deps? { run_spec?: function }
+--- @param profile_key? string the profile, for the sticky run bars
 --- @return integer
-function M._run_resolved(spec, opts, root, deps)
+function M._run_resolved(spec, opts, root, deps, profile_key)
   local run = deps and deps.run_spec or run_spec
   -- --print / --dry-run: report the resolved invocation, never execute.
   if opts.print_mode then
@@ -3334,8 +3406,19 @@ function M._run_resolved(spec, opts, root, deps)
   -- (gdb, valgrind) drives the tty. The wrapper process's exit status becomes
   -- the invocation's.
   local full = build_run_argv(opts.prefix_tokens, spec)
-  out(string.format("running %s [cwd: %s]: %s", spec.name, spec.cwd or root,
-    table.concat(full, " ")), "phase")
+  -- Live status line (loomworks.cli_sticky, spec §16.7): with it on, the
+  -- `running` header becomes the inverted ` ▶ RUN  profile › name ` bar with the argv
+  -- and cwd as plain detail lines. Only the start is marked: the program
+  -- inherits the terminal (no sticky line while it runs, no end bar).
+  local start_line = sticky_header(false)
+  if start_line then
+    start_line({ kind = "run", name = spec.name, profile = profile_key })
+    out("    $ " .. table.concat(full, " "), "plain")
+    out("    (in " .. (spec.cwd or root) .. ")", "plain")
+  else
+    out(string.format("running %s [cwd: %s]: %s", spec.name, spec.cwd or root,
+      table.concat(full, " ")), "phase")
+  end
   -- (Only the status: a program a signal ended exits 128 + signal.)
   return (run({ cmd = full, cwd = spec.cwd, env = spec.env }, root))
 end
@@ -9504,7 +9587,7 @@ function M._finish_routed_run(root, req, r, done, attached)
     spec.env = {}
     for k, v in pairs(l.env) do spec.env[tostring(k)] = tostring(v) end
   end
-  return M._run_resolved(spec, M._run_target_opts(r), spec.cwd or root)
+  return M._run_resolved(spec, M._run_target_opts(r), spec.cwd or root, nil, done.profile_key)
 end
 
 --- Would this machine refuse the workspace's working copy or cache?
@@ -9667,6 +9750,14 @@ function M._delegate(op, root, args, ensured, opts)
     endpoint = st.handle.endpoint
   end
   local task_id, done, accepted, profile_key = nil, nil, false, nil
+  -- Live status line (loomworks.cli_sticky, spec §16.7) over the relayed
+  -- events: a configure/build/clean step header starts it, output feeds it,
+  -- the next header or the task's end finishes it. No step i/n here (the
+  -- protocol carries none); the header is recognised by its role plus its
+  -- `==> [kind] name` text.
+  local sticky = require("loomworks.cli_sticky")
+  local sk = { on = sticky.enabled() and not quiet, session = nil }
+  if sk.on then on_exit(function() sticky.teardown() end) end
   local function on_message(m)
     if m.kind ~= "task" or m.task_id == nil or m.task_id ~= task_id then return end
     if m.phase == "line" then
@@ -9674,9 +9765,28 @@ function M._delegate(op, root, args, ensured, opts)
       -- Painted by its role exactly as in-process, for the stream it lands
       -- on after the `quiet` redirection (an unknown role prints plain).
       local role = type(m.role) == "string" and m.role or nil
-      if m.stream == "out" and not quiet then out(text, role); io.stdout:flush()
+      local kind, name
+      if sk.on and role == "phase" then kind, name = text:match("^==> %[(%w+)%] (.*)$") end
+      -- As in-process: test runner/program steps keep their plain header.
+      if kind and kind ~= "configure" and kind ~= "build" and kind ~= "clean" then
+        kind, name = nil, nil
+      end
+      if sk.session then
+        if kind then sk.session:finish(true); sk.session = nil else sk.session:hide() end
+      end
+      if kind and m.stream == "out" and not quiet then
+        -- The header as the sticky line's phase-start line.
+        sticky.write_start({ kind = kind, name = name, profile = profile_key })
+      elseif m.stream == "out" and not quiet then out(text, role); io.stdout:flush()
       elseif m.stream == "out" or m.stream == "note" then note(text, role)
       else errw(text, role) end
+      if kind then
+        sk.session = sticky.start({ kind = kind, name = name, profile = profile_key })
+      elseif sk.session then
+        sk.session:redraw()
+      end
+    elseif m.phase == "output" and sk.session then
+      sk.session:feed(output_bytes(m))
     elseif m.phase == "output" then
       -- A step's raw bytes, as the in-process child writes them to the
       -- inherited terminal: written to the file descriptor directly, never
@@ -9687,6 +9797,9 @@ function M._delegate(op, root, args, ensured, opts)
     elseif m.phase == "done" then
       -- An interface method's task carries its task result.
       local res = type(m.result) == "table" and m.result or m
+      if sk.session then
+        sk.session:finish((tonumber(res.exit_code) or 1) == 0); sk.session = nil
+      end
       done = { code = tonumber(res.exit_code) or 1, error = res.error, launch = res.launch,
         device = res.device == true, profile_key = profile_key }
     end
@@ -12268,7 +12381,7 @@ local COMP_COMMANDS = {
   "sdk", "migrate", "health", "module", "bootstrap", "pin", "trust", "nuke", "device", "release-notes", "daemon",
   "cleanup", "release",
   "test-target",
-  "--no-input", "--no-color", "--color=auto", "--color=always", "--color=never",
+  "--no-input", "--no-color", "--color=auto", "--color=always", "--color=never", "--no-sticky",
 }
 
 --- `lw __complete <cword> <word0..N>` — emit newline-separated candidates for
@@ -14690,6 +14803,12 @@ outcomes, warnings, status listings); auto (the default) colors a stream only
 when it is a terminal and NO_COLOR is unset or empty. --no-color is
 --color=never. Output of build tools and programs is never touched.
 
+Global: --no-sticky (or LW_STICKY=0) turns off the live status line: on a
+terminal, build/clean/test/run keep the current step, its progress and elapsed
+time on the bottom row while the tool output scrolls above it (the tool's
+output is then piped, with CLICOLOR_FORCE=1 and FORCE_COLOR=1 unless colour
+is off).
+
 Topics (`lw help <topic>`): agent, ci, cache, describe, launcher, submodules
 
 Automation agent? See `lw help agent` — run with --no-input so you never block
@@ -14774,6 +14893,9 @@ local function main()
     elseif v == "--no-daemon" then
       -- Attached: launch and use no daemon for this command.
       M._no_daemon = true
+    elseif v == "--no-sticky" then
+      -- No live status line (loomworks.cli_sticky, spec §16.7).
+      require("loomworks.cli_sticky").opt_out = true
     elseif v == "--no-color" or v:sub(1, 8) == "--color=" then
       -- Highlighting of lw's own lines: auto|always|never.
       local ok_c, c_err = require("loomworks.cli_color").set_from_option(v)

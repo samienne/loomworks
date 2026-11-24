@@ -28,6 +28,14 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
 
 ## Unreleased
 
+### Added
+
+- On a terminal, `lw build`, `clean`, `test` and `run` keep a live status line
+  on the bottom row while a step's output scrolls above it: the step, its
+  position, the tool's progress and the elapsed time, with highlighted start
+  and end lines around each step. Turn it off with `--no-sticky` or
+  `LW_STICKY=0`. (#207)
+
 ## 0.2.2 - 2026-11-23
 
 A patch release: a narrowed `lw test` that runs no tests now reports

@@ -337,7 +337,9 @@ The option governs all of the runner's own coloring (status, health and other
 listings included). It never applies to output relayed from a build tool or
 launched program, and the runner never adds or changes variables in a child's
 environment to influence its coloring (a changed configure environment would
-itself trigger a reconfigure, §5.1). Without color, every line's text is
+itself trigger a reconfigure, §5.1) — except under the live status line
+(below), which pipes the step's output and so restores the color the tool
+would have shown on the terminal. Without color, every line's text is
 exactly what it is with color, minus the escape sequences. *Informative:* a
 step header's `==>` is bold cyan and the rest bold; reasons and commands are
 dim; success is green, failure red, a warning yellow.
@@ -350,6 +352,55 @@ workspace prints them, in-process (which loads it each time) and through the
 daemon (§19.13 "Load warnings") alike. *(Step 6b-α: before it, some of them
 reached the in-process output uncolored, as Neovim's own notification
 lines, and a warm daemon's requests did not print them.)*
+
+**Live status line.** While `lw build`, `clean`, `test` or `run` runs
+configure, build or clean steps (a test's or run's dependency build included;
+a test runner or program step keeps its plain header in-process), the runner keeps a **status line** on the terminal's bottom row,
+in reverse video: the step's kind, `<profile> › <name>`, the step's position
+(`step <i>/<n>`, when the run has more than one step), the tool's progress when
+the runner recognises it, the step's elapsed time and, from the second step,
+the run's total time (e.g. ` BUILD  dev › app  step 2/3  [143/512]  0:41
+(total 1:05) `). When the line is too wide for the terminal, the total, the
+step position, the elapsed time and the progress are dropped in that order,
+then the name is shortened with `…`; it never wraps. The step's output scrolls
+above it.
+
+- *Brackets.* The step header (*Step headers*) is replaced by a highlighted
+  start line (` ▶ BUILD  dev › app  step 2/3 `); the detail lines after it are
+  unchanged. When the step ends, the status line is replaced by an end line —
+  `✓` or `✗`, the kind, the name, the final progress and the elapsed time
+  (` ✓ BUILD  dev › app  [7/7]  0:03 `) — that scrolls up with the output.
+  A run's program gets the start line only (` ▶ RUN  dev › app `, then its
+  argv and working directory as plain lines, in place of the `running …`
+  line, §16.17): it is attached to the terminal, so there is no status line
+  while it runs and no end line.
+- *Tool output.* The step's standard output and error are piped through the
+  runner instead of inherited, and pass through unchanged — every line, escape
+  sequences included — never shown in the status line. Lines the runner
+  recognises only feed the progress: ninja's `[<n>/<m>]` (also under
+  `cmake --build` and meson) and make's `[ <p>%]`. Since the tool sees a pipe,
+  the runner sets `CLICOLOR_FORCE=1` and `FORCE_COLOR=1` in the step's
+  environment when the line is colored (below), so tools that honour them keep
+  their color; ninja then prints every `[n/m]` line instead of one updating
+  line. These variables are never part of the configure environment (§5.1).
+- *When.* Only when standard output and standard error are both terminals (on
+  Windows with escape-sequence processing enabled), `TERM` is not `dumb`, the
+  `LW_STICKY` environment variable is not `0`, and the global option
+  `--no-sticky` is not given; never when the status lines go to standard error
+  (§16.17 *Output streams*). Otherwise nothing changes: the step inherits the
+  terminal and the output is byte-identical to the output without this feature.
+  The line is never written to a file, a machine-readable payload or the
+  workspace log.
+- *Color.* The badge takes the kind's hue (the end line green or red) when
+  the runner colors (*Highlighting*); with `NO_COLOR` or `--color=never` the
+  lines are reverse video only and no color variable is set.
+- *Exit.* The line is removed and the cursor restored before the command
+  exits, including on an interrupt (§16.6) or an error.
+- *Daemon mode.* The client draws the same lines from the task stream (§19.15):
+  a step header starts a step, its output feeds it, the next header or the
+  task's end finishes it. The protocol carries no step count, so the lines
+  have no `step <i>/<n>` and no total time there, and the daemon adds no color
+  variable (§19.15).
 
 Every command documents itself: `lw help <command>` and, equivalently,
 `--help` / `-h` anywhere among a command's own arguments (never after the `--`
@@ -366,7 +417,8 @@ never fetches anything.
 option and points at `lw help <command>`, and nothing runs — a mistyped option
 never falls through to a build or a launch. The global options (non-interactive
 control, create intent, source selection, pin bypass, color — `--color`,
-`--no-color`, *Highlighting* above) are known to every
+`--no-color`, *Highlighting* above — and `--no-sticky`, *Live status line*
+above) are known to every
 command, and are recognised before the command and among its own arguments,
 up to the first `--` — never after it. After a launch configuration's command,
 when one is added, every token is the program's, verbatim, including lw's own
@@ -1086,7 +1138,8 @@ and (on Windows) not hidden — so its output streams live, it can read input,
 and a GUI window appears, exactly like launching the binary directly. The
 build, clean, and test steps send their tool output to standard output and
 error the same way (§16.7); a host able to attach them to the terminal streams
-it live, so progress-aware tools (e.g. ninja) see a real terminal, while a host
+it live, so progress-aware tools (e.g. ninja) see a real terminal (unless the
+live status line pipes them, §16.7), while a host
 that can only capture emits the same output once the step exits. The run
 differs in being the user's own program — interactive and (where applicable)
 windowed. The run is read-only toward configuration (§16.9) and, like the
