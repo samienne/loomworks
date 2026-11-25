@@ -2256,6 +2256,24 @@ remote program's liveness stay with the client process:
   in-process from the deploy (deploy → stage → execute, §18.4–§18.5) without
   building again.
 
+**When the line is printed.** Unlike the other operations' lines, the two
+not-routed lines that name the run (`declined the run`, `could not take the
+run`) are held back: the in-process run prints the line immediately before its
+first output (its first configure or build line, a `--print` report, or the
+launch), so the line appears only when a run really proceeds without the
+daemon. An in-process run refused before any output (headless §16.17
+"Order": no target named and no default target, a default that is a module
+device target, under `--no-build` a named target not found or a device option
+on a target that does not run on a device) prints its refusal alone and exits
+as before; with `-v` / `--verbose` the held line is printed directly before
+the refusal. A refusal after output has started (a named target still missing
+after the configure step, a device option on a host target, known only once it
+is built) follows the line, which was printed before that output. This is the one exception to "never silent" above: the refusal itself
+says that nothing ran. The version handshake's and the launch's lines (§19.9,
+§19.10), printed before the request is made, are not held back, nor is the
+`continuing without it` line above (the run continues from the deploy).
+An attached run prints no such line, as before.
+
 The editor's own run and debug launches stay in-process in this step; from
 step 5k their preparation is routed (`prepare_run`, `prepare_debug` with
 `build_scope = "target"`; [loomworks.nvim `spec/plugin.md` §19.16](https://github.com/samienne/loomworks.nvim/blob/master/spec/plugin.md#1916-the-editor-as-a-client) "Editor operations"), a device target's

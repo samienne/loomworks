@@ -1218,6 +1218,10 @@ scoped) — is refused at step 2 without this re-run. A target a module only
 reports after a build is not guessed: the run fails at step 2, naming the targets it does know
 (§16.3).
 
+A run the workspace daemon does not take prints its not-routed line only
+once it gets past these refusals (daemon.md §19 "Routing", "When the line is
+printed").
+
 **Positional grammar.** Before any `--`, a run takes zero, one, or two
 positional operands. What a single operand names depends on whether the
 invocation is interactive (§16.3):
