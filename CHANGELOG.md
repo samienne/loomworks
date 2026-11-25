@@ -34,7 +34,7 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
   without it" (or "could not take the run") when the run is then refused before
   doing anything, such as a profile with no default target: only the refusal
   is printed, with the line before it under `-v`. A run that proceeds prints the
-  line just before its first output. (#PR)
+  line just before its first output. (#212)
 
 ## 0.2.3 - 2026-11-25
 
