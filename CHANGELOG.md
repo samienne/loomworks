@@ -28,6 +28,11 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
 
 ## Unreleased
 
+## 0.2.3 - 2026-11-25
+
+A patch release: on a terminal, `lw build`, `clean`, `test` and `run` keep a
+live status line below the step output.
+
 ### Added
 
 - On a terminal, `lw build`, `clean`, `test` and `run` keep a live status line
