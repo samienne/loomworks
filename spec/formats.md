@@ -286,6 +286,7 @@ The same members appear in the working copy (§4).
 | Configuration inheritance (`inherits`) and module options | `lua/loomworks/configuration.lua`, the module's source under `lua/loomworks/modules/` |
 | `projects.<key>.launch.<name>` (launch configurations, `deploy`) | `lua/loomworks/launch_configuration.lua`, `lua/loomworks/deploy.lua` |
 | `projects.<key>.<type>.device` | `lua/loomworks/project.lua`, `lua/loomworks/remote/` |
+| `projects.<key>.<type>.device_log` | `lua/loomworks/project.lua`, `lua/loomworks/remote/` |
 | `profiles.<key>.default_target` (`{ project, target, working_dir? }`) and the working copy's `default_target` map keyed by profile key (§4) | `lua/loomworks/profile.lua` |
 | The rest of `projects.<key>.<type>` (the module's `type_config`) | the module's source under `lua/loomworks/modules/` |
 

@@ -152,8 +152,8 @@ the generic ones:
 - a `device` block's device-side environment (`env`) or working directory
   (`working_dir`) (§18.9; the project's block lives in its module section). Its `stage` / `archive` patterns are not
   program-bearing: they are statically confined to the build directory and
-  select what an explicit remote run transfers, not what runs. A launch
-  configuration's `device_log` options (§18.13) are not program-bearing either:
+  select what an explicit remote run transfers, not what runs. A project's or a
+  launch configuration's `device_log` options (§18.13) are not program-bearing either:
   they are opaque data a device runner validates and may never turn into a
   program, a path to execute, or device command text.
 - the args and the `working_dir` of a saved test entry (§1.3.4: the

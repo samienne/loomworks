@@ -752,19 +752,24 @@ a finished `Devices/1.launch` task of the caller launched (`task` its id,
 §15), from what that launch recorded: its target, device, process id and
 bundle, nothing resolved again. It is addressed and refused as `stop` is:
 another client's launch is `forbidden`; a launch that is unknown, still
-running, failed or already stopped, one whose process id was not found, or
-a module with no log command is the `refused` result.
+running, failed or already stopped, one whose process id was not found,
+a module with no log command, or log options the module rejects (its
+message) is the `refused` result.
 
 The task runs in the client's environment (§5). First the module's
 log-clear command, when it has one, runs under the device lock (formats.md §6.2,
 waited for as `install` waits; a failed clear is a `note` line, never a
 failure); then the module's log command, which takes no lock, with the
-process id passed to it when the module asks for strict-pid filtering. Each
+options the module's `device_log_options` resolved from the launch's log
+options (core §11.3 "Log options"; options set but not taken by a module
+without that hook are a `note` line), and the process id when they ask for
+strict-pid filtering. Each
 line of its output is parsed as `lua/loomworks/device_log_records.lua` parses it,
-and kept only when it matches both the launch's process id and its bundle,
-or whichever of them the launch recorded (a line that does not parse is
+and kept by the resolved `prefilter` (default: only when it matches both the
+launch's process id and its bundle,
+or whichever of them the launch recorded; a line that does not parse is
 always kept); the level filter stays the client's. The task's `start` meta
-carries `level`, the module's default log level, when it has one; a client
+carries `level`, the resolved log level (default `info`); a client
 starts its level filter there. A kept line becomes a record:
 `ts` (the line's time as printed), `level` (`verbose`, `debug`,
 `info`, `warn`, `error` or `fatal`; a client shows an unknown level as
