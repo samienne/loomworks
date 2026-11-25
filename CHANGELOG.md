@@ -28,6 +28,12 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
 
 ## Unreleased
 
+### Fixed
+
+- `lw bootstrap` and `lw health` name 0.1.51 among the releases that wrote a
+  0.2.0-beta.1 to 0.2.0-beta.3 launcher: 0.1.51 wrote the same `lw.sh` and
+  `lw.cmd`. (#209)
+
 ## 0.2.3 - 2026-11-25
 
 A patch release: on a terminal, `lw build`, `clean`, `test` and `run` keep a

@@ -331,6 +331,22 @@ describe("launcher health (§16.31 provider #4)", function()
         vim.fn.delete(r, "rf")
     end)
 
+    it("names 0.1.51 among the releases of the launchers it shares with 0.2.0-beta.1..3 (#202)", function()
+        -- 0.1.51 wrote byte-identical (LF-normalized) launchers to
+        -- 0.2.0-beta.1..3: sh generation 4, cmd generation 7.
+        local cases = {
+            { "sh", "dca685264e2a598414011aa82d1c65fe0fa6be1ef8ff07d418e8d278efe7dd00", 4 },
+            { "cmd", "c162e3ad5a3e982176a99b8db3fa697fae88869449d352a8be4a6fa2c9083122", 7 },
+        }
+        for _, c in ipairs(cases) do
+            local kind, hash, gen = c[1], c[2], c[3]
+            local info = launcher.classify(kind, "an older launcher", function() return hash end)
+            assert.equals("known", info.status)
+            assert.equals(gen, info.gen)
+            assert.equals("0.1.51, 0.2.0-beta.1-0.2.0-beta.3", info.releases)
+        end
+    end)
+
     it("is report-only: registered with persist = false", function()
         local sug = require("loomworks.suggestions")
         assert.is_true(sug._report_only[sug.launcher_provider] == true)
