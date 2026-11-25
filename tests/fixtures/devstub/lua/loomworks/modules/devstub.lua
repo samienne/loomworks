@@ -41,7 +41,11 @@
 ---                     and exits (1 when `LW_TEST_DEVICE_FAIL` is `log`);
 ---                     its arg is the pid when `device_log_options` asks for
 ---                     strict-pid filtering (`LW_TEST_LOG_STRICT=1`, read
----                     when called)
+---                     when called); `device_log_options` takes the log
+---                     options `level` (a letter, default `D`) and
+---                     `prefilter` (`strict`/`app-related`/`all`), refuses
+---                     `tag` as not applying to a device target and any
+---                     other key as unknown (loomworks #196)
 
 local shell = require("loomworks.modules.shell")
 
@@ -101,8 +105,17 @@ function M.device_pid(_, serial, bundle) return command("pid", serial, bundle) e
 function M.device_stop(_, serial, bundle) return command("stop", serial, bundle) end
 function M.device_log(_, serial, opts) return command("log", serial, opts and opts.pid and tostring(opts.pid)) end
 function M.device_log_clear(_, serial) return command("log_clear", serial) end
-function M.device_log_options()
-    return { level = "D", strict_pid = os.getenv("LW_TEST_LOG_STRICT") == "1" }
+function M.device_log_options(_, options)
+    options = options or {}
+    for k in pairs(options) do
+        if k == "tag" then
+            return nil, "device_log: option 'tag' does not apply to a device target"
+        elseif k ~= "level" and k ~= "prefilter" then
+            return nil, "device_log: unknown option '" .. tostring(k) .. "' (known: level, prefilter)"
+        end
+    end
+    return { level = options.level or "D", prefilter = options.prefilter,
+        strict_pid = os.getenv("LW_TEST_LOG_STRICT") == "1" }
 end
 
 return M

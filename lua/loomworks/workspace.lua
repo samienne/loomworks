@@ -341,6 +341,13 @@ local function merge_project(shared, user)
         for k, v in pairs(user.device or {}) do merged_device[k] = v end
         merged.device = next(merged_device) and merged_device or nil
     end
+    -- Log options (core §11.3 "Log options"): user wins per key.
+    if shared.device_log or user.device_log then
+        local merged_log = {}
+        for k, v in pairs(type(shared.device_log) == "table" and shared.device_log or {}) do merged_log[k] = v end
+        for k, v in pairs(type(user.device_log) == "table" and user.device_log or {}) do merged_log[k] = v end
+        merged.device_log = next(merged_log) and merged_log or nil
+    end
 
     return merged, prov
 end
@@ -6465,6 +6472,7 @@ function Workspace:_config_from_objects()
                 launch = project:serialize_launches(),
                 deploy = project.deploy,
                 device = project.device,
+                device_log = project.device_log,
                 description = item_description(project),
                 tests = project:tests_for_file(),
                 variables = project.variables,
@@ -6555,6 +6563,10 @@ function Workspace:_serialize_project_shared(project, publishable_configs)
     if project.device and next(project.device) then
         type_config.device = vim.deepcopy(project.device)
     end
+    -- So do its log options (core §11.3 "Log options").
+    if type(project.device_log) == "table" and next(project.device_log) then
+        type_config.device_log = vim.deepcopy(project.device_log)
+    end
     -- So does the description, and the project-wide saved test
     -- targets.
     local desc = item_description(project)
@@ -6603,6 +6615,10 @@ function Workspace:_serialize_project(project)
     -- preserves an unknown module field but rejects an unknown project key.
     if project.device and next(project.device) then
         type_config.device = vim.deepcopy(project.device)
+    end
+    -- So do its log options (core §11.3 "Log options").
+    if type(project.device_log) == "table" and next(project.device_log) then
+        type_config.device_log = vim.deepcopy(project.device_log)
     end
     -- So does the description, and the project-wide saved test
     -- targets.
@@ -6976,6 +6992,7 @@ function Workspace:_user_config_from_objects()
                 launch = project:serialize_launches(),
                 deploy = project.deploy,
                 device = project.device,
+                device_log = project.device_log,
                 description = item_description(project),
                 tests = project:tests_for_file(),
                 variables = project.variables,
@@ -7987,6 +8004,7 @@ function Workspace:_serialize_config_internal()
                 launch = project:serialize_launches(),
                 deploy = project.deploy,
                 device = project.device,
+                device_log = project.device_log,
                 description = item_description(project),
                 tests = project:tests_for_file(),
                 variables = project.variables,
@@ -8056,6 +8074,10 @@ function Workspace:_serialize_project_partial(project, needed_config_names)
     -- preserves an unknown module field but rejects an unknown project key.
     if project.device and next(project.device) then
         type_config.device = vim.deepcopy(project.device)
+    end
+    -- So do its log options (core §11.3 "Log options").
+    if type(project.device_log) == "table" and next(project.device_log) then
+        type_config.device_log = vim.deepcopy(project.device_log)
     end
     -- So does the description, and the project-wide saved test
     -- targets.

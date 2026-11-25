@@ -513,6 +513,7 @@ function M.merge(config, active_profile_key_input, cache, root, tools_by_type, u
             launch = project.launch,
             deploy = project.deploy,
             device = project.device,
+            device_log = project.device_log,
             description = project.description,
             tests = project.tests,
             configuration = active_configuration,

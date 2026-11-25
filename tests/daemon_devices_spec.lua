@@ -595,6 +595,58 @@ describe("Launch/1.device_log in the workspace daemon (API.md §9.5)", function(
         assert.equals("debug", start.meta.level)
     end)
 
+    -- The log options (core §11.2 `device_log_options`, §11.3 "Log
+    -- options"; loomworks #196): the project's `device_log` table reaches
+    -- the module's hook; its resolved level and prefilter apply.
+    --- The project of launch `task` (its recorded target's).
+    local function launch_project(task)
+        return devices.launches(s.service())[task].target._project
+    end
+
+    it("the project's device_log options reach the module: its level and prefilter apply", function()
+        s = session()
+        local launch = launched()
+        launch_project(launch).device_log = { level = "W", prefilter = "all" }
+        local id = start_log(launch)
+        local recs, _, done = collect(id)
+        assert.equals(0, done.exit_code, vim.inspect(done))
+        -- `all`: the other process's line is kept too.
+        local msgs = {}
+        for _, r in ipairs(recs) do msgs[#msgs + 1] = r.message end
+        assert.same({ "hello from the app", "system noise", "not a device log line", "something failed" }, msgs)
+        local start = s.wait(function(m) return m.kind == "task" and m.task_id == id and m.phase == "start" end)
+        assert.equals("warn", start.meta.level)
+    end)
+
+    it("options the module refuses refuse the stream before anything runs on the device", function()
+        s = session()
+        local launch = launched()
+        local before = read(s.log)
+        launch_project(launch).device_log = { tag = "AppTag" }
+        local r = device_log(launch)
+        assert.same({ outcome = "refused", exit_code = 1,
+            message = "device_log: option 'tag' does not apply to a device target" }, r)
+        launch_project(launch).device_log = { bogus = "1" }
+        r = device_log(launch)
+        assert.equals("refused", r.outcome)
+        assert.truthy(r.message:find("unknown option 'bogus'", 1, true), r.message)
+        -- Neither the clear nor the stream ran.
+        assert.equals(before, read(s.log))
+    end)
+
+    it("a module without device_log_options: configured options are a note, the stream runs", function()
+        s = session()
+        local launch = launched()
+        stub(package.loaded["loomworks.modules.devstub"], "device_log_options", nil)
+        launch_project(launch).device_log = { level = "W" }
+        local id = start_log(launch)
+        local recs, _, done, lines = collect(id)
+        assert.equals(0, done.exit_code, vim.inspect(done))
+        assert.equals(3, #recs)
+        local all = table.concat(lines, "\n")
+        assert.truthy(all:find("note: log options ignored (module 'devstub' takes none): level", 1, true), all)
+    end)
+
     it("a full queue drops the oldest records and counts them on the next log", function()
         s = session()
         local launch = launched()

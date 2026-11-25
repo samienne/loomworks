@@ -203,3 +203,85 @@ describe("device block location through a workspace load + save", function()
         assert.same({ stage = { "bin/*.so" } }, lib.cmake.device)
     end)
 end)
+
+-- The project's `device_log` table (spec core §11.3 "Log options", §18.13;
+-- loomworks #196): in the module section beside the `device` block, lifted
+-- out by core, validated, honored from shared config, merged per key.
+describe("project device_log table", function()
+    local root
+    before_each(function() root = fx.mkroot(); vim.fn.mkdir(root .. "/App", "p") end)
+    after_each(function() require("loomworks.io").rm_rf(root) end)
+
+    it("is read from the module section; the module config never carries it", function()
+        local raw = { projects = { App = { cmake = { device_log = { level = "W", prefilter = "all" },
+            options = { X = "1" } } } } }
+        local cfg = assert(config.validate(raw, root))
+        assert.same({ level = "W", prefilter = "all" }, cfg.projects.App.device_log)
+        assert.is_nil(cfg.projects.App.type_config.device_log)
+        assert.same({ X = "1" }, cfg.projects.App.type_config.options)
+        assert.same({ level = "W", prefilter = "all" }, raw.projects.App.cmake.device_log)
+        local norm = assert(config.normalize_projects(raw.projects))
+        assert.same({ level = "W", prefilter = "all" }, norm.App.device_log)
+        assert.is_nil(norm.App.type_config.device_log)
+    end)
+
+    it("is validated as a launch configuration's is", function()
+        local bad, err = config.validate({ projects = { App = { cmake = {
+            device_log = { level = { nested = true } } } } } }, root)
+        assert.is_nil(bad)
+        assert.truthy(err:find("device_log.level", 1, true), err)
+        bad, err = config.validate({ projects = { App = { cmake = { device_log = "W" } } } }, root)
+        assert.is_nil(bad)
+        assert.truthy(err:find("device_log", 1, true), err)
+    end)
+
+    it("is kept from shared config (not program-bearing)", function()
+        local cfg = { projects = { App = { type = "cmake", type_config = {},
+            device_log = { level = "W" } } } }
+        local ignored = program_fields.strip(cfg, nil)
+        assert.same({ level = "W" }, cfg.projects.App.device_log)
+        assert.equals(0, #ignored)
+    end)
+
+    it("is serialized into the module section", function()
+        local Workspace = require("loomworks.workspace").Workspace
+        local project = require("tests.helpers").set_launches({ key = "App", type = "cmake",
+            type_config = { options = { X = "1" } }, _configurations = {},
+            device_log = { level = "W" } })
+        for _, fn in ipairs({ "_serialize_project", "_serialize_project_shared" }) do
+            local entry = Workspace[fn](nil, project, fn == "_serialize_project_shared" and {} or nil)
+            assert.is_nil(entry.device_log, fn)
+            assert.same({ level = "W" }, entry.cmake.device_log, fn)
+        end
+        local entry = Workspace._serialize_project_partial(nil, project, {})
+        assert.same({ level = "W" }, entry.cmake.device_log)
+        assert.is_nil(project.type_config.device_log)
+    end)
+
+    it("loads onto the project, the working copy's over loomworks.json's per key, and saves back", function()
+        local h = require("tests.helpers")
+        local Core = require("loomworks.core")
+        local saved
+        local files = {
+            ["loomworks.json"] = h.make_config_json({
+                projects = { App = { cmake = { device_log = { level = "W", prefilter = "all" } } } },
+            }),
+            ["user.json"] = h.make_user_json({
+                projects = { App = { cmake = { device_log = { level = "E" } } } },
+            }),
+        }
+        local deps = h.make_test_deps(files, {
+            user = { save = function(_, data) saved = vim.deepcopy(data); return true end },
+        })
+        local core = Core.new(deps)
+        core:setup({ root = "/test" })
+        core:remerge()
+        local ws = core:get_workspace()
+        local app
+        for _, p in ipairs(ws._projects) do if p.key == "App" then app = p end end
+        assert.same({ level = "E", prefilter = "all" }, app.device_log)
+        assert.is_nil((app.type_config or {}).device_log)
+        assert.is_true((ws:_save_user()))
+        assert.same({ level = "E", prefilter = "all" }, saved.projects.App.cmake.device_log)
+    end)
+end)

@@ -121,6 +121,24 @@ function M._extract_tests(type_config)
     return tests, copy
 end
 
+--- Lift a project's log options (`device_log`) out of its module
+--- section, like the `device` block it sits beside (spec core §11.3 "Log
+--- options", §18.13): core owns the field and the module never sees it in
+--- `type_config`. Returns the raw value and a copy of `type_config` without
+--- it (the raw table is never mutated).
+--- @param type_config table module section
+--- @return any device_log, table type_config
+function M._extract_device_log(type_config)
+    if type(type_config) ~= "table" or type_config.device_log == nil then
+        return nil, type_config
+    end
+    local device_log = type_config.device_log
+    local copy = {}
+    for k, v in pairs(type_config) do copy[k] = v end
+    copy.device_log = nil
+    return device_log, copy
+end
+
 --- Normalize raw project definitions into internal format.
 --- Extracts type from the inner key (e.g. { cmake = {} } -> type = "cmake").
 --- Does NOT validate path existence on disk.
@@ -145,8 +163,9 @@ function M.normalize_projects(raw_projects)
         local device, description
         device, type_config = M._extract_device(key, def, ptype, type_config)
         description, type_config = M._extract_description(type_config)
-        local tests
+        local tests, device_log
         tests, type_config = M._extract_tests(type_config)
+        device_log, type_config = M._extract_device_log(type_config)
         projects[key] = {
             path = def.path or key,
             type = ptype,
@@ -156,6 +175,7 @@ function M.normalize_projects(raw_projects)
             variables = def.variables,
             deploy = def.deploy,
             device = device,
+            device_log = device_log,
             description = description,
             tests = tests,
         }
@@ -190,8 +210,9 @@ function M.validate(raw, root)
         local device, description
         device, type_config = M._extract_device(key, def, ptype, type_config)
         description, type_config = M._extract_description(type_config)
-        local tests
+        local tests, device_log
         tests, type_config = M._extract_tests(type_config)
+        device_log, type_config = M._extract_device_log(type_config)
 
         local project_path = def.path or key
         local abs_path = root .. "/" .. project_path
@@ -217,6 +238,8 @@ function M.validate(raw, root)
         do
             local man = require("loomworks.remote.manifest")
             local ok, derr = man.validate_block(device, "project '" .. key .. "'")
+            if not ok then return nil, derr end
+            ok, derr = man.validate_log_options(device_log, "project '" .. key .. "'")
             if not ok then return nil, derr end
             for launch_name, launch_def in pairs(type(def.launch) == "table" and def.launch or {}) do
                 if type(launch_def) == "table" then
@@ -308,6 +331,7 @@ function M.validate(raw, root)
             variables = project_variables,
             deploy = def.deploy,
             device = device,
+            device_log = device_log,
             description = description,
             tests = tests,
         }
