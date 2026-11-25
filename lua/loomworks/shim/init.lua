@@ -219,22 +219,46 @@ function vim.fn.system(cmd)
   local exe = win_exe(resolved)
   local args = {}
   for i = 2, #argv do args[#args + 1] = argv[i] end
+  -- As Neovim's, the result is the child's stdout and stderr together, in the
+  -- order they arrive (#197): a caller that needs clean stdout uses
+  -- vim.system, which keeps them apart.
   local out = {}
-  local so = uv.new_pipe(false)
-  local done, code = false, -1
+  local so, se = uv.new_pipe(false), uv.new_pipe(false)
+  local exited, code, eofs = false, -1, 0
   local handle
   handle = uv.spawn(exe, {
     args = args,
-    stdio = { nil, so, nil },
+    stdio = { nil, so, se },
     hide = IS_WINDOWS,
   }, function(c)
     code = c
-    so:read_stop(); so:close(); handle:close()
-    done = true
+    handle:close()
+    exited = true
   end)
-  if not handle then vim.v.shell_error = 1; return "" end
-  uv.read_start(so, function(_, d) if d then out[#out + 1] = d end end)
-  while not done do uv.run("once") end
+  if not handle then so:close(); se:close(); vim.v.shell_error = 1; return "" end
+  local function reader(_, d)
+    if d then out[#out + 1] = d else eofs = eofs + 1 end
+  end
+  uv.read_start(so, reader)
+  uv.read_start(se, reader)
+  -- Done once the child exited and both pipes reached EOF, so output written
+  -- just before the exit is kept; a grandchild that holds a pipe open past the
+  -- exit is waited for at most SYSTEM_GRACE_MS.
+  local SYSTEM_GRACE_MS = 2000
+  local deadline
+  while not (exited and eofs >= 2) do
+    if exited then
+      deadline = deadline or (uv.now() + SYSTEM_GRACE_MS)
+      if uv.now() >= deadline then break end
+      uv.run("nowait"); uv.sleep(1); uv.update_time()
+    else
+      uv.run("once")
+    end
+  end
+  for _, p in ipairs({ so, se }) do
+    p:read_stop()
+    if not p:is_closing() then p:close() end
+  end
   vim.v.shell_error = code
   return table.concat(out)
 end

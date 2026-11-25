@@ -47,13 +47,15 @@ M._cached = nil
 --- PATH directory on Windows and blocks the UI on workspace load.
 M._path_index = nil
 
---- Run a command synchronously via vim.fn.system.
+--- Run a command synchronously. Its stdout only, as the async probe reads it:
+--- a warning on stderr must not reach the version parse (vim.fn.system merges
+--- the two).
 --- @param cmd string[]
 --- @return string|nil trimmed stdout, or nil on non-zero exit
 local function run(cmd)
-    local result = vim.fn.system(cmd)
-    if vim.v.shell_error ~= 0 then return nil end
-    return vim.trim(result)
+    local res = vim.system(cmd, { text = true }):wait()
+    if res.code ~= 0 then return nil end
+    return vim.trim(res.stdout or "")
 end
 
 --- Extract a dotted version from `--version` output.
@@ -479,7 +481,7 @@ function M.detect_async(callback)
         local path = primary[name].path
         vim.system({ path, "--version" }, { text = true }, function(res)
             -- Mirror the sync `run` helper: nil on non-zero exit, else trimmed
-            -- stdout (empty string stays empty, matching vim.fn.system + trim).
+            -- stdout (empty string stays empty).
             local out = (res.code == 0 and res.stdout)
                 and vim.trim(res.stdout) or nil
             primary[name].version = parse_version(out)

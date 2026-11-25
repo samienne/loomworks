@@ -42,9 +42,11 @@ sys.exit(1)
     for _, py in ipairs({ "python", "python3", "py" }) do
         local pp = require("loomworks.exe").editor_exepath(py)
         if pp ~= "" then
-            local out = vim.fn.system({ pp, "-c", py_probe })
-            if vim.v.shell_error == 0 then
-                local path = vim.trim(out or "")
+            -- stdout only: a warning the interpreter prints on stderr must
+            -- not become part of the path (vim.fn.system merges the two).
+            local res = vim.system({ pp, "-c", py_probe }, { text = true }):wait()
+            if res.code == 0 then
+                local path = vim.trim(res.stdout or "")
                 if path ~= "" and uv.fs_stat(path) then
                     return { path }
                 end

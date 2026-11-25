@@ -451,11 +451,11 @@ describe("meson module", function()
         local orig_system
 
         before_each(function()
-            orig_system = vim.fn.system
+            orig_system = vim.system
         end)
         after_each(function()
             ---@diagnostic disable-next-line: duplicate-set-field
-            vim.fn.system = orig_system
+            vim.system = orig_system
         end)
 
         local SAMPLE = [[
@@ -495,16 +495,18 @@ describe("meson module", function()
                 return orig_fs_stat(p)
             end
             ---@diagnostic disable-next-line: duplicate-set-field
-            vim.fn.system = function(cmd)
+            vim.system = function(cmd)
                 -- Only answer the introspect --targets call with our
-                -- fixture; anything else returns empty so we don't
+                -- fixture (on stdout, a warning on stderr that must not
+                -- reach the JSON parse); anything else fails so we don't
                 -- pretend to be a meson binary for unrelated probes.
-                if type(cmd) == "table" then
-                    for _, a in ipairs(cmd) do
-                        if a == "--targets" then return SAMPLE end
+                local res = { code = 1, stdout = "", stderr = "" }
+                for _, a in ipairs(cmd) do
+                    if a == "--targets" then
+                        res = { code = 0, stdout = SAMPLE, stderr = "WARNING: a deprecation" }
                     end
                 end
-                return ""
+                return { wait = function() return res end }
             end
 
             local targets = meson.parse_targets({ build_dir = "/build" })
@@ -530,7 +532,7 @@ describe("meson module", function()
             -- No meson-info/ → unconfigured tree. Must not spawn meson/python.
             local uv = vim.uv or vim.loop
             local orig_fs_stat = uv.fs_stat
-            local orig_system = vim.fn.system
+            local orig_system = vim.system
             local spawned = false
             ---@diagnostic disable-next-line: duplicate-set-field
             uv.fs_stat = function(p)
@@ -538,14 +540,14 @@ describe("meson module", function()
                 return orig_fs_stat(p)
             end
             ---@diagnostic disable-next-line: duplicate-set-field
-            vim.fn.system = function() spawned = true; return "" end
+            vim.system = function() spawned = true; error("spawned") end
 
             local targets = meson.parse_targets({ build_dir = "/unbuilt" })
 
             ---@diagnostic disable-next-line: duplicate-set-field
             uv.fs_stat = orig_fs_stat
             ---@diagnostic disable-next-line: duplicate-set-field
-            vim.fn.system = orig_system
+            vim.system = orig_system
 
             assert.is_nil(targets)
             assert.is_false(spawned)

@@ -274,9 +274,11 @@ local function find_meson()
     for _, py in ipairs({ "python", "python3", "py" }) do
         local pp = require("loomworks.exe").editor_exepath(py)
         if pp ~= "" then
-            local out = vim.fn.system({ pp, "-c", PY_FIND_MESON })
-            if vim.v.shell_error == 0 then
-                local path = vim.trim(out or "")
+            -- stdout only: a warning the interpreter prints on stderr must
+            -- not become part of the path (vim.fn.system merges the two).
+            local res = vim.system({ pp, "-c", PY_FIND_MESON }, { text = true }):wait()
+            if res.code == 0 then
+                local path = vim.trim(res.stdout or "")
                 if path ~= "" and uv.fs_stat(path) then
                     return { path }
                 end
@@ -1179,9 +1181,11 @@ local function run_introspect(meson_prefix, build_dir, subcommand)
     cmd[#cmd + 1] = "introspect"
     cmd[#cmd + 1] = build_dir
     cmd[#cmd + 1] = subcommand
-    local out = vim.fn.system(cmd)
-    if vim.v.shell_error ~= 0 then return nil end
-    local ok, data = pcall(vim.json.decode, out)
+    -- stdout only: a warning meson prints on stderr must not break the JSON
+    -- (vim.fn.system merges the two).
+    local res = vim.system(cmd, { text = true }):wait()
+    if res.code ~= 0 then return nil end
+    local ok, data = pcall(vim.json.decode, res.stdout or "")
     if not ok then return nil end
     return data
 end
