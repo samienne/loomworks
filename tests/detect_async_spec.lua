@@ -8,9 +8,9 @@
 --- sort order. These tests pin that by driving both paths over the same
 --- stubbed PATH + `--version` output and deep-comparing the results.
 ---
---- Stub conventions mirror the existing suite: the sync path reads
---- `vim.fn.system` + `vim.v.shell_error`; the async path reads `vim.system`
---- (callback form) and is unblocked by a synchronous `vim.schedule` stub.
+--- Stub conventions: both paths read `vim.system` (the sync one via `:wait()`,
+--- the async one in callback form, unblocked by a synchronous `vim.schedule`
+--- stub).
 
 --- Save/restore globals around a function (dotted paths into _G).
 local function with_stubs(stubs, fn)
@@ -53,10 +53,11 @@ local function version_for(path)
     return "g++ (Ubuntu 13.2.0-1) 13.2.0\nFree Software Foundation, Inc.\n"
 end
 
---- vim.system stub (callback form) returning canned `--version` output.
+--- vim.system stub returning canned `--version` output: callback form for the
+--- async path, `:wait()` for the sync one.
 local function system_cb(cmd, _opts, cb)
     local out = version_for(cmd[1])
-    cb({ code = 0, stdout = out })
+    if cb then cb({ code = 0, stdout = out }) end
     return { wait = function() return { code = 0, stdout = out } end }
 end
 
@@ -70,8 +71,7 @@ describe("cpp_compilers.detect_async", function()
         cpp._path_index = plain_index()
         local sync_result
         with_stubs({
-            ["vim.fn.system"] = function(cmd) return version_for(cmd[1]) end,
-            ["vim.v"] = { shell_error = 0 },
+            ["vim.system"] = system_cb,
             ["vim.uv.fs_stat"] = function() return nil end,
         }, function()
             sync_result = cpp.detect()
@@ -101,8 +101,7 @@ describe("cpp_compilers.detect_async", function()
         cpp.clear_cache()
         cpp._path_index = plain_index()
         with_stubs({
-            ["vim.fn.system"] = function(cmd) return version_for(cmd[1]) end,
-            ["vim.v"] = { shell_error = 0 },
+            ["vim.system"] = system_cb,
             ["vim.uv.fs_stat"] = function() return nil end,
         }, function()
             cpp.detect()  -- populate M._cached
@@ -142,8 +141,7 @@ describe("meson.detect_tools_async", function()
             ["vim.fn.has"] = has,
             ["vim.fn.executable"] = executable,
             ["vim.fn.exepath"] = exepath_meson,
-            ["vim.fn.system"] = function(cmd) return version_for(cmd[1]) end,
-            ["vim.v"] = { shell_error = 0 },
+            ["vim.system"] = system_cb,
             ["vim.uv.fs_stat"] = function() return nil end,
         }, function()
             sync_tools = meson.detect_tools()
