@@ -342,11 +342,37 @@ describe("lw run through the workspace daemon (real processes)", function()
 
     it("a device option and a target that runs on a device stay in this process", function()
         local root = workspace()
+        local held = "lw: the workspace daemon could not take the run (device options run the "
+            .. "program on a device in this process); running without it"
+        -- Refused in-process before any output (no default target; a device
+        -- option on a host target under --no-build): the refusal alone; the
+        -- held not-routed line only under -v, directly before it (§19 "When
+        -- the line is printed").
+        for _, args in ipairs({
+            { "run", "--device", "X" },
+            { "run", "go", "--device", "X", "--no-build" },
+        }) do
+            local d = lw(root, args)
+            local what = table.concat(args, " ")
+            assert.equals(1, d.code, what .. "\n" .. d.stderr)
+            assert.is_nil(d.stderr:find(NOTICE, 1, true), d.stderr)
+            assert.is_nil(d.stderr:find("running without it", 1, true), what .. "\n" .. d.stderr)
+            assert.truthy(d.stderr:find("^lw: "), what .. "\n" .. d.stderr)
+            local va = vim.deepcopy(args)
+            va[#va + 1] = "-v"
+            local dv = lw(root, va)
+            assert.equals(1, dv.code, what .. "\n" .. dv.stderr)
+            local e = norm(dv.stderr, root)
+            assert.equals(1, e:find(held .. "\nlw: ", 1, true), what .. "\n" .. dv.stderr)
+            assert.equals(e:sub(#held + 2), norm(d.stderr, root), what)
+        end
+        -- Refused after the build: the line came before the build's output.
         local d = lw(root, { "run", "go", "--device", "X" })
         assert.equals(1, d.code)
         assert.is_nil(d.stderr:find(NOTICE, 1, true), d.stderr)
-        assert.truthy(d.stderr:find("lw: the workspace daemon could not take the run (device options run the "
-            .. "program on a device in this process); running without it", 1, true), d.stderr)
+        local e = norm(d.stderr, root)
+        assert.equals(1, e:find(held .. "\n", 1, true), d.stderr)
+        assert.truthy(e:find("stderr of configure", 1, true), d.stderr)
         assert.truthy(d.stderr:find("--device applies only to a build target that runs on a device", 1, true),
             d.stderr)
         -- Found foreign only by probing the built artifact: the daemon built,
@@ -364,6 +390,29 @@ describe("lw run through the workspace daemon (real processes)", function()
         local ea = norm(ra.stderr, root)
         local eb = drop_notice(norm(rb.stderr, root)):gsub(vim.pesc(line), "")
         assert.equals(ea, eb)
+    end)
+
+    it("a run that proceeds without the daemon prints the held line before its first output (§19)", function()
+        local root = workspace()
+        local held = "lw: the workspace daemon could not take the run (--break-locks runs the run in this "
+            .. "process); running without it"
+        -- --print streams the build's lines to stderr: the line comes first.
+        local r = lw(root, { "run", "go", "--break-locks", "--print" })
+        assert.equals(0, r.code, r.stderr)
+        assert.is_nil(r.stderr:find(NOTICE, 1, true), r.stderr)
+        local e = drop_notice(norm(r.stderr, root))
+        local at = e:find(held, 1, true)
+        assert.truthy(at, r.stderr)
+        local lead = e:find("profile: dev", 1, true)
+        assert.truthy(lead, r.stderr)
+        assert.truthy(at < lead, r.stderr)
+        local _, n_held = e:gsub(vim.pesc(held), "")
+        assert.equals(1, n_held, r.stderr)
+        -- --no-build: nothing is built; the line still precedes the report.
+        local nb = lw(root, { "run", "go", "--break-locks", "--no-build", "--print" })
+        assert.equals(0, nb.code, nb.stderr)
+        assert.truthy(nb.stderr:find(held, 1, true), nb.stderr)
+        assert.truthy(#nb.stdout > 0, nb.stdout)
     end)
 
     it("the program is the client's: locks released, a build proceeds, two at once, survives lw daemon stop",

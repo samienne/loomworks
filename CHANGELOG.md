@@ -28,6 +28,14 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
 
 ## Unreleased
 
+### Fixed
+
+- `lw run` no longer prints "the workspace daemon declined the run ... running
+  without it" (or "could not take the run") when the run is then refused before
+  doing anything, such as a profile with no default target: only the refusal
+  is printed, with the line before it under `-v`. A run that proceeds prints the
+  line just before its first output. (#PR)
+
 ## 0.2.3 - 2026-11-25
 
 A patch release: on a terminal, `lw build`, `clean`, `test` and `run` keep a

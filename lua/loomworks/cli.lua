@@ -100,6 +100,24 @@ local function note(s, role)
   M._check_write(io.stdout:flush()); M._check_write(io.stderr:write(term.render(s or "") .. "\n"))
 end
 
+--- The not-routed line of a `lw run` the workspace daemon does not take
+--- (`declined the run` / `could not take the run`), held back until the
+--- in-process run's first output (daemon.md §19 "Routing", "When the line is
+--- printed"): `{ line = string, verbose = boolean }`, or nil. A run refused
+--- before any output prints it only under `-v`, directly before the refusal
+--- (`die`). (A field, not a local: this chunk is at Lua's 200-local limit.)
+M._held_run_line = nil
+
+--- Print the held not-routed line of a `lw run`, if any, once: just before
+--- the in-process run's first output.
+function M._flush_held_run_line()
+  local h = M._held_run_line
+  if h then
+    M._held_run_line = nil
+    note(h.line)
+  end
+end
+
 --- A workspace load's notification (`core._deps.notify`), as `lw` prints it:
 --- warnings and errors on stderr, painted `fail` (ERROR and above) or `warn`;
 --- the editor's info chatter is noise on a CLI and dropped. The in-process
@@ -288,6 +306,11 @@ end
 local function die(msg, code)
   run_exit_hooks()
   io.stdout:flush()
+  -- A run refused before any output: its held not-routed line only under
+  -- -v, directly before the refusal (daemon.md §19 "When the line is printed").
+  local held = M._held_run_line
+  M._held_run_line = nil
+  if held and held.verbose then io.stderr:write(term.render(held.line) .. "\n") end
   -- A failure, red when stderr may be colored.
   io.stderr:write(term.render(require("loomworks.cli_color").paint("fail",
     "lw: " .. tostring(msg), "stderr")) .. "\n")
@@ -1305,6 +1328,8 @@ local function run_build_steps(profile, ws, opts)
   -- so a machine consumer like `lw run --print` captures only its report.
   local quiet = opts.quiet or false
   local log = quiet and note or out
+  -- A run's held not-routed line precedes its first configure or build line.
+  M._flush_held_run_line()
   if not opts.no_lead then
     log(build_run.lead_line("build", "profile: " .. profile.key))
     -- Ignored loomworks.json program settings: one line, stderr.
@@ -3129,6 +3154,7 @@ end
 ---                     stderr with --print).
 function M.cmd_run(ws, args)
   local r = M._parse_run_args(args, die, DEV.parse_device_opt)
+  if M._held_run_line then M._held_run_line.verbose = r.verbose == true end
 
   -- Determine (profile, target) from the operand count. The profile is
   -- resolved here; a named target is matched once the profile is configured
@@ -3264,6 +3290,9 @@ function M._run_foreign(lt, ws, f, opts, deps)
   end
   local runner = f.platform and runners.for_foreign(f) or nil
   if not runner then die(foreign.refusal(f)) end
+  -- A run's held not-routed line precedes the deploy, the report and the
+  -- launch.
+  M._flush_held_run_line()
 
   local hooks = M._verbose_hooks(opts.verbose, opts.print_mode ~= nil)
   -- Deploy steps run on the host before staging, unchanged.
@@ -3364,6 +3393,9 @@ function M._run_launch_target_impl(lt, ws, opts, deps)
     return M._run_foreign(lt, ws, foreign, opts, deps)
   end
 
+  -- A run's held not-routed line precedes the deploy, the report and the
+  -- launch.
+  M._flush_held_run_line()
   -- Deploy (both phases). Skipped with --no-build (paired with the build).
   if not opts.no_build then
     local dok, derr = lt:deploy_sync({ on_step = M._verbose_hooks(opts.verbose, opts.print_mode ~= nil).on_step })
@@ -9702,8 +9734,13 @@ function M._delegate(op, root, args, ensured, opts)
   opts = opts or {}
   local attached = opts.attached == true
   local inspect = require("loomworks.daemon.inspect")
+  -- A run's not-routed line is held back until the in-process run's first
+  -- output (daemon.md §19 "When the line is printed"); the others print now.
+  local function not_routed(line)
+    if op == "run" then M._held_run_line = { line = line, verbose = false } else note(line) end
+  end
   local function could_not(reason)
-    if not attached then note(M._not_routed_line("the workspace daemon could not take the " .. op, reason)) end
+    if not attached then not_routed(M._not_routed_line("the workspace daemon could not take the " .. op, reason)) end
     return nil
   end
   -- An attached runtime that stopped by itself (its lock taken over, the
@@ -9868,7 +9905,7 @@ function M._delegate(op, root, args, ensured, opts)
     -- (A stopping attached runtime declines: never in-process then.)
     if lost() then return lost_lock() end
     if not attached then
-      note(M._not_routed_line("the workspace daemon declined the " .. op, reply.reason or "no reason given"))
+      not_routed(M._not_routed_line("the workspace daemon declined the " .. op, reply.reason or "no reason given"))
     end
     return nil
   end
