@@ -837,24 +837,84 @@ function LaunchTarget:device_log_clear_command(device_serial)
     }
 end
 
+--- The fields core reads of a module's resolved log options
+--- (spec core §11.2 `device_log_options`), and their values.
+local LOG_LEVEL_LETTERS = { V = true, D = true, I = true, W = true, E = true, F = true }
+local LOG_PREFILTERS = { strict = true, ["app-related"] = true, all = true }
+
+--- @class loomworks.DeviceLogOptions
+--- The log options of a device log stream as core uses them.
+--- @field level string the client's initial level filter (a letter; default `I`)
+--- @field strict_pid boolean the pid is passed to the module's `device_log`
+--- @field prefilter "strict"|"app-related"|"all" core's session prefilter mode
+--- @field note? string options set in configuration that a module without
+---        `device_log_options` does not take (a note line on the stream)
+
+--- The sorted keys of `t`, comma-separated.
+local function key_list(t)
+    local keys = vim.tbl_keys(t)
+    table.sort(keys)
+    return table.concat(keys, ", ")
+end
+
 --- The command that streams the device's log on stdout for the program
---- `pid` launched: the module's `device_log`, with `pid` passed to it when
---- the module's optional `device_log_options` asks for strict-pid filtering.
---- Also returns those options (`level`, default `I`: the client's initial
---- soft filter; `strict_pid`). nil when the module has no `device_log`, or
---- it returns no command. Used by the workspace daemon's
+--- `pid` launched: the module's `device_log`, given the log options its
+--- optional `device_log_options` resolved (spec core §11.2) from the merged
+--- option map (§11.3 "Log options": the project's `device_log` table, then
+--- the launch configuration's, then `overrides`, later winning per key), and
+--- `pid` when they ask for strict-pid filtering. Also returns the options
+--- core uses (loomworks.DeviceLogOptions). nil when the module has no
+--- `device_log`, or it returns no command; nil, nil, err when the options
+--- are refused: by the module (unknown key, invalid value), by its hook
+--- failing or resolving a field core cannot use, or — for a module without
+--- the hook — by `overrides` it cannot take. Used by the workspace daemon's
 --- `Launch/1.device_log`.
 --- @param device_serial string
 --- @param pid integer|nil
---- @return loomworks.DeviceCommand|nil cmd, { level: string, strict_pid: boolean }|nil log_options
-function LaunchTarget:device_log_command(device_serial, pid)
+--- @param overrides? table<string, any> per-invocation options (`--log`)
+--- @return loomworks.DeviceCommand|nil cmd, loomworks.DeviceLogOptions|nil log_options, string|nil err
+function LaunchTarget:device_log_command(device_serial, pid, overrides)
     local mod = self._project and self._project._module and self._project._module.impl
     if not mod or not mod.device_log then return nil end
     local unit = self._config_unit
     local td = unit and unit._tool_data or {}
-    local opts = (mod.device_log_options and mod.device_log_options(td)) or {}
-    local log_options = { level = opts.level or "I", strict_pid = opts.strict_pid and true or false }
-    local log_opts = {}
+    local merge = require("loomworks.remote.run").merge_log_options
+    local configured = merge(self._project.device_log, self._launch and self._launch.device_log)
+    overrides = type(overrides) == "table" and overrides or {}
+    local note
+    local resolved
+    if mod.device_log_options then
+        local ok, r, rerr = pcall(mod.device_log_options, td, merge(configured, overrides))
+        if not ok then return nil, nil, "device log options: " .. tostring(r) end
+        if r == nil then return nil, nil, tostring(rerr or "device log options refused by the module") end
+        if type(r) ~= "table" then
+            return nil, nil, "device log options: the module's device_log_options returned a " .. type(r)
+        end
+        resolved = r
+    else
+        local keys = vim.tbl_keys(overrides)
+        table.sort(keys)
+        local first = keys[1]
+        if first then
+            return nil, nil, "log option '" .. first .. "' not taken: module '" .. tostring(mod.id or "?")
+                .. "' has no device log options"
+        end
+        if next(configured) then
+            note = "log options ignored (module '" .. tostring(mod.id or "?") .. "' takes none): "
+                .. key_list(configured)
+        end
+        resolved = {}
+    end
+    local function bad(field)
+        return nil, nil, "device log options: the module resolved an invalid " .. field .. " ("
+            .. vim.inspect(resolved[field]) .. ")"
+    end
+    if resolved.level ~= nil and not LOG_LEVEL_LETTERS[resolved.level] then return bad("level") end
+    if resolved.strict_pid ~= nil and type(resolved.strict_pid) ~= "boolean" then return bad("strict_pid") end
+    if resolved.prefilter ~= nil and not LOG_PREFILTERS[resolved.prefilter] then return bad("prefilter") end
+    local log_options = { level = resolved.level or "I", strict_pid = resolved.strict_pid == true,
+        prefilter = resolved.prefilter or "strict", note = note }
+    local log_opts = { options = resolved }
     if log_options.strict_pid then log_opts.pid = pid end
     local spec = mod.device_log(td, device_serial, log_opts)
     if not spec or not spec.cmd then return nil end

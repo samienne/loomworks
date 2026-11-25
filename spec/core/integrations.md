@@ -264,13 +264,49 @@ app on the device. Used by the session tracker for two purposes:
 polling to detect when the app has exited so the log stream can be
 torn down automatically.
 
-**`device_log(tool_data, device_serial, opts?) → { cmd, args, env? }`**
+**`device_log_options(tool_data, options) → resolved | nil, err`**
+
+Optional. Validate the log options of one log stream and resolve them
+against the module's defaults. `options` is the merged, opaque option map
+(§11.3 "Log options"; `{}` when none is set): core knows no option name and
+passes it unchanged. On an unknown key or an invalid value the module
+returns `nil, err`, `err` naming the key (and, for a key, the known ones);
+the stream is then refused before anything runs on the device. `resolved`
+is the module's own table; core reads only these fields of it, each
+optional:
+
+| Field | Type | Core's use | Default when absent |
+|-------|------|------------|---------------------|
+| `level` | `"V"`\|`"D"`\|`"I"`\|`"W"`\|`"E"`\|`"F"` | the initial level of the client's level filter (`Launch/1.device_log` `start` meta `level`) | `I` |
+| `strict_pid` | boolean | pass the program's process id to `device_log()` (`opts.pid`) for device-side filtering | `false` |
+| `prefilter` | `"strict"`\|`"app-related"`\|`"all"` | core's session prefilter mode (§11.3 step 7c) | `"strict"` |
+
+A field of another type or value refuses the stream, naming the field (a
+module error, not a user one). The client of a module-launched program
+receives only `level` (the `start` meta): an option the module cannot honour
+for such a program — a soft filter the client would have to apply, say — is
+refused like an unknown one, never accepted unused.
+
+A module without this hook takes no log options, and the defaults above
+apply. Options from configuration (the first two sources of §11.3 "Log
+options") are then ignored with a `note` line on the log stream naming
+their keys; options given for this one stream (the third source,
+`--log`) refuse it, naming the first key. A module whose hook errors
+refuses the stream with the error. The hook is pure: it reads only its
+arguments, never module-global or editor state, so it gives the same answer
+in the daemon, in `lw` and in the editor. Option values are data only
+(§18.13): none may become a program, a path to execute, or device command
+text other than a quoted argument.
+
+**`device_log(tool_data, device_serial, opts) → { cmd, args, env? }`**
 
 Return a command spec that streams device logs on stdout. `opts` is
-an optional hint table (e.g., `opts.pid` for device-side filtering),
-but the core `device_log` view does not rely on device-side filters
-— it parses and filters the stream client-side. Modules may expose
-whichever opts make sense.
+`{ pid?, options }`: `pid` the program's process id, present when
+`device_log_options` resolved `strict_pid = true` and the id is known;
+`options` the module's `resolved` table (`{}` when the module has no
+`device_log_options`), from which the module may shape the command (for
+example a log-type filter). Core does not rely on device-side filters —
+it parses and prefilters the stream itself (§11.3 step 7c).
 
 **`device_log_clear(tool_data, device_serial) → { cmd, args, env? }`**
 
@@ -313,14 +349,20 @@ build → file-deploy → device-install → device-launch
 7. **Log stream** (best-effort):
    a. Resolve the launched app's PID via `device_pid()` (polled
       briefly — launch returns before the process is up).
+   a′. Resolve the log options: core merges the option map
+      ("Log options" below) and passes it to `device_log_options()`
+      (§11.2). A refusal (`nil, err`) ends the log stream with `err`
+      before step b; the app keeps running.
    b. Clear the device log buffer via `device_log_clear()` (when the
       module provides it) so stale entries don't show up in the
       view.
    c. Start `device_log()` as a streaming task and hand its lines to
       the `loomworks.device_log` module, which parses each line,
-      applies a session prefilter (PID OR proc-contains-bundle,
-      union semantics), writes matches to a ring buffer, and renders
-      filtered entries into a bottom-split scratch buffer.
+      applies the session prefilter the options resolved
+      (`prefilter`, default `strict`: the PID AND proc-contains-bundle,
+      or whichever of them is known), writes matches to a ring
+      buffer, and renders filtered entries starting at the resolved
+      `level`.
    d. Start a periodic pidof poll (~3 s) on the session tracker.
       When the PID is gone for two consecutive polls the session
       tracker treats the app as exited, stops the log stream, and
@@ -329,6 +371,35 @@ build → file-deploy → device-install → device-launch
    Failure at any step surfaces as a warning and does not fail the
    launch chain — the app is already running, we just can't follow
    its output this time.
+
+**Log options.** The options of a module device target's log stream
+are an opaque map merged from these sources, later winning per key —
+the same sources, in the same order, as a remote run's (§18.13):
+
+1. the project's `device_log` table in its **module section**
+   (`projects.<project>.<type>.device_log`; core lifts it out of the
+   section before the module sees its configuration, as for the `device`
+   block, §18.9; working copy over shared configuration per key);
+2. the launch configuration's `device_log` table, when the launch comes
+   from one (a module device target launched by its id has none);
+3. per-invocation overrides (`--log key=value`, §16.34), when the client
+   that started the stream has them (`lw run` of a module device target,
+   once it is carried; the editor has none, and `Launch/1.device_log`
+   takes none).
+
+The project table is read from the working copy and from shared
+configuration alike: `device_log` is not program-bearing (§17.6). It is
+set by editing the file; no `lw` command writes it.
+
+Example (user.json or loomworks.json):
+
+```json
+"NativeDemo": {
+    "harmony": {
+        "device_log": { "level": "W", "prefilter": "app-related" }
+    }
+}
+```
 
 Device targets always use launch mode in v1 (no device debug).
 

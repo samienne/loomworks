@@ -111,15 +111,18 @@ end
 -- Planning
 -- ---------------------------------------------------------------------------
 
---- Merge log options: the launch configuration's `device_log`, then the
---- per-invocation overrides (later wins per key). Values stay opaque.
---- @param launch_opts table|nil
---- @param overrides table|nil
+--- Merge log option maps in order, later winning per key (spec §18.13: the
+--- project's `device_log`, the launch configuration's, then the
+--- per-invocation overrides). A nil or non-table layer is skipped; values stay
+--- opaque and no layer is mutated.
+--- @param ... table|nil
 --- @return table
-function M.merge_log_options(launch_opts, overrides)
+function M.merge_log_options(...)
     local out = {}
-    for k, v in pairs(type(launch_opts) == "table" and launch_opts or {}) do out[k] = v end
-    for k, v in pairs(overrides or {}) do out[k] = v end
+    for i = 1, select("#", ...) do
+        local layer = select(i, ...)
+        for k, v in pairs(type(layer) == "table" and layer or {}) do out[k] = v end
+    end
     return out
 end
 

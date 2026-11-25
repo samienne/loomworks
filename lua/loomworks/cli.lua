@@ -3320,7 +3320,8 @@ function M._run_foreign(lt, ws, f, opts, deps)
     serial = opts.device, persisted = profile and profile._device_serial,
     profile_key = profile and profile.key,
     fresh = opts.fresh, no_wait = opts.no_wait, timeout = opts.timeout, timeouts = opts.timeouts,
-    log_options = remote_run.merge_log_options(cfg and cfg.device_log, opts.log_options),
+    log_options = remote_run.merge_log_options(project and project.device_log, cfg and cfg.device_log,
+      opts.log_options),
     results = opts.results, extra_args_fn = opts.extra_args_fn, before_exec = opts.before_exec,
     fail_on_missing_results = opts.fail_on_missing_results,
     backend = deps.backend, liveness_ms = deps.liveness_ms,
@@ -13438,8 +13439,11 @@ section on the next save.) Edit it without hand-editing JSON:
 output.log (and device.log, pulled results, crash reports) under
 <build>/.device-runs/ (10 newest kept).
 
-Device logs: a launch config's `device_log` table and `--log key=value` are
-passed to the runner as-is; the option names belong to the SDK plugin.
+Device logs: the project's `device_log` table (in its module section, beside
+`device`), a launch config's `device_log` table and `--log key=value` (later
+wins per key) are passed to the runner as-is; the option names belong to the
+SDK plugin. A module-launched device target's log stream takes the project's
+table the same way.
 
 Trust: stage/archive and device_log are honored from loomworks.json; device
 `env` and `working_dir` only from your local config (`lw help trust`).

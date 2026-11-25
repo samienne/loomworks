@@ -541,11 +541,15 @@ the summary — never a run failure. Core never interprets the lines; the saved
 file and what is shown are exactly what the runner's functions return.
 
 **Log options.** Options reach the runner **opaquely**, as a map from option
-name to value, merged from two sources, later winning per key:
+name to value, merged from three sources, later winning per key:
 
-1. the launch configuration's `device_log` table (e.g.
+1. the project's `device_log` table in its module section
+   (`projects.<project>.<type>.device_log`), lifted out by core like the
+   `device` block (§18.9); the working copy's table over shared
+   configuration's, per key;
+2. the launch configuration's `device_log` table (e.g.
    `"device_log": { "show": "both", "level": "W" }`);
-2. per-invocation overrides: `--log key=value` on the command line (§16.34),
+3. per-invocation overrides: `--log key=value` on the command line (§16.34),
    repeatable, forwarded verbatim as strings.
 
 Core does not know any option name. The runner validates the merged map and
@@ -555,6 +559,11 @@ what is being run, are the runner's. A runner MUST treat log options as data: no
 option value may become a program, a path to execute, or device command text
 other than a quoted argument. `device_log` is therefore **not** program-bearing
 and is honored from shared configuration (§17.6).
+
+The same merged map is what a module device target's log stream passes to
+the module's `device_log_options` (§11.2, §11.3 "Log options"): one option
+vocabulary per platform, whether the program is a runner-run executable or a
+module-launched package.
 
 **Later (implementation step, not a contract change):** the editor's device log
 view (§11.3) becomes a generic record view whose line parser, receive-side

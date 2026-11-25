@@ -3664,8 +3664,8 @@ provider supplies a device runner.
   <seconds>` override the transport timeouts for this invocation (over the
   runner's and core's defaults, §18.8).
 - **Log options** — `run` and `test` accept `--log <key>=<value>`, repeatable,
-  forwarded verbatim to the device runner over the launch configuration's
-  `device_log` table (§18.13). The host knows no option names; the runner
+  forwarded verbatim to the device runner over the project's and the launch
+  configuration's `device_log` tables (§18.13). The host knows no option names; the runner
   rejects unknown keys or values with an error before anything is staged.
 - **Run folder** — each remote run saves `output.log` (the program's output,
   unfiltered; a single combined stream when the connector merges standard

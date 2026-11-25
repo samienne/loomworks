@@ -229,6 +229,19 @@ describe("lw run on a foreign target", function()
         assert.truthy(read(run_dirs()[1] .. "/device.log"):find("I app started", 1, true))
     end)
 
+    it("log options: the project's device_log table is the first layer (#196)", function()
+        project.device_log = { show = "log", level = "W" }
+        local res = run({ log_options = { level = "E" } }, { target = "Runner", device_log = { show = "both" } })
+        project.device_log = nil
+        assert.is_true(res.ok, res.stderr)
+        assert.same({ show = "both", level = "E" }, runner.log_options_seen)
+        project.device_log = { level = "W" }
+        res = run()
+        project.device_log = nil
+        assert.is_true(res.ok, res.stderr)
+        assert.same({ level = "W" }, runner.log_options_seen)
+    end)
+
     it("an invalid log option fails the run before any device-side effect", function()
         local res = run({ log_options = { bogus = "1" } })
         assert.is_false(res.ok)

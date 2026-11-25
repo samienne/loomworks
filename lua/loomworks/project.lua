@@ -18,6 +18,7 @@ local test_targets_mod = require("loomworks.test_targets")
 ---        declared, written back as declared while the project has no launch
 --- @field deploy? table<string, table|table[]> project-level deploy steps
 --- @field device? { stage?: string[], archive?: string[], env?: table<string,string>, working_dir?: string } remote-execution block; stored in the module section of the files (`projects.<p>.<type>.device`), never in `type_config`
+--- @field device_log? table<string, string|number|boolean> the project's device log options (an opaque map, spec core §11.3 "Log options"); stored in the module section of the files (`projects.<p>.<type>.device_log`), never in `type_config`
 --- @field variables? table<string, { type: string, default: string }> user-defined variable declarations
 --- @field description string|nil normalised description; stored in the
 ---        module section of the files (`projects.<p>.<type>.description`), never in `type_config`
@@ -98,6 +99,7 @@ function Project:_update(data)
     self:_sync_launches(data.launch)
     self.deploy = data.deploy
     self.device = data.device
+    self.device_log = data.device_log
     self.description, self._description_invalid = description_mod.from_file(data.description)
     self._tests, self._tests_invalid = test_targets_mod.parse(data.tests,
         tostring(self.key) .. " (project-wide)")

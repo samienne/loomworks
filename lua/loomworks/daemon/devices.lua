@@ -808,7 +808,7 @@ end
 --- @param ctx table
 --- @param l loomworks.daemon.DeviceLaunch
 --- @param command loomworks.DeviceCommand the log stream's command
---- @param log_options? { level: string, strict_pid: boolean } its options (LaunchTarget:device_log_command)
+--- @param log_options? loomworks.DeviceLogOptions its options (LaunchTarget:device_log_command)
 --- @return table run
 local function run_device_log(service, ctx, l, command, log_options)
     local runner = require("loomworks.daemon.runner")
@@ -816,12 +816,14 @@ local function run_device_log(service, ctx, l, command, log_options)
     local core_ifaces = require("loomworks.daemon.core_interfaces")
     local run = new_run(service, ctx, "device_log")
     local task, lt, serial = ctx.task, l.target, l.serial
-    -- (`level`: the module's default level, where the client's level
-    -- filter starts; none for a letter that is not a level.)
+    -- (`level`: the resolved level, where the client's level filter
+    -- starts; none for a letter that is not a level.)
     task:start({ name = lt:display_name() .. " log on " .. serial, kind = "device_log",
         profile = l.profile and l.profile.key or nil,
         profile_id = l.profile and service.ids:id(l.profile) or nil,
         level = log_options and records.LEVELS[log_options.level] or nil }, l.profile)
+    -- Options set in configuration that the module does not take.
+    if log_options and log_options.note then task:line("note", log_options.note, "plain") end
 
     -- The records, one signal of at most LOG_BATCH_BYTES every LOG_FLUSH_MS
     -- while the owner keeps up; all of them, in signals that size, before
@@ -857,8 +859,10 @@ local function run_device_log(service, ctx, l, command, log_options)
         return finish(code, err, result)
     end
 
-    -- Lines → records: parsed and prefiltered as the in-process view does.
-    local prefilter = records.make_prefilter({ pid = l.pid, bundle = l.bundle })
+    -- Lines → records: parsed and prefiltered as the in-process view does,
+    -- in the mode the log options resolved (default strict).
+    local prefilter = records.make_prefilter({ pid = l.pid, bundle = l.bundle,
+        mode = log_options and log_options.prefilter or nil })
     local function ingest(line)
         local rec, cleaned = records.parse_line(line)
         if not rec then
@@ -967,8 +971,10 @@ end
 --- of the program a finished `launch` task of the caller launched — its
 --- recorded target, device, pid and bundle (loomworks.daemon.DeviceLaunch),
 --- nothing resolved again. Refused as `stop` is (another client's launch
---- is `forbidden`), and also for a launch whose pid was not found or a
---- module with no log command. Owned by the caller: a cancel or its
+--- is `forbidden`), and also for a launch whose pid was not found, a
+--- module with no log command, or log options the module refuses (spec core
+--- §11.3 "Log options"; the project's and launch configuration's
+--- `device_log`, re-read now). Owned by the caller: a cancel or its
 --- disconnect ends it; a reload does not (`keeps_on_reload`).
 --- @param service loomworks.daemon.BuildService
 --- @return function
@@ -1016,7 +1022,9 @@ function M.device_log_method(service)
                 return ctx.reply({ outcome = "refused", exit_code = 1, message = refusal })
             end
             -- (Built in the caller's environment, as the launch's commands.)
-            local command, log_options = l.target:device_log_command(l.serial, l.pid)
+            -- (No per-invocation log options: the call takes none.)
+            local command, log_options, lerr = l.target:device_log_command(l.serial, l.pid)
+            if lerr then return ctx.reply({ outcome = "refused", exit_code = 1, message = lerr }) end
             if not command then
                 return ctx.reply({ outcome = "refused", exit_code = 1, message = "module does not support device logs" })
             end

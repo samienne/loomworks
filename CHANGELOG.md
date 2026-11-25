@@ -28,8 +28,20 @@ tests/release_notes_spec.lua and scripts/release/release_notes.py check it):
 
 ## Unreleased
 
+### Added
+
+- A project's device log options can be set in its module section, beside
+  its `device` block: `"device_log": { "level": "W" }` under
+  `projects.<project>.<type>`, in `.lw/user.json` or `loomworks.json`. They
+  apply under a launch configuration's `device_log` and `--log`, for device
+  runs and for the log of an app launched on a device. (#213)
+
 ### Fixed
 
+- The log options of an app launched on a device (a HarmonyOS `.hap`) can
+  be set again under 0.2: the project's `device_log` options reach the
+  platform module, which checks them and refuses an unknown or inapplicable
+  one with a clear error. Needs the matching module update. (#213)
 - `lw bootstrap` and `lw health` name 0.1.51 among the releases that wrote a
   0.2.0-beta.1 to 0.2.0-beta.3 launcher: 0.1.51 wrote the same `lw.sh` and
   `lw.cmd`. (#209)
