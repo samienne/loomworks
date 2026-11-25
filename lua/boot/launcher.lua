@@ -462,9 +462,9 @@ M.GENERATIONS = {
         NO_NEW_PLATFORMS_BETA5,
       },
     },
-    -- v0.2.0-beta.1 .. v0.2.0-beta.3
+    -- v0.1.51, v0.2.0-beta.1 .. v0.2.0-beta.3
     ["dca685264e2a598414011aa82d1c65fe0fa6be1ef8ff07d418e8d278efe7dd00"] = {
-      gen = 4, releases = "0.2.0-beta.1-0.2.0-beta.3",
+      gen = 4, releases = "0.1.51, 0.2.0-beta.1-0.2.0-beta.3",
       defects = {
         NO_NEW_PLATFORMS_BETA5,
         NO_PLATFORM_LIST,
@@ -524,9 +524,9 @@ M.GENERATIONS = {
         OLD_PLATFORM_LIST_BETA5,
       },
     },
-    -- v0.2.0-beta.1 .. v0.2.0-beta.3
+    -- v0.1.51, v0.2.0-beta.1 .. v0.2.0-beta.3
     ["c162e3ad5a3e982176a99b8db3fa697fae88869449d352a8be4a6fa2c9083122"] = {
-      gen = 7, releases = "0.2.0-beta.1-0.2.0-beta.3", resume = 5623,
+      gen = 7, releases = "0.1.51, 0.2.0-beta.1-0.2.0-beta.3", resume = 5623,
       defects = {
         NO_PLATFORM_LIST,
       },
